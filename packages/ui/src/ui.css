@@ -11,8 +11,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  height: 32px;
-  padding: 0 14px;
+  height: var(--control-height);
+  padding: 0 18px;
   border: 0;
   border-radius: var(--radius-pill);
   font: var(--text-button);
@@ -30,8 +30,8 @@
   opacity: 0.45;
 }
 .oik-button--lg {
-  height: 40px;
-  padding: 0 var(--space-5);
+  height: var(--control-height-lg);
+  padding: 0 var(--space-6);
   font-size: 15px;
 }
 .oik-button--primary {
@@ -85,8 +85,8 @@
 .oik-icon-button {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -131,7 +131,7 @@
   background: var(--color-surface);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-whisper);
-  padding: var(--space-5);
+  padding: var(--space-6);
 }
 
 .oik-inset-well {
@@ -143,13 +143,14 @@
 /* ----- Grouped inset lists ----- */
 
 .oik-group {
-  margin: 0 0 var(--space-6);
+  margin: 0 0 var(--space-section);
 }
 .oik-group__title {
-  margin: 0 0 var(--space-2) var(--space-1);
-  font: var(--text-label);
+  margin: 0 0 var(--space-3);
+  font: var(--text-section);
   line-height: var(--group-title-height);
-  color: var(--color-ink-secondary);
+  letter-spacing: var(--tracking-heading);
+  color: var(--color-ink);
 }
 .oik-group__body {
   margin: 0;
@@ -174,16 +175,16 @@
   position: absolute;
   top: 0;
   right: 0;
-  left: 56px;
+  left: 76px;
   border-top: 1px solid var(--color-hairline);
 }
 .oik-group__item + .oik-group__item > .oik-row--plain::before,
 .oik-group__item + .oik-group__item > .oik-group__panel::before {
-  left: var(--space-4);
+  left: var(--space-5);
 }
 .oik-group__panel {
   position: relative;
-  padding: var(--space-4);
+  padding: var(--space-5);
 }
 .oik-group__panel > :last-child {
   margin-bottom: 0;
@@ -194,9 +195,9 @@
   padding: var(--space-2);
 }
 .oik-group--list .oik-row {
-  min-height: 48px;
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
+  min-height: 60px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
 }
 .oik-group--list .oik-row::before {
   display: none;
@@ -209,18 +210,21 @@
 }
 .oik-row > .oik-tile,
 .oik-row > .oik-avatar {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
 }
 .oik-row > .oik-tile {
-  border-radius: 7px;
+  border-radius: 10px;
 }
 .oik-row > .oik-tile .oik-icon {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
+}
+.oik-row > .oik-avatar {
+  font-size: 15px;
 }
 .oik-group__footnote {
-  margin: var(--space-2) var(--space-1) 0;
+  margin: var(--space-3) 0 0;
   font: var(--text-caption);
   color: var(--color-ink-secondary);
 }
@@ -229,9 +233,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 52px;
-  padding: var(--space-3) var(--space-4);
+  gap: var(--space-4);
+  min-height: 64px;
+  padding: var(--space-3) var(--space-5);
   box-sizing: border-box;
 }
 .oik-row--start {
@@ -249,8 +253,14 @@
   text-align: left;
   cursor: pointer;
 }
-.oik-row--button:hover {
+.oik-row--button:hover,
+.oik-row--link:hover {
   background: var(--color-wash);
+}
+/* A row answers the press itself, before the page changes. */
+.oik-row--button:active,
+.oik-row--link:active {
+  background: var(--color-fill);
 }
 .oik-row--link {
   box-sizing: border-box;
@@ -291,20 +301,20 @@
 }
 /* Controls inside a row are a size smaller than the page's. */
 .oik-row__trailing .oik-button {
-  height: 30px;
-  padding: 0 var(--space-3);
-  font-size: 13px;
+  height: var(--control-height-row);
+  padding: 0 var(--space-4);
+  font-size: 14px;
 }
 /* A text-only button's words end where a pill's edge does. */
 .oik-row__trailing .oik-button--quiet:last-child {
-  margin-right: calc(-1 * var(--space-3));
+  margin-right: calc(-1 * var(--space-4));
 }
 .oik-row__trailing .oik-icon-button {
-  width: 30px;
-  height: 30px;
+  width: var(--control-height-row);
+  height: var(--control-height-row);
 }
 .oik-row__trailing .oik-copy__done {
-  height: 30px;
+  height: var(--control-height-row);
 }
 .oik-row__chevron {
   color: var(--color-chevron);
@@ -323,13 +333,13 @@
 }
 .oik-mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
 }
 /* An ID or a path wraps instead of being cut off, in one style wherever
    it appears: 12px mono, secondary ink. */
 .oik-row__title .oik-mono,
 .oik-row__meta .oik-mono {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--color-ink-secondary);
   white-space: normal;
@@ -389,7 +399,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  font: 600 13px/1 var(--font-sans);
+  font: 600 14px/1 var(--font-sans);
 }
 .oik-avatar--you {
   background: var(--color-disc);
@@ -404,9 +414,9 @@
   color: var(--avatar-periwinkle-glyph);
 }
 .oik-avatar--sm {
-  width: 22px;
-  height: 22px;
-  font-size: 11px;
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
   box-shadow: 0 0 0 2px var(--color-surface);
 }
 .oik-avatar-stack {
@@ -425,7 +435,7 @@
 .oik-field {
   display: grid;
   gap: var(--space-2);
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
 }
 .oik-field__label {
   font: var(--text-label);
@@ -453,8 +463,8 @@
 .oik-textarea {
   box-sizing: border-box;
   width: 100%;
-  height: 40px;
-  padding: 0 var(--space-3);
+  height: var(--field-height);
+  padding: 0 var(--space-4);
   border: 1px solid var(--color-stroke);
   border-radius: var(--radius-control);
   background: var(--color-white);
@@ -484,12 +494,12 @@
 }
 .oik-select {
   appearance: none;
-  height: 44px;
-  padding-right: 38px;
+  height: var(--field-height);
+  padding-right: 40px;
   cursor: pointer;
 }
 .oik-field--inline .oik-select {
-  height: 36px;
+  height: var(--control-height);
 }
 .oik-select-wrap--leading .oik-select {
   padding-left: 46px;
@@ -626,7 +636,7 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  font: 500 14px/1.6 var(--font-mono);
+  font: 500 15px/1.6 var(--font-mono);
   color: var(--color-ink);
   overflow-wrap: anywhere;
 }
@@ -634,7 +644,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  height: 36px;
+  height: var(--control-height);
   padding: 0 var(--space-2);
   font: var(--text-button);
   color: var(--color-sage-text);
@@ -717,7 +727,7 @@
 .oik-table {
   width: 100%;
   border-collapse: collapse;
-  font: var(--text-body);
+  font: var(--text-cell);
 }
 /* Column names in grey, no band behind them; one rule under them. */
 .oik-table th {
@@ -734,7 +744,7 @@
   text-align: right;
 }
 .oik-table td {
-  padding: var(--space-3) var(--space-3);
+  padding: 14px var(--space-3);
   border-top: 1px solid var(--color-hairline);
   vertical-align: top;
   max-width: 40ch;
@@ -771,12 +781,12 @@
 .oik-dialog {
   box-sizing: border-box;
   width: calc(100% - 2 * var(--space-4));
-  max-width: 520px;
+  max-width: 560px;
   max-height: calc(100vh - 2 * var(--space-6));
   padding: 0;
   overflow: auto;
   border: 0;
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-dialog);
   background: var(--color-surface);
   color: var(--color-ink);
   box-shadow: 0 24px 64px rgba(45, 41, 38, 0.22);
@@ -809,15 +819,16 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-5) var(--space-6) 0;
+  padding: var(--space-6) var(--space-7) 0;
 }
 .oik-dialog__title {
   margin: 0;
-  font: var(--text-subhead);
+  font: var(--text-headline);
+  letter-spacing: var(--tracking-heading);
   overflow-wrap: anywhere;
 }
 .oik-dialog__body {
-  padding: var(--space-4) var(--space-6) 0;
+  padding: var(--space-5) var(--space-7) 0;
 }
 .oik-dialog__body form > :last-child {
   margin-bottom: 0;
@@ -830,8 +841,8 @@
 .oik-dialog__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-5) var(--space-6) var(--space-6);
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-7) var(--space-7);
 }
 @media (max-width: 720px) {
   /* A sheet from the bottom edge, with thumb-sized actions. */
@@ -839,7 +850,7 @@
     width: 100%;
     max-width: none;
     margin: auto 0 0;
-    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
   }
   .oik-dialog[open] {
     animation: oik-sheet 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -847,8 +858,8 @@
   .oik-dialog__head,
   .oik-dialog__body,
   .oik-dialog__actions {
-    padding-left: var(--space-4);
-    padding-right: var(--space-4);
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
   }
   .oik-dialog__actions {
     display: grid;

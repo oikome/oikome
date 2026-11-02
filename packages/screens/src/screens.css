@@ -1,13 +1,13 @@
 /* Copyright 2025 The Oikome Authors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Layout of the screens: a 232px sidebar on wide windows, a strip of
+ * Layout of the screens: a 248px sidebar on wide windows, a strip of
  * labelled items on top below 720px.
  */
 
 .screen-shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -22,27 +22,27 @@
   flex-direction: column;
   min-height: 100vh;
   box-sizing: border-box;
-  padding: var(--space-5) var(--space-3);
+  padding: var(--space-6) var(--space-3) var(--space-5);
 }
 .screen-brand {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   /* The mark's left edge lines up with the nav icons below it. */
-  margin: 0 var(--space-3) var(--space-5);
+  margin: 0 var(--space-3) var(--space-6);
 }
 .screen-brand__mark {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: var(--color-primary);
   color: var(--color-white);
 }
 .screen-brand__mark .oik-icon {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 .screen-brand__name {
   display: block;
@@ -77,12 +77,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 40px;
+  height: 44px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-control);
   color: var(--color-ink);
   text-decoration: none;
   font: var(--text-body);
+}
+.screen-nav__item:active {
+  background: var(--color-fill);
 }
 .screen-nav__item:hover {
   background: var(--color-nav-hover);
@@ -95,14 +98,14 @@
 .screen-main {
   box-sizing: border-box;
   width: 100%;
-  max-width: 1080px;
-  padding: var(--space-page-top) var(--space-page-x) 64px;
+  max-width: 1120px;
+  padding: var(--space-page-top) var(--space-page-x) 80px;
 }
 .screen-main:focus {
   outline: none;
 }
 .screen-banner {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-6);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-7);
 }
 .screen-skip {
   position: absolute;
@@ -123,12 +126,12 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  margin: 0 0 var(--space-6);
+  margin: 0 0 var(--space-7);
 }
 .screen-title {
   margin: 0;
   font: var(--text-display);
-  letter-spacing: -0.022em;
+  letter-spacing: var(--tracking-display);
 }
 .screen-lede {
   max-width: 62ch;
@@ -163,14 +166,14 @@
 /* Two columns: a list and the selected item */
 .screen-split {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: var(--space-6);
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--space-7);
   align-items: start;
 }
 /* The chosen collection: one card with its name, who can see it, and what is in it */
 .screen-detail {
   min-width: 0;
-  padding: var(--space-6);
+  padding: var(--space-7);
   background: var(--color-surface);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-whisper);
@@ -181,7 +184,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 .screen-detail__name {
   flex: 1 1 200px;
@@ -190,7 +193,7 @@
 .screen-detail__name h2 {
   margin: 0;
   font: var(--text-headline);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-heading);
   overflow-wrap: anywhere;
 }
 .screen-who {
@@ -198,7 +201,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--color-hairline);
   border-bottom: 1px solid var(--color-hairline);
 }
@@ -223,7 +226,7 @@
   padding: var(--space-6) var(--space-4) var(--space-4);
 }
 .screen-detail__content {
-  padding-top: var(--space-4);
+  padding-top: var(--space-5);
 }
 .screen-toolbar {
   display: flex;
@@ -261,7 +264,7 @@
 @media (min-width: 961px) {
   .screen-split > .screen-detail,
   .screen-split > .screen-split__placeholder {
-    margin-top: calc(var(--group-title-height) + var(--space-2));
+    margin-top: calc(var(--group-title-height) + var(--space-3));
   }
 }
 

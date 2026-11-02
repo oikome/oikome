@@ -4,13 +4,23 @@
 // First run: name the data center, save the recovery key, done.
 
 import { useState } from "react";
-import { Button, Card, ErrorText, StepDots, TextField } from "@oikome/ui";
+import { Button, Card, ErrorText, Icon, StepDots, TextField } from "@oikome/ui";
+import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { RecoveryKeyPanel } from "../parts";
 import { strings } from "../strings";
 
 const STEPS = 3;
+
+/** The large line glyph that opens each step. */
+function Hero({ icon }: { icon: IconName }) {
+  return (
+    <span className="screen-hero" aria-hidden="true">
+      <Icon name={icon} />
+    </span>
+  );
+}
 
 export function Onboarding({
   info,
@@ -46,6 +56,7 @@ export function Onboarding({
               }
             }}
           >
+            <Hero icon="mark" />
             <h1 className="screen-title">{s.welcomeTitle}</h1>
             <p className="screen-lede">{s.welcomeLede}</p>
             <TextField
@@ -55,9 +66,13 @@ export function Onboarding({
               placeholder={strings.defaultName}
               autoFocus
             />
-            <p className="screen-muted">
-              {s.keptIn} <span className="screen-path">{info.dataDir}</span>
-            </p>
+            <div className="screen-location">
+              <Icon name="computer" />
+              <span className="screen-location__text">
+                <span className="screen-location__title">{s.keptHere}</span>
+                <span className="screen-path">{info.dataDir}</span>
+              </span>
+            </div>
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" large disabled={save.busy}>
@@ -72,6 +87,7 @@ export function Onboarding({
         )}
         {step === 2 && (
           <>
+            <Hero icon="key" />
             <h1 className="screen-title">{strings.recovery.title}</h1>
             <p className="screen-lede">{strings.recovery.lede}</p>
             <RecoveryKeyPanel
@@ -86,6 +102,7 @@ export function Onboarding({
         )}
         {step === 3 && (
           <>
+            <Hero icon="check" />
             <h1 className="screen-title">{s.doneTitle}</h1>
             <p className="screen-lede">{s.doneLede}</p>
             <div className="screen-actions">

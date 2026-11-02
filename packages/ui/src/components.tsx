@@ -3,8 +3,8 @@
 //
 // Components of the Oikome apps (styles in ui.css).
 
-import { useId, useState } from "react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
 
@@ -12,7 +12,7 @@ function cx(...names: (string | false | undefined)[]): string {
   return names.filter(Boolean).join(" ");
 }
 
-export type ButtonVariant = "primary" | "secondary" | "text" | "quiet";
+export type ButtonVariant = "primary" | "secondary" | "text" | "quiet" | "destructive";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** `primary` is the one crimson action of a view. */
@@ -62,22 +62,36 @@ export function InsetWell({ children }: { children: ReactNode }) {
   return <div className="oik-inset-well">{children}</div>;
 }
 
-/** A grouped inset list: a title, rows on a surface, a footnote. */
+/**
+ * A grouped inset list: a title, rows on a surface, a footnote. `list` is
+ * for choosing one item (padded, rounded rows, no rules between them).
+ */
 export function Group({
   title,
   footnote,
+  variant,
   children,
 }: {
   title?: string;
   footnote?: ReactNode;
+  variant?: "list";
   children: ReactNode;
 }) {
   return (
-    <section className="oik-group">
+    <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
       {title && <h2 className="oik-group__title">{title}</h2>}
       <ul className="oik-group__body">{children}</ul>
       {footnote && <p className="oik-group__footnote">{footnote}</p>}
     </section>
+  );
+}
+
+/** Free content inside a group: a form, a key, a value to copy. */
+export function GroupPanel({ children }: { children: ReactNode }) {
+  return (
+    <li className="oik-group__item">
+      <div className="oik-group__panel">{children}</div>
+    </li>
   );
 }
 
@@ -91,8 +105,10 @@ export interface RowProps {
   selected?: boolean;
   chevron?: boolean;
   add?: boolean;
-  /** A message in place of items ("Nothing shared yet"). */
+  /** A message in place of items ("Nothing shared yet"), or an item that ended. */
   muted?: boolean;
+  /** Top-aligns the leading tile, for rows with a long description. */
+  alignStart?: boolean;
   label?: string;
 }
 
@@ -106,6 +122,7 @@ export function Row({
   chevron,
   add,
   muted,
+  alignStart,
   label,
 }: RowProps) {
   const body = (
@@ -127,9 +144,15 @@ export function Row({
       )}
     </>
   );
-  const className = cx("oik-row", add && "oik-row--add", selected && "oik-row--selected");
+  const className = cx(
+    "oik-row",
+    !leading && "oik-row--plain",
+    add && "oik-row--add",
+    selected && "oik-row--selected",
+    alignStart && "oik-row--start",
+  );
   return (
-    <li>
+    <li className="oik-group__item">
       {onClick ? (
         <button
           type="button"
@@ -166,9 +189,22 @@ export function toneFor(name: string): TileTone {
   return TILE_TONES[hash % TILE_TONES.length] ?? "stone";
 }
 
-export function Tile({ icon, tone, large }: { icon: IconName; tone: TileTone; large?: boolean }) {
+export function Tile({
+  icon,
+  tone,
+  large,
+  small,
+}: {
+  icon: IconName;
+  tone: TileTone;
+  large?: boolean;
+  small?: boolean;
+}) {
   return (
-    <span className={cx("oik-tile", `oik-tile--${tone}`, large && "oik-tile--lg")} aria-hidden="true">
+    <span
+      className={cx("oik-tile", `oik-tile--${tone}`, large && "oik-tile--lg", small && "oik-tile--sm")}
+      aria-hidden="true"
+    >
       <Icon name={icon} />
     </span>
   );
@@ -271,25 +307,87 @@ export function Select({
   value,
   onChange,
   options,
+  leading,
+  inline,
 }: FieldProps & {
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
+  /** A tile or avatar for the chosen option, shown inside the control. */
+  leading?: ReactNode;
+  /** The label beside the control, for a filter in a header. */
+  inline?: boolean;
 }) {
   const id = useId();
   return (
-    <div className="oik-field">
+    <div className={cx("oik-field", inline && "oik-field--inline")}>
       <label className="oik-field__label" htmlFor={id}>
         {label}
       </label>
-      <select id={id} className="oik-select" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      <span className={cx("oik-select-wrap", leading !== undefined && "oik-select-wrap--leading")}>
+        {leading !== undefined && <span className="oik-select-wrap__leading">{leading}</span>}
+        <select id={id} className="oik-select" value={value} onChange={(e) => onChange(e.target.value)}>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="oik-select-wrap__chevron" aria-hidden="true">
+          <Icon name="updown" />
+        </span>
+      </span>
     </div>
+  );
+}
+
+export interface Choice<T extends string> {
+  value: T;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+}
+
+/** A few explained options, one chosen: radio buttons drawn as cards. */
+export function ChoiceGroup<T extends string>({
+  label,
+  value,
+  onChange,
+  choices,
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  choices: Choice<T>[];
+}) {
+  const name = useId();
+  return (
+    <fieldset className="oik-choices">
+      <legend className="oik-field__label">{label}</legend>
+      {choices.map((c) => (
+        <label
+          key={c.value}
+          className={cx(
+            "oik-choice",
+            c.value === value && "oik-choice--on",
+            c.disabled && "oik-choice--disabled",
+          )}
+        >
+          <input
+            type="radio"
+            name={name}
+            value={c.value}
+            checked={c.value === value}
+            disabled={c.disabled}
+            onChange={() => onChange(c.value)}
+          />
+          <span className="oik-choice__text">
+            <span className="oik-choice__label">{c.label}</span>
+            {c.description && <span className="oik-choice__description">{c.description}</span>}
+          </span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -322,16 +420,19 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   options,
+  fill,
 }: {
   label: string;
   value: T;
   onChange: (value: T) => void;
   options: { value: T; label: string }[];
+  /** Spans the width, options of equal size. */
+  fill?: boolean;
 }) {
   return (
     <div className="oik-field">
       <span className="oik-field__label">{label}</span>
-      <div className="oik-segmented" role="group" aria-label={label}>
+      <div className={cx("oik-segmented", fill && "oik-segmented--fill")} role="group" aria-label={label}>
         {options.map((o) => (
           <button
             key={o.value}
@@ -392,7 +493,7 @@ export function EmptyState({
 
 export function StepDots({ step, total, label }: { step: number; total: number; label: string }) {
   return (
-    <div className="oik-steps">
+    <p className="oik-steps">
       {Array.from({ length: total }, (_, i) => (
         <span
           key={i}
@@ -400,8 +501,41 @@ export function StepDots({ step, total, label }: { step: number; total: number; 
           aria-hidden="true"
         />
       ))}
-      <span>{label}</span>
-    </div>
+      <span className="oik-visually-hidden">{label}</span>
+    </p>
+  );
+}
+
+/** Copies a value; says so once it has. */
+export function CopyButton({
+  value,
+  copyLabel,
+  copiedLabel,
+}: {
+  value: string;
+  copyLabel: string;
+  copiedLabel: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return copied ? (
+    <span className="oik-copy__done" role="status">
+      <Icon name="check" />
+      {copiedLabel}
+    </span>
+  ) : (
+    <Button
+      icon="copy"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+        } catch {
+          // The value stays on screen to copy by hand.
+        }
+      }}
+    >
+      {copyLabel}
+    </Button>
   );
 }
 
@@ -415,28 +549,102 @@ export function CopyField({
   copyLabel: string;
   copiedLabel: string;
 }) {
-  const [copied, setCopied] = useState(false);
   return (
     <div className="oik-copy">
       <p className="oik-copy__value">{value}</p>
-      {copied ? (
-        <span className="oik-copy__done" role="status">
-          {copiedLabel}
-        </span>
-      ) : (
-        <Button
-          icon="copy"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(value);
-              setCopied(true);
-            } catch {
-              // The value stays on screen to copy by hand.
-            }
-          }}
-        >
-          {copyLabel}
-        </Button>
+      <CopyButton value={value} copyLabel={copyLabel} copiedLabel={copiedLabel} />
+    </div>
+  );
+}
+
+export interface MenuItem {
+  label: string;
+  onSelect: () => void;
+  /** Removes or ends something: shown in the error color. */
+  destructive?: boolean;
+}
+
+/**
+ * A More (…) button and the actions behind it. Opens from the button,
+ * moves with the arrow keys, closes on Escape, Tab or a click elsewhere.
+ */
+export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const listId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const away = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const move = (e: KeyboardEvent<HTMLUListElement>) => {
+    const all = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const at = all.indexOf(document.activeElement as HTMLButtonElement);
+    const focus = (i: number) => all[(i + all.length) % all.length]?.focus();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focus(at + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focus(at - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focus(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focus(all.length - 1);
+    } else if (e.key === "Tab") {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="oik-menu" ref={root}>
+      <button
+        ref={trigger}
+        type="button"
+        className="oik-icon-button oik-icon-button--filled"
+        aria-label={label}
+        title={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Icon name="more" />
+      </button>
+      {open && (
+        <ul id={listId} role="menu" aria-label={label} className="oik-menu__list" onKeyDown={move}>
+          {items.map((item) => (
+            <li key={item.label} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                className={cx("oik-menu__item", item.destructive && "oik-menu__item--destructive")}
+                onClick={() => {
+                  close();
+                  item.onSelect();
+                }}
+              >
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

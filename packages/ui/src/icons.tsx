@@ -7,29 +7,43 @@ import type { ReactElement } from "react";
 
 export type IconName =
   | "activity"
+  | "back"
   | "check"
   | "chevron"
+  | "close"
   | "collection"
+  | "computer"
   | "copy"
   | "download"
   | "error"
   | "gear"
   | "key"
+  | "mark"
+  | "more"
   | "people"
   | "plus"
   | "table"
   | "terminal"
+  | "updown"
   | "warning";
 
 const PATHS: Record<IconName, ReactElement> = {
   activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
+  back: <path d="M15 5l-7 7 7 7" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   chevron: <path d="M9 5l7 7-7 7" />,
+  close: <path d="M6 6l12 12M18 6L6 18" />,
   collection: (
     <>
       <rect x="3.5" y="5" width="17" height="5" rx="1.5" />
       <rect x="3.5" y="12" width="17" height="7" rx="1.5" />
       <path d="M8 15.5h8" />
+    </>
+  ),
+  computer: (
+    <>
+      <rect x="4" y="5" width="16" height="11" rx="1.75" />
+      <path d="M2.5 19h19" />
     </>
   ),
   copy: (
@@ -57,6 +71,14 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M11 12l8-8m-3 3l2.5 2.5M14 9l2 2" />
     </>
   ),
+  mark: <circle cx="12" cy="12" r="7" />,
+  more: (
+    <>
+      <circle cx="6" cy="12" r="0.9" />
+      <circle cx="12" cy="12" r="0.9" />
+      <circle cx="18" cy="12" r="0.9" />
+    </>
+  ),
   people: (
     <>
       <circle cx="9" cy="9" r="3.25" />
@@ -78,6 +100,7 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M7.5 9.5l3 2.5-3 2.5M12.5 15h4" />
     </>
   ),
+  updown: <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />,
   warning: (
     <>
       <path d="M12 4l9 15.5H3L12 4z" />

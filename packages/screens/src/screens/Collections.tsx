@@ -11,6 +11,7 @@ import {
   EmptyState,
   ErrorText,
   Group,
+  Menu,
   Row,
   Select,
   TextField,
@@ -48,7 +49,28 @@ export function Collections({ selected }: { selected?: string }) {
   const create = useAction();
   const shared = sharedNames(shares.data);
   const list = spaces.data ?? [];
+  const mine = list.filter((space) => space.kind !== "remote");
+  const fromOthers = list.filter((space) => space.kind === "remote");
   const current = list.find((space) => space.name === selected);
+  const item = (space: SpaceSummary) => {
+    const names = shared.get(space.name) ?? [];
+    return (
+      <Row
+        key={space.name}
+        leading={<Tile icon="collection" tone={toneFor(space.name)} />}
+        title={space.name}
+        meta={
+          space.kind === "remote"
+            ? s.fromElsewhere
+            : names.length > 0
+              ? s.sharedWith(names)
+              : s.notShared
+        }
+        selected={space.name === selected}
+        onClick={() => navigate(`/collections/${encodeURIComponent(space.name)}`)}
+      />
+    );
+  };
 
   const reload = () => {
     spaces.reload();
@@ -124,27 +146,18 @@ export function Collections({ selected }: { selected?: string }) {
 
       {list.length > 0 && (
         <div className="screen-split">
-          <Group title={s.mine}>
-            {list.map((space) => {
-              const names = shared.get(space.name) ?? [];
-              return (
-                <Row
-                  key={space.name}
-                  leading={<Tile icon="collection" tone={toneFor(space.name)} />}
-                  title={space.name}
-                  meta={
-                    space.kind === "remote"
-                      ? s.fromElsewhere
-                      : names.length > 0
-                        ? s.sharedWith(names)
-                        : s.notShared
-                  }
-                  selected={space.name === selected}
-                  onClick={() => navigate(`/collections/${encodeURIComponent(space.name)}`)}
-                />
-              );
-            })}
-          </Group>
+          <div>
+            {mine.length > 0 && (
+              <Group title={s.mine} variant="list">
+                {mine.map(item)}
+              </Group>
+            )}
+            {fromOthers.length > 0 && (
+              <Group title={s.sharedWithYou} variant="list">
+                {fromOthers.map(item)}
+              </Group>
+            )}
+          </div>
           {current ? (
             <Detail
               key={current.name}
@@ -212,6 +225,10 @@ function Detail({
               {s.share}
             </Button>
           )}
+          <Menu
+            label={strings.common.moreActions(space.name)}
+            items={[{ label: s.remove, destructive: true, onSelect: () => setConfirming(true) }]}
+          />
         </div>
         {local && (
           <div className="screen-who">
@@ -230,13 +247,13 @@ function Detail({
             </div>
           </div>
         )}
-        {confirming ? (
-          <div>
-            <p className="screen-muted">{s.removeConfirm(space.name)}</p>
+        {confirming && (
+          <div className="screen-confirm">
+            <p className="screen-confirm__text">{s.removeConfirm(space.name)}</p>
             {remove.error && <ErrorText>{remove.error}</ErrorText>}
-            <div className="screen-actions">
+            <div className="screen-confirm__actions">
               <Button
-                variant="quiet"
+                variant="destructive"
                 disabled={remove.busy}
                 onClick={async () => {
                   const done = await remove.run(() => client.dropSpace({ space: space.name }));
@@ -245,15 +262,11 @@ function Detail({
               >
                 {s.removeYes}
               </Button>
-              <Button variant="text" onClick={() => setConfirming(false)}>
+              <Button variant="quiet" onClick={() => setConfirming(false)}>
                 {strings.common.cancel}
               </Button>
             </div>
           </div>
-        ) : (
-          <Button variant="quiet" onClick={() => setConfirming(true)}>
-            {s.remove}
-          </Button>
         )}
       </Card>
 

@@ -1,15 +1,27 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings: the recovery key, the data center itself, language, advanced.
+// Settings, as grouped rows: the recovery key, the data center itself,
+// language, advanced.
 
 import { useState } from "react";
-import { Button, Card, CopyField, ErrorText, Group, Icon, Row, TextField, Tile } from "@oikome/ui";
+import {
+  Button,
+  CopyButton,
+  ErrorText,
+  Group,
+  GroupPanel,
+  Row,
+  TextField,
+  Tile,
+} from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { RecoveryKeyPanel } from "../parts";
 import { navigate } from "../router";
 import { strings } from "../strings";
+
+const s = strings.settings;
 
 export function Settings({
   info,
@@ -22,103 +34,136 @@ export function Settings({
 }) {
   const client = useClient();
   const [showKey, setShowKey] = useState(backup);
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(info.name);
   const rename = useAction();
-  const s = strings.settings;
 
   return (
-    <>
+    <div className="screen-settings">
       <header className="screen-header">
         <h1 className="screen-title">{s.title}</h1>
       </header>
-      <div className="screen-stack">
-        <Card>
-          <div className="screen-detail__head">
-            <Tile icon="key" tone="apricot" />
-            <div className="screen-detail__name">
-              <h2 className="screen-subtitle">{s.recoveryTitle}</h2>
-              {info.recoveryKeySaved ? (
-                <span className="screen-status-ok">{s.backedUp}</span>
-              ) : (
-                <span className="screen-status-warn">
-                  <Icon name="warning" />
-                  {s.notBackedUp}
-                </span>
-              )}
-            </div>
-          </div>
-          <p className="screen-lede">{s.recoveryBody}</p>
-          {showKey ? (
+
+      <Group title={s.recoveryTitle}>
+        <Row
+          alignStart
+          leading={<Tile icon="key" tone="apricot" />}
+          title={
+            info.recoveryKeySaved ? (
+              <span className="screen-status-ok">{s.backedUp}</span>
+            ) : (
+              <span className="screen-status-warn">{s.notBackedUp}</span>
+            )
+          }
+          meta={s.recoveryBody}
+          trailing={
+            !showKey && (
+              <Button
+                variant={info.recoveryKeySaved ? "secondary" : "primary"}
+                onClick={() => setShowKey(true)}
+              >
+                {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
+              </Button>
+            )
+          }
+        />
+        {showKey && (
+          <GroupPanel>
             <RecoveryKeyPanel
               doneLabel={strings.common.done}
               onDone={(updated) => {
                 onInfo(updated);
                 setShowKey(false);
               }}
+              onLater={() => setShowKey(false)}
+              laterLabel={info.recoveryKeySaved ? strings.common.close : undefined}
             />
-          ) : (
-            <Button
-              variant={info.recoveryKeySaved ? "secondary" : "primary"}
-              onClick={() => setShowKey(true)}
-            >
-              {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
-            </Button>
-          )}
-        </Card>
+          </GroupPanel>
+        )}
+      </Group>
 
-        <Card>
-          <h2 className="screen-subtitle">{s.centerTitle}</h2>
-          <form
-            className="screen-form"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const updated = await rename.run(() => client.renameNode({ name }));
-              if (updated) onInfo(updated);
-            }}
-          >
-            <TextField
-              label={strings.onboarding.nameLabel}
-              value={name}
-              onChange={setName}
-              placeholder={strings.defaultName}
-            />
+      <Group title={s.centerTitle} footnote={s.idFootnote}>
+        {editing ? (
+          <GroupPanel>
+            <form
+              className="screen-inline-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const updated = await rename.run(() =>
+                  client.renameNode({ name: name.trim() || strings.defaultName }),
+                );
+                if (updated) {
+                  onInfo(updated);
+                  setEditing(false);
+                }
+              }}
+            >
+              <TextField
+                label={s.nameLabel}
+                value={name}
+                onChange={setName}
+                placeholder={strings.defaultName}
+                autoFocus
+              />
+              <Button type="submit" variant="primary" disabled={rename.busy}>
+                {strings.common.save}
+              </Button>
+              <Button
+                onClick={() => {
+                  setEditing(false);
+                  setName(info.name);
+                  rename.clear();
+                }}
+              >
+                {strings.common.cancel}
+              </Button>
+            </form>
             {rename.error && <ErrorText>{rename.error}</ErrorText>}
-            <Button type="submit" disabled={rename.busy || name.trim() === info.name}>
-              {strings.common.save}
-            </Button>
-          </form>
-          <div className="screen-result">
-            <h3 className="oik-field__label">{strings.sharing.yourId}</h3>
-            <p className="screen-muted">{strings.sharing.yourIdBody}</p>
-            <CopyField
+          </GroupPanel>
+        ) : (
+          <Row
+            title={s.nameLabel}
+            meta={info.name || strings.defaultName}
+            trailing={
+              <Button
+                onClick={() => {
+                  setName(info.name);
+                  setEditing(true);
+                }}
+              >
+                {s.rename}
+              </Button>
+            }
+          />
+        )}
+        <Row
+          title={strings.sharing.yourId}
+          meta={<span className="oik-mono">{info.did}</span>}
+          trailing={
+            <CopyButton
               value={info.did}
               copyLabel={strings.common.copy}
               copiedLabel={strings.common.copied}
             />
-          </div>
-          <p className="screen-muted screen-result">
-            {s.version} {info.version} · {s.dataFolder}{" "}
-            <span className="screen-path">{info.dataDir}</span>
-          </p>
-        </Card>
+          }
+        />
+        <Row title={s.dataFolder} meta={<span className="oik-mono">{info.dataDir}</span>} />
+        <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
+      </Group>
 
-        <Card>
-          <h2 className="screen-subtitle">{s.languageTitle}</h2>
-          <p className="screen-muted">
-            {s.language}. {s.languageMore}
-          </p>
-        </Card>
+      <Group title={s.languageTitle}>
+        <Row title={s.language} meta={s.languageMore} />
+      </Group>
 
-        <Group title={s.advancedTitle}>
-          <Row
-            leading={<Tile icon="terminal" tone="stone" />}
-            title={s.sqlTitle}
-            meta={s.sqlBody}
-            chevron
-            onClick={() => navigate("/settings/advanced")}
-          />
-        </Group>
-      </div>
-    </>
+      <Group title={s.advancedTitle}>
+        <Row
+          leading={<Tile icon="terminal" tone="stone" />}
+          title={s.sqlTitle}
+          meta={s.sqlBody}
+          chevron
+          onClick={() => navigate("/settings/advanced")}
+        />
+      </Group>
+    </div>
   );
 }

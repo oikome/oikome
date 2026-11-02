@@ -78,10 +78,12 @@ export function RecoveryKeyPanel({
   doneLabel,
   onDone,
   onLater,
+  laterLabel = strings.recovery.later,
 }: {
   doneLabel: string;
   onDone: (info: NodeInfo) => void;
   onLater?: () => void;
+  laterLabel?: string;
 }) {
   const client = useClient();
   const key = useLoad(() => client.recoveryKey(), []);
@@ -132,7 +134,7 @@ export function RecoveryKeyPanel({
         </Button>
         {onLater && (
           <Button variant="text" onClick={onLater}>
-            {strings.recovery.later}
+            {laterLabel}
           </Button>
         )}
       </div>

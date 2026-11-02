@@ -51,20 +51,19 @@ export function Activity() {
     <>
       <header className="screen-header">
         <h1 className="screen-title">{s.title}</h1>
+        {(contacts.data?.length ?? 0) > 0 && (
+          <Select
+            inline
+            label={s.filterLabel}
+            value={did}
+            onChange={setDid}
+            options={[
+              { value: "", label: s.everyone },
+              ...(contacts.data ?? []).map((c) => ({ value: c.did, label: c.name })),
+            ]}
+          />
+        )}
       </header>
-      {(contacts.data?.length ?? 0) > 0 && (
-        <div className="screen-filter">
-        <Select
-          label={s.filterLabel}
-          value={did}
-          onChange={setDid}
-          options={[
-            { value: "", label: s.everyone },
-            ...(contacts.data ?? []).map((c) => ({ value: c.did, label: c.name })),
-          ]}
-        />
-        </div>
-      )}
       {load.error && <ErrorText>{load.error}</ErrorText>}
       <Group title={s.recent} footnote={s.footnote}>
         {items.length === 0 ? (

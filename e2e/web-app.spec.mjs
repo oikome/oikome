@@ -189,11 +189,36 @@ test("Activity shows the contact's reads and the refusal", async () => {
   }).toPass({ timeout: 20_000 });
 });
 
+test("a collection is removed from its More menu with the keyboard", async () => {
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "New Collection" }).first().click();
+  await page.getByLabel("Name").fill("scratch");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).toHaveURL(/\/collections\/scratch$/);
+
+  const more = page.getByRole("button", { name: "More actions for scratch" });
+  await more.focus();
+  await page.keyboard.press("Enter");
+  const remove = page.getByRole("menuitem", { name: "Remove Collection" });
+  await expect(remove).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(remove).toHaveCount(0);
+  await expect(more).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Remove scratch? Sharing it stops.")).toBeVisible();
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(page).toHaveURL(/\/collections$/);
+  await expect(page.getByRole("button", { name: /^scratch/ })).toHaveCount(0);
+});
+
 test("every screen fits desktop and phone widths, and its text is readable", async () => {
   const screens = [
     ["/onboarding", "Save Your Recovery Key"],
     ["/collections/notes", "Collections"],
     ["/sharing", "Sharing"],
+    ["/sharing?share=notes", "Sharing"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],
     ["/settings/advanced", "SQL Workbench"],

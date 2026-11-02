@@ -250,9 +250,13 @@
   box-sizing: border-box;
   text-decoration: none;
 }
+/* The current choice in a list: crimson, as for every current choice. */
 .oik-row--selected,
 .oik-row--selected:hover {
-  background: var(--color-selected);
+  background: var(--color-primary-tint);
+}
+.oik-row--selected .oik-row__title {
+  color: var(--color-primary-deep);
 }
 .oik-row__text {
   flex: 1;

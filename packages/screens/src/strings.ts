@@ -14,6 +14,7 @@ export const strings = {
   nav: {
     label: "Main",
     running: "Running on this computer",
+    home: "Home",
     collections: "Collections",
     sharing: "Sharing",
     activity: "Activity",
@@ -92,8 +93,27 @@ export const strings = {
     continue: "Continue",
     doneTitle: "You're All Set",
     doneLede:
-      "Your data center is ready. Create a collection, then share it with people you trust. Everything stays on this computer.",
-    goToCollections: "Go to Collections",
+      "Your data center is ready, with an example to look around: one weekend in Lisbon, kept as photos, notes and spending. Remove it whenever you like.",
+    goToCollections: "Get Started",
+  },
+
+  home: {
+    title: "Home",
+    /** By the hour on this computer's clock. */
+    greeting: (hour: number) =>
+      hour < 5 ? "Good evening" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening",
+    lede: (name: string) => `Here's what's in ${name} today.`,
+    statCollections: "Collections",
+    statItems: "Things kept",
+    statPeople: "People you share with",
+    statReads: "Reads this week",
+    recent: "Recently Added",
+    nothingRecent: "Nothing yet. What you bring in shows up here first.",
+    collections: "Collections",
+    seeAll: "See All",
+    activity: "Recent Activity",
+    allActivity: "See all activity",
+    noActivity: "When someone opens what you share, it shows up here.",
   },
 
   collections: {
@@ -103,6 +123,7 @@ export const strings = {
     sharedWithYou: "Shared With You",
     nameLabel: "Name",
     nameHint: "Letters, numbers, - and _, starting with a letter. You can't rename it later.",
+    namePlaceholder: "For example, recipes",
     nameInvalid:
       "Use only letters, numbers, - and _, start with a letter or _, and keep it to 64 characters.",
     nameTaken: (name: string) => `You already have a collection named ${name}.`,
@@ -111,10 +132,25 @@ export const strings = {
     create: "Create",
     emptyTitle: "No Collections Yet",
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
+    example: "Example",
+    examplesNote: "Collections marked Example show what Oikome can keep. Remove them whenever you like.",
+    /** "6 photos", "1 note", "10 rows". */
+    count: (n: number, kind: "photos" | "notes" | "table") => {
+      const [one, many] =
+        kind === "photos" ? ["photo", "photos"] : kind === "notes" ? ["note", "notes"] : ["row", "rows"];
+      return `${n} ${n === 1 ? one : many}`;
+    },
+    moreNotes: (n: number) => (n === 1 ? "1 more note" : `${n} more notes`),
+    noData: "No data yet",
+    back: "Collections",
+    storeOn: "Store on",
+    thisComputer: "This computer",
+    storeHint: "Collections are kept on this computer. A NAS or cloud drive you add shows up here too.",
+    storedOn: (storage: string | null) => (storage ? `Stored on ${storage}` : "Stored on this computer"),
     notShared: "Only you",
     sharedWith: (names: string[]) => `Shared with ${names.join(", ")}`,
     fromElsewhere: "From another data center",
-    storedHere: "Stored on this computer",
+
     share: "Share…",
     remove: "Remove Collection",
     removeTitle: (name: string) => `Remove ${name}?`,
@@ -130,15 +166,12 @@ export const strings = {
           : `You, ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} can see this.`,
     manage: "Manage",
     nothingYetTitle: "No Data Yet",
-    nothingYetBody:
-      "Sources that fill collections arrive in a later version. Until then, you can add data in Settings, under Advanced.",
-    openAdvanced: "Open Advanced",
+    nothingYetBody: "When you bring data in, it shows up here. Bringing in files from this computer is on the way.",
     tableLabel: "Table",
     rows: (from: number, to: number) => `Rows ${from}–${to}`,
     noRows: "No rows",
     previous: "Previous",
     next: "Next",
-    pick: "Choose a collection to see what's in it.",
   },
 
   sharing: {
@@ -240,21 +273,12 @@ export const strings = {
     languageTitle: "Language",
     language: "English",
     languageMore: "More languages are on the way.",
-    advancedTitle: "Advanced",
-    sqlTitle: "SQL Workbench",
-    sqlBody: "For people who know SQL. Changes take effect immediately.",
-  },
-
-  sql: {
-    back: "Settings",
-    title: "SQL Workbench",
-    lede:
-      "Run statements on your data center as its owner. Separate statements with semicolons.",
-    label: "Statements",
-    run: "Run",
-    done: (n: number | null) =>
-      n === null ? "Done." : n === 1 ? "Done. 1 row changed." : `Done. ${n} rows changed.`,
-    truncated: "Only the first rows are shown.",
-    rowCount: (n: number) => (n === 1 ? "1 row" : `${n} rows`),
+    storageTitle: "Storage",
+    thisComputer: "This computer",
+    storageCount: (n: number) => (n === 1 ? "1 collection" : `${n} collections`),
+    storageKind: { disk: "This computer", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
+    encrypted: "Encrypted",
+    storageFootnote:
+      "New collections are kept on this computer unless you choose another storage when you create one. Adding a NAS or a cloud drive here is on the way.",
   },
 };

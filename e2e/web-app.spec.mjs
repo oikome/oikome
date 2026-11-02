@@ -14,11 +14,12 @@
 
 // The web app (M1c exit criteria), in Chromium against a real local node:
 // `oikome serve --web --web-root apps/web/dist` on an empty data directory.
-// First run (name, recovery key), a collection filled through the SQL
-// workbench and browsed, a share with a contact (a second node) that is
-// then stopped, the contact's reads and refusal in Activity, and every
-// screen at desktop and phone width without sideways scrolling and with
-// readable text (WCAG AA). No fake data: everything goes through the node.
+// First run (a name already filled in, the recovery key, the examples it
+// leaves), the examples opened as photos, notes and a table, a collection of
+// one's own, a share with a contact (a second node) that is then stopped,
+// the contact's reads and refusal in Activity, and every screen at desktop
+// and phone width without sideways scrolling and with readable text (WCAG
+// AA). No fake data: everything goes through the node.
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -99,6 +100,8 @@ test.afterAll(async () => {
 test("first run: name the data center and save its recovery key", async () => {
   await page.goto(loginLink());
   await expect(page.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+  // A lazy Continue is a fine answer: the name is filled in already.
+  await expect(page.getByLabel("Name")).toHaveValue("My data center");
   await page.getByLabel("Name").fill("Home");
   await page.getByRole("button", { name: "Continue" }).click();
 
@@ -112,36 +115,60 @@ test("first run: name the data center and save its recovery key", async () => {
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "You're All Set" })).toBeVisible();
-  await page.getByRole("button", { name: "Go to Collections" }).click();
-  await expect(page.getByRole("heading", { name: "Collections", level: 1 })).toBeVisible();
-  await expect(page.getByText("No collections yet")).toBeVisible();
+  await page.getByRole("button", { name: "Get Started" }).click();
+  await expect(page).toHaveURL(`${base}/`);
+  await expect(
+    page.getByRole("heading", { name: /^Good (morning|afternoon|evening)$/, level: 1 }),
+  ).toBeVisible();
+  // The data center starts with the examples, once.
+  await expect(page.getByRole("link", { name: /^lisbon-photos/ })).toBeVisible();
   await expect(page.getByText("Back up your recovery key")).toHaveCount(0);
-  await expect(page.locator(".screen-brand__subtitle")).toHaveText("Home");
+  await expect(page.locator(".screen-node__name")).toHaveText("Home");
 });
 
-test("a collection is filled in the SQL workbench and browsed", async () => {
+test("the examples open as photos, notes and a table; a collection of one's own", async () => {
+  await page.getByRole("link", { name: "Collections" }).first().click();
+  await expect(page.locator(".screen-cover")).toHaveCount(3);
+  await expect(page.locator(".screen-cover .screen-tag")).toHaveCount(3);
+
+  await page.getByRole("link", { name: /^lisbon-photos/ }).click();
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
+  const photos = page.locator(".screen-photo img");
+  await expect(photos).toHaveCount(6);
+  // Real images, decoded, in the order they were taken, each with its credit.
+  await expect
+    .poll(() => photos.evaluateAll((imgs) => imgs.every((img) => img.naturalWidth > 0)))
+    .toBe(true);
+  await expect(page.locator(".screen-photo__title").first()).toHaveText("Alfama from Santa Luzia");
+  await expect(page.locator(".screen-photo__credit")).toHaveCount(6);
+
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^lisbon-notes/ }).click();
+  await expect(page.locator(".screen-note")).toHaveCount(7);
+  // Times are shown as they were written, in any time zone.
+  await expect(page.locator(".screen-note").first()).toContainText("Nov 7, 2025, 8:15 AM");
+  await expect(page.locator(".screen-note").first()).toContainText("Pastéis de Belém opens at 8.");
+
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^lisbon-spending/ }).click();
+  const spending = page.getByRole("table", { name: "spending" });
+  await expect(spending.getByRole("cell", { name: "Metro to the airport" })).toBeVisible();
+  await expect(spending.getByRole("cell", { name: "1.85", exact: true })).toBeVisible();
+
+  // One's own: made here, kept on this computer, filled through the node.
+  await page.locator(".screen-back").click();
   await page.getByRole("button", { name: "New Collection" }).first().click();
+  await expect(page.getByRole("dialog").getByText("This computer", { exact: true })).toBeVisible();
   await page.getByLabel("Name").fill("notes");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/\/collections\/notes$/);
   await expect(page.getByText("No Data Yet")).toBeVisible();
-
-  await page.getByRole("button", { name: "Open Advanced" }).click();
-  await expect(page.getByRole("heading", { name: "SQL Workbench" })).toBeVisible();
-  await page
-    .getByLabel("Statements")
-    .fill(
+  await api("run_sql", {
+    sql:
       "CREATE TABLE notes.memos (id BIGINT NOT NULL, body VARCHAR); " +
-        "INSERT INTO notes.memos VALUES (1, 'buy milk'), (2, 'call mum')",
-    );
-  await page.getByRole("button", { name: "Run" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Done." })).toBeVisible();
-
-  // Back returns to the collection the workbench was opened from.
-  await page.getByRole("link", { name: "notes" }).click();
-  await expect(page).toHaveURL(/\/collections\/notes$/);
-  await page.getByRole("link", { name: "Collections" }).click();
-  await page.getByRole("link", { name: /^notes/ }).click();
+      "INSERT INTO notes.memos VALUES (1, 'buy milk'), (2, 'call mum')",
+  });
+  await page.reload();
   const rows = page.getByRole("table", { name: "memos" });
   await expect(rows.getByRole("cell", { name: "buy milk" })).toBeVisible();
   await expect(rows.getByRole("cell", { name: "call mum" })).toBeVisible();
@@ -165,7 +192,9 @@ test("a contact reads a shared collection until the share is stopped", async () 
 
   // New Share opens the share dialog, with the collection to choose.
   await page.getByRole("button", { name: "New Share" }).click();
-  await expect(page.getByRole("dialog", { name: "New Share" })).toBeVisible();
+  const newShare = page.getByRole("dialog", { name: "New Share" });
+  await expect(newShare).toBeVisible();
+  await newShare.getByLabel("Collection").selectOption("notes");
   await page.getByRole("button", { name: "Share notes with Bob" }).click();
   await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
   const token = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
@@ -202,8 +231,7 @@ test("Activity shows the contact's reads and the refusal", async () => {
 });
 
 test("screens use words for people, also when something fails", async () => {
-  // Engine words never reach the screens (PRD success criterion); "SQL" only
-  // names the workbench under Settings > Advanced.
+  // Engine words never reach the screens (PRD success criterion), nor SQL.
   const ENGINE = /\b(space|spaces|ucan|did|token|principal)\b/i;
 
   await page.goto(`${base}/collections`);
@@ -227,12 +255,21 @@ test("screens use words for people, also when something fails", async () => {
   await expect(page.getByRole("alert")).toHaveText(/^That's your own ID/);
   await page.getByRole("button", { name: "Cancel" }).last().click();
 
-  for (const path of ["/onboarding", "/collections/notes", "/sharing", "/activity", "/settings"]) {
+  for (const path of [
+    "/onboarding",
+    "/",
+    "/collections",
+    "/collections/notes",
+    "/collections/lisbon-photos",
+    "/sharing",
+    "/activity",
+    "/settings",
+  ]) {
     await page.goto(`${base}${path}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     const text = await page.locator("body").innerText();
     expect(text, path).not.toMatch(ENGINE);
-    if (path !== "/settings") expect(text, path).not.toMatch(/\bsql\b/i);
+    expect(text, path).not.toMatch(/\bsql\b/i);
   }
 
   // The share dialog too: plain words, and text that reads at desktop and phone width.
@@ -276,8 +313,9 @@ test("a collection is removed from its More menu with the keyboard", async () =>
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
   await dialog.getByRole("button", { name: "Remove", exact: true }).click();
-  // Removed, the first collection opens in its place.
-  await expect(page).toHaveURL(/\/collections\/notes$/);
+  // Removed, back to all collections, said in a line at the bottom.
+  await expect(page).toHaveURL(/\/collections$/);
+  await expect(page.locator(".oik-toasts")).toContainText("Removed scratch.");
   await expect(page.getByRole("link", { name: /^scratch/ })).toHaveCount(0);
   // The removed collection's page is not in the history any more.
   await page.goBack();
@@ -285,10 +323,10 @@ test("a collection is removed from its More menu with the keyboard", async () =>
 });
 
 test("Back returns to the page before, and closed panels stay closed", async () => {
-  // "/" forwards to Collections without trapping Back.
+  // Home is a page of its own; Back leaves it.
   await page.goto(`${base}/activity`);
   await page.goto(`${base}/`);
-  await expect(page).toHaveURL(/\/collections(\/notes)?$/);
+  await expect(page.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
   await page.goBack();
   await expect(page).toHaveURL(/\/activity$/);
 
@@ -309,20 +347,29 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page).toHaveURL(/\/collections\/notes$/);
 
-  // The workbench opened directly goes up to Settings.
-  await page.goto(`${base}/settings/advanced`);
-  await page.getByRole("link", { name: "Settings" }).last().click();
-  await expect(page).toHaveURL(/\/settings$/);
+  // A collection opened directly goes up to Collections; opened from Home,
+  // Back names Home.
+  await page.goto(`${base}/collections/notes`);
+  await page.locator(".screen-back").click();
+  await expect(page).toHaveURL(/\/collections$/);
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("link", { name: /^lisbon-photos/ }).first().click();
+  await expect(page.locator(".screen-back")).toHaveText("Home");
+  await page.locator(".screen-back").click();
+  await expect(page).toHaveURL(`${base}/`);
 });
 
 test("every screen fits desktop and phone widths, and its text is readable", async () => {
   const screens = [
     ["/onboarding", "Save Your Recovery Key"],
-    ["/collections/notes", "Collections"],
+    ["/", /^Good (morning|afternoon|evening)$/],
+    ["/collections", "Collections"],
+    ["/collections/lisbon-photos", "lisbon-photos"],
+    ["/collections/lisbon-notes", "lisbon-notes"],
+    ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],
-    ["/settings/advanced", "SQL Workbench"],
   ];
   for (const [width, height] of [
     [1280, 800],

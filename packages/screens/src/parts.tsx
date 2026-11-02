@@ -4,38 +4,28 @@
 // Pieces several screens share: a Back link, a table of rows and the
 // recovery key panel.
 
-import { createContext, useContext, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Checkbox, CopyField, ErrorText, Icon, InsetWell } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import { useAction, useClient, useLoad } from "./data";
-import { calendarDate, cell, columnLabel, dateTime } from "./format";
+import { calendarDate, cell, columnLabel, dateTime, decimal, wallTime } from "./format";
 import { navigate, plainClick, previousPage } from "./router";
 import { strings } from "./strings";
 
-/** What the shell asks every screen to show under its title (the backup reminder). */
-export const BannerContext = createContext<ReactNode>(null);
-
-/**
- * A screen's title row, then the shell's reminder under it: the title stays
- * in one place whether or not a reminder shows.
- */
+/** A screen's title row, with its actions on the right. */
 export function ScreenHeader({ title, children }: { title: string; children?: ReactNode }) {
-  const banner = useContext(BannerContext);
   return (
-    <>
-      <header className="screen-header">
-        <h1 className="screen-title">{title}</h1>
-        {children}
-      </header>
-      {banner && <div className="screen-banner">{banner}</div>}
-    </>
+    <header className="screen-header">
+      <h1 className="screen-title">{title}</h1>
+      {children}
+    </header>
   );
 }
 
-/** What a page is called in a Back link; undefined for redirects such as "/". */
+/** What a page is called in a Back link. */
 function pageTitle(url: string): string | undefined {
   const path = new URL(url, window.location.origin).pathname;
   if (path.startsWith("/collections/")) {
@@ -46,11 +36,11 @@ function pageTitle(url: string): string | undefined {
     }
   }
   const titles: Record<string, string> = {
+    "/": strings.nav.home,
     "/collections": strings.nav.collections,
     "/sharing": strings.nav.sharing,
     "/activity": strings.nav.activity,
     "/settings": strings.nav.settings,
-    "/settings/advanced": strings.sql.title,
   };
   return titles[path];
 }
@@ -80,15 +70,18 @@ export function BackLink({ parent, parentLabel }: { parent: string; parentLabel:
 }
 
 /** A value of a column as text; dates and times the way people write them. */
-function show(field: Field, value: unknown): string | null {
+export function show(field: Field, value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (DataType.isDate(field.type)) return calendarDate(Number(value));
-  if (DataType.isTimestamp(field.type)) return dateTime(Number(value));
+  if (DataType.isTimestamp(field.type)) {
+    return field.type.timezone ? dateTime(Number(value)) : wallTime(Number(value));
+  }
+  if (DataType.isDecimal(field.type)) return decimal(String(value), field.type.scale);
   return cell(value);
 }
 
 /** Integer, float and decimal columns: right-aligned so digits line up. */
-function numeric(field: Field): boolean {
+export function numeric(field: Field): boolean {
   return DataType.isInt(field.type) || DataType.isFloat(field.type) || DataType.isDecimal(field.type);
 }
 

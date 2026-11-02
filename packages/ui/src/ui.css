@@ -14,7 +14,7 @@
   height: var(--control-height);
   padding: 0 18px;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-button);
   font: var(--text-button);
   white-space: nowrap;
   cursor: pointer;
@@ -46,6 +46,16 @@
   opacity: 1;
   background: var(--color-fill);
   color: var(--color-ink-secondary);
+}
+/* Neutral buttons ease their hover; a crimson fill changes at once, so white
+   text never sits on a half-faded color. */
+.oik-button--secondary,
+.oik-button--quiet,
+.oik-icon-button {
+  transition:
+    background-color 150ms var(--ease),
+    color 150ms var(--ease),
+    transform 100ms ease-out;
 }
 .oik-button--secondary {
   background: var(--color-fill);
@@ -89,7 +99,7 @@
   height: var(--control-height);
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-button);
   background: none;
   color: var(--color-ink-secondary);
   cursor: pointer;
@@ -98,13 +108,15 @@
   background: var(--color-fill);
   color: var(--color-ink);
 }
+/* A white square edged like a card, as the reference's toolbar buttons */
 .oik-icon-button--filled {
-  background: var(--color-fill);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
   color: var(--color-ink);
 }
 .oik-icon-button--filled:hover,
 .oik-icon-button--filled[aria-expanded="true"] {
-  background: var(--color-fill-hover);
+  background: var(--color-fill);
 }
 
 .oik-link {
@@ -252,6 +264,10 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.oik-row--button,
+.oik-row--link {
+  transition: background-color 150ms var(--ease);
 }
 .oik-row--button:hover,
 .oik-row--link:hover {
@@ -789,10 +805,10 @@
   border-radius: var(--radius-dialog);
   background: var(--color-surface);
   color: var(--color-ink);
-  box-shadow: 0 24px 64px rgba(45, 41, 38, 0.22);
+  box-shadow: 0 0 0 1px var(--color-border), 0 24px 64px rgba(29, 29, 31, 0.18);
 }
 .oik-dialog::backdrop {
-  background: rgba(45, 41, 38, 0.28);
+  background: rgba(29, 29, 31, 0.32);
   animation: oik-fade 180ms ease-out;
 }
 .oik-dialog[open] {

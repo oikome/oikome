@@ -82,7 +82,16 @@ format: string, readonly: boolean,
 /**
  * Contacts it is shared with now (active shares).
  */
-sharedWith: number, };
+sharedWith: number, 
+/**
+ * The registered storage it is kept on (`oikome storage add`); `None`
+ * for this computer's disk, and for a remote Space.
+ */
+storage: string | null, 
+/**
+ * One of the examples a new data center starts with (`add_examples`).
+ */
+example: boolean, };
 
 /**
  * `create_space`: a new local Space.
@@ -95,7 +104,38 @@ name: string,
 /**
  * `analytical` (default) or `transactional`.
  */
-kind?: SpaceKind, };
+kind?: SpaceKind, 
+/**
+ * A storage registered with `oikome storage add`; this computer's disk
+ * when left out.
+ */
+storage?: string, };
+
+/**
+ * Where a storage keeps its files.
+ */
+export type StorageType = "disk" | "webdav" | "folder" | "drive";
+
+/**
+ * A place Spaces can be kept: this computer, or a registered storage.
+ */
+export type StorageSummary = { 
+/**
+ * `None` for this computer; otherwise the name to create a Space with.
+ */
+name: string | null, type: StorageType, 
+/**
+ * Where: the data directory, the folder, or the WebDAV address.
+ */
+place: string, 
+/**
+ * Files are encrypted before they reach the storage.
+ */
+encrypted: boolean, 
+/**
+ * Local Spaces kept there.
+ */
+spaces: number, };
 
 /**
  * Names one Space.
@@ -110,7 +150,12 @@ export type RelationKind = "table" | "view";
 /**
  * A relation of a Space.
  */
-export type TableSummary = { name: string, kind: RelationKind, };
+export type TableSummary = { name: string, kind: RelationKind, 
+/**
+ * How many rows it has; `None` for another node's Space, which is not
+ * asked just to count.
+ */
+rows: number | null, };
 
 /**
  * `read_rows`: a page of a table or view, as an Arrow IPC stream.

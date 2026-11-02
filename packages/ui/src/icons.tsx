@@ -15,11 +15,17 @@ export type IconName =
   | "computer"
   | "copy"
   | "download"
+  | "drive"
   | "error"
+  | "folder"
+  | "home"
   | "key"
   | "mark"
   | "more"
+  | "nas"
+  | "note"
   | "person-plus"
+  | "photo"
   | "plus"
   | "sliders"
   | "table"
@@ -29,6 +35,29 @@ export type IconName =
 
 const PATHS: Record<IconName, ReactElement> = {
   activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
+  drive: <path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 11.6 3.5 3.5 0 0 0 7 18.5z" />,
+  folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
+  home: <path d="M4 10.75 12 4.5l8 6.25V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z" />,
+  nas: (
+    <>
+      <rect x="6" y="3.5" width="12" height="17" rx="2" />
+      <path d="M9 8h6M9 11h6" />
+      <circle cx="12" cy="16" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  note: (
+    <>
+      <path d="M6.5 4h11A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5v-13A1.5 1.5 0 0 1 6.5 4z" />
+      <path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" />
+    </>
+  ),
+  photo: (
+    <>
+      <rect x="3.5" y="5" width="17" height="14" rx="2" />
+      <circle cx="9" cy="10" r="1.75" />
+      <path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4" />
+    </>
+  ),
   back: <path d="M15 5l-7 7 7 7" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   chevron: <path d="M9 5l7 7-7 7" />,

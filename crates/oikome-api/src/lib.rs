@@ -25,9 +25,10 @@
 //!
 //! The API never builds SQL from request fields: names are checked against
 //! the catalog and the operations call the node directly. Only `run_sql`
-//! runs SQL, the owner's own.
+//! runs SQL, the owner's own; `add_examples` runs this crate's constants.
 
 pub mod error;
+mod examples;
 pub mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,7 +37,7 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
-use oikome_catalog::{LocationFormat, OikomeCatalog};
+use oikome_catalog::{LocationFormat, OikomeCatalog, StorageKind};
 use oikome_core::{validate_space_name, AccessMode, CreateSpaceRequest};
 use oikome_identity::keys::NODE_KEY_FILE;
 use oikome_identity::ucan::{ABILITY_QUERY, ABILITY_READ};
@@ -79,6 +80,13 @@ struct NodeSettings {
     /// When the owner said they stored the recovery key.
     #[serde(default)]
     recovery_key_saved_at_ms: Option<u64>,
+    /// When the examples were added; they are added once, so removing them
+    /// is for good.
+    #[serde(default)]
+    examples_added_at_ms: Option<u64>,
+    /// The examples still there.
+    #[serde(default)]
+    examples: Vec<String>,
 }
 
 fn now_ms() -> u64 {
@@ -175,6 +183,19 @@ fn encode_rows(
         writer.finish().map_err(ApiError::internal)?;
     }
     Ok(Rows { ipc, truncated })
+}
+
+/// The single number a `count(*)` returned.
+fn first_count(batches: &[RecordBatch]) -> Option<u64> {
+    let batch = batches.iter().find(|b| b.num_rows() > 0)?;
+    let column = batch.column(0);
+    if let Some(a) = column.as_any().downcast_ref::<arrow_array::Int64Array>() {
+        return u64::try_from(a.value(0)).ok();
+    }
+    column
+        .as_any()
+        .downcast_ref::<arrow_array::UInt64Array>()
+        .map(|a| a.value(0))
 }
 
 fn parse_did(text: &str) -> Result<String, ApiError> {
@@ -341,6 +362,7 @@ impl Api {
     ) -> Result<Vec<SpaceSummary>, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        let examples = self.settings()?.examples;
         let mut shared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for share in self.shares()? {
             if share.status == ShareStatus::Active {
@@ -352,11 +374,12 @@ impl Api {
             .list_spaces()
             .into_iter()
             .map(|space| {
-                let format = self
-                    .catalog
-                    .get_location(&space.location)
+                let location = self.catalog.get_location(&space.location).ok();
+                let format = location
+                    .as_ref()
                     .map(|l| format_name(&l.format))
                     .unwrap_or("unknown");
+                let storage = location.and_then(|l| l.storage).map(|b| b.storage);
                 SpaceSummary {
                     kind: match space.kind {
                         oikome_core::SpaceKind::Analytical => SpaceKind::Analytical,
@@ -367,6 +390,8 @@ impl Api {
                     readonly: space.access == AccessMode::ReadOnly
                         || space.kind == oikome_core::SpaceKind::Remote,
                     shared_with: shared.get(&space.name).map_or(0, |d| d.len() as u32),
+                    storage,
+                    example: examples.contains(&space.name),
                     name: space.name,
                 }
             })
@@ -391,10 +416,26 @@ impl Api {
             }
         };
         self.refresh()?;
+        if let Some(storage) = &req.storage {
+            self.catalog.get_storage(storage)?;
+        }
+        // A removed Space leaves its files, and the name with them.
+        if self.catalog.get_space(&req.name).is_err()
+            && self.catalog.get_location(&req.name).is_ok()
+        {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "the files of a removed space named '{}' are still in the data directory",
+                    req.name
+                ),
+            ));
+        }
         self.session(None)
             .create_space(CreateSpaceRequest {
                 name: req.name.clone(),
                 kind: Some(kind),
+                storage: req.storage.clone(),
                 ..Default::default()
             })
             .await?;
@@ -418,7 +459,104 @@ impl Api {
             }
         }
         session.drop_space(&req.space).await?;
+        let mut settings = self.settings()?;
+        if settings.examples.contains(&req.space) {
+            settings.examples.retain(|name| name != &req.space);
+            self.save_settings(&settings)?;
+        }
         Ok(Empty {})
+    }
+
+    /// Add the examples a new data center starts with (one weekend in
+    /// Lisbon: photos, notes and spending), once. A name already taken is
+    /// left alone. Returns the examples there now.
+    pub async fn add_examples(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<SpaceSummary>, ApiError> {
+        caller.require_owner()?;
+        let mut settings = self.settings()?;
+        if settings.examples_added_at_ms.is_none() {
+            self.refresh()?;
+            let session = self.session(None);
+            for example in examples::examples() {
+                if self.catalog.get_space(example.name).is_ok()
+                    || self.catalog.get_location(example.name).is_ok()
+                {
+                    continue;
+                }
+                session
+                    .create_space(CreateSpaceRequest {
+                        name: example.name.to_string(),
+                        kind: Some(oikome_core::SpaceKind::Analytical),
+                        ..Default::default()
+                    })
+                    .await?;
+                for statement in &example.statements {
+                    if let Err(e) = session.sql(statement).await {
+                        // Leave no half-filled example behind.
+                        let _ = session.drop_space(example.name).await;
+                        return Err(e.into());
+                    }
+                }
+                settings.examples.push(example.name.to_string());
+            }
+            settings.examples_added_at_ms = Some(now_ms());
+            self.save_settings(&settings)?;
+        }
+        Ok(self
+            .list_spaces(caller, Empty {})
+            .await?
+            .into_iter()
+            .filter(|space| space.example)
+            .collect())
+    }
+
+    /// Where Spaces can be kept: this computer first, then each registered
+    /// storage, with the number of local Spaces on it.
+    pub async fn list_storages(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<StorageSummary>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let mut counts: BTreeMap<Option<String>, u32> = BTreeMap::new();
+        for space in self.catalog.list_spaces() {
+            if space.kind == oikome_core::SpaceKind::Remote {
+                continue;
+            }
+            let storage = self
+                .catalog
+                .get_location(&space.location)
+                .ok()
+                .and_then(|l| l.storage)
+                .map(|b| b.storage);
+            *counts.entry(storage).or_default() += 1;
+        }
+        let mut out = vec![StorageSummary {
+            name: None,
+            kind: StorageType::Disk,
+            place: self.catalog.root_path().to_string(),
+            encrypted: false,
+            spaces: counts.get(&None).copied().unwrap_or(0),
+        }];
+        for def in self.catalog.list_storages() {
+            let (kind, place) = match &def.kind {
+                StorageKind::Webdav { endpoint, .. } => (StorageType::Webdav, endpoint.clone()),
+                StorageKind::Folder { path } => (StorageType::Folder, path.clone()),
+                StorageKind::Drive { path } => (StorageType::Drive, path.clone()),
+            };
+            out.push(StorageSummary {
+                spaces: counts.get(&Some(def.name.clone())).copied().unwrap_or(0),
+                name: Some(def.name),
+                kind,
+                place,
+                encrypted: def.encrypted,
+            });
+        }
+        Ok(out)
     }
 
     /// Tables and views of a Space.
@@ -435,18 +573,36 @@ impl Api {
             .into_iter()
             .map(|v| v.name)
             .collect();
-        let names = self.session(None).readable_relations(&req.space).await?;
-        Ok(names
-            .into_iter()
-            .map(|name| TableSummary {
+        let local = self.catalog.get_space(&req.space)?.kind != oikome_core::SpaceKind::Remote;
+        let session = self.session(None);
+        let names = session.readable_relations(&req.space).await?;
+        let mut out = Vec::with_capacity(names.len());
+        for name in names {
+            let rows = if local {
+                // Both names were found in the catalog, and are quoted on top.
+                let sql = format!(
+                    "SELECT count(*) FROM {}.{}",
+                    quote_ident(&req.space),
+                    quote_ident(&name)
+                );
+                match session.sql(&sql).await {
+                    Ok(QueryResult::Batches { batches, .. }) => first_count(&batches),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            out.push(TableSummary {
                 kind: if views.contains(&name) {
                     RelationKind::View
                 } else {
                     RelationKind::Table
                 },
                 name,
-            })
-            .collect())
+                rows,
+            });
+        }
+        Ok(out)
     }
 
     /// A page of a table or view.

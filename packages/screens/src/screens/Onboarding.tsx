@@ -8,15 +8,11 @@ import { Button, Card, ErrorText, Icon, StepDots, TextField } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
+import { homeRelative } from "../format";
 import { RecoveryKeyPanel } from "../parts";
 import { strings } from "../strings";
 
 const STEPS = 3;
-
-/** A path under a home folder as ~/…, the way people know it. */
-function homeRelative(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
-}
 
 /** The large line glyph that opens each step. */
 function Hero({ icon }: { icon: IconName }) {
@@ -38,7 +34,8 @@ export function Onboarding({
 }) {
   const client = useClient();
   const [step, setStep] = useState(info.name ? 2 : 1);
-  const [name, setName] = useState(info.name);
+  // A name is filled in: a lazy Continue is a fine answer.
+  const [name, setName] = useState(info.name || strings.defaultName);
   const [restoreHelp, setRestoreHelp] = useState(false);
   const save = useAction();
   const s = strings.onboarding;
@@ -52,9 +49,13 @@ export function Onboarding({
             className="screen-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              const updated = await save.run(() =>
-                client.renameNode({ name: name.trim() || strings.defaultName }),
-              );
+              const updated = await save.run(async () => {
+                const renamed = await client.renameNode({ name: name.trim() || strings.defaultName });
+                // Something to look at on the first day; once, and only on
+                // a data center with nothing in it yet.
+                await client.addExamples().catch(() => undefined);
+                return renamed;
+              });
               if (updated) {
                 onInfo(updated);
                 setStep(2);
@@ -70,6 +71,7 @@ export function Onboarding({
               value={name}
               onChange={setName}
               placeholder={strings.defaultName}
+              selectOnFocus
               autoFocus
             />
             <div className="screen-location">

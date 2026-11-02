@@ -7,18 +7,18 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Banner, Button, Card, EmptyState, ErrorText, Icon, ToastProvider } from "@oikome/ui";
+import { Button, Card, EmptyState, ErrorText, Icon, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo } from "@oikome/client";
 import { ClientProvider, useClient, useLoad } from "./data";
-import { BannerContext } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
+import { Collection } from "./screens/Collection";
 import { Collections } from "./screens/Collections";
+import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
 import { Sharing } from "./screens/Sharing";
-import { Sql } from "./screens/Sql";
 import { strings } from "./strings";
 
 export function App({ client }: { client: NodeClient }) {
@@ -31,12 +31,27 @@ export function App({ client }: { client: NodeClient }) {
   );
 }
 
-const NAV: { to: string; label: string; icon: IconName }[] = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon: IconName;
+}
+
+const NAV: NavItem[] = [
+  { to: "/", label: strings.nav.home, icon: "home" },
   { to: "/collections", label: strings.nav.collections, icon: "collection" },
   { to: "/sharing", label: strings.nav.sharing, icon: "person-plus" },
   { to: "/activity", label: strings.nav.activity, icon: "activity" },
-  { to: "/settings", label: strings.nav.settings, icon: "sliders" },
 ];
+/** At the foot of the sidebar, as settings usually are. */
+const FOOT: NavItem[] = [{ to: "/settings", label: strings.nav.settings, icon: "sliders" }];
+
+/** The section a path belongs to: Home only for "/" itself. */
+function sectionOf(path: string): NavItem | undefined {
+  return [...NAV, ...FOOT].find((item) =>
+    item.to === "/" ? path === "/" : path === item.to || path.startsWith(`${item.to}/`),
+  );
+}
 
 function Root() {
   const client = useClient();
@@ -53,10 +68,6 @@ function Root() {
     setInfo(node.data.info);
     setOnboarding((current) => current ?? node.data?.firstRun);
   }, [node.data]);
-
-  useEffect(() => {
-    if (path === "/" && onboarding === false) navigate("/collections", { replace: true });
-  }, [path, onboarding]);
 
   if (node.error) {
     return (
@@ -78,75 +89,78 @@ function Root() {
         onInfo={setInfo}
         onFinished={() => {
           setOnboarding(false);
-          navigate("/collections", { replace: true });
+          navigate("/", { replace: true });
         }}
       />
     );
   }
 
-  const section = NAV.find((item) => path === item.to || path.startsWith(`${item.to}/`));
+  const section = sectionOf(path);
   let screen: ReactNode;
-  if (path === "/collections" || path.startsWith("/collections/")) {
-    const name = path.slice("/collections/".length);
-    screen = (
-      <Collections
-        selected={name ? decodeURIComponent(name) : undefined}
-        startCreating={query.get("new") === "1"}
-      />
-    );
+  if (path === "/") {
+    screen = <Home info={info} />;
+  } else if (path === "/collections") {
+    screen = <Collections startCreating={query.get("new") === "1"} />;
+  } else if (path.startsWith("/collections/")) {
+    let name = path.slice("/collections/".length);
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // A malformed address names no collection; the page says so.
+    }
+    screen = <Collection key={name} name={name} />;
   } else if (path === "/sharing") {
     screen = <Sharing info={info} startAdding={query.get("add") === "1"} />;
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {
     screen = <Settings info={info} onInfo={setInfo} backup={query.get("backup") === "1"} />;
-  } else if (path === "/settings/advanced") {
-    screen = <Sql />;
-  } else if (path === "/") {
-    screen = null;
   } else {
     screen = (
       <Card>
         <EmptyState
           title={strings.notFound.title}
-          action={<Link to="/collections">{strings.nav.collections}</Link>}
+          action={<Link to="/">{strings.nav.home}</Link>}
         />
       </Card>
     );
   }
 
   return (
-    // The backup reminder stays on the home screen (Collections) until the
-    // key is saved, rather than on every screen.
-    <Shell info={info} current={section?.to} showBackup={!info.recoveryKeySaved && section?.to === "/collections"}>
+    <Shell info={info} current={section?.to}>
       {screen}
     </Shell>
+  );
+}
+
+function NavList({ items, current }: { items: NavItem[]; current?: string }) {
+  return (
+    <ul className="screen-nav">
+      {items.map((item) => (
+        <li key={item.to}>
+          <Link to={item.to} className="screen-nav__item" current={item.to === current}>
+            <Icon name={item.icon} />
+            {item.label}
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 function Shell({
   info,
   current,
-  showBackup,
   children,
 }: {
   info: NodeInfo;
   current?: string;
-  showBackup: boolean;
   children: ReactNode;
 }) {
   useEffect(() => {
-    const label = NAV.find((item) => item.to === current)?.label;
+    const label = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
     document.title = label ? `${label} · ${strings.brand}` : strings.brand;
   }, [current]);
-
-  const banner = showBackup ? (
-    <Banner
-      title={strings.backup.bannerTitle}
-      body={strings.backup.bannerBody}
-      action={<Button onClick={() => navigate("/settings?backup=1")}>{strings.backup.backUpNow}</Button>}
-    />
-  ) : null;
 
   return (
     <div className="screen-shell">
@@ -155,36 +169,33 @@ function Shell({
       </a>
       <aside className="screen-sidebar">
         <div className="screen-sidebar__inner">
-        <div className="screen-brand">
-          <span className="screen-brand__mark" aria-hidden="true">
-            <Icon name="mark" />
-          </span>
-          <span>
+          <div className="screen-brand">
+            <span className="screen-brand__mark" aria-hidden="true">
+              <Icon name="mark" />
+            </span>
             <span className="screen-brand__name">{strings.brand}</span>
-            <span className="screen-brand__subtitle">{info.name || strings.brandSubtitle}</span>
-          </span>
-        </div>
-        <nav aria-label={strings.nav.label}>
-          <ul className="screen-nav">
-            {NAV.map((item) => (
-              <li key={item.to}>
-                <Link to={item.to} className="screen-nav__item" current={item.to === current}>
-                  <Icon name={item.icon} />
-                  {item.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        {/* The node this page is served by: it runs here, on this computer. */}
-        <p className="screen-node">
-          <span className="screen-dot screen-dot--ok" aria-hidden="true" />
-          {strings.nav.running}
-        </p>
+          </div>
+          <nav className="screen-sidebar__nav" aria-label={strings.nav.label}>
+            <NavList items={NAV} current={current} />
+            <NavList items={FOOT} current={current} />
+          </nav>
+          {/* The data center this page is served by: it runs here, on this computer. */}
+          <div className="screen-node">
+            <span className="screen-node__mark" aria-hidden="true">
+              {(info.name || strings.defaultName).trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="screen-node__text">
+              <span className="screen-node__name">{info.name || strings.defaultName}</span>
+              <span className="screen-node__state">
+                <span className="screen-live__dot" aria-hidden="true" />
+                {strings.nav.running}
+              </span>
+            </span>
+          </div>
         </div>
       </aside>
       <main id="main" tabIndex={-1} className="screen-main">
-        <BannerContext.Provider value={banner}>{children}</BannerContext.Provider>
+        {children}
       </main>
     </div>
   );

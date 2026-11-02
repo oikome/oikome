@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Settings, as grouped rows: the recovery key, the data center itself,
-// language, advanced.
+// where collections are kept, language.
 
 import { useState } from "react";
 import {
@@ -16,14 +16,59 @@ import {
   Tile,
   useToast,
 } from "@oikome/ui";
-import type { NodeInfo } from "@oikome/client";
-import { useAction, useClient } from "../data";
+import type { IconName, TileTone } from "@oikome/ui";
+import type { NodeInfo, StorageSummary } from "@oikome/client";
+import { useAction, useClient, useLoad } from "../data";
 import { RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { shortId } from "../format";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
 const s = strings.settings;
+
+const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
+  disk: ["computer", "stone"],
+  webdav: ["nas", "sage"],
+  folder: ["folder", "oat"],
+  drive: ["drive", "periwinkle"],
+};
+
+/** Where collections can be kept, with how many are on each. */
+function Storage() {
+  const client = useClient();
+  const storages = useLoad(() => client.listStorages(), []);
+  return (
+    <Group title={s.storageTitle} footnote={s.storageFootnote}>
+      {storages.error && <Row title={storages.error} muted />}
+      {(storages.data ?? []).map((x) => {
+        const [icon, tone] = STORAGE_LOOK[x.type];
+        const meta = [
+          s.storageCount(x.spaces),
+          x.name === null ? null : s.storageKind[x.type],
+          x.encrypted ? s.encrypted : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <Row
+            key={x.name ?? ""}
+            leading={<Tile icon={icon} tone={tone} />}
+            title={x.name ?? s.thisComputer}
+            meta={
+              <>
+                {meta}
+                <br />
+                <span className="oik-mono" translate="no">
+                  {x.place}
+                </span>
+              </>
+            }
+          />
+        );
+      })}
+    </Group>
+  );
+}
 
 export function Settings({
   info,
@@ -163,6 +208,8 @@ export function Settings({
         <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
       </Group>
 
+      <Storage />
+
       <Group title={s.preferencesTitle}>
         <Row
           title={s.languageTitle}
@@ -171,16 +218,6 @@ export function Settings({
         />
       </Group>
 
-      <Group title={s.advancedTitle}>
-        <Row
-          leading={<Tile icon="terminal" tone="stone" />}
-          title={s.sqlTitle}
-          meta={s.sqlBody}
-          chevron
-          href="/settings/advanced"
-          onClick={() => navigate("/settings/advanced")}
-        />
-      </Group>
     </div>
   );
 }

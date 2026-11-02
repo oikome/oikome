@@ -5222,6 +5222,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "base64 0.22.1",
  "iceberg",
  "oikome-catalog",
  "oikome-core",

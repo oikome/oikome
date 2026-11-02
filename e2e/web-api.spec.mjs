@@ -113,7 +113,13 @@ test("the owner creates a space, writes rows and reads them back", async () => {
   expect(info.flightUrl).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/);
 
   const space = await client.createSpace({ name: "notes" });
-  expect(space).toMatchObject({ name: "notes", kind: "analytical", sharedWith: 0 });
+  expect(space).toMatchObject({
+    name: "notes",
+    kind: "analytical",
+    sharedWith: 0,
+    storage: null,
+    example: false,
+  });
   const written = await client.runSql({
     sql:
       "CREATE TABLE notes.memos (id BIGINT NOT NULL, body VARCHAR); " +
@@ -121,7 +127,9 @@ test("the owner creates a space, writes rows and reads them back", async () => {
   });
   expect(written.kind).toBe("done");
 
-  expect(await client.listTables({ space: "notes" })).toEqual([{ name: "memos", kind: "table" }]);
+  expect(await client.listTables({ space: "notes" })).toEqual([
+    { name: "memos", kind: "table", rows: 2 },
+  ]);
   const page = await client.readRows({ space: "notes", table: "memos" });
   expect(page.truncated).toBe(false);
   expect(page.table.toArray().map((row) => row.body).sort()).toEqual(["buy milk", "call mum"]);

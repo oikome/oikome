@@ -24,7 +24,8 @@ import { strings } from "../strings";
 const s = strings.activity;
 const PAGE = 50;
 
-function sentence(item: AccessItem): string {
+/** One line of the log, in words: "Sam read lisbon-photos". */
+export function sentence(item: AccessItem): string {
   const who = item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
   const what = item.spaces.length > 0 ? item.spaces.join(", ") : s.yourData;
   if (item.outcome === "denied") return s.turnedAway(who, what);

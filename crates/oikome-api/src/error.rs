@@ -87,7 +87,8 @@ impl From<CatalogError> for ApiError {
             | CatalogError::LocationNotFound(_)
             | CatalogError::ViewNotFound(_)
             | CatalogError::PolicyNotFound(_)
-            | CatalogError::ContactNotFound(_) => Self::not_found(e.to_string()),
+            | CatalogError::ContactNotFound(_)
+            | CatalogError::StorageNotFound(_) => Self::not_found(e.to_string()),
             CatalogError::SpaceExists(_)
             | CatalogError::ViewExists(_)
             | CatalogError::PolicyExists(_)

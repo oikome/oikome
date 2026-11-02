@@ -362,6 +362,7 @@ export function TextField({
   placeholder,
   mono,
   autoFocus,
+  selectOnFocus,
 }: FieldProps & {
   /** The field's name; fields here are never credentials, so autofill is off. */
   name: string;
@@ -370,6 +371,8 @@ export function TextField({
   placeholder?: string;
   mono?: boolean;
   autoFocus?: boolean;
+  /** Select a suggested value on focus, so typing replaces it. */
+  selectOnFocus?: boolean;
 }) {
   const id = useId();
   return (
@@ -385,6 +388,7 @@ export function TextField({
         value={value}
         placeholder={placeholder}
         autoFocus={autoFocus}
+        onFocus={selectOnFocus ? (e) => e.currentTarget.select() : undefined}
         spellCheck={mono ? false : undefined}
         aria-invalid={error ? true : undefined}
         onChange={(e) => onChange(e.target.value)}

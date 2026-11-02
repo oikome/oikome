@@ -77,6 +77,7 @@ async fn notes(n: &Node) {
             NewSpace {
                 name: "notes".into(),
                 kind: None,
+                storage: None,
             },
         )
         .await
@@ -128,7 +129,8 @@ async fn spaces_rows_and_sql() {
         tables,
         vec![TableSummary {
             name: "memos".into(),
-            kind: RelationKind::Table
+            kind: RelationKind::Table,
+            rows: Some(3),
         }]
     );
 
@@ -196,6 +198,7 @@ async fn bad_names_are_refused() {
                 NewSpace {
                     name: name.into(),
                     kind: None,
+                    storage: None,
                 },
             )
             .await
@@ -323,6 +326,7 @@ async fn copies_are_for_analytical_spaces() {
             NewSpace {
                 name: "orders".into(),
                 kind: Some(SpaceKind::Transactional),
+                storage: None,
             },
         )
         .await
@@ -500,4 +504,120 @@ async fn an_identity_is_restored_only_into_an_empty_node() {
     notes(&old).await;
     let e = restore_identity(&old.catalog, &key.key).unwrap_err();
     assert_eq!(e.code, ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn a_new_data_center_gets_examples_once() {
+    let n = node();
+    let added = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["lisbon-notes", "lisbon-photos", "lisbon-spending"]);
+    assert!(added.iter().all(|s| s.example && s.storage.is_none()));
+
+    // Photos are images, kept whole.
+    let rows = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "lisbon-photos".into(),
+                table: "photos".into(),
+                limit: None,
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    let batch = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert_eq!(batch.num_rows(), 6);
+    let photo = batch
+        .column_by_name("photo")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<arrow_array::BinaryArray>()
+        .unwrap();
+    assert!(photo.value(0).starts_with(&[0xff, 0xd8, 0xff]), "a JPEG");
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "lisbon-photos".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(tables.len(), 1);
+    assert_eq!(tables[0].rows, Some(6));
+    for (space, table, count) in [
+        ("lisbon-notes", "notes", 7),
+        ("lisbon-spending", "spending", 10),
+    ] {
+        let rows = n
+            .api
+            .read_rows(
+                &OWNER,
+                ReadRows {
+                    space: space.into(),
+                    table: table.into(),
+                    limit: None,
+                    offset: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(row_count(&rows), count, "{space}");
+    }
+
+    // Removing one is for good, and the rest stay examples.
+    n.api
+        .drop_space(
+            &OWNER,
+            SpaceRef {
+                space: "lisbon-notes".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let again = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(again.len(), 2);
+    let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(storages.len(), 1);
+    assert_eq!(storages[0].name, None);
+    assert_eq!(storages[0].kind, StorageType::Disk);
+    assert_eq!(storages[0].spaces, 2);
+
+    // Its files stay, and keep the name.
+    let err = n
+        .api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "lisbon-notes".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err}");
+
+    // An unknown storage is refused before anything is made.
+    let err = n
+        .api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "elsewhere".into(),
+                kind: None,
+                storage: Some("nas".into()),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err}");
 }

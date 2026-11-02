@@ -29,6 +29,40 @@ export function dateTime(ms: number): string {
   return moment.format(new Date(ms));
 }
 
+const wall = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: "UTC",
+});
+
+/**
+ * A time written without a time zone (SQL `TIMESTAMP`): shown as written,
+ * the clock on the wall where it was noted, not moved to the viewer's zone.
+ */
+export function wallTime(ms: number): string {
+  return wall.format(new Date(ms));
+}
+
+/** A DECIMAL's unscaled digits with its point put back: "1500", 2 reads "15.00". */
+export function decimal(unscaled: string, scale: number): string {
+  let digits = unscaled;
+  const negative = digits.startsWith("-");
+  if (negative) digits = digits.slice(1);
+  if (scale > 0) {
+    digits = digits.padStart(scale + 1, "0");
+    digits = `${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
+  }
+  return negative ? `-${digits}` : digits;
+}
+
+/** A path under a home folder as ~/…, the way people know it. */
+export function homeRelative(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+}
+
 const ACRONYMS = new Set(["id", "url", "uuid", "ip", "api"]);
 
 /** A column name as a header: "created_at" reads "Created at", "user_id" "User ID". */

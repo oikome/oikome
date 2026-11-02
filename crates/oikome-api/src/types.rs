@@ -86,6 +86,11 @@ pub struct SpaceSummary {
     pub readonly: bool,
     /// Contacts it is shared with now (active shares).
     pub shared_with: u32,
+    /// The registered storage it is kept on (`oikome storage add`); `None`
+    /// for this computer's disk, and for a remote Space.
+    pub storage: Option<String>,
+    /// One of the examples a new data center starts with (`add_examples`).
+    pub example: bool,
 }
 
 /// `create_space`: a new local Space.
@@ -98,6 +103,41 @@ pub struct NewSpace {
     #[serde(default)]
     #[ts(optional)]
     pub kind: Option<SpaceKind>,
+    /// A storage registered with `oikome storage add`; this computer's disk
+    /// when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub storage: Option<String>,
+}
+
+/// Where a storage keeps its files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageType {
+    /// This computer's disk, under the data directory.
+    Disk,
+    /// A WebDAV server, such as a NAS.
+    Webdav,
+    /// A mounted folder, such as a NAS share.
+    Folder,
+    /// A folder a cloud drive's desktop client syncs.
+    Drive,
+}
+
+/// A place Spaces can be kept: this computer, or a registered storage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSummary {
+    /// `None` for this computer; otherwise the name to create a Space with.
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: StorageType,
+    /// Where: the data directory, the folder, or the WebDAV address.
+    pub place: String,
+    /// Files are encrypted before they reach the storage.
+    pub encrypted: bool,
+    /// Local Spaces kept there.
+    pub spaces: u32,
 }
 
 /// Names one Space.
@@ -121,6 +161,9 @@ pub enum RelationKind {
 pub struct TableSummary {
     pub name: String,
     pub kind: RelationKind,
+    /// How many rows it has; `None` for another node's Space, which is not
+    /// asked just to count.
+    pub rows: Option<u64>,
 }
 
 /// `read_rows`: a page of a table or view, as an Arrow IPC stream.

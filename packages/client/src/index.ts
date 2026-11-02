@@ -31,6 +31,7 @@ import type {
   SpaceRef,
   SpaceSummary,
   SqlDone,
+  StorageSummary,
   TableSummary,
 } from "@oikome/api";
 import { tableFromIPC } from "apache-arrow";
@@ -58,6 +59,8 @@ export interface NodeClient {
   createSpace(request: NewSpace): Promise<SpaceSummary>;
   dropSpace(request: SpaceRef): Promise<Empty>;
   listTables(request: SpaceRef): Promise<TableSummary[]>;
+  addExamples(): Promise<SpaceSummary[]>;
+  listStorages(): Promise<StorageSummary[]>;
   readRows(request: ReadRows): Promise<RowsResult>;
   runSql(request: RunSql): Promise<SqlResult>;
   listContacts(): Promise<Contact[]>;
@@ -173,6 +176,14 @@ export class HttpClient implements NodeClient {
 
   listTables(request: SpaceRef): Promise<TableSummary[]> {
     return this.#json("list_tables", request);
+  }
+
+  addExamples(): Promise<SpaceSummary[]> {
+    return this.#json("add_examples", {});
+  }
+
+  listStorages(): Promise<StorageSummary[]> {
+    return this.#json("list_storages", {});
   }
 
   async readRows(request: ReadRows): Promise<RowsResult> {

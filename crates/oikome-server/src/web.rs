@@ -386,6 +386,8 @@ impl WebState {
             "create_space" => json_op!(create_space, NewSpace),
             "drop_space" => json_op!(drop_space, SpaceRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
+            "add_examples" => json_op!(add_examples, Empty),
+            "list_storages" => json_op!(list_storages, Empty),
             "read_rows" => match parse::<ReadRows>(&body) {
                 Ok(request) => match api.read_rows(&caller, request).await {
                     Ok(rows) => arrow(rows),

@@ -56,6 +56,8 @@ fn bindings() -> String {
         SpaceKind,
         SpaceSummary,
         NewSpace,
+        StorageType,
+        StorageSummary,
         SpaceRef,
         RelationKind,
         TableSummary,

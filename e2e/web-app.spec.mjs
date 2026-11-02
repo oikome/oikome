@@ -124,7 +124,7 @@ test("a collection is filled in the SQL workbench and browsed", async () => {
   await page.getByLabel("Name").fill("notes");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/\/collections\/notes$/);
-  await expect(page.getByText("Nothing in notes yet")).toBeVisible();
+  await expect(page.getByText("No Data Yet")).toBeVisible();
 
   await page.getByRole("button", { name: "Open Advanced" }).click();
   await expect(page.getByRole("heading", { name: "SQL Workbench" })).toBeVisible();
@@ -152,7 +152,12 @@ test("a collection is filled in the SQL workbench and browsed", async () => {
 test("a contact reads a shared collection until the share is stopped", async () => {
   const did = oikome(contact, "identity").trim();
   await page.getByRole("link", { name: "Sharing" }).click();
-  await page.getByRole("button", { name: "Add Contact" }).click();
+  // With no contact yet, New Share offers to add one and opens the form.
+  await page.getByRole("button", { name: "New Share" }).click();
+  const needContact = page.getByRole("dialog", { name: "New Share" });
+  await needContact.getByRole("button", { name: "Add Contact" }).click();
+  await expect(needContact).toHaveCount(0);
+  await expect(page.getByLabel("Name")).toBeFocused();
   await page.getByLabel("Name").fill("Bob");
   await page.getByLabel("Their ID").fill(did);
   await page.getByRole("button", { name: "Add", exact: true }).click();

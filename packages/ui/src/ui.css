@@ -794,6 +794,9 @@
 .oik-dialog__body {
   padding: var(--space-4) var(--space-6) 0;
 }
+.oik-dialog__body form > :last-child {
+  margin-bottom: 0;
+}
 .oik-dialog__text {
   margin: 0;
   font: var(--text-body);

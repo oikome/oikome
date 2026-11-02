@@ -21,6 +21,7 @@ import type { TileTone } from "@oikome/ui";
 import type { Contact, NewShare, Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { dateFromSeconds } from "../format";
+import { navigate } from "../router";
 import { strings } from "../strings";
 
 const s = strings.sharing;
@@ -83,10 +84,32 @@ export function ShareDialog({
   }
 
   const title = collection ? s.shareTitle(collection) : s.newShare;
+  // A missing step comes with the button that takes you to it, the form
+  // already open there.
   if (spaces.length === 0 || contacts.length === 0) {
+    const noCollection = spaces.length === 0;
     return (
-      <Dialog title={title} closeLabel={close} onClose={onClose} footer={<Button onClick={onClose}>{close}</Button>}>
-        <p className="oik-dialog__text">{spaces.length === 0 ? s.needCollection : s.needContact}</p>
+      <Dialog
+        title={title}
+        closeLabel={close}
+        onClose={onClose}
+        footer={
+          <>
+            <Button onClick={onClose}>{strings.common.cancel}</Button>
+            <Button
+              variant="primary"
+              icon="plus"
+              onClick={() => {
+                onClose();
+                navigate(noCollection ? "/collections?new=1" : "/sharing?add=1");
+              }}
+            >
+              {noCollection ? strings.collections.newCollection : s.addContact}
+            </Button>
+          </>
+        }
+      >
+        <p className="oik-dialog__text">{noCollection ? s.needCollection : s.needContact}</p>
       </Dialog>
     );
   }

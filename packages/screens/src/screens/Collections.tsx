@@ -9,6 +9,7 @@ import {
   Button,
   Card,
   ConfirmDialog,
+  Dialog,
   EmptyState,
   ErrorText,
   Group,
@@ -45,12 +46,22 @@ function sharedNames(shares: Share[] | undefined): Map<string, string[]> {
   return names;
 }
 
-export function Collections({ selected }: { selected?: string }) {
+export function Collections({
+  selected,
+  startCreating = false,
+}: {
+  selected?: string;
+  /** Opened to make one (?new=1), from a step that needs a collection first. */
+  startCreating?: boolean;
+}) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const contacts = useLoad(() => client.listContacts(), []);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(startCreating);
+  useEffect(() => {
+    if (startCreating) setCreating(true);
+  }, [startCreating]);
   const [name, setName] = useState("");
   const create = useAction();
   const shared = sharedNames(shares.data);
@@ -100,23 +111,38 @@ export function Collections({ selected }: { selected?: string }) {
     setCreating(false);
     setName("");
     create.clear();
+    // Drop ?new=1, so a reload does not open the form again.
+    if (startCreating) navigate(window.location.pathname, { replace: true });
   };
 
   return (
     <>
       <ScreenHeader title={s.title}>
         {/* An empty page offers the same action once, in its empty state. */}
-        {!creating && !empty && (
+        {!empty && (
           <Button icon="plus" onClick={() => setCreating(true)}>
             {s.newCollection}
           </Button>
         )}
       </ScreenHeader>
 
+      {/* Making a collection is a short task in a dialog, like sharing one. */}
       {creating && (
-        <Card className="screen-panel">
+        <Dialog
+          title={s.newCollection}
+          closeLabel={strings.common.close}
+          onClose={stopCreating}
+          footer={
+            <>
+              <Button onClick={stopCreating}>{strings.common.cancel}</Button>
+              <Button type="submit" form="new-collection" variant="primary" disabled={create.busy}>
+                {s.create}
+              </Button>
+            </>
+          }
+        >
           <form
-            className="screen-form"
+            id="new-collection"
             onSubmit={async (e) => {
               e.preventDefault();
               const wanted = name.trim();
@@ -133,8 +159,7 @@ export function Collections({ selected }: { selected?: string }) {
                 (err) => (err.code === "conflict" ? s.nameTaken(wanted) : undefined),
               );
               if (space) {
-                setCreating(false);
-                setName("");
+                stopCreating();
                 reload();
                 navigate(`/collections/${encodeURIComponent(space.name)}`);
               }
@@ -152,18 +177,12 @@ export function Collections({ selected }: { selected?: string }) {
               error={create.error}
               autoFocus
             />
-            <div className="screen-actions">
-              <Button onClick={stopCreating}>{strings.common.cancel}</Button>
-              <Button type="submit" variant="primary" disabled={create.busy}>
-                {s.create}
-              </Button>
-            </div>
           </form>
-        </Card>
+        </Dialog>
       )}
 
       {spaces.error && <ErrorText>{spaces.error}</ErrorText>}
-      {empty && !creating && (
+      {empty && (
         <Card>
           <EmptyState
             icon="collection"
@@ -351,7 +370,7 @@ function Detail({
       {tables.data && tables.data.length === 0 && (
         <EmptyState
           icon="table"
-          title={s.nothingYetTitle(space.name)}
+          title={s.nothingYetTitle}
           body={s.nothingYetBody}
           action={<Button onClick={() => navigate("/settings/advanced")}>{s.openAdvanced}</Button>}
         />

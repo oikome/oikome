@@ -4,7 +4,7 @@
 // Sharing: what you share and with whom, and your contacts. New Share opens
 // the same share dialog as a collection's Share button.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Avatar,
   Button,
@@ -23,12 +23,20 @@ import type { Contact, NodeInfo, Share } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { dateFromSeconds, fullId, shortId } from "../format";
 import { ScreenHeader } from "../parts";
+import { navigate } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
 
 const s = strings.sharing;
 
-export function Sharing({ info }: { info: NodeInfo }) {
+export function Sharing({
+  info,
+  startAdding = false,
+}: {
+  info: NodeInfo;
+  /** Opened to add a contact (?add=1), from a share that needs one first. */
+  startAdding?: boolean;
+}) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
@@ -112,7 +120,13 @@ export function Sharing({ info }: { info: NodeInfo }) {
         </Group>
       )}
 
-      <Contacts contacts={contacts.data ?? []} shares={active} me={info.did} onChange={reload} />
+      <Contacts
+        contacts={contacts.data ?? []}
+        shares={active}
+        me={info.did}
+        startAdding={startAdding}
+        onChange={reload}
+      />
 
       <Group title={s.yourId} footnote={s.yourIdBody}>
         <Row
@@ -149,16 +163,21 @@ function Contacts({
   contacts,
   shares,
   me,
+  startAdding,
   onChange,
 }: {
   contacts: Contact[];
   shares: Share[];
   /** This data center's own ID, which is never a contact. */
   me: string;
+  startAdding: boolean;
   onChange: () => void;
 }) {
   const client = useClient();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(startAdding);
+  useEffect(() => {
+    if (startAdding) setAdding(true);
+  }, [startAdding]);
   const [name, setName] = useState("");
   const [did, setDid] = useState("");
   // A problem with one field, shown under that field.
@@ -175,6 +194,8 @@ function Contacts({
     setDid("");
     setProblem(undefined);
     action.clear();
+    // Drop ?add=1, so a reload does not open the form again.
+    if (startAdding) navigate("/sharing", { replace: true });
   };
 
   return (

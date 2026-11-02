@@ -117,7 +117,7 @@ export const strings = {
           ? `You and ${names[0]} can see this.`
           : `You, ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} can see this.`,
     manage: "Manage",
-    nothingYetTitle: (name: string) => `Nothing in ${name} Yet`,
+    nothingYetTitle: "No Data Yet",
     nothingYetBody:
       "Sources that fill collections arrive in a later version. Until then, you can add data in Settings, under Advanced.",
     openAdvanced: "Open Advanced",

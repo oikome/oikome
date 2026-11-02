@@ -86,9 +86,14 @@ function Root() {
   let screen: ReactNode;
   if (path === "/collections" || path.startsWith("/collections/")) {
     const name = path.slice("/collections/".length);
-    screen = <Collections selected={name ? decodeURIComponent(name) : undefined} />;
+    screen = (
+      <Collections
+        selected={name ? decodeURIComponent(name) : undefined}
+        startCreating={query.get("new") === "1"}
+      />
+    );
   } else if (path === "/sharing") {
-    screen = <Sharing info={info} />;
+    screen = <Sharing info={info} startAdding={query.get("add") === "1"} />;
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {

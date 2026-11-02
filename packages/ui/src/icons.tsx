@@ -65,7 +65,15 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M11 12l8-8m-3 3l2.5 2.5M14 9l2 2" />
     </>
   ),
-  mark: <circle cx="12" cy="12" r="7" />,
+  // The Oikome logo: a rounded square open at the foot like a door, with a
+  // dot inside. Traced from the project's logo (460px, square 115-345, 30px
+  // stroke, dot r 34), scaled to this 24px grid.
+  mark: (
+    <>
+      <path d="M10.4 18H8.6A2.6 2.6 0 0 1 6 15.4V8.6A2.6 2.6 0 0 1 8.6 6h6.8A2.6 2.6 0 0 1 18 8.6v6.8a2.6 2.6 0 0 1-2.6 2.6h-1.8" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" />
+    </>
+  ),
   more: (
     <>
       <circle cx="6" cy="12" r="0.9" />

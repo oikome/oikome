@@ -18,12 +18,9 @@
   font: var(--text-button);
   white-space: nowrap;
   cursor: pointer;
-  /* Colors change at once when a button turns on or off (white text never
-     sits on a half-faded fill); only hovering eases them. */
+  /* Colors change at once, on hover and when a button turns on or off, so
+     white text never sits on a half-faded fill; only the press moves. */
   transition: transform 100ms ease-out;
-}
-.oik-button:hover:not(:disabled) {
-  transition: background-color 120ms ease, transform 100ms ease-out;
 }
 .oik-button:active:not(:disabled) {
   transform: scale(0.97);
@@ -718,15 +715,19 @@
   border-collapse: collapse;
   font: var(--text-body);
 }
+/* Column names in grey, no band behind them; one rule under them. */
 .oik-table th {
-  position: sticky;
-  top: 0;
   padding: var(--space-3) var(--space-3);
-  background: var(--color-wash);
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-surface);
   font: var(--text-meta);
   color: var(--color-ink-secondary);
   text-align: left;
   white-space: nowrap;
+}
+/* Numbers line up on the right, digit for digit. */
+.oik-table .oik-num {
+  text-align: right;
 }
 .oik-table td {
   padding: var(--space-3) var(--space-3);

@@ -87,6 +87,11 @@ function show(field: Field, value: unknown): string | null {
   return cell(value);
 }
 
+/** Integer, float and decimal columns: right-aligned so digits line up. */
+function numeric(field: Field): boolean {
+  return DataType.isInt(field.type) || DataType.isFloat(field.type) || DataType.isDecimal(field.type);
+}
+
 /** Rows of an Arrow table; empty cells show a dash. */
 export function RowsTable({ table, label }: { table: Table; label: string }) {
   const fields = table.schema.fields;
@@ -99,7 +104,7 @@ export function RowsTable({ table, label }: { table: Table; label: string }) {
         <thead>
           <tr>
             {fields.map((f) => (
-              <th key={f.name} scope="col" title={f.name}>
+              <th key={f.name} scope="col" title={f.name} className={numeric(f) ? "oik-num" : undefined}>
                 {columnLabel(f.name)}
               </th>
             ))}
@@ -109,7 +114,7 @@ export function RowsTable({ table, label }: { table: Table; label: string }) {
           {rows.map((row, i) => (
             <tr key={i}>
               {row.map((value, j) => (
-                <td key={j}>
+                <td key={j} className={numeric(fields[j]!) ? "oik-num" : undefined}>
                   {value === null ? (
                     <span className="oik-table__null" aria-label="empty">
                       —

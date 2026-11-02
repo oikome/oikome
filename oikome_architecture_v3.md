@@ -8,7 +8,7 @@
 > **Status**: 3.0-A (engines), 3.0-B (local federation), 3.0-C (semantic layer) and 3.0-D (publishing) implemented on `main`. Supersedes v2.0.
 > **Revised 2026-10-30**: positioning changed to an AI-native, multimodal private data center (§1). Added cloud drives (§7.5), Lance as a third Location format (§7.6), connectors (§11), compute sharing (§12) and roadmap phases 3.4–3.6. The engine, federation and semantic layers are unchanged.
 > **Revised 2026-11-01**: added the user-facing apps: repository layout (§13.3), apps and the API layer (§13.4) and an apps track beside the core phases (§14.1).
-> **Revised 2026-11-02**: storages (§7.5): a NAS at home first (3.4a), cloud drives step by step, each once files are encrypted on the client (3.4b onward). 3.4b: client-side encryption, drives through their sync folders, credentials kept by the node (keychain).
+> **Revised 2026-11-02**: storages (§7.5): a NAS at home first (3.4a), cloud drives step by step, each once files are encrypted on the client (3.4b onward). 3.4b: client-side encryption, drives through their sync folders, credentials kept by the node (keychain). 3.5: connectors (§11): CSV files and flomo (HTML export; MCP, not yet run against flomo).
 
 ---
 
@@ -665,38 +665,56 @@ Connectors use only an app's official API or files the person exports. Reverse-e
 
 ### 11.2 Contract
 
+`oikome-connect` holds the contract and the built-in connectors:
+
 ```rust
 #[async_trait]
 pub trait Connector: Send + Sync {
-    fn name(&self) -> &str;              // "flomo"
-    fn tables(&self) -> Vec<TableDef>;   // output tables: name, Arrow schema, source key columns
-    /// Records changed since `cursor`, plus the cursor to store for the next pull.
-    async fn pull(&self, cursor: Option<Cursor>) -> Result<Pull>;
+    fn kind(&self) -> &'static str;      // "csv", "flomo-export", "flomo-mcp"
+    fn tables(&self) -> Vec<TableDef>;   // name, columns (INTEGER / REAL / TEXT / BOOLEAN), source key
+    /// Rows changed since `cursor` (everything when `None`).
+    async fn pull(&self, cursor: Option<&str>) -> Result<Pull, ConnectError>;
 }
 
 pub struct Pull {
-    pub upserts: Vec<(String, SendableRecordBatchStream)>, // table → new or changed rows
-    pub deletes: Vec<(String, Vec<SourceKey>)>,            // when the source reports deletions
-    pub cursor: Cursor,                                    // opaque to Oikome
-    pub complete: bool,                                    // full listing: rows not in it were deleted
+    pub upserts: Vec<(String, Vec<Row>)>, // table → new or changed rows (a value per column)
+    pub deletes: Vec<(String, Vec<Row>)>, // table → keys the source reports deleted
+    pub cursor: Option<String>,           // opaque to the node
+    pub complete: bool,                   // full listing: rows not in it were deleted
 }
 ```
 
+Rows are plain values rather than Arrow streams: they go to SQLite one parameterized upsert at a time, and personal sources are small.
+
+| Connector | Reads | Key | Pulls |
+|-----------|-------|-----|-------|
+| `csv` | A CSV file with a header; columns and types fixed when the source is added (`--key` names the identifying columns) | The key columns | Whole file, `complete`; an unchanged file (same BLAKE3) is skipped |
+| `flomo-export` | `flomo_backup.zip`, its HTML or the unpacked folder; `.memo` → `.time`, `.content` | Creation time and place among memos of that second (the export has no ids) | Whole export, `complete`; an export without memos is refused rather than read as "delete everything" |
+| `flomo-mcp` | flomo's MCP server (MAX, personal token): finds the tool that lists or searches memos (or the one named), pages through it, matches field names loosely | The memo id | Not `complete` (a search may not list every memo), so it never deletes. Written, not yet run against flomo: the module is the one place to adjust once a MAX account is at hand |
+
 ### 11.3 Where the Data Lands
 
-- Each connector instance writes to its own **transactional** Space, e.g. `flomo.memos`. Sources edit and delete records, so loading is an upsert by source key, which needs SQLite; analytical Spaces are append-only.
-- A pull is applied in one SQLite transaction together with the new cursor. A failed pull leaves data and cursor unchanged, and the next run retries.
+- Each source writes to its own **transactional** Space of the same name, e.g. `flomo.memos`. Sources edit and delete records, so loading is an upsert by source key, which needs SQLite; analytical Spaces are append-only.
+- A pull is applied in one SQLite transaction on a private connection: `INSERT … ON CONFLICT (key) DO UPDATE … WHERE` a value differs (so unchanged rows are not touched or counted), deletions, and for a `complete` pull the removal of rows it no longer lists, then the cursor in the Space's hidden `_oikome_source` table. A failed pull rolls back: data and cursor stay as they were, and the next run starts from the same place.
+- Tables named `_oikome_*` are bookkeeping: the SQLite engine leaves them out of table listings, so `PUBLISH`, grants and federation never see them.
 - Sharing uses the existing path: `PUBLISH SPACE flomo` (§7.3), then grants and policies (§6).
 - Reshaping is done with views (§6.1), not inside the connector. Connectors only move data (principle 1).
 
 ### 11.4 Running
 
-- A connector runs only on the node that owns its target Space (principle 2), on a schedule like the publisher (§7.3) or on demand from the CLI.
-- Credentials are named in the connector config and read from the OS keychain. They never enter Space data, `.oikome/` files, snapshots, or anything sent to a peer.
+```sh
+oikome source add flomo --flomo-export ~/Downloads/flomo_backup.zip       # pulls once
+oikome source add flomo_live --flomo-mcp --token-stdin --every 30m       # flomo MAX
+oikome source add bank --csv statement.csv --key txn_id --table transactions
+oikome source pull flomo
+oikome source list
+oikome source remove flomo     # the Space and its data stay
+```
 
-Open:
-- In-process Rust connectors only, or also external programs that write Arrow IPC to stdout. External programs let a connector use the language of each app's SDK, at the cost of a process boundary and a sandboxing question.
-- How a connector is configured: a statement (`CREATE CONNECTOR …`) or a config file.
+- Sources are registered on the node (`.oikome/sources.json`: connector settings and interval, no credentials), from the command line now and from the apps' Sources screen later (M2), through the same node functions (`add_source`, `pull_source`, `remove_source`). There is no SQL statement for them.
+- A connector runs only on the node that owns its target Space (principle 2): on demand, or on its interval while the node serves (`oikome serve` checks every minute, `--source-sync`).
+- A token is entered once (standard input now, the apps later) and kept by the node like storage credentials (§7.5): OS keychain, else a private file; `OIKOME_SOURCE_<NAME>_TOKEN` overrides it. Tokens never enter Space data, the registry, snapshots, or anything sent to a peer.
+- Connectors are in-process Rust code. Third-party connectors arrive as plugins in M4.
 
 ---
 
@@ -754,7 +772,7 @@ crates/
 ├── oikome-protocol        Peer protocol types, request digest, WebRTC record and frames            [3.2]
 ├── oikome-webrtc          WebRTC endpoint for browsers (str0m): sessions, DTLS certificate         [3.2]
 ├── oikome-wasm            Browser node: BrowserNode, HostEngine (duckdb-wasm), RemoteEngine, JS API [3.2]
-├── oikome-connect         Connector trait, cursor store, built-in connectors (file import, flomo)  [3.5]
+├── oikome-connect         Connector trait, built-in connectors (CSV, flomo export, flomo MCP)     [3.5]
 ├── oikome-api             API for clients, plugins and MCP; caller is Owner or Principal (§13.4)   [M1b]
 ├── oikome-mcp             MCP adapter: principal operations only; bridges to the running node      [M3]
 └── oikome-cli                                                                                      [later]
@@ -784,6 +802,9 @@ The Arrow-line crates must move together: DataFusion 55 and `datafusion-federati
 | Add (tests) | `dav-server` | **0.11**, dev-dependency (a WebDAV server standing in for a NAS) | Apache-2.0 |
 | Add | `chacha20poly1305` | **0.10** (RustCrypto; already in the tree through libp2p) | Apache-2.0 / MIT |
 | Add | `keyring-core`, `apple-native-keyring-store` (macOS), `windows-native-keyring-store` (Windows) | **=1.0.1**, **=1.0.2**, **=1.1.0** | MIT / Apache-2.0 |
+| Add | `html5ever` | **0.40** (its tokenizer only: `scraper`'s CSS selectors are MPL-2.0) | MIT / Apache-2.0 |
+| Add | `zip` | **9** (reading deflated entries; already in the tree through libduckdb-sys) | MIT |
+| Add | `arrow-csv` | **58** (with the Arrow line) | Apache-2.0 |
 | Remove | `datafusion-datasource/-common/-execution/-physical-plan` direct deps, `dashmap`, `memmap2` | — | — |
 
 `datafusion-table-providers` was evaluated and **not** used: it brings its own connection pools (a second path to each engine besides `QueryEngine`) and pins an older `rusqlite`. Licenses are checked by `cargo deny check licenses` (`deny.toml`).
@@ -916,7 +937,7 @@ Which Owner operations a paired device may perform is decided with phone pairing
 | **3.4a NAS** ✅ | Storages registered per node (`oikome storage add`: WebDAV or a mounted folder); the writer pushes each snapshot, other nodes copy the newest complete one; one writing node per folder; credentials from the environment; transactional Spaces refused | An analytical Space (Iceberg and Lance) on a WebDAV NAS is written by one node and read by another, and the Lance copy is searched with the writer's index; a second node cannot bind it writable; a transactional Space on a NAS is rejected at DDL; a reader never reads a snapshot with missing files |
 | **3.4b Cloud drives** ✅ | Client-side encryption of every file and name on a storage; drives through their desktop client's sync folder (`--drive`, always encrypted); credentials and keys kept by the node (OS keychain, else a private file), entered once in the apps or on the command line | A Space on a drive's sync folder is written by one node and read by another with the same key; without the key the drive's files cannot be read (no content, table names or paths), and a wrong key is reported; credentials are in the keychain or the node's private file only, never the registry, SQL or logs, and the environment overrides them |
 | **3.4c Drives over their API** | OAuth sign-in and opendal drive services (Google Drive, Dropbox, OneDrive) for nodes without a desktop client, encrypted as in 3.4b | Set when 3.4c is planned |
-| **3.5 Connectors** | `Connector` contract; upsert and cursor in one SQLite transaction; scheduled and on-demand pulls; credentials from the OS keychain; file import and flomo connectors | flomo memos land in `flomo.memos`; a second pull touches only changed memos; an edited memo is updated, not duplicated; a failed pull leaves data and cursor unchanged |
+| **3.5 Connectors** ✅ | `Connector` contract (`oikome-connect`); upsert and cursor in one SQLite transaction; scheduled and on-demand pulls; tokens kept by the node; CSV and flomo connectors (export file; MCP written, run against flomo once a MAX account is at hand) | flomo memos land in `flomo.memos`; a second pull touches only changed memos; an edited memo is updated, not duplicated; a failed pull leaves data and cursor unchanged |
 | **3.6 Compute sharing** | `compute/<runtime>` UCAN abilities with limits; task routing over Arrow Flight; host-registered runtimes; per-peer quotas | Node B runs a task for node A within its quota; a task over its limits is refused; revoking the UCAN drops A's queued tasks; A's compute grant gives no access to B's Spaces, and a data grant does not let A run tasks |
 
 No phase skipping (AGENT.md §4.1).
@@ -1022,6 +1043,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-02 | A Space on a storage is copied, not read in place: the writer keeps it on its disk and pushes each snapshot (files, then a snapshot file); readers copy the newest complete snapshot and read it like a subscription. `materialize()` dropped | DuckDB reads Iceberg as lists of local Parquet files and the `lance` extension attaches only local directories; Iceberg commits over WebDAV have no compare-and-swap; the subscription code already copies verified snapshots, so one mechanism serves Iceberg and Lance, and encryption later wraps each file |
 | 2026-11-02 | One writing node per folder, recorded in `oikome-space.json`; passwords and tokens only from the environment; a failed push does not fail the write | WebDAV has no conditional create, so the record is a guard, not access control; servers and containers have no keychain (it comes with 3.5); failing a committed write invites a retry that duplicates rows |
 | 2026-11-02 | 3.4b: drives through their sync folders first, over their API in 3.4c; every file on a drive sealed whole (XChaCha20-Poly1305 STREAM, names from a keyed hash), one random key per storage | Sync folders cover iCloud Drive, Dropbox, OneDrive and Google Drive with no OAuth app; whole-file sealing in `RemoteStore` covers data, indexes, snapshots and names alike, which Parquet modular encryption would not |
+| 2026-11-02 | 3.5: connectors are in-process Rust (third-party ones as M4 plugins) and registered on the node (`sources.json`, CLI and apps), not by SQL; rows go to SQLite as values, one parameterized upsert each; the cursor lives in the Space's hidden `_oikome_source` table so it commits with the data; flomo through its export (keyed by creation time and place within the second) and its MCP server (tools found at run time, never deletes) | A connector is node configuration with a credential, like a storage; the hidden table makes "data and cursor change together" a single SQLite transaction; flomo's export has no ids, and its MCP tools are not published |
 | 2026-11-02 | Credentials are entered once (apps, or standard input to the CLI) and kept by the node: OS keychain on macOS / Windows, else a private file beside the node key; the environment overrides; this replaces "environment only" for 3.4a | People should not have to set environment variables; the apps call the same node functions (`add_storage`, `set_storage_secret`, `export_storage_key`); servers and containers keep the environment |
 | 2026-11-01 | App tests run against a local node (temporary data directory, test data written through the CLI or the API); no fake data and no mock `NodeClient`. So the API (M1b) comes before the screens (M1c), and each screen arrives with the milestone whose data it shows | One test chain instead of a fake one followed by a real one; screens exercise the real API from the start, and there are no fixtures to drift from it |
 | 2026-11-01 | Whole-Space grants (`GRANT SELECT ON SPACE`) in their own registry; they cover a view only when its expansion stays in the Space | Sharing is per Space in the apps and should include tables created later; a relation name such as `"*"` could not stand for the Space safely; owner-rights views would otherwise open other Spaces |

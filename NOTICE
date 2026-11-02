@@ -134,6 +134,14 @@ Lance (lance-table, lance-io, lance-core, lance-file, lance-encoding and the oth
   https://github.com/lance-format/lance  -  Apache License 2.0
   Copyright The Lance Authors
 
+html5ever (html5ever, markup5ever, tendril, string_cache; reading flomo's HTML export)
+  https://github.com/servo/html5ever  -  MIT License or Apache License 2.0
+  Copyright (c) 2014 The html5ever Project Developers
+
+zip (zip; reading flomo_backup.zip)
+  https://github.com/zip-rs/zip2  -  MIT License
+  Copyright (c) 2014 Mathijs van de Nes
+
 keyring-rs (keyring-core, apple-native-keyring-store, windows-native-keyring-store;
   storage credentials in the OS keychain)
   https://github.com/open-source-cooperative/keyring-rs  -  MIT License or Apache License 2.0

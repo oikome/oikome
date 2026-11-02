@@ -153,10 +153,20 @@ impl EngineRegistry {
         storage: &str,
         kind: SecretKind,
     ) -> Result<Option<Zeroizing<String>>, SessionError> {
-        if let Some(value) = self.storage_secrets.get(&kind.env_var(storage)) {
+        self.secret(&kind.env_var(storage), &kind.account(storage))
+    }
+
+    /// A credential: the environment variable `env_var` if set, otherwise
+    /// `account` in the node's secret store.
+    pub(crate) fn secret(
+        &self,
+        env_var: &str,
+        account: &str,
+    ) -> Result<Option<Zeroizing<String>>, SessionError> {
+        if let Some(value) = self.storage_secrets.get(env_var) {
             return Ok(Some(value));
         }
-        self.secret_backend()?.get(&kind.account(storage))
+        self.secret_backend()?.get(account)
     }
 
     /// Whether the DuckDB of this process has graph `name` as `sql` creates it.

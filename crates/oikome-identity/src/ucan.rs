@@ -20,9 +20,15 @@
 //! tokens embedded as strings). A token delegated from another one must not
 //! grant more than its parent, nor outlive it.
 //!
-//! Abilities: `space/query` (run queries; query shipping), `space/read`
-//! (read snapshot files; implies `space/query`) and `space/*` (everything).
-//! Resources: `space://<owner did>/<space>`, or `space://<owner did>/*`.
+//! Abilities on data: `space/query` (run queries; query shipping),
+//! `space/read` (read snapshot files; implies `space/query`) and `space/*`
+//! (everything), on `space://<owner did>/<space>` or `space://<owner did>/*`.
+//!
+//! Abilities on compute (§12): `compute/<method>` (e.g. `compute/sql`) and
+//! `compute/*` (every method the node offers), on `node://<node did>`. A
+//! compute capability may carry limits (`nb`): along a delegation chain the
+//! strictest one applies, so a delegated token can only tighten them. Data
+//! and compute abilities never cover each other.
 
 use std::collections::HashSet;
 
@@ -40,6 +46,46 @@ pub const ABILITY_QUERY: &str = "space/query";
 pub const ABILITY_READ: &str = "space/read";
 /// Every ability on a Space.
 pub const ABILITY_ALL: &str = "space/*";
+/// Every compute method a node offers.
+pub const ABILITY_COMPUTE_ALL: &str = "compute/*";
+
+/// The ability to run compute `method` (`compute/sql`).
+pub fn compute_ability(method: &str) -> String {
+    format!("compute/{method}")
+}
+
+/// Limits on one compute task (UCAN `nb`). `None` sets no limit at this
+/// link of a chain.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Limits {
+    /// Wall time, milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+}
+
+impl Limits {
+    /// The stricter of `self` and `other`, limit by limit.
+    pub fn tighten(self, other: Limits) -> Limits {
+        fn min(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            match (a, b) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            }
+        }
+        Limits {
+            time_ms: min(self.time_ms, other.time_ms),
+            input_bytes: min(self.input_bytes, other.input_bytes),
+            output_bytes: min(self.output_bytes, other.output_bytes),
+            memory_bytes: min(self.memory_bytes, other.memory_bytes),
+        }
+    }
+}
 
 /// Tolerated clock difference between nodes, in seconds.
 pub const CLOCK_SKEW_SECS: u64 = 60;
@@ -84,6 +130,9 @@ pub struct Capability {
     pub with: String,
     /// Ability, e.g. `space/query`.
     pub can: String,
+    /// Limits of a compute capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nb: Option<Limits>,
 }
 
 impl Capability {
@@ -92,6 +141,16 @@ impl Capability {
         Self {
             with: format!("space://{owner}/{space}"),
             can: can.to_string(),
+            nb: None,
+        }
+    }
+
+    /// Compute `method` (or `*`) on `node://<node>`, within `limits`.
+    pub fn compute(node: &Did, method: &str, limits: Option<Limits>) -> Self {
+        Self {
+            with: format!("node://{node}"),
+            can: compute_ability(method),
+            nb: limits,
         }
     }
 
@@ -106,7 +165,8 @@ impl Capability {
                         .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
             });
         let ability = self.can == other.can
-            || self.can == ABILITY_ALL
+            || (self.can == ABILITY_ALL && other.can.starts_with("space/"))
+            || (self.can == ABILITY_COMPUTE_ALL && other.can.starts_with("compute/"))
             || (self.can == ABILITY_READ && other.can == ABILITY_QUERY);
         resource && ability
     }
@@ -339,6 +399,8 @@ pub struct Verified {
     /// The DID the root issuer granted the capability to (audience of the
     /// root token). A holder of a delegated token acts with its rights.
     pub principal: Did,
+    /// The strictest limits along the chain (compute capabilities).
+    pub limits: Limits,
 }
 
 /// Verify that `token` lets `opts.audience` exercise `opts.required` on a
@@ -351,12 +413,14 @@ pub struct Verified {
 pub fn verify(token: &str, opts: &VerifyOptions<'_>) -> Result<Verified, UcanError> {
     let ucan = Ucan::decode(token)?;
     let mut chain = Vec::new();
-    let principal = verify_link(&ucan, opts.audience, None, opts, 0, &mut chain)?;
+    let mut limits = Limits::default();
+    let principal = verify_link(&ucan, opts.audience, None, opts, 0, &mut chain, &mut limits)?;
     Ok(Verified {
         id: ucan.id(),
         chain,
         expires_at: ucan.payload.exp,
         principal,
+        limits,
     })
 }
 
@@ -367,6 +431,7 @@ fn verify_link(
     opts: &VerifyOptions<'_>,
     depth: usize,
     chain: &mut Vec<String>,
+    limits: &mut Limits,
 ) -> Result<Did, UcanError> {
     if depth >= MAX_CHAIN_DEPTH {
         return Err(UcanError::ChainTooDeep);
@@ -394,14 +459,16 @@ fn verify_link(
     if child_exp.is_some_and(|child| child > p.exp) {
         return Err(UcanError::OutlivesProof);
     }
-    if !p.att.iter().any(|c| c.covers(opts.required)) {
+    let Some(covering) = p.att.iter().find(|c| c.covers(opts.required)) else {
         return Err(UcanError::NotCovered(format!(
             "{} on {}",
             opts.required.can, opts.required.with
         )));
-    }
+    };
+    let mine = covering.nb.unwrap_or_default();
     chain.push(id);
     if &p.iss == opts.root {
+        *limits = limits.tighten(mine);
         return Ok(p.aud.clone());
     }
     // Delegated: some proof must be a valid token issued to our issuer.
@@ -415,8 +482,20 @@ fn verify_link(
             }
         };
         let mark = chain.len();
-        match verify_link(&parent, &p.iss, Some(p.exp), opts, depth + 1, chain) {
-            Ok(principal) => return Ok(principal),
+        let mut parent_limits = *limits;
+        match verify_link(
+            &parent,
+            &p.iss,
+            Some(p.exp),
+            opts,
+            depth + 1,
+            chain,
+            &mut parent_limits,
+        ) {
+            Ok(principal) => {
+                *limits = parent_limits.tighten(mine);
+                return Ok(principal);
+            }
             Err(e) => {
                 chain.truncate(mark);
                 last_error = e;
@@ -533,11 +612,13 @@ mod tests {
         let all = Capability {
             with: format!("space://{}/*", w.owner.did()),
             can: ABILITY_ALL.to_string(),
+            nb: None,
         };
         assert!(all.covers(&query(&w, "blog")));
         assert!(!all.covers(&Capability {
             with: format!("space://{}/blog/x", w.owner.did()),
-            can: ABILITY_QUERY.into()
+            can: ABILITY_QUERY.into(),
+            nb: None,
         }));
         assert!(!all.covers(&Capability::space(w.bob.did(), "blog", ABILITY_QUERY)));
         let token = grant(&w, w.bob.did(), all, HOUR);
@@ -673,6 +754,84 @@ mod tests {
             check(&w, &stolen, w.carol.did(), "blog", &HashSet::new()),
             Err(UcanError::WrongAudience { .. })
         ));
+    }
+
+    #[test]
+    fn compute_and_data_abilities_stay_apart_and_limits_only_tighten() {
+        let w = world();
+        let sql = Capability::compute(w.owner.did(), "sql", None);
+        let verify_as = |token: &str, caller: &Did, required: &Capability| {
+            verify(
+                token,
+                &VerifyOptions {
+                    root: w.owner.did(),
+                    audience: caller,
+                    required,
+                    now: w.now,
+                    revoked: &HashSet::new(),
+                },
+            )
+        };
+        // A data grant does not run tasks; a compute grant reads no Space.
+        let data = grant(
+            &w,
+            w.bob.did(),
+            Capability {
+                with: format!("space://{}/*", w.owner.did()),
+                can: ABILITY_ALL.to_string(),
+                nb: None,
+            },
+            HOUR,
+        );
+        assert!(matches!(
+            verify_as(&data, w.bob.did(), &sql),
+            Err(UcanError::NotCovered(_))
+        ));
+        let limits = Limits {
+            time_ms: Some(30_000),
+            input_bytes: Some(1 << 20),
+            ..Default::default()
+        };
+        let compute = grant(
+            &w,
+            w.bob.did(),
+            Capability::compute(w.owner.did(), "*", Some(limits)),
+            2 * HOUR,
+        );
+        assert!(matches!(
+            verify_as(&compute, w.bob.did(), &query(&w, "blog")),
+            Err(UcanError::NotCovered(_))
+        ));
+        assert_eq!(
+            verify_as(&compute, w.bob.did(), &sql).unwrap().limits,
+            limits
+        );
+
+        // Delegating, Bob can tighten the limits but not loosen them.
+        let delegated = UcanBuilder::new(w.carol.did().clone(), HOUR)
+            .capability(Capability::compute(
+                w.owner.did(),
+                "sql",
+                Some(Limits {
+                    time_ms: Some(5_000),
+                    input_bytes: Some(1 << 30),
+                    output_bytes: Some(1 << 10),
+                    memory_bytes: None,
+                }),
+            ))
+            .proof(compute)
+            .issued_at(w.now)
+            .sign(&w.bob)
+            .unwrap();
+        assert_eq!(
+            verify_as(&delegated, w.carol.did(), &sql).unwrap().limits,
+            Limits {
+                time_ms: Some(5_000),
+                input_bytes: Some(1 << 20),
+                output_bytes: Some(1 << 10),
+                memory_bytes: None,
+            }
+        );
     }
 
     #[test]

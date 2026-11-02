@@ -142,6 +142,10 @@ impl OikomeSession {
                 self.deny_principal("ISSUE UCAN")?;
                 self.issue_ucan(&request)
             }
+            OikomeStatement::IssueComputeUcan(request) => {
+                self.deny_principal("ISSUE UCAN")?;
+                self.issue_compute_ucan(&request)
+            }
             OikomeStatement::RevokeUcan(id) => {
                 self.deny_principal("REVOKE UCAN")?;
                 self.revoke_ucan(&id)

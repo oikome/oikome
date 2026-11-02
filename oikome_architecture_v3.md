@@ -47,7 +47,7 @@ AI platforms hold more and more personal data, and storage and compute are conce
 | Personal resources | Storage and compute come from individuals, not from a platform's cloud: first the owner's own machines, which compute with embedded engines (DuckDB, SQLite); then other individuals' machines through compute sharing. "Usually": a cloud bucket can still serve as a Location | §4, §7, §12 |
 | Trusted data exchange | Data moves only between data centers that trust each other, in both directions, under grants the owner can revoke | §5, §6, §9 |
 
-**Data exchange and compute sharing use the same trust mechanism with different authorizations.** Both rest on DID identities, peer relationships, deny-by-default and UCAN revocation (§9). Data is authorized with `space/query` / `space/read` plus grants and policies (§5.3, §6); compute with `compute/<runtime>` (§12). Neither implies the other.
+**Data exchange and compute sharing use the same trust mechanism with different authorizations.** Both rest on DID identities, peer relationships, deny-by-default and UCAN revocation (§9). Data is authorized with `space/query` / `space/read` plus grants and policies (§5.3, §6); compute with `compute/<method>` (§12). Neither implies the other.
 
 > **Oikome decides *who may see what*, *where data comes from*, *where it lives* and *where a query or task is sent*. It does not decide *how to compute*.**
 
@@ -98,7 +98,7 @@ Analogy: Oikome is to embedded engines what a service mesh is to services. DuckD
 │ L0  Identity & Network ★                                              │
 │     DID · UCAN issue/verify/revoke · Peer state machine               │
 │     libp2p discovery · Snapshot sync · Arrow Flight RPC               │
-│     Compute sharing: tasks to peers' registered runtimes (UCAN)       │
+│     Compute sharing: tasks run with Oikome's own methods (UCAN)       │
 └──────────────────────────────────────────────────────────────────────┘
         ★ = Oikome core value.  Others are thin glue.
 ```
@@ -552,8 +552,10 @@ The peer protocol over Arrow Flight (`oikome-network::protocol`). Every call car
 | `DoGet` (SQL ticket) | `space/query` | Run a query through the owner's semantic layer (query shipping) |
 | `DoAction("oikome.snapshot")` | `space/read` | Current snapshot of the tables the caller may copy in full: schema, files by hash and size (subscription) |
 | `DoAction("oikome.fetch_file")` | `space/read` | One file of a snapshot, by hash, in 1 MiB chunks |
+| `DoExchange` (compute request, then the input) | `compute/<method>` | Run a task over the input the caller sends; the result streams back (§12) |
+| `DoAction("oikome.compute_methods")` | `compute/<method>` | The compute methods offered here that the caller's grant covers, with its limits |
 
-`space/read` includes `space/query`.
+`space/read` includes `space/query`. Data abilities (`space/*`) and compute abilities (`compute/*`) never cover each other. A capability may carry limits in the UCAN `nb` field (§12.3); a delegated token can only make them stricter.
 
 **Transport (3.1c).** Nodes speak TLS by default. Each node presents a self-signed certificate for its own Ed25519 key, generated at start (`NodeIdentity::tls_identity`, rcgen); nothing is stored. A client knows the DID it expects, the root issuer of the token it presents, and accepts the server only if the certificate carries that DID's key. rustls (ring backend) checks that the handshake is signed with it. There is no CA and no host-name check. Plaintext `http://` is refused unless the node runs with `--allow-http` (`NodeConfig::allow_http`); `serve --plaintext` needs it too. Requests are signed either way.
 
@@ -574,7 +576,7 @@ The peer protocol over Arrow Flight (`oikome-network::protocol`). Every call car
 `tests/e2e/docker_nodes.sh` drives them, checking each step against its expected result: discovery, a UCAN-gated federated query over TLS with no `PEER`, a subscription, then revocation stopping both the query and refreshes while the copy stays readable. `.github/workflows/docker-e2e.yml` runs it on GitHub Actions on every push to `feat/**` or `ci/**`.
 
 **Access log (M1b, `oikome-node::access_log`).** A serving node records every request a peer or a browser sends it, so the owner can see who read what and when.
-- One row per call of the six entry points (`get_schema`, `do_get`, the three actions, `serve_envelope`): time, caller DID, method, Spaces, the id of the UCAN that let it in, outcome (`allowed`, `denied`, `failed`) and the reason. The reason is never sent to the caller.
+- One row per call of each entry point (`get_schema`, `do_get`, `do_exchange`, the actions, `serve_envelope`): time, caller DID, method, Spaces, the id of the UCAN that let it in, outcome (`allowed`, `denied`, `failed`) and the reason. The reason is never sent to the caller.
 - `fetch_file` is recorded only when refused; the subscription is recorded by its `oikome.snapshot` call.
 - Rows live in `.oikome/access_log.sqlite`. Requests never wait for the log: a writer thread takes entries from a bounded channel (10,000), and entries are dropped (and counted) when it falls behind.
 - Failed authentications carry no caller and can come from anyone who reaches the port, so they are merged into one row per method and minute, under a cap of their own (10,000 rows). The log keeps 90 days, at most 100,000 rows.
@@ -720,34 +722,56 @@ oikome source remove flomo     # the Space and its data stay
 
 ## 12. Compute Sharing
 
-Compute comes from personal resources: the owner's own machines first, other individuals' machines when those are not enough. Compute sharing is how a node uses another individual's machine, or lends its own. It uses the same trust mechanism as data exchange, with a separate authorization.
+Compute is a machine's CPU and GPU time. Compute sharing is how a node borrows another individual's machine, or lends its own: a requester sends a task and its input, the executing node runs it with one of Oikome's own compute methods and sends the result back. It uses the same trust mechanism as data exchange, with a separate authorization.
 
 ### 12.1 Compute Sharing vs Data Exchange
 
 | | Data exchange | Compute sharing |
 |---|---|---|
 | Trust | DID identities, peer relationships, deny-by-default, UCAN revocation (§9) | Same |
-| Authorization | `space/query`, `space/read`, grants and policies, issued by the data owner (§5.3, §6) | `compute/<runtime>` with limits, issued by the owner of the executing node (§12.2) |
-| What moves | Query results or snapshots of the owner's Spaces | A task and its input to the executing node; the output back |
+| Authorization | `space/query`, `space/read`, grants and policies, issued by the data owner (§5.3, §6) | `compute/<method>` with limits, issued by the owner of the executing node (§12.3) |
+| What moves | Query results or snapshots of the owner's Spaces | A task and its input to the executing node; the result back |
 | Who computes | The data owner's node, over its own data | The executing node, over the input it was sent |
 | What the other side sees | Only what grants and policies allow | The executing node sees the task input, and none of the requester's Spaces |
 
 The two authorizations never imply each other: a peer I exchange data with cannot run tasks on my machine, and a peer that runs my tasks gains no access to my Spaces. Running SQL on a peer's Space (query shipping, §5.3) is data exchange, even though the peer's node does the computing. A browser node sending heavy queries to a Full Node of the same owner (§10) is the owner using their own resources and needs no compute grant.
 
-### 12.2 Tasks
+### 12.2 Compute Methods
 
-A task asks another node to run work on one of its runtimes, over input the requester sends.
-
-- **Tasks run only on runtimes the executing node has registered.** SQL runs on its engines, with the input attached as a temporary table (`TableSource::ArrowBatches`, §4.1). Anything else, e.g. embedding or model inference, runs on a runtime the node's host registers, the way the browser host provides `HostEngine` (§4.2). Oikome routes tasks and does not implement them (principle 1). Shipping arbitrary code or binaries is out of scope.
-- **Every task carries a UCAN** with a `compute/<runtime>` ability and limits: wall time, memory, input and output bytes, expiry. The executing node checks it before queuing, as it checks `space/query`; revocation drops queued tasks.
-- **The executing node's owner sets per-peer quotas** and may refuse or queue any task.
+- **Tasks run only with Oikome's own compute methods**, the ones a node already uses for its own data. They are the standard of what a task can be. Oikome does not forward tasks to other services and does not run code a peer sends.
+- **`sql` (the first method)** runs one DuckDB query over the table `input`, which holds the requester's input. DuckDB's aggregates, window functions and vector distance functions are all available. Each task gets a DuckDB of its own (`oikome-engine-duckdb::isolated`):
+  - in memory, with external access disabled (no files, no network);
+  - extensions neither loaded nor installed;
+  - its configuration locked once `input` is loaded, with the memory limit and the thread count set;
+  - interrupted when its wall time passes, and its result capped.
+  So a task reads only its input: not the executing node's Spaces, not its files.
+- **Later methods** use the same grants, scheduling and transport with another of Oikome's capabilities over the input, such as full-text or vector search or a graph query. Only `sql` exists now.
+- **The executing node's owner offers methods**: `oikome compute offer|withdraw <method>`, kept in `.oikome/compute.json`. None is offered by default.
+- **Apps, not users, write the tasks.** An app calls the node function `compute_on_peer` for what it needs, e.g. a phone dashboard hands a large aggregation to the computer at home; users never see the SQL. `oikome compute run` exists for development and tests. The borrowed-compute screen comes in M4 (§14.1).
 - **The requester chooses the input** for each task: a query result, never a whole Space. The executing node sees it while the task runs and deletion afterwards cannot be verified, so what to send is the requester's decision.
-- **Inputs and outputs are Arrow** over Arrow Flight, as for remote queries (§9).
+
+### 12.3 Grants and Limits
+
+- A compute grant is a UCAN with the ability `compute/<method>` (`compute/*` for every method offered) on the resource `node://<executing node's DID>`.
+- Its limits are in the capability's `nb` field: wall time, input bytes, output bytes and memory (memory applies to `sql`). Along a delegation chain the strictest value of each applies, so a delegated token can only tighten them. A grant without limits gets the defaults: 30 s, 64 MiB in, 64 MiB out, 512 MiB of memory.
+- Issued with `ISSUE UCAN ON COMPUTE 'sql' TO '<did>' LIMITS (time = '30s', input = '100MB', output = '100MB', memory = '512MB') EXPIRES IN 7d`. Tokens issued before 3.6 have no `nb` and are unchanged.
+
+### 12.4 Quotas and Scheduling
+
+- **Per-peer quotas**, set by the executing node's owner: `oikome compute quota <did> --concurrent 1 --per-hour 60`, kept in `compute.json`. A peer without one gets 1 task at once and 30 per hour.
+- The node runs at most as many tasks at once as it has CPU cores. Up to 8 of a peer's tasks wait for their turn; more, or more than its hourly count, are refused.
+- The grant is checked when a task arrives and again when its turn comes, so revoking the grant or withdrawing the method drops a waiting task. A running task ends at its wall time.
+
+### 12.5 Protocol
+
+- **`DoExchange`** carries one task. The first message's descriptor holds the signed request (`ComputeRequest`: the method and the task); the input batches follow, counted as they arrive and refused once over the input limit; the result streams back.
+- **`DoAction("oikome.compute_methods")`** lists the methods offered here that the caller's grant covers, with its limits, for the requester's app to show.
+- A refusal says only `permission denied`; the reason goes to the access log (§9). A limit reached is reported as such, with the limit.
+- Browser nodes neither run nor send tasks in this version.
 
 Open:
-- Which workloads come first: SQL, embeddings, model inference or training. This decides the runtime contract and scheduling.
-- Accounting between peers: plain per-peer quotas, or reciprocal credit.
 - Whether a WASM sandbox should later allow user-supplied task code.
+- Reciprocal credit between peers instead of plain quotas.
 
 ---
 
@@ -766,7 +790,7 @@ crates/
 ├── oikome-federation      EngineSqlExecutor, OikomeRemoteTable, Coordinator                         [done]
 ├── oikome-node            OikomeSession, EngineRegistry, routing, DDL/DML                           [done]
 ├── oikome-identity        DID keys, UCAN issue/verify/revoke, peer FSM                             [3.1]
-├── oikome-network         Peer protocol, PeerClient, FlightEngine, DID-pinned TLS; tasks in 3.6    [3.1]
+├── oikome-network         Peer protocol, PeerClient, FlightEngine, DID-pinned TLS; compute tasks   [3.1]
 ├── oikome-discovery       libp2p discovery (mDNS, endpoint exchange) → Peers table                 [3.1]
 ├── oikome-server          Arrow Flight service (queries, snapshots, files), oikome binary         [3.1]
 ├── oikome-protocol        Peer protocol types, request digest, WebRTC record and frames            [3.2]
@@ -938,7 +962,7 @@ Which Owner operations a paired device may perform is decided with phone pairing
 | **3.4b Cloud drives** ✅ | Client-side encryption of every file and name on a storage; drives through their desktop client's sync folder (`--drive`, always encrypted); credentials and keys kept by the node (OS keychain, else a private file), entered once in the apps or on the command line | A Space on a drive's sync folder is written by one node and read by another with the same key; without the key the drive's files cannot be read (no content, table names or paths), and a wrong key is reported; credentials are in the keychain or the node's private file only, never the registry, SQL or logs, and the environment overrides them |
 | **3.4c Drives over their API** | OAuth sign-in and opendal drive services (Google Drive, Dropbox, OneDrive) for nodes without a desktop client, encrypted as in 3.4b | Set when 3.4c is planned |
 | **3.5 Connectors** ✅ | `Connector` contract (`oikome-connect`); upsert and cursor in one SQLite transaction; scheduled and on-demand pulls; tokens kept by the node; CSV and flomo connectors (export file; MCP written, run against flomo once a MAX account is at hand) | flomo memos land in `flomo.memos`; a second pull touches only changed memos; an edited memo is updated, not duplicated; a failed pull leaves data and cursor unchanged |
-| **3.6 Compute sharing** | `compute/<runtime>` UCAN abilities with limits; task routing over Arrow Flight; host-registered runtimes; per-peer quotas | Node B runs a task for node A within its quota; a task over its limits is refused; revoking the UCAN drops A's queued tasks; A's compute grant gives no access to B's Spaces, and a data grant does not let A run tasks |
+| **3.6 Compute sharing** ✅ | `compute/<method>` UCAN abilities with `nb` limits, apart from data grants; only Oikome's own compute methods, offered by the executing node (first: `sql` in an isolated DuckDB); tasks over Arrow Flight `DoExchange`; per-peer quotas | Node B runs a task for node A within its quota; a task over its limits is refused; revoking the UCAN drops A's queued tasks; A's compute grant gives no access to B's Spaces, and a data grant does not let A run tasks |
 
 No phase skipping (AGENT.md §4.1).
 
@@ -1044,6 +1068,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-02 | One writing node per folder, recorded in `oikome-space.json`; passwords and tokens only from the environment; a failed push does not fail the write | WebDAV has no conditional create, so the record is a guard, not access control; servers and containers have no keychain (it comes with 3.5); failing a committed write invites a retry that duplicates rows |
 | 2026-11-02 | 3.4b: drives through their sync folders first, over their API in 3.4c; every file on a drive sealed whole (XChaCha20-Poly1305 STREAM, names from a keyed hash), one random key per storage | Sync folders cover iCloud Drive, Dropbox, OneDrive and Google Drive with no OAuth app; whole-file sealing in `RemoteStore` covers data, indexes, snapshots and names alike, which Parquet modular encryption would not |
 | 2026-11-02 | 3.5: connectors are in-process Rust (third-party ones as M4 plugins) and registered on the node (`sources.json`, CLI and apps), not by SQL; rows go to SQLite as values, one parameterized upsert each; the cursor lives in the Space's hidden `_oikome_source` table so it commits with the data; flomo through its export (keyed by creation time and place within the second) and its MCP server (tools found at run time, never deletes) | A connector is node configuration with a credential, like a storage; the hidden table makes "data and cursor change together" a single SQLite transaction; flomo's export has no ids, and its MCP tools are not published |
+| 2026-11-02 | 3.6: compute means CPU and GPU time; tasks run only with Oikome's own compute methods, offered one by one by the executing node's owner, starting with `sql` in a DuckDB of its own per task (in memory, no files or network, no extensions, configuration locked); request and response over `DoExchange`; `compute/<method>` grants with `nb` limits that only tighten; per-peer quotas; no forwarding to external services. Settles §12's open questions on workloads and accounting | The methods Oikome already runs are the standard of what a task can be, so nothing new has to be trusted; a fresh locked-down DuckDB keeps the executing node's Spaces and files out of reach; quotas are the simplest accounting that keeps a peer from taking a whole machine |
 | 2026-11-02 | Credentials are entered once (apps, or standard input to the CLI) and kept by the node: OS keychain on macOS / Windows, else a private file beside the node key; the environment overrides; this replaces "environment only" for 3.4a | People should not have to set environment variables; the apps call the same node functions (`add_storage`, `set_storage_secret`, `export_storage_key`); servers and containers keep the environment |
 | 2026-11-01 | App tests run against a local node (temporary data directory, test data written through the CLI or the API); no fake data and no mock `NodeClient`. So the API (M1b) comes before the screens (M1c), and each screen arrives with the milestone whose data it shows | One test chain instead of a fake one followed by a real one; screens exercise the real API from the start, and there are no fixtures to drift from it |
 | 2026-11-01 | Whole-Space grants (`GRANT SELECT ON SPACE`) in their own registry; they cover a view only when its expansion stays in the Space | Sharing is per Space in the apps and should include tables created later; a relation name such as `"*"` could not stand for the Space safely; owner-rights views would otherwise open other Spaces |

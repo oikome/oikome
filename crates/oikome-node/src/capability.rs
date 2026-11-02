@@ -46,6 +46,24 @@ fn batch(fields: Vec<Field>, columns: Vec<ArrayRef>) -> Result<QueryResult, Sess
     })
 }
 
+/// An issued token as a row: `id, audience, expires_at, token`.
+pub(crate) fn issued_result(issued: IssuedToken) -> Result<QueryResult, SessionError> {
+    batch(
+        vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("audience", DataType::Utf8, false),
+            Field::new("expires_at", DataType::Int64, false),
+            Field::new("token", DataType::Utf8, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec![issued.id])),
+            Arc::new(StringArray::from(vec![issued.audience])),
+            Arc::new(Int64Array::from(vec![issued.expires_at as i64])),
+            Arc::new(StringArray::from(vec![issued.token])),
+        ],
+    )
+}
+
 /// The Spaces a query names before views are expanded: those a peer must
 /// hold a capability for. Anything but a query is refused, as is a bare
 /// table name (peers always qualify).
@@ -105,21 +123,7 @@ impl OikomeSession {
         &self,
         request: &IssueUcanRequest,
     ) -> Result<QueryResult, SessionError> {
-        let issued = self.issue_token(request)?;
-        batch(
-            vec![
-                Field::new("id", DataType::Utf8, false),
-                Field::new("audience", DataType::Utf8, false),
-                Field::new("expires_at", DataType::Int64, false),
-                Field::new("token", DataType::Utf8, false),
-            ],
-            vec![
-                Arc::new(StringArray::from(vec![issued.id])),
-                Arc::new(StringArray::from(vec![issued.audience])),
-                Arc::new(Int64Array::from(vec![issued.expires_at as i64])),
-                Arc::new(StringArray::from(vec![issued.token])),
-            ],
-        )
+        issued_result(self.issue_token(request)?)
     }
 
     /// Sign a capability for a peer (`ISSUE UCAN`). Only the token's id and

@@ -65,4 +65,8 @@ pub enum EngineError {
     /// A remote node could not be reached or failed the request.
     #[error("remote error: {0}")]
     Remote(String),
+
+    /// A task went over one of its limits (time, memory, input or output).
+    #[error("over a limit: {0}")]
+    LimitExceeded(String),
 }

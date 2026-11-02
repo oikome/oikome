@@ -18,6 +18,7 @@
 
 pub mod acl;
 pub mod catalog;
+pub mod compute;
 pub mod contact;
 pub mod graph;
 pub mod lance;
@@ -32,6 +33,7 @@ pub mod ucan;
 
 pub use acl::{Grant, RowPolicy, SpaceGrant, ViewDef};
 pub use catalog::OikomeCatalog;
+pub use compute::ComputeQuota;
 pub use contact::Contact;
 pub use graph::GraphDef;
 pub use peer::Peer;

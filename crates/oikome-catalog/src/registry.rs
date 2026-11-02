@@ -16,7 +16,7 @@
 //! `<root>/.oikome/`. The directory starts with a dot so Iceberg namespace
 //! listing ignores it.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::acl::{Grant, RowPolicy, SpaceGrant, ViewDef};
 use crate::catalog::OikomeCatalog;
+use crate::compute::{ComputeItem, ComputeQuota};
 use crate::contact::Contact;
 use crate::graph::GraphDef;
 use crate::peer::Peer;
@@ -45,6 +46,7 @@ const GRANTS_FILE: &str = "grants.json";
 const SPACE_GRANTS_FILE: &str = "space_grants.json";
 const CONTACTS_FILE: &str = "contacts.json";
 const SOURCES_FILE: &str = "sources.json";
+const COMPUTE_FILE: &str = "compute.json";
 const POLICIES_FILE: &str = "policies.json";
 const UCANS_FILE: &str = "ucans.json";
 const REVOCATIONS_FILE: &str = "revocations.json";
@@ -96,6 +98,10 @@ pub(crate) struct Registry {
     pub(crate) contacts: BTreeMap<String, Contact>,
     /// Registered sources (connectors), keyed by name.
     pub(crate) sources: BTreeMap<String, SourceDef>,
+    /// Compute methods offered to peers.
+    pub(crate) compute_offers: BTreeSet<String>,
+    /// Compute quotas, keyed by peer DID.
+    pub(crate) compute_quotas: BTreeMap<String, ComputeQuota>,
 }
 
 fn registry_err(context: &str, e: impl std::fmt::Display) -> CatalogError {
@@ -190,6 +196,19 @@ impl Registry {
         let storages: Vec<StorageDef> = read_items(&dir.join(STORAGES_FILE), &mut h)?;
         let contacts: Vec<Contact> = read_items(&dir.join(CONTACTS_FILE), &mut h)?;
         let sources: Vec<SourceDef> = read_items(&dir.join(SOURCES_FILE), &mut h)?;
+        let compute: Vec<ComputeItem> = read_items(&dir.join(COMPUTE_FILE), &mut h)?;
+        let mut compute_offers = BTreeSet::new();
+        let mut compute_quotas = BTreeMap::new();
+        for item in compute {
+            match item {
+                ComputeItem::Offer { method } => {
+                    compute_offers.insert(method);
+                }
+                ComputeItem::Quota(quota) => {
+                    compute_quotas.insert(quota.peer.clone(), quota);
+                }
+            }
+        }
         let registry = Self {
             spaces: spaces.into_iter().map(|s| (s.name.clone(), s)).collect(),
             locations: locations.into_iter().map(|l| (l.id.clone(), l)).collect(),
@@ -205,6 +224,8 @@ impl Registry {
             storages: storages.into_iter().map(|s| (s.name.clone(), s)).collect(),
             contacts: contacts.into_iter().map(|c| (c.did.clone(), c)).collect(),
             sources: sources.into_iter().map(|s| (s.name.clone(), s)).collect(),
+            compute_offers,
+            compute_quotas,
         };
         Ok((registry, h.finish()))
     }
@@ -263,6 +284,21 @@ impl Registry {
         write_items(
             &dir.join(SOURCES_FILE),
             self.sources.values().cloned().collect(),
+        )?;
+        write_items(
+            &dir.join(COMPUTE_FILE),
+            self.compute_offers
+                .iter()
+                .map(|method| ComputeItem::Offer {
+                    method: method.clone(),
+                })
+                .chain(
+                    self.compute_quotas
+                        .values()
+                        .cloned()
+                        .map(ComputeItem::Quota),
+                )
+                .collect(),
         )?;
         if !self.tokens.is_empty() || dir.join(IDENTITY_DIR).join(REMOTE_TOKENS_FILE).exists() {
             let identity = dir.join(IDENTITY_DIR);

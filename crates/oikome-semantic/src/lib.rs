@@ -27,7 +27,7 @@ pub mod rewrite;
 pub mod search;
 pub mod sql_parser;
 
-pub use capability::{IssueUcanRequest, SpaceGrantRequest};
+pub use capability::{ComputeLimits, IssueComputeRequest, IssueUcanRequest, SpaceGrantRequest};
 pub use classify::{
     classify, collect_spaces, cte_names, qualify_tables, DmlKind, StatementClass, TclKind,
 };

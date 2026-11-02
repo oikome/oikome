@@ -8,7 +8,7 @@ import { useState } from "react";
 import { Button, Card, ErrorText, TextArea } from "@oikome/ui";
 import type { SqlResult } from "@oikome/client";
 import { rawMessage, useAction, useClient } from "../data";
-import { BackLink, RowsTable } from "../parts";
+import { BackLink, RowsTable, ScreenHeader } from "../parts";
 import { strings } from "../strings";
 
 const s = strings.sql;
@@ -22,9 +22,7 @@ export function Sql() {
   return (
     <>
       <BackLink parent="/settings" parentLabel={s.back} />
-      <header className="screen-header screen-result">
-        <h1 className="screen-title">{s.title}</h1>
-      </header>
+      <ScreenHeader title={s.title} />
       <p className="screen-lede">{s.lede}</p>
       <Card>
         <form

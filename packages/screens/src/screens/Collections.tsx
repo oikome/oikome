@@ -8,6 +8,7 @@ import {
   Avatar,
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorText,
   Group,
@@ -16,11 +17,12 @@ import {
   Select,
   TextField,
   Tile,
-  toneFor,
+  collectionTones,
 } from "@oikome/ui";
+import type { TileTone } from "@oikome/ui";
 import type { Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
-import { RowsTable } from "../parts";
+import { RowsTable, ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
 
@@ -54,12 +56,13 @@ export function Collections({ selected }: { selected?: string }) {
   const mine = list.filter((space) => space.kind !== "remote");
   const fromOthers = list.filter((space) => space.kind === "remote");
   const current = list.find((space) => space.name === selected);
+  const toneOf = collectionTones(list.map((space) => space.name));
   const item = (space: SpaceSummary) => {
     const names = shared.get(space.name) ?? [];
     return (
       <Row
         key={space.name}
-        leading={<Tile icon="collection" tone={toneFor(space.name)} />}
+        leading={<Tile icon="collection" tone={toneOf(space.name)} />}
         title={space.name}
         meta={
           space.kind === "remote"
@@ -80,16 +83,33 @@ export function Collections({ selected }: { selected?: string }) {
     shares.reload();
   };
 
+  // Side by side there is always a collection open, as in the design: the
+  // first one, in place of an empty "choose one" panel. Below 960px the list
+  // stands alone until one is chosen.
+  const first = mine[0] ?? fromOthers[0];
+  useEffect(() => {
+    if (!selected && first && window.matchMedia("(min-width: 961px)").matches) {
+      navigate(`/collections/${encodeURIComponent(first.name)}`, { replace: true });
+    }
+  }, [selected, first]);
+
+  const empty = spaces.data !== undefined && list.length === 0;
+  const stopCreating = () => {
+    setCreating(false);
+    setName("");
+    create.clear();
+  };
+
   return (
     <>
-      <header className="screen-header">
-        <h1 className="screen-title">{s.title}</h1>
-        {!creating && (
+      <ScreenHeader title={s.title}>
+        {/* An empty page offers the same action once, in its empty state. */}
+        {!creating && !empty && (
           <Button icon="plus" onClick={() => setCreating(true)}>
             {s.newCollection}
           </Button>
         )}
-      </header>
+      </ScreenHeader>
 
       {creating && (
         <Card className="screen-panel">
@@ -98,6 +118,10 @@ export function Collections({ selected }: { selected?: string }) {
             onSubmit={async (e) => {
               e.preventDefault();
               const wanted = name.trim();
+              if (!wanted) {
+                create.fail(strings.common.nameRequired);
+                return;
+              }
               if (!NAME.test(wanted)) {
                 create.fail(s.nameInvalid);
                 return;
@@ -116,6 +140,7 @@ export function Collections({ selected }: { selected?: string }) {
           >
             <TextField
               label={s.nameLabel}
+              name="collection-name"
               hint={s.nameHint}
               value={name}
               onChange={(value) => {
@@ -126,17 +151,9 @@ export function Collections({ selected }: { selected?: string }) {
               autoFocus
             />
             <div className="screen-actions">
-              <Button type="submit" variant="primary" disabled={create.busy || !name.trim()}>
+              <Button onClick={stopCreating}>{strings.common.cancel}</Button>
+              <Button type="submit" variant="primary" disabled={create.busy}>
                 {s.create}
-              </Button>
-              <Button
-                variant="text"
-                onClick={() => {
-                  setCreating(false);
-                  create.clear();
-                }}
-              >
-                {strings.common.cancel}
               </Button>
             </div>
           </form>
@@ -144,9 +161,10 @@ export function Collections({ selected }: { selected?: string }) {
       )}
 
       {spaces.error && <ErrorText>{spaces.error}</ErrorText>}
-      {spaces.data && list.length === 0 && !creating && (
+      {empty && !creating && (
         <Card>
           <EmptyState
+            icon="collection"
             title={s.emptyTitle}
             body={s.emptyBody}
             action={
@@ -176,6 +194,7 @@ export function Collections({ selected }: { selected?: string }) {
             <Detail
               key={current.name}
               space={current}
+              tone={toneOf(current.name)}
               names={shared.get(current.name) ?? []}
               onRemoved={() => {
                 reload();
@@ -198,10 +217,12 @@ export function Collections({ selected }: { selected?: string }) {
 
 function Detail({
   space,
+  tone,
   names,
   onRemoved,
 }: {
   space: SpaceSummary;
+  tone: TileTone;
   names: string[];
   onRemoved: () => void;
 }) {
@@ -228,7 +249,7 @@ function Detail({
     unreadable,
   );
   const count = rows.data?.table.numRows ?? 0;
-  const who = [strings.common.you, ...names];
+
   const panel = useRef<HTMLElement>(null);
 
   // Below 960px the collection sits under the list: bring it into view.
@@ -241,7 +262,7 @@ function Detail({
   return (
     <section ref={panel} className="screen-detail" aria-label={space.name}>
       <div className="screen-detail__head">
-        <Tile icon="collection" tone={toneFor(space.name)} large />
+        <Tile icon="collection" tone={tone} large />
         <div className="screen-detail__name">
           <h2>{space.name}</h2>
           <p className="screen-muted">{local ? s.storedHere : s.fromElsewhere}</p>
@@ -263,7 +284,11 @@ function Detail({
       {local && (
         <div className="screen-who">
           <span className="screen-who__label">{s.whoCanSee}</span>
-          {who.map((name) => (
+          <span className="screen-chip">
+            <Avatar name={strings.common.you} you small />
+            {strings.common.you}
+          </span>
+          {names.map((name) => (
             <span key={name} className="screen-chip">
               <Avatar name={name} small />
               {name}
@@ -276,30 +301,28 @@ function Detail({
       )}
 
       {confirming && (
-        <div className="screen-confirm">
-          <p className="screen-confirm__text">{s.removeConfirm(space.name)}</p>
-          {remove.error && <ErrorText>{remove.error}</ErrorText>}
-          <div className="screen-confirm__actions">
-            <Button
-              variant="destructive"
-              disabled={remove.busy}
-              onClick={async () => {
-                const done = await remove.run(() => client.dropSpace({ space: space.name }));
-                if (done) onRemoved();
-              }}
-            >
-              {s.removeYes}
-            </Button>
-            <Button variant="quiet" onClick={() => setConfirming(false)}>
-              {strings.common.cancel}
-            </Button>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={s.removeTitle(space.name)}
+          body={s.removeBody}
+          confirmLabel={s.removeYes}
+          cancelLabel={strings.common.cancel}
+          busy={remove.busy}
+          error={remove.error}
+          onConfirm={async () => {
+            const done = await remove.run(() => client.dropSpace({ space: space.name }));
+            if (done) onRemoved();
+          }}
+          onCancel={() => {
+            setConfirming(false);
+            remove.clear();
+          }}
+        />
       )}
 
       {tables.error && <ErrorText>{tables.error}</ErrorText>}
       {tables.data && tables.data.length === 0 && (
         <EmptyState
+          icon="table"
           title={s.nothingYetTitle(space.name)}
           body={s.nothingYetBody}
           action={<Button onClick={() => navigate("/settings/advanced")}>{s.openAdvanced}</Button>}
@@ -323,11 +346,11 @@ function Detail({
           )}
           {rows.error && <ErrorText>{rows.error}</ErrorText>}
           {rows.data && <RowsTable table={rows.data.table} label={table} />}
-          <div className="screen-pager">
-            <span className="screen-muted">
-              {count === 0 ? s.noRows : s.rows(offset + 1, offset + count)}
-            </span>
-            {(offset > 0 || count === PAGE_ROWS) && (
+          {rows.data && count === 0 && <p className="screen-muted screen-result">{s.noRows}</p>}
+          {/* Paging only when there is more than one page. */}
+          {(offset > 0 || count === PAGE_ROWS) && (
+            <div className="screen-pager">
+              <span className="screen-muted">{s.rows(offset + 1, offset + count)}</span>
               <span>
                 <Button
                   variant="quiet"
@@ -344,8 +367,8 @@ function Detail({
                   {s.next}
                 </Button>
               </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </section>

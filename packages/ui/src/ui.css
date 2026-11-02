@@ -18,6 +18,11 @@
   font: var(--text-button);
   white-space: nowrap;
   cursor: pointer;
+  /* Colors change at once when a button turns on or off (white text never
+     sits on a half-faded fill); only hovering eases them. */
+  transition: transform 100ms ease-out;
+}
+.oik-button:hover:not(:disabled) {
   transition: background-color 120ms ease, transform 100ms ease-out;
 }
 .oik-button:active:not(:disabled) {
@@ -289,6 +294,10 @@
   padding: 0 var(--space-3);
   font-size: 13px;
 }
+/* A text-only button's words end where a pill's edge does. */
+.oik-row__trailing .oik-button--quiet:last-child {
+  margin-right: calc(-1 * var(--space-3));
+}
 .oik-row__trailing .oik-icon-button {
   width: 30px;
   height: 30px;
@@ -315,12 +324,19 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
-/* An ID or a path in a row wraps instead of being cut off. */
-.oik-row__title .oik-mono {
-  font-size: 13px;
+/* An ID or a path wraps instead of being cut off, in one style wherever
+   it appears: 12px mono, secondary ink. */
+.oik-row__title .oik-mono,
+.oik-row__meta .oik-mono {
+  font-size: 12px;
   font-weight: 400;
+  color: var(--color-ink-secondary);
   white-space: normal;
   overflow-wrap: anywhere;
+}
+.oik-row--add .oik-tile {
+  background: var(--color-fill);
+  color: var(--color-link);
 }
 .oik-row--add .oik-row__title {
   color: var(--color-link);
@@ -373,6 +389,18 @@
   height: 32px;
   border-radius: 50%;
   font: 600 13px/1 var(--font-sans);
+}
+.oik-avatar--you {
+  background: var(--color-disc);
+  color: var(--color-disc-glyph);
+}
+.oik-avatar--orchid {
+  background: var(--avatar-orchid-fill);
+  color: var(--avatar-orchid-glyph);
+}
+.oik-avatar--periwinkle {
+  background: var(--avatar-periwinkle-fill);
+  color: var(--avatar-periwinkle-glyph);
 }
 .oik-avatar--sm {
   width: 22px;
@@ -647,12 +675,17 @@
 }
 
 .oik-empty {
-  padding: var(--space-6) var(--space-4);
+  display: grid;
+  justify-items: center;
+  padding: var(--space-8) var(--space-4);
   text-align: center;
 }
+.oik-empty > .oik-tile {
+  margin-bottom: var(--space-4);
+}
 .oik-empty__title {
-  margin: 0 0 var(--space-2);
-  font: var(--text-title);
+  margin: 0 0 var(--space-1);
+  font: var(--text-subhead);
 }
 .oik-empty__body {
   max-width: 46ch;
@@ -751,8 +784,10 @@
   outline: none;
   background: var(--color-fill);
 }
+/* Neutral until confirmed: the red belongs to the confirmation, so a screen
+   never shows two reds at once. */
 .oik-menu__item--destructive {
-  color: var(--color-error);
+  color: var(--color-ink);
 }
 
 .oik-visually-hidden {
@@ -782,7 +817,7 @@
   top: 0;
   padding: var(--space-3) var(--space-3);
   background: var(--color-wash);
-  font: var(--text-label);
+  font: var(--text-meta);
   color: var(--color-ink-secondary);
   text-align: left;
   white-space: nowrap;
@@ -812,10 +847,43 @@
     flex-wrap: wrap;
   }
   .oik-row__text {
-    flex: 1 1 200px;
+    flex: 1 1 150px;
   }
   .oik-field--inline .oik-select-wrap {
     min-width: 0;
     flex: 1;
   }
+}
+
+/* ----- Confirmation dialog ----- */
+
+.oik-dialog {
+  box-sizing: border-box;
+  width: calc(100% - 2 * var(--space-4));
+  max-width: 440px;
+  padding: var(--space-6);
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: 0 24px 64px rgba(45, 41, 38, 0.18);
+}
+.oik-dialog::backdrop {
+  background: rgba(45, 41, 38, 0.28);
+}
+.oik-dialog__title {
+  margin: 0 0 var(--space-2);
+  font: var(--text-subhead);
+  overflow-wrap: anywhere;
+}
+.oik-dialog__body {
+  margin: 0;
+  font: var(--text-body);
+  color: var(--color-ink-secondary);
+}
+.oik-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
 }

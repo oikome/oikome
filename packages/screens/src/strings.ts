@@ -22,6 +22,8 @@ export const strings = {
   common: {
     cancel: "Cancel",
     close: "Close",
+    skip: "Skip to Content",
+    nameRequired: "Enter a name.",
     moreActions: (name: string) => `More actions for ${name}`,
     save: "Save",
     done: "Done",
@@ -44,7 +46,7 @@ export const strings = {
   },
 
   notFound: {
-    title: "This page doesn't exist",
+    title: "This Page Doesn't Exist",
   },
 
   backup: {
@@ -95,7 +97,7 @@ export const strings = {
     cantRead:
       "This collection can't be read right now. Whoever shared it may have stopped sharing, or their computer may be off.",
     create: "Create",
-    emptyTitle: "No collections yet",
+    emptyTitle: "No Collections Yet",
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
     notShared: "Only you",
     sharedWith: (names: string[]) => `Shared with ${names.join(", ")}`,
@@ -103,12 +105,12 @@ export const strings = {
     storedHere: "Stored on this computer",
     share: "Share…",
     remove: "Remove Collection",
-    removeConfirm: (name: string) =>
-      `Remove ${name}? Sharing it stops. Its files stay in your data folder.`,
+    removeTitle: (name: string) => `Remove ${name}?`,
+    removeBody: "Sharing it stops. Its files stay in your data folder.",
     removeYes: "Remove",
     whoCanSee: "Who can see this",
     manage: "Manage",
-    nothingYetTitle: (name: string) => `Nothing in ${name} yet`,
+    nothingYetTitle: (name: string) => `Nothing in ${name} Yet`,
     nothingYetBody:
       "Sources that fill collections arrive in a later version. Until then, you can add data in Settings, under Advanced.",
     openAdvanced: "Open Advanced",
@@ -147,7 +149,7 @@ export const strings = {
     share: "Share",
     needContact: "Add a contact first: sharing is with people you know.",
     needCollection: "Create a collection first.",
-    inviteTitle: (name: string) => `Send this invite code to ${name}`,
+    inviteTitle: (name: string) => `Send This Invite Code to ${name}`,
     inviteBody: (name: string) =>
       `Only ${name}'s data center can use it, until the share ends or you stop it. It is shown only now.`,
     contacts: "Contacts",
@@ -161,7 +163,9 @@ export const strings = {
     add: "Add",
     rename: "Rename",
     remove: "Remove",
-    removeConfirm: (name: string) => `Remove ${name}? Everything you share with them stops.`,
+    removeTitle: (name: string) => `Remove ${name}?`,
+    removeBody: "Everything you share with them stops.",
+    idRequired: "Paste their ID.",
     sharesCount: (n: number) => (n === 1 ? "You share 1 collection" : `You share ${n} collections`),
     noShares: "Nothing shared",
     contactsFootnote:
@@ -179,6 +183,9 @@ export const strings = {
     allowed: "Allowed",
     refused: "Refused",
     empty: "No one has asked for your data yet.",
+    emptyTitle: "No Activity Yet",
+    emptyBody:
+      "When someone reads a collection you share, or is turned away, it shows here. Activity is kept only on this computer, for 90 days.",
     footnote: "Activity is kept only on this computer, for 90 days.",
     more: "Show More",
     read: (who: string, what: string) => `${who} read ${what}`,
@@ -204,6 +211,7 @@ export const strings = {
     idFootnote: "Give your ID to people who want to share with you.",
     version: "Version",
     dataFolder: "Data folder",
+    preferencesTitle: "Preferences",
     languageTitle: "Language",
     language: "English",
     languageMore: "More languages are on the way.",

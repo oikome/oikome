@@ -45,10 +45,17 @@ export function Button({
 export function IconButton({
   icon,
   label,
+  filled,
   ...rest
-}: { icon: IconName; label: string } & ButtonHTMLAttributes<HTMLButtonElement>) {
+}: { icon: IconName; label: string; filled?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button type="button" className="oik-icon-button" aria-label={label} title={label} {...rest}>
+    <button
+      type="button"
+      className={cx("oik-icon-button", filled && "oik-icon-button--filled")}
+      aria-label={label}
+      title={label}
+      {...rest}
+    >
       <Icon name={icon} />
     </button>
   );
@@ -195,23 +202,49 @@ export function Row({
   );
 }
 
-export const TILE_TONES = [
-  "honey",
-  "rose",
-  "sage",
-  "periwinkle",
-  "mist",
-  "oat",
-  "lavender",
-  "stone",
-] as const;
-export type TileTone = (typeof TILE_TONES)[number] | "apricot";
+export type TileTone =
+  | "honey"
+  | "rose"
+  | "sage"
+  | "periwinkle"
+  | "mist"
+  | "oat"
+  | "lavender"
+  | "stone"
+  | "apricot";
 
-/** A stable tone for a name, so a collection keeps its color. */
-export function toneFor(name: string): TileTone {
-  let hash = 0;
-  for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-  return TILE_TONES[hash % TILE_TONES.length] ?? "stone";
+/**
+ * Tones a collection can take. Stone means "ended", apricot belongs to the
+ * recovery key, and orchid ("rose") sits too close to the crimson of a
+ * selection, so none of them names a collection.
+ */
+const COLLECTION_TONES: TileTone[] = ["honey", "sage", "periwinkle", "oat", "lavender", "mist"];
+
+function hash(name: string): number {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h;
+}
+
+/**
+ * A tone for each collection, so neighbours never share one while there are
+ * tones left: each name starts at its hash and moves to the next free tone.
+ * Screens build it from the same list, so a collection keeps its color.
+ */
+export function collectionTones(names: string[]): (name: string) => TileTone {
+  const tones = new Map<string, TileTone>();
+  const used = new Set<TileTone>();
+  for (const name of [...names].sort()) {
+    let i = hash(name) % COLLECTION_TONES.length;
+    for (let tries = 0; tries < COLLECTION_TONES.length && used.has(COLLECTION_TONES[i]!); tries++) {
+      i = (i + 1) % COLLECTION_TONES.length;
+    }
+    const tone = COLLECTION_TONES[i]!;
+    tones.set(name, tone);
+    used.add(tone);
+    if (used.size === COLLECTION_TONES.length) used.clear();
+  }
+  return (name) => tones.get(name) ?? COLLECTION_TONES[hash(name) % COLLECTION_TONES.length]!;
 }
 
 export function Tile({
@@ -235,24 +268,12 @@ export function Tile({
   );
 }
 
-export function Avatar({ name, small }: { name: string; small?: boolean }) {
-  const tone = toneFor(name);
+/** A person's initial: "you" in the neutral disc, contacts in orchid or periwinkle. */
+export function Avatar({ name, small, you }: { name: string; small?: boolean; you?: boolean }) {
+  const tone = you ? "you" : hash(name) % 2 === 0 ? "orchid" : "periwinkle";
   return (
-    <span
-      className={cx("oik-avatar", `oik-tile--${tone}`, small && "oik-avatar--sm")}
-      aria-hidden="true"
-    >
+    <span className={cx("oik-avatar", `oik-avatar--${tone}`, small && "oik-avatar--sm")} aria-hidden="true">
       {(name.trim()[0] ?? "?").toUpperCase()}
-    </span>
-  );
-}
-
-export function AvatarStack({ names, label }: { names: string[]; label: string }) {
-  return (
-    <span className="oik-avatar-stack" role="img" aria-label={label}>
-      {names.slice(0, 4).map((name) => (
-        <Avatar key={name} name={name} small />
-      ))}
     </span>
   );
 }
@@ -265,6 +286,7 @@ interface FieldProps {
 
 export function TextField({
   label,
+  name,
   hint,
   error,
   value,
@@ -273,6 +295,8 @@ export function TextField({
   mono,
   autoFocus,
 }: FieldProps & {
+  /** The field's name; fields here are never credentials, so autofill is off. */
+  name: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -287,6 +311,8 @@ export function TextField({
       </label>
       <input
         id={id}
+        name={name}
+        autoComplete="off"
         className={cx("oik-input", mono && "oik-input--mono")}
         value={value}
         placeholder={placeholder}
@@ -318,6 +344,8 @@ export function TextArea({
       </label>
       <textarea
         id={id}
+        name="statements"
+        autoComplete="off"
         className="oik-textarea"
         value={value}
         spellCheck={false}
@@ -502,13 +530,16 @@ export function EmptyState({
   title,
   body,
   action,
+  icon,
 }: {
   title: string;
   body?: ReactNode;
   action?: ReactNode;
+  icon?: IconName;
 }) {
   return (
     <div className="oik-empty">
+      {icon && <Tile icon={icon} tone="stone" large />}
       <h3 className="oik-empty__title">{title}</h3>
       {body && <p className="oik-empty__body">{body}</p>}
       {action}
@@ -576,7 +607,9 @@ export function CopyField({
 }) {
   return (
     <div className="oik-copy">
-      <p className="oik-copy__value">{value}</p>
+      <p className="oik-copy__value" translate="no">
+        {value}
+      </p>
       <CopyButton value={value} copyLabel={copyLabel} copiedLabel={copiedLabel} />
     </div>
   );
@@ -672,5 +705,62 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Asks before removing something. A modal `<dialog>`: the page behind is
+ * inert, Escape cancels, and focus starts on Cancel, the safe choice.
+ */
+export function ConfirmDialog({
+  title,
+  body,
+  confirmLabel,
+  cancelLabel,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  body: ReactNode;
+  confirmLabel: string;
+  cancelLabel: string;
+  busy?: boolean;
+  error?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => dialog?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="oik-dialog"
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        onCancel();
+      }}
+    >
+      <h2 id={titleId} className="oik-dialog__title">
+        {title}
+      </h2>
+      <p className="oik-dialog__body">{body}</p>
+      {error && <ErrorText>{error}</ErrorText>}
+      <div className="oik-dialog__actions">
+        <Button autoFocus onClick={onCancel}>
+          {cancelLabel}
+        </Button>
+        <Button variant="destructive" disabled={busy} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </dialog>
   );
 }

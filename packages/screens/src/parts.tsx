@@ -4,15 +4,36 @@
 // Pieces several screens share: a Back link, a table of rows and the
 // recovery key panel.
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
+import type { ReactNode } from "react";
 import { Button, Checkbox, CopyField, ErrorText, Icon, InsetWell } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import { useAction, useClient, useLoad } from "./data";
-import { cell } from "./format";
+import { calendarDate, cell, columnLabel, dateTime } from "./format";
 import { navigate, plainClick, previousPage } from "./router";
 import { strings } from "./strings";
+
+/** What the shell asks every screen to show under its title (the backup reminder). */
+export const BannerContext = createContext<ReactNode>(null);
+
+/**
+ * A screen's title row, then the shell's reminder under it: the title stays
+ * in one place whether or not a reminder shows.
+ */
+export function ScreenHeader({ title, children }: { title: string; children?: ReactNode }) {
+  const banner = useContext(BannerContext);
+  return (
+    <>
+      <header className="screen-header">
+        <h1 className="screen-title">{title}</h1>
+        {children}
+      </header>
+      {banner && <div className="screen-banner">{banner}</div>}
+    </>
+  );
+}
 
 /** What a page is called in a Back link; undefined for redirects such as "/". */
 function pageTitle(url: string): string | undefined {
@@ -58,13 +79,11 @@ export function BackLink({ parent, parentLabel }: { parent: string; parentLabel:
   );
 }
 
-/** A value of a column as text: dates as 2026-10-28, times in UTC. */
+/** A value of a column as text; dates and times the way people write them. */
 function show(field: Field, value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  if (DataType.isDate(field.type)) return new Date(Number(value)).toISOString().slice(0, 10);
-  if (DataType.isTimestamp(field.type)) {
-    return new Date(Number(value)).toISOString().replace("T", " ").slice(0, 19);
-  }
+  if (DataType.isDate(field.type)) return calendarDate(Number(value));
+  if (DataType.isTimestamp(field.type)) return dateTime(Number(value));
   return cell(value);
 }
 
@@ -80,8 +99,8 @@ export function RowsTable({ table, label }: { table: Table; label: string }) {
         <thead>
           <tr>
             {fields.map((f) => (
-              <th key={f.name} scope="col">
-                {f.name}
+              <th key={f.name} scope="col" title={f.name}>
+                {columnLabel(f.name)}
               </th>
             ))}
           </tr>
@@ -150,9 +169,29 @@ export function RecoveryKeyPanel({
           <p className="screen-muted">{strings.common.loading}</p>
         )}
         <p className="screen-muted screen-recovery__hint">{strings.recovery.hint}</p>
-        {key.data && (
+      </InsetWell>
+      <Checkbox label={strings.recovery.stored} checked={stored} onChange={setStored} />
+      {confirm.error && <ErrorText>{confirm.error}</ErrorText>}
+      <div className="screen-actions">
+        {/* One crimson action at a time: save the key first, then go on. */}
+        {stored ? (
           <Button
+            variant="primary"
+            large
+            disabled={!key.data || confirm.busy}
+            onClick={async () => {
+              const info = await confirm.run(() => client.confirmRecoveryKey());
+              if (info) onDone(info);
+            }}
+          >
+            {doneLabel}
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            large
             icon="download"
+            disabled={!key.data}
             onClick={() =>
               download(
                 strings.recovery.fileName,
@@ -163,21 +202,6 @@ export function RecoveryKeyPanel({
             {strings.recovery.download}
           </Button>
         )}
-      </InsetWell>
-      <Checkbox label={strings.recovery.stored} checked={stored} onChange={setStored} />
-      {confirm.error && <ErrorText>{confirm.error}</ErrorText>}
-      <div className="screen-actions">
-        <Button
-          variant="primary"
-          large
-          disabled={!stored || !key.data || confirm.busy}
-          onClick={async () => {
-            const info = await confirm.run(() => client.confirmRecoveryKey());
-            if (info) onDone(info);
-          }}
-        >
-          {doneLabel}
-        </Button>
         {onLater && (
           <Button variant="text" onClick={onLater}>
             {laterLabel}

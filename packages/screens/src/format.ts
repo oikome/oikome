@@ -4,6 +4,43 @@
 // Dates and values as people read them.
 
 const day = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" });
+// A calendar date has no time zone: show the day it names.
+const calendarDay = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+const moment = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/** A DATE cell: "Oct 28, 2026". */
+export function calendarDate(ms: number): string {
+  return calendarDay.format(new Date(ms));
+}
+
+/** A TIMESTAMP cell, in the viewer's time zone: "Oct 28, 2026, 3:04 PM". */
+export function dateTime(ms: number): string {
+  return moment.format(new Date(ms));
+}
+
+const ACRONYMS = new Set(["id", "url", "uuid", "ip", "api"]);
+
+/** A column name as a header: "created_at" reads "Created at", "user_id" "User ID". */
+export function columnLabel(name: string): string {
+  const words = name
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .map((word) => (ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word));
+  const text = words.join(" ");
+  return text ? text[0]!.toUpperCase() + text.slice(1) : name;
+}
 const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" });
 
 /** "Dec 1, 2026" for seconds since the epoch. */

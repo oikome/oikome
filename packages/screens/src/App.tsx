@@ -11,6 +11,7 @@ import { Banner, Button, Card, EmptyState, ErrorText, Icon } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo } from "@oikome/client";
 import { ClientProvider, useClient, useLoad } from "./data";
+import { BannerContext } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
 import { Collections } from "./screens/Collections";
@@ -130,8 +131,19 @@ function Shell({
     document.title = label ? `${label} · ${strings.brand}` : strings.brand;
   }, [current]);
 
+  const banner = showBackup ? (
+    <Banner
+      title={strings.backup.bannerTitle}
+      body={strings.backup.bannerBody}
+      action={<Button onClick={() => navigate("/settings?backup=1")}>{strings.backup.backUpNow}</Button>}
+    />
+  ) : null;
+
   return (
     <div className="screen-shell">
+      <a className="screen-skip" href="#main">
+        {strings.common.skip}
+      </a>
       <aside className="screen-sidebar">
         <div className="screen-sidebar__inner">
         <div className="screen-brand">
@@ -157,15 +169,8 @@ function Shell({
         </nav>
         </div>
       </aside>
-      <main className="screen-main">
-        {showBackup && (
-          <Banner
-            title={strings.backup.bannerTitle}
-            body={strings.backup.bannerBody}
-            action={<Button onClick={() => navigate("/settings?backup=1")}>{strings.backup.backUpNow}</Button>}
-          />
-        )}
-        {children}
+      <main id="main" tabIndex={-1} className="screen-main">
+        <BannerContext.Provider value={banner}>{children}</BannerContext.Provider>
       </main>
     </div>
   );

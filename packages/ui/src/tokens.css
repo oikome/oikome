@@ -72,6 +72,12 @@
   --tile-apricot-fill: #fcdcc2;
   --tile-apricot-glyph: #8f522b;
 
+  /* Avatars: you in the neutral disc, contacts in orchid or periwinkle */
+  --avatar-orchid-fill: #f0cde0;
+  --avatar-orchid-glyph: #7f4767;
+  --avatar-periwinkle-fill: #d6ddf8;
+  --avatar-periwinkle-glyph: #4e5a8b;
+
   /* Radii */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -134,6 +140,22 @@ html {
 body {
   margin: 0;
   background: var(--color-ground);
+}
+
+a,
+button,
+input,
+select,
+textarea,
+label {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
 }
 
 ::selection {

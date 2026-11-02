@@ -17,7 +17,7 @@ import {
 } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
-import { RecoveryKeyPanel } from "../parts";
+import { RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { shortId } from "../format";
 import { navigate } from "../router";
 import { strings } from "../strings";
@@ -46,10 +46,8 @@ export function Settings({
   };
 
   return (
-    <div className="screen-settings">
-      <header className="screen-header">
-        <h1 className="screen-title">{s.title}</h1>
-      </header>
+    <div className="screen-column">
+      <ScreenHeader title={s.title} />
 
       <Group title={s.recoveryTitle}>
         <Row
@@ -107,14 +105,12 @@ export function Settings({
             >
               <TextField
                 label={s.nameLabel}
+                name="node-name"
                 value={name}
                 onChange={setName}
                 placeholder={strings.defaultName}
                 autoFocus
               />
-              <Button type="submit" variant="primary" disabled={rename.busy}>
-                {strings.common.save}
-              </Button>
               <Button
                 onClick={() => {
                   setEditing(false);
@@ -124,22 +120,27 @@ export function Settings({
               >
                 {strings.common.cancel}
               </Button>
+              <Button type="submit" disabled={rename.busy}>
+                {strings.common.save}
+              </Button>
             </form>
             {rename.error && <ErrorText>{rename.error}</ErrorText>}
           </GroupPanel>
         ) : (
           <Row
             title={s.nameLabel}
-            meta={info.name || strings.defaultName}
             trailing={
-              <Button
+              <>
+                <span className="oik-row__value">{info.name || strings.defaultName}</span>
+                <Button
                 onClick={() => {
                   setName(info.name);
                   setEditing(true);
                 }}
               >
-                {s.rename}
-              </Button>
+                  {s.rename}
+                </Button>
+              </>
             }
           />
         )}
@@ -158,7 +159,7 @@ export function Settings({
         <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
       </Group>
 
-      <Group>
+      <Group title={s.preferencesTitle}>
         <Row
           title={s.languageTitle}
           meta={s.languageMore}

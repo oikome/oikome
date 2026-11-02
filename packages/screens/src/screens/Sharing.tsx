@@ -9,6 +9,7 @@ import {
   Avatar,
   Button,
   ChoiceGroup,
+  ConfirmDialog,
   CopyButton,
   CopyField,
   ErrorText,
@@ -22,11 +23,13 @@ import {
   Select,
   TextField,
   Tile,
-  toneFor,
+  collectionTones,
 } from "@oikome/ui";
+import type { TileTone } from "@oikome/ui";
 import type { Contact, NewShare, NodeInfo, Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { dateFromSeconds, fullId, shortId } from "../format";
+import { ScreenHeader } from "../parts";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
@@ -51,15 +54,16 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
     shares.reload();
     contacts.reload();
   };
+  // The same colors as on Collections: built from the same list of names.
+  const toneOf = collectionTones((spaces.data ?? []).map((space) => space.name));
 
   return (
-    <>
-      <header className="screen-header">
-        <h1 className="screen-title">{s.title}</h1>
+    <div className={composing ? undefined : "screen-column"}>
+      <ScreenHeader title={s.title}>
         <Button icon="plus" aria-expanded={composing} onClick={() => setComposing(true)}>
           {s.newShare}
         </Button>
-      </header>
+      </ScreenHeader>
 
       <div className={composing ? "screen-aside-layout screen-aside-layout--open" : "screen-aside-layout"}>
         <div>
@@ -75,7 +79,7 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
             {active.map((share) => (
               <Row
                 key={share.id}
-                leading={<Tile icon="collection" tone={toneFor(share.space)} />}
+                leading={<Tile icon="collection" tone={toneOf(share.space)} />}
                 title={share.space}
                 meta={`${shareWho(share)} · ${s.until(dateFromSeconds(share.expiresAt))}`}
                 trailing={
@@ -128,6 +132,7 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
         {composing && spaces.data && contacts.data && (
           <NewSharePanel
             spaces={local}
+            toneOf={toneOf}
             contacts={contacts.data}
             preselect={preselect}
             onClose={() => {
@@ -139,7 +144,7 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
           />
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -150,11 +155,13 @@ function shareWho(share: Share): string {
 
 function NewSharePanel({
   spaces,
+  toneOf,
   contacts,
   preselect,
   onClose,
 }: {
   spaces: SpaceSummary[];
+  toneOf: (name: string) => TileTone;
   contacts: Contact[];
   preselect?: string;
   onClose: () => void;
@@ -174,7 +181,7 @@ function NewSharePanel({
   const head = (title: string) => (
     <div className="screen-aside__head">
       <h2 className="screen-aside__title">{title}</h2>
-      <IconButton icon="close" label={strings.common.close} onClick={onClose} />
+      <IconButton icon="close" label={strings.common.close} filled onClick={onClose} />
     </div>
   );
 
@@ -225,7 +232,7 @@ function NewSharePanel({
               setSpace(value);
               if (spaces.find((x) => x.name === value)?.kind !== "analytical") setAccess("view");
             }}
-            leading={<Tile icon="collection" tone={toneFor(space)} small />}
+            leading={<Tile icon="collection" tone={toneOf(space)} small />}
             options={spaces.map((x) => ({ value: x.name, label: x.name }))}
           />
           <Select
@@ -294,74 +301,80 @@ function Contacts({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [did, setDid] = useState("");
+  // A problem with one field, shown under that field.
+  const [problem, setProblem] = useState<{ field: "name" | "id"; message: string }>();
   const [editing, setEditing] = useState<string>();
   const [newName, setNewName] = useState("");
-  const [removing, setRemoving] = useState<string>();
+  const [removing, setRemoving] = useState<Contact>();
   const action = useAction();
+  const remove = useAction();
+
+  const stopAdding = () => {
+    setAdding(false);
+    setName("");
+    setDid("");
+    setProblem(undefined);
+    action.clear();
+  };
 
   return (
-    <Group title={s.contacts} footnote={s.contactsFootnote}>
-      {contacts.map((contact) => {
-        const count = shares.filter((share) => share.did === contact.did).length;
-        if (editing === contact.did) {
-          return (
-            <GroupPanel key={contact.did}>
-              <form
-                className="screen-inline-form"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const done = await action.run(() =>
-                    client.renameContact({ did: contact.did, name: newName }),
-                  );
-                  if (done) {
-                    setEditing(undefined);
-                    onChange();
-                  }
-                }}
-              >
-                <TextField label={s.contactName} value={newName} onChange={setNewName} autoFocus />
-                <Button type="submit" variant="primary" disabled={action.busy || !newName.trim()}>
-                  {strings.common.save}
-                </Button>
-                <Button onClick={() => setEditing(undefined)}>{strings.common.cancel}</Button>
-              </form>
-              {action.error && <ErrorText>{action.error}</ErrorText>}
-            </GroupPanel>
-          );
-        }
-        return (
-          <Row
-            key={contact.did}
-            leading={<Avatar name={contact.name} />}
-            title={contact.name}
-            meta={
-              removing === contact.did
-                ? s.removeConfirm(contact.name)
-                : count > 0
-                  ? s.sharesCount(count)
-                  : s.noShares
-            }
-            trailing={
-              removing === contact.did ? (
-                <>
+    <>
+      <Group title={s.contacts} footnote={s.contactsFootnote}>
+        {contacts.map((contact) => {
+          const count = shares.filter((share) => share.did === contact.did).length;
+          if (editing === contact.did) {
+            return (
+              <GroupPanel key={contact.did}>
+                <form
+                  className="screen-inline-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!newName.trim()) {
+                      action.fail(strings.common.nameRequired);
+                      return;
+                    }
+                    const done = await action.run(() =>
+                      client.renameContact({ did: contact.did, name: newName.trim() }),
+                    );
+                    if (done) {
+                      setEditing(undefined);
+                      onChange();
+                    }
+                  }}
+                >
+                  <TextField
+                    label={s.contactName}
+                    name="contact-name"
+                    value={newName}
+                    onChange={(value) => {
+                      setNewName(value);
+                      action.clear();
+                    }}
+                    error={action.error}
+                    autoFocus
+                  />
                   <Button
-                    variant="destructive"
-                    disabled={action.busy}
-                    onClick={async () => {
-                      const done = await action.run(() => client.removeContact({ did: contact.did }));
-                      if (done) {
-                        setRemoving(undefined);
-                        onChange();
-                      }
+                    onClick={() => {
+                      setEditing(undefined);
+                      action.clear();
                     }}
                   >
-                    {s.remove}
-                  </Button>
-                  <Button variant="quiet" onClick={() => setRemoving(undefined)}>
                     {strings.common.cancel}
                   </Button>
-                </>
-              ) : (
+                  <Button type="submit" disabled={action.busy}>
+                    {strings.common.save}
+                  </Button>
+                </form>
+              </GroupPanel>
+            );
+          }
+          return (
+            <Row
+              key={contact.did}
+              leading={<Avatar name={contact.name} />}
+              title={contact.name}
+              meta={count > 0 ? s.sharesCount(count) : s.noShares}
+              trailing={
                 <Menu
                   label={strings.common.moreActions(contact.name)}
                   items={[
@@ -372,69 +385,112 @@ function Contacts({
                         setNewName(contact.name);
                       },
                     },
-                    { label: s.remove, destructive: true, onSelect: () => setRemoving(contact.did) },
+                    { label: s.remove, destructive: true, onSelect: () => setRemoving(contact) },
                   ]}
                 />
-              )
-            }
-          />
-        );
-      })}
-      {adding ? (
-        <GroupPanel>
-          <form
-            className="screen-form"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const id = fullId(did);
-              const known = contacts.find((c) => c.did === id);
-              if (id === me) {
-                action.fail(s.idIsYours);
-                return;
               }
-              if (known) {
-                action.fail(s.idTaken(known.name));
-                return;
-              }
-              const added = await action.run(
-                () => client.addContact({ did: id, name: name.trim() }),
-                (err) => (err.code === "invalid" ? s.idInvalid : undefined),
-              );
-              if (added) {
-                setAdding(false);
-                setName("");
-                setDid("");
-                onChange();
-              }
-            }}
-          >
-            <h3 className="screen-panel-title">{s.addContact}</h3>
-            <TextField label={s.contactName} value={name} onChange={setName} autoFocus />
-            <TextField label={s.contactId} hint={s.contactIdHint} value={did} onChange={setDid} mono />
-            {action.error && <ErrorText>{action.error}</ErrorText>}
-            <div className="screen-actions">
-              <Button type="submit" variant="primary" disabled={action.busy || !name.trim() || !did.trim()}>
-                {s.add}
-              </Button>
-              <Button
-                onClick={() => {
-                  setAdding(false);
+            />
+          );
+        })}
+        {adding ? (
+          <GroupPanel>
+            <form
+              className="screen-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const id = fullId(did);
+                const known = contacts.find((c) => c.did === id);
+                const field = !name.trim()
+                  ? { field: "name" as const, message: strings.common.nameRequired }
+                  : !did.trim()
+                    ? { field: "id" as const, message: s.idRequired }
+                    : id === me
+                      ? { field: "id" as const, message: s.idIsYours }
+                      : known
+                        ? { field: "id" as const, message: s.idTaken(known.name) }
+                        : undefined;
+                setProblem(field);
+                if (field) return;
+                let invalid = false;
+                const added = await action.run(
+                  () => client.addContact({ did: id, name: name.trim() }),
+                  (err) => {
+                    invalid = err.code === "invalid";
+                    return undefined;
+                  },
+                );
+                if (added) {
+                  stopAdding();
+                  onChange();
+                } else if (invalid) {
                   action.clear();
+                  setProblem({ field: "id", message: s.idInvalid });
+                }
+              }}
+            >
+              <h3 className="screen-panel-title">{s.addContact}</h3>
+              <TextField
+                label={s.contactName}
+                name="contact-name"
+                value={name}
+                onChange={(value) => {
+                  setName(value);
+                  setProblem(undefined);
                 }}
-              >
-                {strings.common.cancel}
-              </Button>
-            </div>
-          </form>
-        </GroupPanel>
-      ) : (
-        <Row
-          add
-          leading={<Tile icon="plus" tone="mist" />}
-          title={s.addContact}
-          onClick={() => setAdding(true)}
+                error={problem?.field === "name" ? problem.message : undefined}
+                autoFocus
+              />
+              <TextField
+                label={s.contactId}
+                name="contact-id"
+                hint={s.contactIdHint}
+                value={did}
+                onChange={(value) => {
+                  setDid(value);
+                  setProblem(undefined);
+                }}
+                error={problem?.field === "id" ? problem.message : undefined}
+                mono
+              />
+              {action.error && <ErrorText>{action.error}</ErrorText>}
+              <div className="screen-actions">
+                <Button onClick={stopAdding}>{strings.common.cancel}</Button>
+                <Button type="submit" variant="primary" disabled={action.busy}>
+                  {s.add}
+                </Button>
+              </div>
+            </form>
+          </GroupPanel>
+        ) : (
+          <Row
+            add
+            leading={<Tile icon="plus" tone="mist" />}
+            title={s.addContact}
+            onClick={() => setAdding(true)}
+          />
+        )}
+      </Group>
+      {removing && (
+        <ConfirmDialog
+          title={s.removeTitle(removing.name)}
+          body={s.removeBody}
+          confirmLabel={s.remove}
+          cancelLabel={strings.common.cancel}
+          busy={remove.busy}
+          error={remove.error}
+          onConfirm={async () => {
+            const done = await remove.run(() => client.removeContact({ did: removing.did }));
+            if (done) {
+              setRemoving(undefined);
+              onChange();
+            }
+          }}
+          onCancel={() => {
+            setRemoving(undefined);
+            remove.clear();
+          }}
         />
       )}
-    </Group>
+    </>
   );
 }

@@ -105,10 +105,11 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(page.getByRole("heading", { name: "Save Your Recovery Key" })).toBeVisible();
   const key = page.locator(".oik-copy__value").first();
   await expect(key).toHaveText(/^([0-9A-Z]{4}-){13}[0-9A-Z]{4}$/);
-  const continueButton = page.getByRole("button", { name: "Continue" });
-  await expect(continueButton).toBeDisabled();
+  // One crimson action at a time: Download until the key is stored, then Continue.
+  await expect(page.getByRole("button", { name: "Download Key File" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
   await page.getByLabel("I've stored it somewhere safe").check();
-  await continueButton.click();
+  await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "You're All Set" })).toBeVisible();
   await page.getByRole("button", { name: "Go to Collections" }).click();
@@ -144,7 +145,8 @@ test("a collection is filled in the SQL workbench and browsed", async () => {
   const rows = page.getByRole("table", { name: "memos" });
   await expect(rows.getByRole("cell", { name: "buy milk" })).toBeVisible();
   await expect(rows.getByRole("cell", { name: "call mum" })).toBeVisible();
-  await expect(page.getByText("Rows 1–2")).toBeVisible();
+  // Two rows fit on one page: no pager.
+  await expect(page.getByText("Rows 1–2")).toHaveCount(0);
 });
 
 test("a contact reads a shared collection until the share is stopped", async () => {
@@ -158,7 +160,7 @@ test("a contact reads a shared collection until the share is stopped", async () 
 
   await page.getByRole("button", { name: "New Share" }).click();
   await page.getByRole("button", { name: "Share notes with Bob" }).click();
-  await expect(page.getByRole("heading", { name: "Send this invite code to Bob" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Send This Invite Code to Bob" })).toBeVisible();
   const token = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Bob can view live")).toBeVisible();
@@ -245,9 +247,13 @@ test("a collection is removed from its More menu with the keyboard", async () =>
 
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Remove scratch? Sharing it stops.")).toBeVisible();
-  await page.getByRole("button", { name: "Remove", exact: true }).click();
-  await expect(page).toHaveURL(/\/collections$/);
+  // A modal asks first; focus starts on Cancel, the safe choice.
+  const dialog = page.getByRole("dialog", { name: "Remove scratch?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+  // Removed, the first collection opens in its place.
+  await expect(page).toHaveURL(/\/collections\/notes$/);
   await expect(page.getByRole("link", { name: /^scratch/ })).toHaveCount(0);
   // The removed collection's page is not in the history any more.
   await page.goBack();
@@ -258,7 +264,7 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   // "/" forwards to Collections without trapping Back.
   await page.goto(`${base}/activity`);
   await page.goto(`${base}/`);
-  await expect(page).toHaveURL(/\/collections$/);
+  await expect(page).toHaveURL(/\/collections(\/notes)?$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/activity$/);
 

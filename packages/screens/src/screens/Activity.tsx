@@ -4,10 +4,11 @@
 // Activity: who asked for your data, and whether they got it.
 
 import { useEffect, useState } from "react";
-import { Avatar, Button, ErrorText, Group, Row, Select } from "@oikome/ui";
+import { Avatar, Button, Card, EmptyState, ErrorText, Group, Row, Select } from "@oikome/ui";
 import type { AccessItem } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { ago } from "../format";
+import { ScreenHeader } from "../parts";
 import { strings } from "../strings";
 
 const s = strings.activity;
@@ -48,10 +49,10 @@ export function Activity() {
   }, [client, did]);
 
   return (
-    <>
-      <header className="screen-header">
-        <h1 className="screen-title">{s.title}</h1>
-        {(contacts.data?.length ?? 0) > 0 && (
+    <div className="screen-column">
+      <ScreenHeader title={s.title}>
+        {/* Filtering an empty log is pointless, unless a filter emptied it. */}
+        {(contacts.data?.length ?? 0) > 0 && (items.length > 0 || did !== "") && (
           <Select
             inline
             label={s.filterLabel}
@@ -63,29 +64,37 @@ export function Activity() {
             ]}
           />
         )}
-      </header>
+      </ScreenHeader>
       {load.error && <ErrorText>{load.error}</ErrorText>}
-      <Group title={s.recent} footnote={s.footnote}>
-        {items.length === 0 ? (
-          <Row title={load.busy ? strings.common.loading : s.empty} muted />
-        ) : (
-          items.map((item) => (
-            <Row
-              key={item.id}
-              leading={<Avatar name={item.contactName ?? "?"} />}
-              title={sentence(item)}
-              meta={item.count > 1 ? `${ago(item.atMs)} · ${s.times(item.count)}` : ago(item.atMs)}
-              trailing={
-                <span
-                  className={`screen-dot screen-dot--${item.outcome === "allowed" ? "ok" : "bad"}`}
-                  role="img"
-                  aria-label={item.outcome === "allowed" ? s.allowed : s.refused}
-                />
-              }
-            />
-          ))
-        )}
-      </Group>
+      {/* A log with nothing in it at all gets the page's empty state; an empty
+          result of a filter stays a row in the list. */}
+      {items.length === 0 && !load.busy && did === "" ? (
+        <Card>
+          <EmptyState icon="activity" title={s.emptyTitle} body={s.emptyBody} />
+        </Card>
+      ) : (
+        <Group title={s.recent} footnote={s.footnote}>
+          {items.length === 0 ? (
+            <Row title={load.busy ? strings.common.loading : s.empty} muted />
+          ) : (
+            items.map((item) => (
+              <Row
+                key={item.id}
+                leading={<Avatar name={item.contactName ?? "?"} />}
+                title={sentence(item)}
+                meta={item.count > 1 ? `${ago(item.atMs)} · ${s.times(item.count)}` : ago(item.atMs)}
+                trailing={
+                  <span
+                    className={`screen-dot screen-dot--${item.outcome === "allowed" ? "ok" : "bad"}`}
+                    role="img"
+                    aria-label={item.outcome === "allowed" ? s.allowed : s.refused}
+                  />
+                }
+              />
+            ))
+          )}
+        </Group>
+      )}
       {more && (
         <Button
           disabled={load.busy}
@@ -103,6 +112,6 @@ export function Activity() {
           {s.more}
         </Button>
       )}
-    </>
+    </div>
   );
 }

@@ -13,6 +13,11 @@ import { strings } from "../strings";
 
 const STEPS = 3;
 
+/** A path under a home folder as ~/…, the way people know it. */
+function homeRelative(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+}
+
 /** The large line glyph that opens each step. */
 function Hero({ icon }: { icon: IconName }) {
   return (
@@ -61,6 +66,7 @@ export function Onboarding({
             <p className="screen-lede">{s.welcomeLede}</p>
             <TextField
               label={s.nameLabel}
+              name="node-name"
               value={name}
               onChange={setName}
               placeholder={strings.defaultName}
@@ -70,7 +76,9 @@ export function Onboarding({
               <Icon name="computer" />
               <span className="screen-location__text">
                 <span className="screen-location__title">{s.keptHere}</span>
-                <span className="screen-path">{info.dataDir}</span>
+                <span className="screen-path" title={info.dataDir} translate="no">
+                  {homeRelative(info.dataDir)}
+                </span>
               </span>
             </div>
             {save.error && <ErrorText>{save.error}</ErrorText>}

@@ -6,7 +6,13 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-opendal = { version = "0.52", features = ["services-fs", "services-s3"] }
+opendal = { version = "0.52", features = ["services-fs", "services-s3", "services-webdav"] }
+# Streamed WebDAV uploads (opendal sends a WebDAV file as one request body);
+# the same reqwest and TLS stack opendal already uses.
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
+thiserror = { workspace = true }
+url = "2"
+zeroize = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 iceberg = { workspace = true }
 serde = { workspace = true }

@@ -25,6 +25,7 @@ pub mod registry;
 pub mod replace;
 pub mod resolve;
 pub mod space;
+pub mod storage;
 pub mod ucan;
 
 pub use acl::{Grant, RowPolicy, ViewDef};
@@ -33,6 +34,7 @@ pub use graph::GraphDef;
 pub use peer::Peer;
 pub use resolve::ResolvedTable;
 pub use space::{Location, LocationFormat, LocationId, Space};
+pub use storage::{StorageBinding, StorageDef, StorageKind};
 pub use ucan::{
     is_plaintext_peer, validate_peer_url, HeldToken, IssuedUcan, Revocation, UcanCapability,
 };

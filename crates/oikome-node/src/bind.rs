@@ -54,13 +54,15 @@ pub async fn bind_space(
                 .attach_space(&space.name, SpaceSource::LanceNamespace { root })
                 .await?;
         }
-        LocationFormat::Replica { .. } if replica_lance_root(catalog, &location)?.is_some() => {
+        LocationFormat::Replica { .. } | LocationFormat::StorageCopy
+            if replica_lance_root(catalog, &location)?.is_some() =>
+        {
             let root = replica_lance_root(catalog, &location)?.unwrap_or_default();
             engine
                 .attach_space(&space.name, SpaceSource::LanceNamespace { root })
                 .await?;
         }
-        LocationFormat::Replica { .. } => {
+        LocationFormat::Replica { .. } | LocationFormat::StorageCopy => {
             let tables = replica_tables(catalog, &location)?;
             for attached in engine.table_names(&space.name).await? {
                 if !tables.iter().any(|(name, _, _)| *name == attached) {

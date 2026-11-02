@@ -22,11 +22,13 @@ oikome-identity = { path = "../oikome-identity" }
 oikome-network = { path = "../oikome-network" }
 oikome-semantic = { path = "../oikome-semantic" }
 oikome-storage = { path = "../oikome-storage" }
+oikome-vfs = { path = "../oikome-vfs" }
 arrow-array = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 blake3 = { workspace = true }
+bytes = { workspace = true }
 futures = { workspace = true }
 iceberg = { workspace = true }
 serde = { workspace = true }
@@ -35,7 +37,12 @@ sqlparser = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
-bytes = { workspace = true }
+base64 = { workspace = true }
+# A WebDAV server standing in for a NAS in tests/storage.rs.
+dav-server = "0.11"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 tempfile = { workspace = true }

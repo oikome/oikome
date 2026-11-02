@@ -1,0 +1,29 @@
+[package]
+name = "oikome-api"
+description = "Oikome's API for its own apps (web, desktop, phone), plugins and MCP; transport-free, every call names its caller (owner or principal). The peer protocol is not here."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+oikome-catalog = { path = "../oikome-catalog" }
+oikome-core = { path = "../oikome-core" }
+oikome-engine = { path = "../oikome-engine" }
+oikome-identity = { path = "../oikome-identity" }
+oikome-node = { path = "../oikome-node" }
+oikome-semantic = { path = "../oikome-semantic" }
+arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
+ts-rs = { workspace = true }
+
+[dev-dependencies]
+iceberg = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }

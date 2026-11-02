@@ -1,0 +1,26 @@
+{
+  "name": "@oikome/client",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "NodeClient: what Oikome's screens ask a node for, and its HTTP implementation for the owner's web app",
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --format=esm --target=es2022 --outfile=dist/index.js --log-level=warning",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@oikome/api": "0.0.0",
+    "apache-arrow": "17.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

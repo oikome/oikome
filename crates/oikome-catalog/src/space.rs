@@ -154,11 +154,7 @@ pub fn validate_binding(
     existing: Option<&Location>,
     now_ms: u64,
 ) -> Result<(Space, Location), CatalogError> {
-    if request.name.is_empty() {
-        return Err(CatalogError::InvalidProperty(
-            "space name must not be empty".to_string(),
-        ));
-    }
+    oikome_core::validate_space_name(&request.name)?;
     if let Some(storage) = &request.storage {
         if storage != STORAGE_DISK {
             return Err(CatalogError::InvalidProperty(format!(

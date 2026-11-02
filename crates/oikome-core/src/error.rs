@@ -81,6 +81,9 @@ pub enum CatalogError {
     #[error("Invalid property: {0}")]
     InvalidProperty(String),
 
+    #[error("Contact not found: {0}")]
+    ContactNotFound(String),
+
     #[error("Registry error: {0}")]
     Registry(String),
 

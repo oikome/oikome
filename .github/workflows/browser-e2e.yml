@@ -1,6 +1,7 @@
 # Browser node (3.2): crates/oikome-wasm built to WebAssembly, run in
 # headless Chromium with duckdb-wasm by the Playwright tests in e2e/,
 # against a Full Node (the native oikome binary) for the WebRTC tests.
+# The owner's web API (M1b) is tested in e2e/ too, on two native nodes.
 name: browser-e2e
 
 on:
@@ -36,11 +37,14 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Build the browser node and the test page
+      - name: Build the browser node, the client and the test page
         env:
           CC_wasm32_unknown_unknown: clang
           AR_wasm32_unknown_unknown: llvm-ar
         run: npm run build
+
+      - name: Type-check the TypeScript packages
+        run: npm run typecheck
 
       - name: Build the Full Node
         run: cargo build --locked -p oikome-server --bin oikome

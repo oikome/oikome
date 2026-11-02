@@ -25,7 +25,9 @@ use arrow_array::{Array, Int64Array, StringArray};
 use iceberg::io::FileIO;
 use oikome_catalog::OikomeCatalog;
 use oikome_identity::NodeIdentity;
-use oikome_node::{EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig};
+use oikome_node::{
+    AccessLog, EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig,
+};
 use oikome_server::{serve, OikomeFlightService};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -37,6 +39,8 @@ pub struct Node {
     pub engines: Arc<EngineRegistry>,
     pub identity: Arc<NodeIdentity>,
     pub owner: OikomeSession,
+    /// Every request the node serves is recorded here.
+    pub access_log: AccessLog,
     url: Option<String>,
     server: Option<(oneshot::Sender<()>, JoinHandle<()>)>,
 }
@@ -87,12 +91,14 @@ impl Node {
             .unwrap(),
         );
         let owner = OikomeSession::new(catalog.clone(), engines.clone(), SessionConfig::default());
+        let access_log = AccessLog::open(&catalog.oikome_dir()).unwrap();
         Self {
             _dir: dir,
             catalog,
             engines,
             identity,
             owner,
+            access_log,
             url: None,
             server: None,
         }
@@ -113,7 +119,9 @@ impl Node {
         let scheme = if tls { "https" } else { "http" };
         let url = format!("{scheme}://{}", listener.local_addr().unwrap());
         let tls = tls.then(|| self.identity.tls_identity().unwrap());
-        let service = OikomeFlightService::new(self.catalog.clone(), self.engines.clone()).unwrap();
+        let service = OikomeFlightService::new(self.catalog.clone(), self.engines.clone())
+            .unwrap()
+            .with_access_log(self.access_log.clone());
         let (tx, rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             serve(listener, service, tls.as_ref(), async {

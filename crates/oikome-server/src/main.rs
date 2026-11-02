@@ -18,6 +18,8 @@
 //! oikome [--root DIR] identity          print this node's DID
 //! oikome [--root DIR] sql "<SQL>"       run statements as the node owner
 //! oikome [--root DIR] serve             serve this node's Spaces to peers
+//!                                       (--web: also the owner's web API)
+//! oikome [--root DIR] web open          open the web app, logged in
 //! oikome [--root DIR] extensions install
 //!                                       fetch the DuckDB extensions Oikome uses
 //! ```
@@ -41,11 +43,16 @@ use arrow_cast::display::{ArrayFormatter, FormatOptions};
 use arrow_cast::pretty::pretty_format_batches;
 use clap::{Parser, Subcommand};
 use iceberg::io::FileIO;
+use oikome_api::Api;
+use oikome_catalog::registry::OIKOME_DIR;
 use oikome_catalog::OikomeCatalog;
 use oikome_discovery::{Discovery, DiscoveryConfig, EndpointResponse};
 use oikome_engine_duckdb::{DuckDbConfig, DuckDbEngine, Extension};
-use oikome_node::{EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig};
-use oikome_server::{serve, serve_webrtc, DtlsIdentity, OikomeFlightService};
+use oikome_node::{
+    AccessLog, EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig,
+};
+use oikome_server::web::{login_file, DEFAULT_WEB_LISTEN};
+use oikome_server::{serve, serve_webrtc, DtlsIdentity, OikomeFlightService, WebApp};
 use tokio::net::{TcpListener, UdpSocket};
 
 /// The node's DTLS certificate for WebRTC, next to its key.
@@ -90,6 +97,13 @@ enum ExtensionsCommand {
 }
 
 #[derive(Subcommand)]
+enum WebCommand {
+    /// Open the running node's web app in the default browser, logged in
+    /// with the one-time link `serve --web` keeps in the data directory.
+    Open,
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Manage DuckDB extensions.
     Extensions {
@@ -98,6 +112,11 @@ enum Command {
     },
     /// Print this node's DID.
     Identity,
+    /// The owner's web app.
+    Web {
+        #[command(subcommand)]
+        command: WebCommand,
+    },
     /// Run SQL statements (separated by `;`) as the node owner.
     Sql {
         /// The statements; `-` reads them from standard input.
@@ -134,6 +153,13 @@ enum Command {
         /// record); defaults to the listen IP.
         #[arg(long, env = "OIKOME_WEBRTC_ADVERTISE")]
         webrtc_advertise: Option<IpAddr>,
+        /// Also serve the owner's web API on --web-listen (loopback only);
+        /// `oikome web open` logs in.
+        #[arg(long, env = "OIKOME_WEB")]
+        web: bool,
+        /// Loopback address of the web API; port 0 picks a free one.
+        #[arg(long, env = "OIKOME_WEB_LISTEN", default_value = DEFAULT_WEB_LISTEN)]
+        web_listen: SocketAddr,
     },
 }
 
@@ -169,6 +195,25 @@ fn open_node(
     let catalog = Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), root)?);
     let engines = Arc::new(EngineRegistry::new(catalog.clone(), config)?);
     Ok((catalog, engines))
+}
+
+/// Open `url` in the default browser. The URL is one argument of the
+/// opener; no shell is involved.
+fn open_browser(url: &str) -> Result<(), BoxError> {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    let status = std::process::Command::new(opener).arg(url).status()?;
+    // explorer exits with 1 even when it opened the URL.
+    if status.success() || cfg!(windows) {
+        Ok(())
+    } else {
+        Err(format!("{opener} could not open the browser").into())
+    }
 }
 
 fn print_result(result: &QueryResult, raw: bool) -> Result<(), BoxError> {
@@ -215,6 +260,19 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             let (_, engines) = open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
             println!("{}", engines.identity()?.did());
         }
+        Command::Web {
+            command: WebCommand::Open,
+        } => {
+            let path = login_file(&cli.root.join(OIKOME_DIR));
+            let link = std::fs::read_to_string(&path)
+                .map_err(|_| "no login link: start the node with `oikome serve --web` first")?;
+            let link = link.trim();
+            if !link.starts_with("http://127.0.0.1:") || link.contains(char::is_whitespace) {
+                return Err(format!("{} does not hold a login link", path.display()).into());
+            }
+            open_browser(link)?;
+            println!("Opened the web app in your browser.");
+        }
         Command::Sql { sql, space, raw } => {
             let sql = if sql == "-" {
                 let mut buf = String::new();
@@ -246,9 +304,14 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             dial,
             webrtc_listen,
             webrtc_advertise,
+            web,
+            web_listen,
         } => {
             if plaintext && !cli.allow_http {
                 return Err("--plaintext needs --allow-http".into());
+            }
+            if web && !web_listen.ip().is_loopback() {
+                return Err("--web-listen must be a loopback address (127.0.0.1 or ::1)".into());
             }
             let (catalog, engines) =
                 open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
@@ -260,10 +323,24 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 Some(engines.identity()?.tls_identity()?)
             };
             let identity = engines.identity()?;
-            let service = OikomeFlightService::new(catalog.clone(), engines)?;
+            let access_log = AccessLog::open(&catalog_dir)?;
+            let service = OikomeFlightService::new(catalog.clone(), engines.clone())?
+                .with_access_log(access_log.clone());
             let listener = TcpListener::bind(listen).await?;
             let scheme = if plaintext { "http" } else { "https" };
             tracing::info!(did = %service.did(), addr = %listener.local_addr()?, %scheme, "serving Arrow Flight");
+            let web = if web {
+                let web_listener = TcpListener::bind(web_listen).await?;
+                let addr = web_listener.local_addr()?;
+                let api = Api::new(catalog.clone(), engines.clone())
+                    .with_access_log(access_log)
+                    .with_flight_url(format!("{scheme}://{}", listener.local_addr()?));
+                let app = WebApp::new(api, addr, login_file(&catalog_dir))?;
+                tracing::info!(%addr, "serving the web API (`oikome web open` logs in)");
+                Some((app, web_listener))
+            } else {
+                None
+            };
             // Announce this endpoint to peers and record theirs (§9).
             let discovery = Discovery::start(
                 &identity,
@@ -324,17 +401,27 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 }
             };
             let flight = serve(listener, service.clone(), tls.as_ref(), until_stopped());
-            match webrtc {
-                Some((socket, dtls)) => {
-                    let browsers = serve_webrtc(socket, &dtls, service, until_stopped());
-                    let (flight, browsers) = tokio::join!(flight, browsers);
-                    // Browsers can no longer connect with it.
-                    let _ = std::fs::remove_file(&record_path);
-                    flight?;
-                    browsers?;
+            let browsers = async {
+                let Some((socket, dtls)) = webrtc else {
+                    return Ok::<(), BoxError>(());
+                };
+                let result = serve_webrtc(socket, &dtls, service.clone(), until_stopped()).await;
+                // Browsers can no longer connect with it.
+                let _ = std::fs::remove_file(&record_path);
+                Ok(result?)
+            };
+            let owner = async {
+                match web {
+                    Some((app, web_listener)) => {
+                        Ok::<(), BoxError>(app.serve(web_listener, until_stopped()).await?)
+                    }
+                    None => Ok(()),
                 }
-                None => flight.await?,
-            }
+            };
+            let (flight, browsers, owner) = tokio::join!(flight, browsers, owner);
+            flight?;
+            browsers?;
+            owner?;
         }
     }
     Ok(())

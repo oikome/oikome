@@ -19,7 +19,7 @@
 use arrow_array::RecordBatch;
 use futures::TryStreamExt;
 use oikome_catalog::{Grant, OikomeCatalog, RowPolicy, ViewDef};
-use oikome_core::CatalogError;
+use oikome_core::{CatalogError, SpaceKind};
 use oikome_semantic::rewrite::{guarded_query, quote_ident, split_qualified};
 use oikome_semantic::{
     collect_spaces, inline_views, parse_single, AccessResolver, OikomeStatement, RelationAccess,
@@ -65,9 +65,55 @@ impl ViewResolver for ProposedView<'_> {
 /// Grants and row policies stored in the catalog.
 pub(crate) struct CatalogAccess<'a>(pub(crate) &'a OikomeCatalog);
 
+/// What `principal` may read of `space.relation`: its columns and row
+/// filters, or `None` when it has no grant covering the relation. Used by
+/// the semantic layer and by the server when it decides what a peer may copy.
+pub fn principal_access(
+    catalog: &OikomeCatalog,
+    principal: &str,
+    space: &str,
+    relation: &str,
+) -> Option<RelationAccess> {
+    CatalogAccess(catalog).access(principal, space, relation)
+}
+
+impl CatalogAccess<'_> {
+    /// Whether a whole-Space grant on `space` covers `relation`: every
+    /// table, and a view only when its expansion reads nothing outside
+    /// `space`. Views run with the owner's rights and may read other Spaces;
+    /// sharing one Space must not open another through them.
+    fn space_grant_covers(&self, principal: &str, space: &str, relation: &str) -> bool {
+        if !self.0.has_space_grant(principal, space) {
+            return false;
+        }
+        if self.0.get_view(space, relation).is_none() {
+            return true;
+        }
+        let probe = format!(
+            "SELECT * FROM {}.{}",
+            quote_ident(space),
+            quote_ident(relation)
+        );
+        let Ok(OikomeStatement::Sql(stmt)) = parse_single(&probe) else {
+            return false;
+        };
+        let mut stmt = *stmt;
+        if inline_views(&mut stmt, &CatalogViews(self.0)).is_err() {
+            return false;
+        }
+        collect_spaces(&stmt).iter().all(|s| s.as_str() == space)
+    }
+}
+
 impl AccessResolver for CatalogAccess<'_> {
     fn access(&self, principal: &str, space: &str, relation: &str) -> Option<RelationAccess> {
-        let grant = self.0.get_grant(principal, space, relation)?;
+        // Grants add up: a whole-Space grant gives every column even where a
+        // column grant on the relation gives fewer.
+        let columns = if self.space_grant_covers(principal, space, relation) {
+            None
+        } else {
+            self.0.get_grant(principal, space, relation)?.columns
+        };
         let policies = self.0.policies_on(space, relation);
         let row_filters = if policies.is_empty() {
             None
@@ -81,7 +127,7 @@ impl AccessResolver for CatalogAccess<'_> {
             )
         };
         Some(RelationAccess {
-            columns: grant.columns,
+            columns,
             row_filters,
         })
     }
@@ -341,5 +387,36 @@ impl OikomeSession {
             other => return Err(unsupported(other.to_string())),
         }
         Ok(QueryResult::Empty)
+    }
+}
+
+impl OikomeSession {
+    /// `GRANT SELECT ON SPACE <space> TO <principals>`: each principal may
+    /// read every table of the Space, including tables created later, and
+    /// the views that read only this Space. Row policies still apply.
+    pub fn grant_space(&self, space: &str, principals: &[String]) -> Result<(), SessionError> {
+        self.deny_principal("GRANT SELECT ON SPACE")?;
+        if self.space(space)?.kind == SpaceKind::Remote {
+            return Err(unsupported(
+                "GRANT ON SPACE for another node's space; remote spaces are not served to peers",
+            ));
+        }
+        for principal in principals {
+            if principal.is_empty() {
+                return Err(unsupported("an empty principal"));
+            }
+            self.catalog.grant_space_select(principal, space)?;
+        }
+        Ok(())
+    }
+
+    /// `REVOKE SELECT ON SPACE <space> FROM <principals>`. Grants on single
+    /// relations stay; revoking a grant that does not exist changes nothing.
+    pub fn revoke_space(&self, space: &str, principals: &[String]) -> Result<(), SessionError> {
+        self.deny_principal("REVOKE SELECT ON SPACE")?;
+        for principal in principals {
+            self.catalog.revoke_space_select(principal, space)?;
+        }
+        Ok(())
     }
 }

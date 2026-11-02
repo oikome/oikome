@@ -63,6 +63,30 @@ pub fn query_spaces(sql: &str) -> Result<BTreeSet<String>, SessionError> {
     }
 }
 
+/// A UCAN this node just issued. The token itself is not stored anywhere:
+/// this is the only time it is available.
+#[derive(Clone, PartialEq, Eq)]
+pub struct IssuedToken {
+    /// Token id: hex of the first 128 bits of its BLAKE3 hash.
+    pub id: String,
+    /// DID the token was issued to.
+    pub audience: String,
+    /// Expiry, in seconds since the Unix epoch.
+    pub expires_at: u64,
+    /// The signed token.
+    pub token: String,
+}
+
+impl std::fmt::Debug for IssuedToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IssuedToken")
+            .field("id", &self.id)
+            .field("audience", &self.audience)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
 impl OikomeSession {
     /// `SHOW IDENTITY`
     pub(crate) fn show_identity(&self) -> Result<QueryResult, SessionError> {
@@ -75,12 +99,33 @@ impl OikomeSession {
         )
     }
 
-    /// `ISSUE UCAN`: sign a capability for a peer and return it. Only the
-    /// token's id and claims are recorded; the token is shown once.
+    /// `ISSUE UCAN`: sign a capability for a peer and return it as a row
+    /// (`id, audience, expires_at, token`).
     pub(crate) fn issue_ucan(
         &self,
         request: &IssueUcanRequest,
     ) -> Result<QueryResult, SessionError> {
+        let issued = self.issue_token(request)?;
+        batch(
+            vec![
+                Field::new("id", DataType::Utf8, false),
+                Field::new("audience", DataType::Utf8, false),
+                Field::new("expires_at", DataType::Int64, false),
+                Field::new("token", DataType::Utf8, false),
+            ],
+            vec![
+                Arc::new(StringArray::from(vec![issued.id])),
+                Arc::new(StringArray::from(vec![issued.audience])),
+                Arc::new(Int64Array::from(vec![issued.expires_at as i64])),
+                Arc::new(StringArray::from(vec![issued.token])),
+            ],
+        )
+    }
+
+    /// Sign a capability for a peer (`ISSUE UCAN`). Only the token's id and
+    /// claims are recorded; the token is returned once. Owner only.
+    pub fn issue_token(&self, request: &IssueUcanRequest) -> Result<IssuedToken, SessionError> {
+        self.deny_principal("ISSUE UCAN")?;
         let identity = self.engines().identity()?;
         let audience = Did::parse(&request.audience)?;
         if ![ABILITY_QUERY, ABILITY_READ, ABILITY_ALL].contains(&request.ability.as_str()) {
@@ -125,27 +170,24 @@ impl OikomeSession {
             issued_at_ms: unix_now_ms(),
             expires_at,
         })?;
-
-        batch(
-            vec![
-                Field::new("id", DataType::Utf8, false),
-                Field::new("audience", DataType::Utf8, false),
-                Field::new("expires_at", DataType::Int64, false),
-                Field::new("token", DataType::Utf8, false),
-            ],
-            vec![
-                Arc::new(StringArray::from(vec![id])),
-                Arc::new(StringArray::from(vec![audience.to_string()])),
-                Arc::new(Int64Array::from(vec![expires_at as i64])),
-                Arc::new(StringArray::from(vec![token])),
-            ],
-        )
+        Ok(IssuedToken {
+            id,
+            audience: audience.to_string(),
+            expires_at,
+            token,
+        })
     }
 
     /// `REVOKE UCAN '<id>'`: 1 row affected if newly revoked, 0 if it already was.
     pub(crate) fn revoke_ucan(&self, id: &str) -> Result<QueryResult, SessionError> {
-        let revoked = self.catalog.revoke_ucan(id)?;
-        Ok(QueryResult::RowsAffected(u64::from(revoked)))
+        Ok(QueryResult::RowsAffected(u64::from(self.revoke_token(id)?)))
+    }
+
+    /// Revoke a token by id (`REVOKE UCAN`); returns whether it was newly
+    /// revoked. Owner only.
+    pub fn revoke_token(&self, id: &str) -> Result<bool, SessionError> {
+        self.deny_principal("REVOKE UCAN")?;
+        Ok(self.catalog.revoke_ucan(id)?)
     }
 
     /// `SHOW UCANS`: every token this node issued or revoked.
@@ -320,7 +362,8 @@ impl OikomeSession {
     }
 
     /// Relations (tables and views) of `space` this session may read: all
-    /// of them for the owner, the granted ones for a principal. A principal
+    /// of them for the owner, the granted ones for a principal (a whole-Space
+    /// grant covers every table and the views that read only this Space). A principal
     /// with no grant in `space` gets `Space not found`, as for `SET SPACE`.
     pub async fn readable_relations(&self, space: &str) -> Result<Vec<String>, SessionError> {
         if let Some(p) = self.principal() {
@@ -338,7 +381,8 @@ impl OikomeSession {
         let mut names: BTreeSet<String> = engine.table_names(space).await?.into_iter().collect();
         names.extend(self.catalog.list_views(space).into_iter().map(|v| v.name));
         if let Some(p) = self.principal() {
-            names.retain(|rel| self.catalog.get_grant(p, space, rel).is_some());
+            names
+                .retain(|rel| crate::acl::principal_access(&self.catalog, p, space, rel).is_some());
         }
         Ok(names.into_iter().collect())
     }

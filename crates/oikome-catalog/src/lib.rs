@@ -18,6 +18,7 @@
 
 pub mod acl;
 pub mod catalog;
+pub mod contact;
 pub mod graph;
 pub mod lance;
 pub mod peer;
@@ -27,8 +28,9 @@ pub mod resolve;
 pub mod space;
 pub mod ucan;
 
-pub use acl::{Grant, RowPolicy, ViewDef};
+pub use acl::{Grant, RowPolicy, SpaceGrant, ViewDef};
 pub use catalog::OikomeCatalog;
+pub use contact::Contact;
 pub use graph::GraphDef;
 pub use peer::Peer;
 pub use resolve::ResolvedTable;

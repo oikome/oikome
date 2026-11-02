@@ -1,0 +1,438 @@
+// Copyright 2025 The Oikome Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! The owner API on a local node (M1b): Spaces, rows, SQL, contacts and
+//! shares, with the same data a real node keeps.
+
+use std::sync::Arc;
+
+use arrow_ipc::reader::StreamReader;
+use iceberg::io::FileIO;
+use oikome_api::*;
+use oikome_catalog::OikomeCatalog;
+use oikome_identity::NodeIdentity;
+use oikome_node::{EngineRegistry, NodeConfig};
+
+struct Node {
+    _dir: tempfile::TempDir,
+    catalog: Arc<OikomeCatalog>,
+    api: Api,
+}
+
+fn node() -> Node {
+    let dir = tempfile::tempdir().unwrap();
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let api = Api::new(catalog.clone(), engines);
+    Node {
+        _dir: dir,
+        catalog,
+        api,
+    }
+}
+
+/// The DID of another node, made from a fixed seed.
+fn did(seed: u8) -> String {
+    NodeIdentity::from_seed(&[seed; 32]).did().to_string()
+}
+
+fn row_count(rows: &Rows) -> usize {
+    StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .map(|b| b.unwrap().num_rows())
+        .sum()
+}
+
+const OWNER: Caller = Caller::Owner;
+
+async fn sql(n: &Node, text: &str) -> SqlResult {
+    n.api
+        .run_sql(
+            &OWNER,
+            RunSql {
+                sql: text.to_string(),
+                space: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{text}: {e}"))
+}
+
+async fn notes(n: &Node) {
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "notes".into(),
+                kind: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(
+        n,
+        "CREATE TABLE notes.memos (id BIGINT NOT NULL, body VARCHAR); \
+         INSERT INTO notes.memos VALUES (1, 'a'), (2, 'b'), (3, 'c')",
+    )
+    .await;
+}
+
+async fn share(n: &Node, contact: &str, days: Option<u32>) -> NewShare {
+    n.api
+        .share_space(
+            &OWNER,
+            ShareSpace {
+                space: "notes".into(),
+                did: contact.to_string(),
+                allow_copy: None,
+                expires_in_days: days,
+            },
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn spaces_rows_and_sql() {
+    let n = node();
+    notes(&n).await;
+    let spaces = n.api.list_spaces(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(spaces.len(), 1);
+    assert_eq!(spaces[0].name, "notes");
+    assert_eq!(spaces[0].kind, SpaceKind::Analytical);
+    assert_eq!(spaces[0].format, "iceberg");
+
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "notes".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        tables,
+        vec![TableSummary {
+            name: "memos".into(),
+            kind: RelationKind::Table
+        }]
+    );
+
+    let page = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "notes".into(),
+                table: "memos".into(),
+                limit: Some(2),
+                offset: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&page), 2);
+
+    let missing = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "notes".into(),
+                table: "nope".into(),
+                limit: None,
+                offset: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(missing.code, ErrorCode::NotFound);
+
+    match sql(&n, "SELECT count(*) FROM notes.memos").await {
+        SqlResult::Rows(rows) => assert_eq!(row_count(&rows), 1),
+        other => panic!("expected rows, got {other:?}"),
+    }
+    match sql(&n, "INSERT INTO notes.memos VALUES (4, 'd')").await {
+        SqlResult::Done(done) => assert_eq!(done.rows_affected, Some(1)),
+        other => panic!("expected no rows, got {other:?}"),
+    }
+
+    let long = n
+        .api
+        .run_sql(
+            &OWNER,
+            RunSql {
+                sql: "x".repeat(MAX_SQL_BYTES + 1),
+                space: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(long.code, ErrorCode::Invalid);
+}
+
+#[tokio::test]
+async fn bad_names_are_refused() {
+    let n = node();
+    for name in ["../escape", "a/b", "", "1st"] {
+        let e = n
+            .api
+            .create_space(
+                &OWNER,
+                NewSpace {
+                    name: name.into(),
+                    kind: None,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Invalid, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn sharing_needs_a_contact_and_revoking_the_last_share_removes_the_grant() {
+    let n = node();
+    notes(&n).await;
+    let bob = did(2);
+
+    let e = n
+        .api
+        .share_space(
+            &OWNER,
+            ShareSpace {
+                space: "notes".into(),
+                did: bob.clone(),
+                allow_copy: None,
+                expires_in_days: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+
+    n.api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: bob.clone(),
+                name: "Bob".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let again = n
+        .api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: bob.clone(),
+                name: "Bob".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(again.code, ErrorCode::Conflict);
+
+    for days in [Some(0), Some(367)] {
+        let e = n
+            .api
+            .share_space(
+                &OWNER,
+                ShareSpace {
+                    space: "notes".into(),
+                    did: bob.clone(),
+                    allow_copy: None,
+                    expires_in_days: days,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Invalid);
+    }
+
+    let first = share(&n, &bob, None).await;
+    let second = share(&n, &bob, Some(7)).await;
+    assert_eq!(first.access, ShareAccess::Query);
+    assert!(n.catalog.has_space_grant(&bob, "notes"));
+    let spaces = n.api.list_spaces(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(spaces[0].shared_with, 1);
+
+    let shares = n
+        .api
+        .list_shares(&OWNER, ListShares::default())
+        .await
+        .unwrap();
+    assert_eq!(shares.len(), 2);
+    assert!(shares.iter().all(|s| s.status == ShareStatus::Active));
+    assert_eq!(shares[0].contact_name.as_deref(), Some("Bob"));
+
+    let revoked = n
+        .api
+        .revoke_share(
+            &OWNER,
+            ShareRef {
+                id: first.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!revoked.grant_removed, "another share is still active");
+    assert!(n.catalog.has_space_grant(&bob, "notes"));
+
+    let revoked = n
+        .api
+        .revoke_share(
+            &OWNER,
+            ShareRef {
+                id: second.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(revoked.grant_removed);
+    assert!(!n.catalog.has_space_grant(&bob, "notes"));
+    let shares = n
+        .api
+        .list_shares(&OWNER, ListShares::default())
+        .await
+        .unwrap();
+    assert!(shares.iter().all(|s| s.status == ShareStatus::Revoked));
+}
+
+#[tokio::test]
+async fn copies_are_for_analytical_spaces() {
+    let n = node();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "orders".into(),
+                kind: Some(SpaceKind::Transactional),
+            },
+        )
+        .await
+        .unwrap();
+    let bob = did(2);
+    n.api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: bob.clone(),
+                name: "Bob".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let e = n
+        .api
+        .share_space(
+            &OWNER,
+            ShareSpace {
+                space: "orders".into(),
+                did: bob,
+                allow_copy: Some(true),
+                expires_in_days: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+}
+
+#[tokio::test]
+async fn dropping_a_space_or_a_contact_revokes_their_shares() {
+    let n = node();
+    notes(&n).await;
+    let bob = did(2);
+    let carol = did(3);
+    for (d, name) in [(&bob, "Bob"), (&carol, "Carol")] {
+        n.api
+            .add_contact(
+                &OWNER,
+                ContactInput {
+                    did: d.clone(),
+                    name: name.into(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let for_bob = share(&n, &bob, None).await;
+    let removed = n
+        .api
+        .remove_contact(&OWNER, DidRef { did: bob.clone() })
+        .await
+        .unwrap();
+    assert_eq!(removed.revoked_shares, 1);
+    assert!(n.catalog.revoked_ucans().contains(&for_bob.id));
+    assert!(!n.catalog.has_space_grant(&bob, "notes"));
+
+    let for_carol = share(&n, &carol, None).await;
+    n.api
+        .drop_space(
+            &OWNER,
+            SpaceRef {
+                space: "notes".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(n.catalog.revoked_ucans().contains(&for_carol.id));
+    assert!(n
+        .api
+        .list_spaces(&OWNER, Empty {})
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn principals_cannot_use_owner_operations() {
+    let n = node();
+    notes(&n).await;
+    let principal = Caller::Principal { did: did(9) };
+    let e = n.api.list_spaces(&principal, Empty {}).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n
+        .api
+        .run_sql(
+            &principal,
+            RunSql {
+                sql: "SELECT 1".into(),
+                space: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n
+        .api
+        .add_contact(
+            &principal,
+            ContactInput {
+                did: did(2),
+                name: "x".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    // Who the node is, anyone may ask.
+    let info = n.api.node_info(&principal, Empty {}).await.unwrap();
+    assert!(info.did.starts_with("did:key:z"));
+}

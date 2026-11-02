@@ -231,11 +231,13 @@ impl QueryEngine for SqliteEngine {
             return Ok(Vec::new());
         }
         // Tables and virtual tables (FTS5, vec0), not the shadow tables
-        // that back virtual tables nor SQLite's own `sqlite_*` tables.
+        // that back virtual tables, SQLite's own `sqlite_*` tables nor
+        // Oikome's bookkeeping (`_oikome_*`, e.g. a connector's cursor).
         // sqlite-vec 0.1.9 does not mark `<t>_vector_chunksNN` as shadow.
         let sql = "SELECT t.name FROM pragma_table_list t \
                    WHERE t.schema = ?1 AND t.type IN ('table', 'virtual') \
                      AND t.name NOT LIKE 'sqlite\\_%' ESCAPE '\\' \
+                     AND t.name NOT LIKE '\\_oikome\\_%' ESCAPE '\\' \
                      AND NOT EXISTS ( \
                          SELECT 1 FROM pragma_table_list v \
                          WHERE v.schema = ?1 AND v.type = 'virtual' \

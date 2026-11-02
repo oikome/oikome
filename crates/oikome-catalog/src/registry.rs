@@ -30,6 +30,7 @@ use crate::catalog::OikomeCatalog;
 use crate::contact::Contact;
 use crate::graph::GraphDef;
 use crate::peer::Peer;
+use crate::source::SourceDef;
 use crate::space::{validate_binding, Location, LocationFormat, LocationId, Space, STORAGE_DISK};
 use crate::storage::StorageDef;
 use crate::ucan::{IssuedUcan, RemoteToken, Revocation};
@@ -43,6 +44,7 @@ const GRAPHS_FILE: &str = "graphs.json";
 const GRANTS_FILE: &str = "grants.json";
 const SPACE_GRANTS_FILE: &str = "space_grants.json";
 const CONTACTS_FILE: &str = "contacts.json";
+const SOURCES_FILE: &str = "sources.json";
 const POLICIES_FILE: &str = "policies.json";
 const UCANS_FILE: &str = "ucans.json";
 const REVOCATIONS_FILE: &str = "revocations.json";
@@ -92,6 +94,8 @@ pub(crate) struct Registry {
     pub(crate) storages: BTreeMap<String, StorageDef>,
     /// The owner's contacts, keyed by DID.
     pub(crate) contacts: BTreeMap<String, Contact>,
+    /// Registered sources (connectors), keyed by name.
+    pub(crate) sources: BTreeMap<String, SourceDef>,
 }
 
 fn registry_err(context: &str, e: impl std::fmt::Display) -> CatalogError {
@@ -185,6 +189,7 @@ impl Registry {
         let peers: Vec<Peer> = read_items(&dir.join(PEERS_FILE), &mut h)?;
         let storages: Vec<StorageDef> = read_items(&dir.join(STORAGES_FILE), &mut h)?;
         let contacts: Vec<Contact> = read_items(&dir.join(CONTACTS_FILE), &mut h)?;
+        let sources: Vec<SourceDef> = read_items(&dir.join(SOURCES_FILE), &mut h)?;
         let registry = Self {
             spaces: spaces.into_iter().map(|s| (s.name.clone(), s)).collect(),
             locations: locations.into_iter().map(|l| (l.id.clone(), l)).collect(),
@@ -199,6 +204,7 @@ impl Registry {
             peers: peers.into_iter().map(|p| (p.did.clone(), p)).collect(),
             storages: storages.into_iter().map(|s| (s.name.clone(), s)).collect(),
             contacts: contacts.into_iter().map(|c| (c.did.clone(), c)).collect(),
+            sources: sources.into_iter().map(|s| (s.name.clone(), s)).collect(),
         };
         Ok((registry, h.finish()))
     }
@@ -253,6 +259,10 @@ impl Registry {
         write_items(
             &dir.join(CONTACTS_FILE),
             self.contacts.values().cloned().collect(),
+        )?;
+        write_items(
+            &dir.join(SOURCES_FILE),
+            self.sources.values().cloned().collect(),
         )?;
         if !self.tokens.is_empty() || dir.join(IDENTITY_DIR).join(REMOTE_TOKENS_FILE).exists() {
             let identity = dir.join(IDENTITY_DIR);

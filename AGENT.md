@@ -149,7 +149,7 @@ v3 路线图（详见 `oikome_architecture_v3.md` §14）：
 | 3.4a NAS | 家里的 NAS（WebDAV 或挂载目录）存 Space：写入节点每次写入后推快照，其他节点拉最新的完整快照到本地副本；一个目录只有一个写入节点；SQLite 不放 NAS；密码由节点保管（见 3.4b） | ✅ |
 | 3.4b 网盘 | 客户端加密（每个文件和文件名加密后再上传）；网盘经桌面客户端的同步文件夹接入（iCloud Drive、Dropbox、OneDrive、Google Drive，`--drive` 必须加密）；凭据和密钥由节点保管（系统钥匙串，没有时用私有文件），用户在页面或命令行输入一次 | ✅ |
 | 3.4c 网盘 API | 没有桌面客户端的节点经 API 接网盘：OAuth 登录 + opendal 网盘服务（Google Drive、Dropbox、OneDrive），同样加密 | 待开始 |
-| 3.5 数据接入 | `Connector` 合约、按来源主键 upsert + 游标同事务提交、定时拉取；首批：文件导入、flomo | 待开始 |
+| 3.5 数据接入 | `Connector` 合约（`oikome-connect`）、按来源主键 upsert + 游标同事务提交（游标在 Space 的隐藏表 `_oikome_source`）、定时和手动拉取、token 由节点保管；首批：CSV、flomo 导出文件、flomo MCP（代码已写，等 MAX 账号实测） | ✅ |
 | 3.6 算力共享 | `compute/<runtime>` UCAN 能力与限额（与数据授权分开）、任务经 Arrow Flight 路由到对端已注册的运行时、按对端配额 | 待开始 |
 
 用户端路线（与上面的核心阶段并行，互不阻塞；每个里程碑要等前置阶段完成，详见架构 §14.1）：
@@ -245,6 +245,7 @@ oikome/
 ├── crates/
 │   ├── oikome-core/           # 错误、SpaceUri、SpaceKind/EngineKind/AccessMode
 │   ├── oikome-vfs/            # OpenDAL VFS；RemoteStore：Space 在存储（WebDAV、挂载目录）上的目录
+│   ├── oikome-connect/        # 数据接入：Connector 合约、CSV、flomo（导出文件、MCP）
 │   ├── oikome-catalog/        # Iceberg Catalog + Space/Location 注册表 + 快照解析
 │   ├── oikome-storage/        # Parquet 写路径、Compaction
 │   ├── oikome-engine/         # QueryEngine trait、TableSource、BlockingWorker
@@ -438,6 +439,7 @@ oikome/
 | 2026-11-01 | 用户端：只服务主人的个人私域数据中心，不做运维和开发者页面，成员以后做，界面统一英文（以后 i18n）；根目录新增 `apps/`（各端薄外壳）、`packages/`（共享 TypeScript）、`plugins/`、`design/`、`e2e/`，根目录 `package.json` 用 npm workspaces；目录等对应工作开始时才建；新 crate `oikome-api`（不含传输层，调用者分主人和 principal），HTTP 由 `oikome serve --web` 提供，桌面端进程内调用，以后 `oikome-mcp` 只暴露 principal 能做的操作；桌面和手机以后用 Tauri；存储位置只给本地文件夹和 NAS，网盘做存储位置待定 | 网页、桌面、手机是同一层的端，页面放共享包里各端复用；同一套处理逻辑服务所有端，AI 助手碰不到主人才有的命令；产品原则是数据不出家门，和把数据放在网盘服务商那里冲突，架构 §7.5 和 3.4 先不动，等决定。见架构 §13.3、§13.4、§14.1 |
 | 2026-11-01 | M1a：`web/` 拆到 `packages/node`（`@oikome/node`，导出 host、store、transport、wasm）和 `e2e/`（`@oikome/e2e`，测试页在 `harness/`）；根目录 npm workspaces 先只含 `packages/*` 和 `e2e`，`apps/*`、`plugins/*` 建了再加；测试服务器按 URL 前缀映射目录（`/pkg/`、`/node_modules/`、`/`），越界路径拒绝；wasm 构建和 remote 测试跟随 `CARGO_TARGET_DIR` | 只搬位置、不改行为，browser-e2e 的断言不变；外部依赖版本和 lockfile 里的完全一样。见架构 §13.3 |
 | 2026-11-02 | 3.4 拆成 3.4a NAS 和 3.4b 网盘：先做家里的 NAS（WebDAV 或挂载目录），网盘逐步支持、每种网盘先有客户端加密才开放。存储上的 Space 不在原处读：写入节点照常写本地、每次写入后推快照（先文件、后快照文件），其他节点拉最新的完整快照到本地副本，像订阅副本一样读；一个目录一个写入节点（记在 `oikome-space.json`，防误操作，不是访问控制）；密码只从环境变量 `OIKOME_STORAGE_<NAME>_PASSWORD` / `_TOKEN` 读，钥匙串随 3.5 做；推送失败不让写语句报错；`materialize()` 不做了 | 数据放 NAS 仍在家里；网盘服务商能读上传的内容，所以先加密。DuckDB 按本地 Parquet 文件列表读 Iceberg、`lance` 扩展只能挂本地目录，WebDAV 上的 Iceberg 提交没有原子的比较交换；订阅已有校验过的快照复制，一套做法同时管 Iceberg 和 Lance，以后加密只是包一层。见架构 §7.4、§7.5 |
+| 2026-11-02 | 3.5：接入只做进程内 Rust 代码（第三方接入作为 M4 插件），登记在节点上（`sources.json`，命令行和以后的接入页调用同一组函数），不加 SQL 语句；游标存在 Space 的隐藏表里，和数据同一个事务提交；flomo 导出没有 id，用创建时间加同一秒内的序号做主键；flomo MCP 运行时发现工具、从不删除，等有账号再实测；HTML 用 html5ever 的 tokenizer 解析（scraper 的选择器是 MPL-2.0） | 接入和存储一样是带凭据的节点配置；「数据和游标一起变」就是一个 SQLite 事务；需要账号的路径先写代码、不做模拟服务，功能齐全后统一实测。见架构 §11 |
 | 2026-11-02 | 3.4b：网盘先走同步文件夹，走 API 放 3.4c；网盘上的每个文件整文件加密（XChaCha20-Poly1305 分段、文件名用带密钥的哈希），一个存储一把随机密钥，另一节点用 `export-key` 导出的密钥读取；凭据由用户在页面（现在是命令行标准输入）输入一次，节点存进系统钥匙串，没有钥匙串时存 0600 私有文件，环境变量优先，替代 3.4a 的「只从环境变量读」 | 同步文件夹不需要 OAuth 应用就能覆盖主流网盘；整文件加密同时盖住数据、索引、快照和文件名；普通用户不该自己设环境变量，页面直接调用节点的 `add_storage` / `set_storage_secret` / `export_storage_key`。见架构 §7.5 |
 | 2026-11-01 | 用户端测试连本地节点（临时数据目录、经命令行或接口写入测试数据），不做假数据和 mock 客户端；M1 改为先做接口（M1b）再做页面（M1c），各页面随有数据的里程碑做 | 只有一条测试链路，不用先测假数据再换真实数据测一遍；页面从一开始就走真实接口，不会和接口对不上。见架构 §14.1 |
 | 2026-11-01 | M1b：新 crate `oikome-api`（不含传输层，主人和 principal 两种调用者，接口层不拼 SQL）；`oikome serve --web` 只监听本机，一次性登录链接写进只有主人能读的 `.oikome/web/login`，由 `oikome web open` 打开，不打印；整个资料库的授权 `GRANT SELECT ON SPACE` 单独存放，视图展开后只读本 Space 才算在内；访问记录存 `.oikome/access_log.sqlite`，后台线程写，认证失败按分钟合并；注册表写入加文件锁并先重新读取；Space 名字在目录层校验；类型用 ts-rs 生成到 `packages/api` | 网页端开始在 serve 进程里写注册表，`oikome sql` 收回的令牌不能被覆盖；分享按资料库，新建的表也要包含，而视图可能跨 Space；令牌留在终端记录里不安全。见架构 §6.1、§9、§13.4 |

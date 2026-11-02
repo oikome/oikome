@@ -81,30 +81,35 @@
   --radius-card: 16px;
   --radius-pill: 999px;
 
-  /* Spacing */
+  /* Spacing: one 4px scale, nothing in between */
   --space-1: 4px;
-  --space-2: 6px;
-  --space-3: 8px;
-  --space-4: 10px;
-  --space-5: 12px;
-  --space-6: 16px;
-  --space-7: 20px;
-  --space-8: 24px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
   --space-page-top: 28px;
+  /* A group's title line and the space under it, so a surface beside a
+     titled group can line up with the group's surface. */
+  --group-title-height: 18px;
   --space-page-x: 40px;
 
   /* Type: the system stack, tabular numerals everywhere */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --text-display: 700 32px/1.15 var(--font-sans);
-  --text-headline: 700 22px/1.25 var(--font-sans);
-  --text-title: 600 15px/1.35 var(--font-sans);
-  --text-lede: 400 15px/1.5 var(--font-sans);
-  --text-body: 400 14px/1.45 var(--font-sans);
+  --text-display: 700 32px/36px var(--font-sans);
+  --text-display-compact: 700 28px/32px var(--font-sans);
+  --text-headline: 700 22px/28px var(--font-sans);
+  --text-subhead: 700 17px/22px var(--font-sans);
+  --text-title: 600 15px/20px var(--font-sans);
+  --text-lede: 400 15px/22px var(--font-sans);
+  --text-body: 400 14px/20px var(--font-sans);
   --text-button: 500 14px/1 var(--font-sans);
-  --text-label: 600 13px/1.35 var(--font-sans);
-  --text-meta: 400 13px/1.4 var(--font-sans);
-  --text-caption: 400 12.5px/1.4 var(--font-sans);
+  --text-label: 600 13px/18px var(--font-sans);
+  --text-meta: 400 13px/18px var(--font-sans);
+  --text-caption: 400 12px/16px var(--font-sans);
 
   /* Shadows */
   --shadow-whisper: 0 1px 2px rgba(45, 41, 38, 0.05), 0 4px 14px rgba(45, 41, 38, 0.04);

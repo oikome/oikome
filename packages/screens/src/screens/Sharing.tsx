@@ -9,6 +9,7 @@ import {
   Avatar,
   Button,
   ChoiceGroup,
+  CopyButton,
   CopyField,
   ErrorText,
   Group,
@@ -111,13 +112,16 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
           <Contacts contacts={contacts.data ?? []} shares={active} me={info.did} onChange={reload} />
 
           <Group title={s.yourId} footnote={s.yourIdBody}>
-            <GroupPanel>
-              <CopyField
-                value={shortId(info.did)}
-                copyLabel={strings.common.copy}
-                copiedLabel={strings.common.copied}
-              />
-            </GroupPanel>
+            <Row
+              title={<span className="oik-mono">{shortId(info.did)}</span>}
+              trailing={
+                <CopyButton
+                  value={shortId(info.did)}
+                  copyLabel={strings.common.copy}
+                  copiedLabel={strings.common.copied}
+                />
+              }
+            />
           </Group>
         </div>
 

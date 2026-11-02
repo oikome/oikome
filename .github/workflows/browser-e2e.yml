@@ -4,12 +4,37 @@
 # The owner's web API (M1b) is tested in e2e/ too, on two native nodes.
 name: browser-e2e
 
+# Runs only when the Rust core or the JavaScript packages and tests change.
 on:
   push:
     branches: ["main", "feat/**", "ci/**"]
+    paths:
+      - "crates/**"
+      - "third_party/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "packages/**"
+      - "apps/**"
+      - "e2e/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/browser-e2e.yml"
   # Pull requests from forks, which do not push to this repository.
   pull_request:
     branches: ["main"]
+    paths:
+      - "crates/**"
+      - "third_party/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "packages/**"
+      - "apps/**"
+      - "e2e/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/browser-e2e.yml"
   workflow_dispatch:
 
 permissions:

@@ -146,7 +146,7 @@ export function Settings({
         )}
         <Row
           title={strings.sharing.yourId}
-          meta={<span className="oik-mono">{shortId(info.did)}</span>}
+          meta={<span className="oik-mono" translate="no">{shortId(info.did)}</span>}
           trailing={
             <CopyButton
               value={shortId(info.did)}
@@ -155,7 +155,7 @@ export function Settings({
             />
           }
         />
-        <Row title={s.dataFolder} meta={<span className="oik-mono">{info.dataDir}</span>} />
+        <Row title={s.dataFolder} meta={<span className="oik-mono" translate="no">{info.dataDir}</span>} />
         <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
       </Group>
 

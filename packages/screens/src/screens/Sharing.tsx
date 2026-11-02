@@ -117,7 +117,7 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
 
           <Group title={s.yourId} footnote={s.yourIdBody}>
             <Row
-              title={<span className="oik-mono">{shortId(info.did)}</span>}
+              title={<span className="oik-mono" translate="no">{shortId(info.did)}</span>}
               trailing={
                 <CopyButton
                   value={shortId(info.did)}

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use arrow_schema::SchemaRef;
 use futures::TryStreamExt;
 use oikome_catalog::{LocationFormat, OikomeCatalog, Space};
-use oikome_core::{AccessMode, EngineKind, RemoteMode, SpaceKind};
+use oikome_core::{AccessMode, CreateSpaceRequest, EngineKind, RemoteMode, SpaceKind};
 use oikome_engine::name::quote_ident;
 use oikome_engine::{Capabilities, QualifiedName, QueryEngine, RecordBatchStream, TxHandle};
 use oikome_federation::{BoundSpace, BoundTable, Coordinator};
@@ -136,26 +136,7 @@ impl OikomeSession {
     /// Execute one statement and collect its result.
     pub async fn sql(&self, sql: &str) -> Result<QueryResult, SessionError> {
         match parse_single(sql)? {
-            OikomeStatement::CreateSpace(request) => {
-                self.deny_principal("CREATE SPACE")?;
-                if request.kind == Some(SpaceKind::Remote) {
-                    return match request.mode.unwrap_or_default() {
-                        RemoteMode::Query => self.create_remote_space(request),
-                        RemoteMode::Subscribe => self.create_subscribed_space(request).await,
-                    };
-                }
-                if request
-                    .storage
-                    .as_deref()
-                    .is_some_and(|s| s != oikome_catalog::space::STORAGE_DISK)
-                {
-                    // Boxed, like the other storage calls here: their futures
-                    // would otherwise enlarge every statement's.
-                    return Box::pin(self.create_space_on_storage(request)).await;
-                }
-                self.catalog.create_space(request).await?;
-                Ok(QueryResult::Empty)
-            }
+            OikomeStatement::CreateSpace(request) => self.create_space(request).await,
             OikomeStatement::ShowIdentity => self.show_identity(),
             OikomeStatement::IssueUcan(request) => {
                 self.deny_principal("ISSUE UCAN")?;
@@ -168,6 +149,14 @@ impl OikomeSession {
             OikomeStatement::ShowUcans => {
                 self.deny_principal("SHOW UCANS")?;
                 self.show_ucans()
+            }
+            OikomeStatement::GrantSpace(request) => {
+                self.grant_space(&request.space, &request.principals)?;
+                Ok(QueryResult::Empty)
+            }
+            OikomeStatement::RevokeSpace(request) => {
+                self.revoke_space(&request.space, &request.principals)?;
+                Ok(QueryResult::Empty)
             }
             OikomeStatement::ShowWebrtc => {
                 self.deny_principal("SHOW WEBRTC")?;
@@ -191,22 +180,7 @@ impl OikomeSession {
             }
             OikomeStatement::GraphQuery(query) => self.graph_query(query).await,
             OikomeStatement::DropSpace(name) => {
-                self.deny_principal("DROP SPACE")?;
-                let space = self.space(&name)?;
-                let format = self.catalog.get_location(&space.location).map(|l| l.format);
-                // A subscription or a copy of a Space on a storage.
-                let replica = format.as_ref().is_ok_and(LocationFormat::is_copy);
-                if matches!(format, Ok(LocationFormat::Lance { .. })) || replica {
-                    // A Lance Space (or a copy of one) is attached whole.
-                    self.engines.duckdb()?.detach_space(&name).await?;
-                }
-                self.catalog.drop_space(&name)?;
-                if self.default_space().as_deref() == Some(name.as_str()) {
-                    self.set_default_space(None);
-                }
-                if replica {
-                    self.remove_replica(&space.location).await?;
-                }
+                self.drop_space(&name).await?;
                 Ok(QueryResult::Empty)
             }
             OikomeStatement::PublishSpace(request) => self.publish(&request).await?.into_result(),
@@ -261,6 +235,57 @@ impl OikomeSession {
                 }
             }
         }
+    }
+
+    /// Create a Space (`CREATE SPACE`): a local one, or another node's
+    /// Space queried in place or subscribed to. Owner only. A subscription
+    /// returns the report of its first copy; everything else returns
+    /// [`QueryResult::Empty`].
+    pub async fn create_space(
+        &self,
+        request: CreateSpaceRequest,
+    ) -> Result<QueryResult, SessionError> {
+        self.deny_principal("CREATE SPACE")?;
+        if request.kind == Some(SpaceKind::Remote) {
+            return match request.mode.unwrap_or_default() {
+                RemoteMode::Query => self.create_remote_space(request),
+                RemoteMode::Subscribe => self.create_subscribed_space(request).await,
+            };
+        }
+        if request
+            .storage
+            .as_deref()
+            .is_some_and(|s| s != oikome_catalog::space::STORAGE_DISK)
+        {
+            // Boxed, like the other storage calls here: their futures
+            // would otherwise enlarge every statement's.
+            return Box::pin(self.create_space_on_storage(request)).await;
+        }
+        self.catalog.create_space(request).await?;
+        Ok(QueryResult::Empty)
+    }
+
+    /// Drop a Space (`DROP SPACE`) with its views, grants and policies. Its
+    /// data stays on disk, except a subscribed copy, which is removed. A Lance
+    /// Space or a copy is detached from the node's DuckDB first. Owner only.
+    pub async fn drop_space(&self, name: &str) -> Result<(), SessionError> {
+        self.deny_principal("DROP SPACE")?;
+        let space = self.space(name)?;
+        let format = self.catalog.get_location(&space.location).map(|l| l.format);
+        // A subscription or a copy of a Space on a storage.
+        let replica = format.as_ref().is_ok_and(LocationFormat::is_copy);
+        if matches!(format, Ok(LocationFormat::Lance { .. })) || replica {
+            // A Lance Space (or a copy of one) is attached whole.
+            self.engines.duckdb()?.detach_space(name).await?;
+        }
+        self.catalog.drop_space(name)?;
+        if self.default_space().as_deref() == Some(name) {
+            self.set_default_space(None);
+        }
+        if replica {
+            self.remove_replica(&space.location).await?;
+        }
+        Ok(())
     }
 
     /// Execute a query and stream its result.

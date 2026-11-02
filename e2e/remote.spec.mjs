@@ -17,35 +17,13 @@
 // browser's DID and issues it a UCAN, and the browser joins a duckdb-wasm
 // table with the node's table. A tampered record, a wrong fingerprint and
 // a revoked token are each refused.
-//
-// OIKOME_BIN: the native binary (default <target>/debug/oikome, where
-// <target> is CARGO_TARGET_DIR or the repository's target/). It loads the
-// prebuilt libduckdb cargo downloaded into <target>/duckdb-download.
 
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-
-const REPO = fileURLToPath(new URL("..", import.meta.url));
-const TARGET = resolve(REPO, process.env.CARGO_TARGET_DIR ?? "target");
-const BIN = process.env.OIKOME_BIN ?? join(TARGET, "debug", "oikome");
-/** Directories under target/duckdb-download/<target>/<version> with libduckdb. */
-function libDirs() {
-  const root = join(TARGET, "duckdb-download");
-  const subdirs = (dir) => (existsSync(dir) ? readdirSync(dir).map((d) => join(dir, d)) : []);
-  return subdirs(root)
-    .flatMap(subdirs)
-    .filter((dir) => ["libduckdb.so", "libduckdb.dylib"].some((f) => existsSync(join(dir, f))));
-}
-const LIB_DIRS = libDirs().join(":");
-const ENV = {
-  ...process.env,
-  LD_LIBRARY_PATH: [LIB_DIRS, process.env.LD_LIBRARY_PATH].filter(Boolean).join(":"),
-  DYLD_LIBRARY_PATH: [LIB_DIRS, process.env.DYLD_LIBRARY_PATH].filter(Boolean).join(":"),
-};
+import { BIN, ENV, nodeSql as sqlAt } from "./node.mjs";
 
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
@@ -53,17 +31,7 @@ let root;
 let server;
 
 /** Run SQL as the Full Node's owner; rows as arrays of strings. */
-function nodeSql(text) {
-  const out = execFileSync(BIN, ["--root", root, "sql", "--raw", text], {
-    encoding: "utf8",
-    env: ENV,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  return out
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((line) => line.split("\t"));
-}
+const nodeSql = (text) => sqlAt(root, text);
 
 /** The fields of an access record (`webrtc:<json>.<signature>`). */
 function recordFields(record) {

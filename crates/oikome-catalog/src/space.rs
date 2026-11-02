@@ -177,11 +177,7 @@ pub fn validate_binding(
     existing: Option<&Location>,
     now_ms: u64,
 ) -> Result<(Space, Location), CatalogError> {
-    if request.name.is_empty() {
-        return Err(CatalogError::InvalidProperty(
-            "space name must not be empty".to_string(),
-        ));
-    }
+    oikome_core::validate_space_name(&request.name)?;
     if request.location.is_some() && existing.is_none() {
         return Err(CatalogError::LocationNotFound(
             request.location.clone().unwrap_or_default(),

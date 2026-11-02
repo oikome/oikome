@@ -65,8 +65,12 @@ use oikome_network::protocol::{
     HEADER_AUTH, HEADER_UCAN, MAX_SQL_BYTES, METHOD_DO_GET, METHOD_FETCH_FILE, METHOD_GET_SCHEMA,
     METHOD_LIST_TABLES, METHOD_SNAPSHOT,
 };
+use oikome_node::access_log::entry_now;
 use oikome_node::snapshot::table_snapshot;
-use oikome_node::{query_spaces, EngineRegistry, OikomeSession, SessionConfig, SessionError};
+use oikome_node::{
+    query_spaces, AccessEntry, AccessLog, EngineRegistry, OikomeSession, Outcome, SessionConfig,
+    SessionError,
+};
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::SemanticError;
 use tokio::io::AsyncReadExt;
@@ -96,6 +100,7 @@ pub struct OikomeFlightService {
     engines: Arc<EngineRegistry>,
     identity: Arc<NodeIdentity>,
     replay: ReplayGuard,
+    access_log: Option<AccessLog>,
 }
 
 impl std::fmt::Debug for OikomeFlightService {
@@ -145,7 +150,42 @@ impl OikomeFlightService {
             engines,
             identity,
             replay: ReplayGuard::default(),
+            access_log: None,
         })
+    }
+
+    /// Record every request in `log` (architecture v3 §9): one entry per
+    /// call, whether it was served, refused or failed. `fetch_file` is
+    /// recorded only when refused; the subscription it belongs to is
+    /// recorded by its `oikome.snapshot` call.
+    pub fn with_access_log(mut self, log: AccessLog) -> Self {
+        self.access_log = Some(log);
+        self
+    }
+
+    /// Finish `entry` from the call's result and hand it to the access log.
+    fn audit<T>(&self, mut entry: AccessEntry, result: &Result<T, Status>) {
+        let Some(log) = &self.access_log else {
+            return;
+        };
+        match result {
+            Ok(_) => {
+                entry.outcome = Outcome::Allowed;
+                entry.reason = None;
+            }
+            Err(status) => {
+                entry.outcome = match status.code() {
+                    tonic::Code::Unauthenticated
+                    | tonic::Code::PermissionDenied
+                    | tonic::Code::ResourceExhausted => Outcome::Denied,
+                    _ => Outcome::Failed,
+                };
+                if entry.reason.is_none() {
+                    entry.reason = Some(status.message().to_string());
+                }
+            }
+        }
+        log.record(entry);
     }
 
     /// This node's DID.
@@ -160,11 +200,13 @@ impl OikomeFlightService {
     /// Step 1: check the signed request header for `method` with `payload`.
     fn authenticate<T>(
         &self,
+        entry: &mut AccessEntry,
         request: &Request<T>,
         method: &str,
         payload: &[u8],
     ) -> Result<Caller, Status> {
         self.authenticate_parts(
+            entry,
             Self::header(request, HEADER_AUTH),
             Self::header(request, HEADER_UCAN),
             method,
@@ -175,92 +217,127 @@ impl OikomeFlightService {
     /// Step 1 on the values of the two headers, whatever carried them.
     fn authenticate_parts(
         &self,
+        entry: &mut AccessEntry,
         auth: Option<&str>,
         ucan: Option<&str>,
         method: &str,
         payload: &[u8],
     ) -> Result<Caller, Status> {
-        let fail = |reason: &str| {
+        let fail = |reason: String| {
             tracing::info!(%reason, method, "peer authentication failed");
-            Status::unauthenticated("authentication failed")
+            (Status::unauthenticated("authentication failed"), reason)
         };
-        let ucan = ucan.ok_or_else(|| fail("missing UCAN"))?;
-        if ucan.len() > MAX_TOKEN_BYTES {
-            return Err(fail("UCAN too large"));
-        }
-        let auth = auth
-            .ok_or_else(|| fail("missing auth header"))
-            .and_then(|h| AuthRequest::from_header(h).map_err(|e| fail(&e.to_string())))?;
-        let now = unix_now_ms();
-        let did = auth
-            .verify(self.identity.did(), now, &digest(method, payload, ucan))
-            .map_err(|e| fail(&e.to_string()))?;
-        match self
-            .replay
-            .check(did.as_str(), &auth.nonce, auth.timestamp_ms, now)
-        {
-            Ok(()) => {}
-            Err(ReplayError::Replayed) => return Err(fail("replayed request")),
-            Err(ReplayError::Saturated) => {
-                return Err(Status::resource_exhausted("too many requests"))
+        let result = (|| -> Result<Caller, (Status, String)> {
+            let ucan = ucan.ok_or_else(|| fail("missing UCAN".to_string()))?;
+            if ucan.len() > MAX_TOKEN_BYTES {
+                return Err(fail("UCAN too large".to_string()));
+            }
+            let auth = auth
+                .ok_or_else(|| fail("missing auth header".to_string()))
+                .and_then(|h| AuthRequest::from_header(h).map_err(|e| fail(e.to_string())))?;
+            let now = unix_now_ms();
+            let did = auth
+                .verify(self.identity.did(), now, &digest(method, payload, ucan))
+                .map_err(|e| fail(e.to_string()))?;
+            match self
+                .replay
+                .check(did.as_str(), &auth.nonce, auth.timestamp_ms, now)
+            {
+                Ok(()) => {}
+                Err(ReplayError::Replayed) => return Err(fail("replayed request".to_string())),
+                Err(ReplayError::Saturated) => {
+                    return Err((
+                        Status::resource_exhausted("too many requests"),
+                        "too many requests".to_string(),
+                    ))
+                }
+            }
+            Ok(Caller {
+                did,
+                ucan: ucan.to_string(),
+            })
+        })();
+        match result {
+            Ok(caller) => {
+                entry.caller = Some(caller.did.to_string());
+                Ok(caller)
+            }
+            Err((status, reason)) => {
+                entry.reason = Some(reason);
+                Err(status)
             }
         }
-        Ok(Caller {
-            did,
-            ucan: ucan.to_string(),
-        })
     }
 
     /// Step 2: check that the caller's UCAN grants `ability` on every Space
     /// it names and return the principal to run the request as.
     fn authorize(
         &self,
+        entry: &mut AccessEntry,
         caller: &Caller,
         spaces: &BTreeSet<String>,
         ability: &str,
     ) -> Result<String, Status> {
+        entry.spaces = spaces.iter().cloned().collect();
         let deny = |reason: String| {
             tracing::info!(caller = %caller.did, %reason, "peer request denied");
-            Status::permission_denied(DENIED)
+            (Status::permission_denied(DENIED), reason)
         };
-        if spaces.is_empty() {
-            return Err(deny("request names no space".to_string()));
-        }
-        // Pick up revocations and grants made by other processes.
-        self.catalog.refresh().map_err(|e| {
-            tracing::warn!(error = %e, "could not reload the registry");
-            Status::internal("registry unavailable")
-        })?;
-        let revoked = self.catalog.revoked_ucans();
-        let now = unix_now();
-        let mut principal: Option<Did> = None;
-        for space in spaces {
-            let verified = ucan::verify(
-                &caller.ucan,
-                &VerifyOptions {
-                    root: self.identity.did(),
-                    audience: &caller.did,
-                    required: &Capability::space(self.identity.did(), space, ability),
-                    now,
-                    revoked: &revoked,
-                },
-            )
-            .map_err(|e| deny(format!("{space}: {e}")))?;
-            if principal.as_ref().is_some_and(|p| *p != verified.principal) {
-                return Err(deny("one request, several principals".to_string()));
+        let result = (|| -> Result<(String, Option<String>), (Status, String)> {
+            if spaces.is_empty() {
+                return Err(deny("request names no space".to_string()));
             }
-            principal = Some(verified.principal);
-            if self
-                .catalog
-                .get_space(space)
-                .is_ok_and(|s| s.kind == SpaceKind::Remote)
-            {
-                return Err(deny(format!("{space} is a remote space")));
+            // Pick up revocations and grants made by other processes.
+            self.catalog.refresh().map_err(|e| {
+                tracing::warn!(error = %e, "could not reload the registry");
+                (
+                    Status::internal("registry unavailable"),
+                    "registry unavailable".to_string(),
+                )
+            })?;
+            let revoked = self.catalog.revoked_ucans();
+            let now = unix_now();
+            let mut principal: Option<Did> = None;
+            let mut token_id = None;
+            for space in spaces {
+                let verified = ucan::verify(
+                    &caller.ucan,
+                    &VerifyOptions {
+                        root: self.identity.did(),
+                        audience: &caller.did,
+                        required: &Capability::space(self.identity.did(), space, ability),
+                        now,
+                        revoked: &revoked,
+                    },
+                )
+                .map_err(|e| deny(format!("{space}: {e}")))?;
+                if principal.as_ref().is_some_and(|p| *p != verified.principal) {
+                    return Err(deny("one request, several principals".to_string()));
+                }
+                principal = Some(verified.principal);
+                token_id = Some(verified.id);
+                if self
+                    .catalog
+                    .get_space(space)
+                    .is_ok_and(|s| s.kind == SpaceKind::Remote)
+                {
+                    return Err(deny(format!("{space} is a remote space")));
+                }
+            }
+            principal
+                .map(|p| (p.to_string(), token_id))
+                .ok_or_else(|| deny("no principal".to_string()))
+        })();
+        match result {
+            Ok((principal, token_id)) => {
+                entry.token_id = token_id;
+                Ok(principal)
+            }
+            Err((status, reason)) => {
+                entry.reason = Some(reason);
+                Err(status)
             }
         }
-        principal
-            .map(|p| p.to_string())
-            .ok_or_else(|| deny("no principal".to_string()))
     }
 
     /// Step 3: a read-only session acting for `principal`.
@@ -275,23 +352,36 @@ impl OikomeFlightService {
         )
     }
 
-    async fn list_tables(&self, request: Request<Action>) -> Result<Vec<u8>, Status> {
+    async fn list_tables(
+        &self,
+        entry: &mut AccessEntry,
+        request: Request<Action>,
+    ) -> Result<Vec<u8>, Status> {
         let body = request.get_ref().body.clone();
         if body.len() > MAX_ACTION_BODY_BYTES {
             return Err(Status::invalid_argument("request too large"));
         }
-        let caller = self.authenticate(&request, METHOD_LIST_TABLES, &body)?;
-        self.list_tables_for(&caller, &body).await
+        let caller = self.authenticate(entry, &request, METHOD_LIST_TABLES, &body)?;
+        self.list_tables_for(entry, &caller, &body).await
     }
 
-    async fn list_tables_for(&self, caller: &Caller, body: &[u8]) -> Result<Vec<u8>, Status> {
+    async fn list_tables_for(
+        &self,
+        entry: &mut AccessEntry,
+        caller: &Caller,
+        body: &[u8],
+    ) -> Result<Vec<u8>, Status> {
         let req: ListTablesRequest = serde_json::from_slice(body)
             .map_err(|e| Status::invalid_argument(format!("list_tables request: {e}")))?;
         if !is_identifier(&req.space) {
             return Err(Status::invalid_argument("invalid space name"));
         }
-        let principal =
-            self.authorize(caller, &BTreeSet::from([req.space.clone()]), ABILITY_QUERY)?;
+        let principal = self.authorize(
+            entry,
+            caller,
+            &BTreeSet::from([req.space.clone()]),
+            ABILITY_QUERY,
+        )?;
         let tables = self
             .session(principal)
             .readable_relations(&req.space)
@@ -335,29 +425,37 @@ impl OikomeFlightService {
         }
     }
 
-    /// Whether `principal` may read `space.table` in full: `None` if it has
-    /// no grant on it at all, `Some(false)` under a column grant or a row
-    /// policy.
+    /// Whether `principal` may read `space.table` in full: `None` if no
+    /// grant covers it (on the table or the whole Space), `Some(false)` under
+    /// a column grant or a row policy.
     fn full_access(&self, principal: &str, space: &str, table: &str) -> Option<bool> {
-        let grant = self.catalog.get_grant(principal, space, table)?;
-        Some(grant.columns.is_none() && self.catalog.policies_on(space, table).is_empty())
+        let access = oikome_node::principal_access(&self.catalog, principal, space, table)?;
+        Some(access.columns.is_none() && access.row_filters.is_none())
     }
 
     /// `oikome.snapshot`: the current snapshot of every table of a Space the
     /// caller may copy, with its files named by hash.
-    async fn snapshot(&self, request: Request<Action>) -> Result<Vec<u8>, Status> {
+    async fn snapshot(
+        &self,
+        entry: &mut AccessEntry,
+        request: Request<Action>,
+    ) -> Result<Vec<u8>, Status> {
         let body = request.get_ref().body.clone();
         if body.len() > MAX_ACTION_BODY_BYTES {
             return Err(Status::invalid_argument("request too large"));
         }
-        let caller = self.authenticate(&request, METHOD_SNAPSHOT, &body)?;
+        let caller = self.authenticate(entry, &request, METHOD_SNAPSHOT, &body)?;
         let req: SnapshotRequest = serde_json::from_slice(&body)
             .map_err(|e| Status::invalid_argument(format!("snapshot request: {e}")))?;
         if !is_identifier(&req.space) {
             return Err(Status::invalid_argument("invalid space name"));
         }
-        let principal =
-            self.authorize(&caller, &BTreeSet::from([req.space.clone()]), ABILITY_READ)?;
+        let principal = self.authorize(
+            entry,
+            &caller,
+            &BTreeSet::from([req.space.clone()]),
+            ABILITY_READ,
+        )?;
         let (space, lance) = self.subscribable(&req.space)?;
         let mut response = SnapshotResponse::default();
         let tables = match &lance {
@@ -395,23 +493,29 @@ impl OikomeFlightService {
     /// `oikome.fetch_file`: stream one data file of a table's snapshot.
     async fn fetch_file(
         &self,
+        entry: &mut AccessEntry,
         request: Request<Action>,
     ) -> Result<FlightStream<arrow_flight::Result>, Status> {
         let body = request.get_ref().body.clone();
         if body.len() > MAX_ACTION_BODY_BYTES {
             return Err(Status::invalid_argument("request too large"));
         }
-        let caller = self.authenticate(&request, METHOD_FETCH_FILE, &body)?;
+        let caller = self.authenticate(entry, &request, METHOD_FETCH_FILE, &body)?;
         let req: FetchFileRequest = serde_json::from_slice(&body)
             .map_err(|e| Status::invalid_argument(format!("fetch_file request: {e}")))?;
         if !is_identifier(&req.space) || !is_identifier(&req.table) || !is_file_hash(&req.hash) {
             return Err(Status::invalid_argument("invalid space, table or file"));
         }
-        let principal =
-            self.authorize(&caller, &BTreeSet::from([req.space.clone()]), ABILITY_READ)?;
+        let principal = self.authorize(
+            entry,
+            &caller,
+            &BTreeSet::from([req.space.clone()]),
+            ABILITY_READ,
+        )?;
         let (space, lance) = self.subscribable(&req.space)?;
         if self.full_access(&principal, &space.name, &req.table) != Some(true) {
             tracing::info!(caller = %caller.did, table = %req.table, "file of a restricted table refused");
+            entry.reason = Some(format!("{}: file of a restricted table", req.table));
             return Err(Status::permission_denied(DENIED));
         }
         let not_found = || Status::not_found("file not found in this snapshot");
@@ -474,15 +578,65 @@ impl OikomeFlightService {
 }
 
 impl OikomeFlightService {
+    /// `GetSchema` of `[space, table]` as the caller sees it.
+    async fn get_schema_inner(
+        &self,
+        entry: &mut AccessEntry,
+        request: Request<FlightDescriptor>,
+    ) -> Result<Response<SchemaResult>, Status> {
+        let path = request.get_ref().path.clone();
+        let [space, table] = path.as_slice() else {
+            return Err(Status::invalid_argument("expected the path [space, table]"));
+        };
+        if !is_identifier(space) || !is_identifier(table) {
+            return Err(Status::invalid_argument("invalid space or table name"));
+        }
+        let caller = self.authenticate(
+            entry,
+            &request,
+            METHOD_GET_SCHEMA,
+            &schema_payload(space, table),
+        )?;
+        let schema = self.schema_for(entry, &caller, space, table).await?;
+        let result: SchemaResult = SchemaAsIpc::new(&schema, &IpcWriteOptions::default())
+            .try_into()
+            .map_err(|e: arrow_schema::ArrowError| Status::internal(e.to_string()))?;
+        Ok(Response::new(result))
+    }
+
+    /// `DoGet`: run the ticket's query and stream the result.
+    async fn do_get_inner(
+        &self,
+        entry: &mut AccessEntry,
+        request: Request<Ticket>,
+    ) -> Result<Response<FlightStream<FlightData>>, Status> {
+        let ticket = request.get_ref().ticket.clone();
+        if ticket.len() > MAX_SQL_BYTES + 64 {
+            return Err(Status::invalid_argument("query too large"));
+        }
+        let caller = self.authenticate(entry, &request, METHOD_DO_GET, &ticket)?;
+        let (schema, batches) = self.query_for(entry, &caller, &ticket).await?;
+        let flight = FlightDataEncoderBuilder::new()
+            .with_schema(schema)
+            .build(batches.map_err(|e| FlightError::ExternalError(Box::new(e))))
+            .map_err(Status::from);
+        Ok(Response::new(Box::pin(flight)))
+    }
+
     /// Schema of `space.table` as `caller`'s principal sees it.
     async fn schema_for(
         &self,
+        entry: &mut AccessEntry,
         caller: &Caller,
         space: &str,
         table: &str,
     ) -> Result<SchemaRef, Status> {
-        let principal =
-            self.authorize(caller, &BTreeSet::from([space.to_string()]), ABILITY_QUERY)?;
+        let principal = self.authorize(
+            entry,
+            caller,
+            &BTreeSet::from([space.to_string()]),
+            ABILITY_QUERY,
+        )?;
         // Both names are validated identifiers, and quoted on top.
         let sql = format!(
             "SELECT * FROM {}.{} LIMIT 0",
@@ -500,13 +654,14 @@ impl OikomeFlightService {
     /// Run the query of a ticket for `caller`'s principal.
     async fn query_for(
         &self,
+        entry: &mut AccessEntry,
         caller: &Caller,
         ticket: &[u8],
     ) -> Result<(SchemaRef, RecordBatchStream), Status> {
         let QueryTicket { sql } = serde_json::from_slice(ticket)
             .map_err(|e| Status::invalid_argument(format!("ticket: {e}")))?;
         let spaces = query_spaces(&sql).map_err(session_status)?;
-        let principal = self.authorize(caller, &spaces, ABILITY_QUERY)?;
+        let principal = self.authorize(entry, caller, &spaces, ABILITY_QUERY)?;
         tracing::debug!(caller = %caller.did, %principal, ?spaces, "serving peer query");
         self.session(principal)
             .sql_stream(&sql)
@@ -519,10 +674,26 @@ impl OikomeFlightService {
     /// semantic layer, with the result as one message — an Arrow IPC stream
     /// for `do_get` and `get_schema`, JSON for `list_tables`.
     pub async fn serve_envelope(&self, envelope: &Envelope) -> Result<Vec<u8>, Status> {
+        let method = match envelope.method.as_str() {
+            m @ (METHOD_LIST_TABLES | METHOD_GET_SCHEMA | METHOD_DO_GET) => m,
+            _ => "unknown",
+        };
+        let mut entry = entry_now(method);
+        let result = self.serve_envelope_inner(&mut entry, envelope).await;
+        self.audit(entry, &result);
+        result
+    }
+
+    async fn serve_envelope_inner(
+        &self,
+        entry: &mut AccessEntry,
+        envelope: &Envelope,
+    ) -> Result<Vec<u8>, Status> {
         let payload = envelope
             .payload()
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
         let caller = self.authenticate_parts(
+            entry,
             Some(&envelope.auth),
             Some(&envelope.ucan),
             &envelope.method,
@@ -533,16 +704,16 @@ impl OikomeFlightService {
         };
         match envelope.method.as_str() {
             METHOD_LIST_TABLES if payload.len() <= MAX_ACTION_BODY_BYTES => {
-                self.list_tables_for(&caller, &payload).await
+                self.list_tables_for(entry, &caller, &payload).await
             }
             METHOD_GET_SCHEMA => {
                 let (space, table) = parse_schema_payload(&payload)
                     .filter(|(s, t)| is_identifier(s) && is_identifier(t))
                     .ok_or_else(|| Status::invalid_argument("invalid space or table name"))?;
-                ipc(&self.schema_for(&caller, &space, &table).await?, &[])
+                ipc(&self.schema_for(entry, &caller, &space, &table).await?, &[])
             }
             METHOD_DO_GET if payload.len() <= MAX_SQL_BYTES + 64 => {
-                let (schema, stream) = self.query_for(&caller, &payload).await?;
+                let (schema, stream) = self.query_for(entry, &caller, &payload).await?;
                 let batches: Vec<RecordBatch> = stream
                     .try_collect()
                     .await
@@ -645,20 +816,10 @@ impl FlightService for OikomeFlightService {
         &self,
         request: Request<FlightDescriptor>,
     ) -> Result<Response<SchemaResult>, Status> {
-        let path = request.get_ref().path.clone();
-        let [space, table] = path.as_slice() else {
-            return Err(Status::invalid_argument("expected the path [space, table]"));
-        };
-        if !is_identifier(space) || !is_identifier(table) {
-            return Err(Status::invalid_argument("invalid space or table name"));
-        }
-        let caller =
-            self.authenticate(&request, METHOD_GET_SCHEMA, &schema_payload(space, table))?;
-        let schema = self.schema_for(&caller, space, table).await?;
-        let result: SchemaResult = SchemaAsIpc::new(&schema, &IpcWriteOptions::default())
-            .try_into()
-            .map_err(|e: arrow_schema::ArrowError| Status::internal(e.to_string()))?;
-        Ok(Response::new(result))
+        let mut entry = entry_now(METHOD_GET_SCHEMA);
+        let result = self.get_schema_inner(&mut entry, request).await;
+        self.audit(entry, &result);
+        result
     }
 
     /// Run a query in this node's namespace and stream the result.
@@ -666,17 +827,10 @@ impl FlightService for OikomeFlightService {
         &self,
         request: Request<Ticket>,
     ) -> Result<Response<Self::DoGetStream>, Status> {
-        let ticket = request.get_ref().ticket.clone();
-        if ticket.len() > MAX_SQL_BYTES + 64 {
-            return Err(Status::invalid_argument("query too large"));
-        }
-        let caller = self.authenticate(&request, METHOD_DO_GET, &ticket)?;
-        let (schema, batches) = self.query_for(&caller, &ticket).await?;
-        let flight = FlightDataEncoderBuilder::new()
-            .with_schema(schema)
-            .build(batches.map_err(|e| FlightError::ExternalError(Box::new(e))))
-            .map_err(Status::from);
-        Ok(Response::new(Box::pin(flight)))
+        let mut entry = entry_now(METHOD_DO_GET);
+        let result = self.do_get_inner(&mut entry, request).await;
+        self.audit(entry, &result);
+        result
     }
 
     async fn do_put(
@@ -698,9 +852,28 @@ impl FlightService for OikomeFlightService {
         request: Request<Action>,
     ) -> Result<Response<Self::DoActionStream>, Status> {
         let out = match request.get_ref().r#type.as_str() {
-            ACTION_LIST_TABLES => single_result(self.list_tables(request).await?),
-            ACTION_SNAPSHOT => single_result(self.snapshot(request).await?),
-            ACTION_FETCH_FILE => self.fetch_file(request).await?,
+            ACTION_LIST_TABLES => {
+                let mut entry = entry_now(METHOD_LIST_TABLES);
+                let result = self.list_tables(&mut entry, request).await;
+                self.audit(entry, &result);
+                single_result(result?)
+            }
+            ACTION_SNAPSHOT => {
+                let mut entry = entry_now(METHOD_SNAPSHOT);
+                let result = self.snapshot(&mut entry, request).await;
+                self.audit(entry, &result);
+                single_result(result?)
+            }
+            ACTION_FETCH_FILE => {
+                let mut entry = entry_now(METHOD_FETCH_FILE);
+                let result = self.fetch_file(&mut entry, request).await;
+                // Only refusals: a subscription fetches every file and is
+                // already recorded by its snapshot call.
+                if result.is_err() {
+                    self.audit(entry, &result);
+                }
+                result?
+            }
             _ => return Err(Status::unimplemented("unknown action")),
         };
         Ok(Response::new(out))

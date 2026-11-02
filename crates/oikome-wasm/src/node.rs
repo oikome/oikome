@@ -380,6 +380,9 @@ fn statement_name(stmt: &OikomeStatement) -> &'static str {
         OikomeStatement::IssueUcan(_) => "ISSUE UCAN (the browser node serves no peers)",
         OikomeStatement::RevokeUcan(_) => "REVOKE UCAN",
         OikomeStatement::ShowUcans => "SHOW UCANS",
+        OikomeStatement::GrantSpace(_) | OikomeStatement::RevokeSpace(_) => {
+            "GRANT and REVOKE ON SPACE (the browser node serves no peers)"
+        }
         OikomeStatement::ShowPeers => "SHOW PEERS",
         OikomeStatement::ShowWebrtc => "SHOW WEBRTC (the browser node serves no peers)",
         OikomeStatement::CreateVirtualTable(_) => {

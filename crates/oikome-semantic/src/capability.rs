@@ -20,7 +20,13 @@
 //!     [CAN 'space/query' | 'space/read' | 'space/*'] [EXPIRES IN <duration>]
 //! REVOKE UCAN '<token id>'
 //! SHOW UCANS
+//! GRANT SELECT ON SPACE <space> TO <principal> [, <principal> ...]
+//! REVOKE SELECT ON SPACE <space> FROM <principal> [, <principal> ...]
 //! ```
+//!
+//! A whole-Space grant covers every table of the Space, including tables
+//! created later, and the views that read only that Space. A principal is a
+//! name or a quoted DID, as in `GRANT SELECT ON <table>`.
 //!
 //! A duration is a number of seconds or a number with a unit: `90s`,
 //! `30m`, `12h`, `7d`, quoted or not.
@@ -43,6 +49,13 @@ pub struct IssueUcanRequest {
     pub audience: String,
     pub ability: String,
     pub lifetime_secs: u64,
+}
+
+/// What `GRANT SELECT ON SPACE` or `REVOKE SELECT ON SPACE` asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceGrantRequest {
+    pub space: String,
+    pub principals: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,6 +260,58 @@ pub(crate) fn parse_issue_ucan(sql: &str) -> Result<IssueUcanRequest, SemanticEr
     })
 }
 
+/// `GRANT SELECT ON SPACE <space> TO ...` (`revoke` false) or
+/// `REVOKE SELECT ON SPACE <space> FROM ...` (`revoke` true).
+pub(crate) fn parse_space_grant(
+    sql: &str,
+    revoke: bool,
+) -> Result<SpaceGrantRequest, SemanticError> {
+    let stmt = if revoke {
+        "REVOKE SELECT ON SPACE"
+    } else {
+        "GRANT SELECT ON SPACE"
+    };
+    let toks = tokenize(sql, stmt)?;
+    // GRANT|REVOKE SELECT ON SPACE <space> TO|FROM ...
+    let space = match toks.get(4) {
+        Some(tok) => space_name(tok, stmt)?,
+        None => return Err(err(stmt, "expected a space name")),
+    };
+    if space == "*" {
+        return Err(err(stmt, "name one space; '*' is not a space"));
+    }
+    let preposition = if revoke { "FROM" } else { "TO" };
+    if !toks.get(5).is_some_and(|t| t.is_kw(preposition)) {
+        return Err(err(stmt, format!("expected {preposition}")));
+    }
+    let mut principals = Vec::new();
+    let mut i = 6;
+    loop {
+        match toks.get(i) {
+            Some(tok @ (Tok::Word(_) | Tok::Quoted(_))) => {
+                let name = tok.value().unwrap_or_default();
+                if name.is_empty() {
+                    return Err(err(stmt, "a principal must not be empty"));
+                }
+                principals.push(name.to_string());
+            }
+            _ => return Err(err(stmt, "expected a principal")),
+        }
+        i += 1;
+        match toks.get(i) {
+            Some(Tok::Comma) => i += 1,
+            None => break,
+            Some(other) => {
+                return Err(err(
+                    stmt,
+                    format!("unexpected '{}'", other.value().unwrap_or(",")),
+                ))
+            }
+        }
+    }
+    Ok(SpaceGrantRequest { space, principals })
+}
+
 /// `REVOKE UCAN '<id>'`
 pub(crate) fn parse_revoke_ucan(sql: &str) -> Result<String, SemanticError> {
     const STMT: &str = "REVOKE UCAN";
@@ -264,6 +329,34 @@ pub(crate) fn parse_revoke_ucan(sql: &str) -> Result<String, SemanticError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn space_grants() {
+        let req = parse_space_grant(
+            "GRANT SELECT ON SPACE blog TO alice, \"did:key:z6Mkabc\";",
+            false,
+        )
+        .unwrap();
+        assert_eq!(req.space, "blog");
+        assert_eq!(req.principals, vec!["alice", "did:key:z6Mkabc"]);
+
+        let req =
+            parse_space_grant("revoke select on space blog from 'did:key:z6Mkabc'", true).unwrap();
+        assert_eq!(req.principals, vec!["did:key:z6Mkabc"]);
+
+        for bad in [
+            "GRANT SELECT ON SPACE blog",
+            "GRANT SELECT ON SPACE blog TO",
+            "GRANT SELECT ON SPACE * TO alice",
+            "GRANT SELECT ON SPACE ../x TO alice",
+            "GRANT SELECT ON SPACE blog FROM alice",
+            "GRANT SELECT ON SPACE blog TO alice bob",
+            "GRANT SELECT ON SPACE blog TO alice,",
+        ] {
+            assert!(parse_space_grant(bad, false).is_err(), "{bad}");
+        }
+        assert!(parse_space_grant("REVOKE SELECT ON SPACE blog TO alice", true).is_err());
+    }
 
     #[test]
     fn durations() {

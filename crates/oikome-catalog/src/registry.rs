@@ -25,8 +25,9 @@ use iceberg::{Catalog, NamespaceIdent};
 use oikome_core::{CatalogError, CreateSpaceRequest, SpaceKind};
 use serde::{Deserialize, Serialize};
 
-use crate::acl::{Grant, RowPolicy, ViewDef};
+use crate::acl::{Grant, RowPolicy, SpaceGrant, ViewDef};
 use crate::catalog::OikomeCatalog;
+use crate::contact::Contact;
 use crate::graph::GraphDef;
 use crate::peer::Peer;
 use crate::space::{validate_binding, Location, LocationFormat, LocationId, Space, STORAGE_DISK};
@@ -40,6 +41,8 @@ const LOCATIONS_FILE: &str = "locations.json";
 const VIEWS_FILE: &str = "views.json";
 const GRAPHS_FILE: &str = "graphs.json";
 const GRANTS_FILE: &str = "grants.json";
+const SPACE_GRANTS_FILE: &str = "space_grants.json";
+const CONTACTS_FILE: &str = "contacts.json";
 const POLICIES_FILE: &str = "policies.json";
 const UCANS_FILE: &str = "ucans.json";
 const REVOCATIONS_FILE: &str = "revocations.json";
@@ -49,6 +52,9 @@ const STORAGES_FILE: &str = "storages.json";
 const IDENTITY_DIR: &str = "identity";
 const REMOTE_TOKENS_FILE: &str = "remote_tokens.json";
 const REGISTRY_VERSION: u32 = 1;
+/// Advisory lock held while registries are read from or written to disk, so
+/// the processes of one node (`serve`, `sql`) never interleave them.
+const LOCK_FILE: &str = "registry.lock";
 
 /// Namespace property marking a namespace as backing an analytical Space.
 pub const NS_PROP_SPACE_KIND: &str = "oikome.space.kind";
@@ -70,6 +76,8 @@ pub(crate) struct Registry {
     pub(crate) graphs: BTreeMap<(String, String), GraphDef>,
     /// Keyed by `(principal, space, relation)`.
     pub(crate) grants: BTreeMap<(String, String, String), Grant>,
+    /// Whole-Space grants, keyed by `(principal, space)`.
+    pub(crate) space_grants: BTreeMap<(String, String), SpaceGrant>,
     /// Keyed by `(space, relation, policy name)`.
     pub(crate) policies: BTreeMap<(String, String, String), RowPolicy>,
     /// UCANs this node issued, keyed by token id.
@@ -82,6 +90,8 @@ pub(crate) struct Registry {
     pub(crate) peers: BTreeMap<String, Peer>,
     /// Registered storages, keyed by name.
     pub(crate) storages: BTreeMap<String, StorageDef>,
+    /// The owner's contacts, keyed by DID.
+    pub(crate) contacts: BTreeMap<String, Contact>,
 }
 
 fn registry_err(context: &str, e: impl std::fmt::Display) -> CatalogError {
@@ -166,6 +176,7 @@ impl Registry {
         let views: Vec<ViewDef> = read_items(&dir.join(VIEWS_FILE), &mut h)?;
         let graphs: Vec<GraphDef> = read_items(&dir.join(GRAPHS_FILE), &mut h)?;
         let grants: Vec<Grant> = read_items(&dir.join(GRANTS_FILE), &mut h)?;
+        let space_grants: Vec<SpaceGrant> = read_items(&dir.join(SPACE_GRANTS_FILE), &mut h)?;
         let policies: Vec<RowPolicy> = read_items(&dir.join(POLICIES_FILE), &mut h)?;
         let issued: Vec<IssuedUcan> = read_items(&dir.join(UCANS_FILE), &mut h)?;
         let revoked: Vec<Revocation> = read_items(&dir.join(REVOCATIONS_FILE), &mut h)?;
@@ -173,18 +184,21 @@ impl Registry {
             read_items(&dir.join(IDENTITY_DIR).join(REMOTE_TOKENS_FILE), &mut h)?;
         let peers: Vec<Peer> = read_items(&dir.join(PEERS_FILE), &mut h)?;
         let storages: Vec<StorageDef> = read_items(&dir.join(STORAGES_FILE), &mut h)?;
+        let contacts: Vec<Contact> = read_items(&dir.join(CONTACTS_FILE), &mut h)?;
         let registry = Self {
             spaces: spaces.into_iter().map(|s| (s.name.clone(), s)).collect(),
             locations: locations.into_iter().map(|l| (l.id.clone(), l)).collect(),
             views: views.into_iter().map(|v| (v.key(), v)).collect(),
             graphs: graphs.into_iter().map(|g| (g.key(), g)).collect(),
             grants: grants.into_iter().map(|g| (g.key(), g)).collect(),
+            space_grants: space_grants.into_iter().map(|g| (g.key(), g)).collect(),
             policies: policies.into_iter().map(|p| (p.key(), p)).collect(),
             issued: issued.into_iter().map(|u| (u.id.clone(), u)).collect(),
             revoked: revoked.into_iter().map(|r| (r.id.clone(), r)).collect(),
             tokens: tokens.into_iter().map(|t| (t.space.clone(), t)).collect(),
             peers: peers.into_iter().map(|p| (p.did.clone(), p)).collect(),
             storages: storages.into_iter().map(|s| (s.name.clone(), s)).collect(),
+            contacts: contacts.into_iter().map(|c| (c.did.clone(), c)).collect(),
         };
         Ok((registry, h.finish()))
     }
@@ -213,6 +227,10 @@ impl Registry {
             self.grants.values().cloned().collect(),
         )?;
         write_items(
+            &dir.join(SPACE_GRANTS_FILE),
+            self.space_grants.values().cloned().collect(),
+        )?;
+        write_items(
             &dir.join(POLICIES_FILE),
             self.policies.values().cloned().collect(),
         )?;
@@ -232,6 +250,10 @@ impl Registry {
             &dir.join(STORAGES_FILE),
             self.storages.values().cloned().collect(),
         )?;
+        write_items(
+            &dir.join(CONTACTS_FILE),
+            self.contacts.values().cloned().collect(),
+        )?;
         if !self.tokens.is_empty() || dir.join(IDENTITY_DIR).join(REMOTE_TOKENS_FILE).exists() {
             let identity = dir.join(IDENTITY_DIR);
             std::fs::create_dir_all(&identity)?;
@@ -241,6 +263,35 @@ impl Registry {
             )?;
         }
         Ok(())
+    }
+}
+
+/// An advisory lock on `.oikome/registry.lock`, released when dropped.
+///
+/// Writers hold it exclusively from reading the files to the last rename;
+/// readers hold it shared while they read. Without it, one process could
+/// save a copy loaded before another process's write (a `REVOKE UCAN` run by
+/// `oikome sql` while `serve` records a grant) and undo that write.
+struct RegistryLock {
+    _file: std::fs::File,
+}
+
+impl RegistryLock {
+    fn acquire(root: &Path, exclusive: bool) -> Result<Self, CatalogError> {
+        let dir = root.join(OIKOME_DIR);
+        std::fs::create_dir_all(&dir)?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join(LOCK_FILE))?;
+        if exclusive {
+            file.lock()?;
+        } else {
+            file.lock_shared()?;
+        }
+        Ok(Self { _file: file })
     }
 }
 
@@ -269,17 +320,25 @@ impl OikomeCatalog {
     }
 
     /// Apply `f` to the registry and persist it if `f` succeeds.
+    ///
+    /// Under the registry lock, the files are read again first, so a write
+    /// by another process of the node since the last [`Self::refresh`] is
+    /// kept rather than overwritten. Locks are always taken in the order
+    /// file lock, fingerprint, registry (as in `refresh`).
     pub(crate) fn mutate_registry<T>(
         &self,
         f: impl FnOnce(&mut Registry) -> Result<T, CatalogError>,
     ) -> Result<T, CatalogError> {
+        let root = Path::new(self.root_path());
+        let _lock = RegistryLock::acquire(root, true)?;
+        let mut fp = self.registry_fp.lock().unwrap_or_else(|p| p.into_inner());
         let mut guard = self.registry.write().unwrap_or_else(|p| p.into_inner());
-        let mut next = guard.clone();
+        let (mut next, _) = Registry::load(root)?;
         let out = f(&mut next)?;
-        next.save(Path::new(self.root_path()))?;
+        next.save(root)?;
         *guard = next;
         // Unknown until re-read: the next refresh() reloads from disk.
-        *self.registry_fp.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *fp = None;
         Ok(out)
     }
 
@@ -290,8 +349,10 @@ impl OikomeCatalog {
     /// Long-running servers call this before authorizing a request, so a
     /// revocation takes effect on the next call.
     pub fn refresh(&self) -> Result<bool, CatalogError> {
-        let (fresh, fingerprint) = Registry::load(Path::new(self.root_path()))?;
+        let root = Path::new(self.root_path());
+        let _lock = RegistryLock::acquire(root, false)?;
         let mut fp = self.registry_fp.lock().unwrap_or_else(|p| p.into_inner());
+        let (fresh, fingerprint) = Registry::load(root)?;
         if *fp == Some(fingerprint) {
             return Ok(false);
         }
@@ -368,6 +429,11 @@ impl OikomeCatalog {
         }
 
         self.mutate_registry(|reg| {
+            // Checked again on the files just read: another process may have
+            // created the Space meanwhile.
+            if reg.spaces.contains_key(&space.name) {
+                return Err(CatalogError::SpaceExists(space.name.clone()));
+            }
             reg.spaces.insert(space.name.clone(), space.clone());
             reg.locations.insert(location.id.clone(), location);
             Ok(())
@@ -390,8 +456,8 @@ impl OikomeCatalog {
         self.with_registry(|reg| reg.spaces.values().cloned().collect())
     }
 
-    /// Remove a Space from the registry, together with its views, grants and
-    /// row policies.
+    /// Remove a Space from the registry, together with its views, grants
+    /// (table and whole-Space) and row policies.
     ///
     /// Data is left in place: the Iceberg namespace or SQLite file stays on
     /// disk and the Location remains registered (with its writer cleared if
@@ -410,6 +476,7 @@ impl OikomeCatalog {
             reg.views.retain(|(s, _), _| s != name);
             reg.graphs.retain(|(s, _), _| s != name);
             reg.grants.retain(|(_, s, _), _| s != name);
+            reg.space_grants.retain(|(_, s), _| s != name);
             reg.policies.retain(|(s, _, _), _| s != name);
             // Another node's Space, or a copy of one on a storage: forget its
             // Location with the token. The caller removes a copy's files (see

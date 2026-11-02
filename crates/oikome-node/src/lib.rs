@@ -25,6 +25,7 @@
 //! to the owner node over Arrow Flight; `ISSUE UCAN` / `REVOKE UCAN` manage
 //! the capabilities other nodes use to query this one ([`capability`]).
 
+pub mod access_log;
 mod acl;
 mod bind;
 pub mod capability;
@@ -42,7 +43,9 @@ pub mod snapshot;
 pub mod storage;
 pub mod subscribe;
 
-pub use capability::query_spaces;
+pub use access_log::{AccessEntry, AccessLog, AccessQuery, AccessRecord, Outcome};
+pub use acl::principal_access;
+pub use capability::{query_spaces, IssuedToken};
 pub use error::SessionError;
 pub use publish::{spawn_publisher, PublishReport, PublishedTable};
 pub use registry::{EngineRegistry, NodeConfig};

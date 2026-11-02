@@ -95,8 +95,16 @@ libp2p = { version = "0.57.1", default-features = false, features = ["tokio", "t
 clap = { version = "4", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# User-facing apps (architecture v3 §13.4): the owner's HTTP API and the
+# TypeScript types generated from it. axum is already in the tree via tonic.
+axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio"] }
+subtle = "2.6"
+ts-rs = "=12.0.1"
+
 # Dev
 tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 tokio-test = "0.4"
 
 # datafusion-federation 0.5.5 turns DataFusion's default features back on;

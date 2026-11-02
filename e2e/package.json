@@ -11,6 +11,7 @@
     "test": "playwright test"
   },
   "dependencies": {
+    "@oikome/client": "0.0.0",
     "@oikome/node": "0.0.0",
     "apache-arrow": "17.0.0"
   },

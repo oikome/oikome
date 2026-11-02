@@ -480,3 +480,131 @@ async fn ctes_are_not_mistaken_for_tables() {
         .unwrap();
     assert_eq!(ints(&result, 0), vec![3]);
 }
+
+#[tokio::test]
+async fn space_grant_covers_every_table_now_and_later() {
+    let n = Node::new();
+    seed(&n).await;
+    n.run(&["GRANT SELECT ON SPACE blog TO alice"]).await;
+    let alice = n.as_principal("alice");
+
+    let result = alice
+        .sql("SELECT * FROM blog.posts ORDER BY id")
+        .await
+        .unwrap();
+    assert_eq!(ints(&result, 0), vec![1, 2, 3]);
+    assert_eq!(
+        column_names(&result),
+        vec!["id", "author", "title", "draft"]
+    );
+
+    // A table created after the grant is covered too.
+    n.run(&[
+        "CREATE TABLE blog.tags (post BIGINT NOT NULL, tag VARCHAR NOT NULL)",
+        "INSERT INTO blog.tags VALUES (1, 'intro')",
+    ])
+    .await;
+    let tags = alice.sql("SELECT tag FROM blog.tags").await.unwrap();
+    assert_eq!(strings(&tags, 0), vec!["intro"]);
+    assert_eq!(
+        alice.readable_relations("blog").await.unwrap(),
+        vec!["posts", "tags"]
+    );
+    alice.sql("SET SPACE blog").await.unwrap();
+
+    // Other Spaces still do not exist for alice.
+    assert_eq!(
+        alice
+            .sql("SELECT * FROM orders.orders")
+            .await
+            .unwrap_err()
+            .to_string(),
+        "Table not found: orders.orders"
+    );
+    assert!(matches!(
+        alice.sql("SET SPACE orders").await,
+        Err(SessionError::Catalog(CatalogError::SpaceNotFound(_)))
+    ));
+    // Still read-only.
+    assert!(matches!(
+        alice.sql("INSERT INTO blog.tags VALUES (2, 'x')").await,
+        Err(SessionError::PermissionDenied(_))
+    ));
+
+    n.run(&["REVOKE SELECT ON SPACE blog FROM alice"]).await;
+    assert!(matches!(
+        alice.sql("SELECT * FROM blog.posts").await,
+        Err(SessionError::Semantic(SemanticError::TableNotFound(_)))
+    ));
+    assert!(!n.catalog.has_grants_in("alice", "blog"));
+}
+
+#[tokio::test]
+async fn space_grant_keeps_row_policies() {
+    let n = Node::new();
+    seed(&n).await;
+    n.run(&[
+        "GRANT SELECT ON SPACE blog TO alice, bob",
+        "CREATE POLICY own ON blog.posts TO alice, bob USING (author = current_user)",
+    ])
+    .await;
+    let alice = n.as_principal("alice");
+    let result = alice
+        .sql("SELECT id FROM blog.posts ORDER BY id")
+        .await
+        .unwrap();
+    assert_eq!(ints(&result, 0), vec![1, 3]);
+}
+
+#[tokio::test]
+async fn space_grant_opens_only_views_that_stay_in_the_space() {
+    let n = Node::new();
+    seed(&n).await;
+    n.run(&[
+        "CREATE VIEW blog.public_posts AS SELECT id, title FROM blog.posts WHERE NOT draft",
+        // Reads another Space with the owner's rights.
+        "CREATE VIEW blog.big_orders AS SELECT id, customer FROM orders.orders WHERE amount > 1",
+        "GRANT SELECT ON SPACE blog TO alice",
+    ])
+    .await;
+    let alice = n.as_principal("alice");
+    let public = alice
+        .sql("SELECT title FROM blog.public_posts ORDER BY id")
+        .await
+        .unwrap();
+    assert_eq!(strings(&public, 0), vec!["Hello", "World"]);
+    assert_eq!(
+        alice
+            .sql("SELECT * FROM blog.big_orders")
+            .await
+            .unwrap_err()
+            .to_string(),
+        "Table not found: blog.big_orders"
+    );
+    assert_eq!(
+        alice.readable_relations("blog").await.unwrap(),
+        vec!["posts", "public_posts"]
+    );
+}
+
+#[tokio::test]
+async fn space_grants_are_owner_only_and_local() {
+    let n = Node::new();
+    seed(&n).await;
+    let alice = n.as_principal("alice");
+    assert!(matches!(
+        alice.sql("GRANT SELECT ON SPACE blog TO mallory").await,
+        Err(SessionError::PermissionDenied(_))
+    ));
+    assert!(matches!(
+        n.owner.sql("GRANT SELECT ON SPACE ghost TO alice").await,
+        Err(SessionError::Catalog(CatalogError::SpaceNotFound(_)))
+    ));
+    // A relation named "*" is just a relation: dropping it leaves Space grants alone.
+    n.run(&["GRANT SELECT ON SPACE blog TO alice"]).await;
+    assert!(n.owner.sql("DROP VIEW IF EXISTS blog.\"*\"").await.is_ok());
+    assert!(n.catalog.has_space_grant("alice", "blog"));
+    // Dropping the Space removes its grants.
+    n.run(&["DROP SPACE blog"]).await;
+    assert!(!n.catalog.has_space_grant("alice", "blog"));
+}

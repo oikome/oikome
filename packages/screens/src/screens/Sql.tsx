@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { Button, Card, ErrorText, TextArea } from "@oikome/ui";
 import type { SqlResult } from "@oikome/client";
-import { useAction, useClient } from "../data";
+import { rawMessage, useAction, useClient } from "../data";
 import { BackLink, RowsTable } from "../parts";
 import { strings } from "../strings";
 
@@ -31,7 +31,7 @@ export function Sql() {
           onSubmit={async (e) => {
             e.preventDefault();
             setResult(undefined);
-            const r = await run.run(() => client.runSql({ sql: text }));
+            const r = await run.run(() => client.runSql({ sql: text }), rawMessage);
             if (r) setResult(r);
           }}
         >

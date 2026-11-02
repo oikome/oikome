@@ -21,15 +21,39 @@ export function useClient(): NodeClient {
   return client;
 }
 
-/** What to tell a person about a failed call. */
-export function errorMessage(e: unknown): string {
-  if (e instanceof OikomeError) {
-    if (e.code === "network") return strings.errors.network;
-    if (e.code === "unauthenticated") return strings.errors.session;
-    return e.message;
+/**
+ * Words for one failed call in its context ("a collection with that name
+ * already exists"); undefined falls back to the general wording.
+ */
+export type Describe = (e: OikomeError) => string | undefined;
+
+/**
+ * What to tell a person about a failed call. The node's own messages name
+ * engine concepts (spaces, tokens), so outside the SQL workbench people see
+ * the context's words or a plain sentence for the kind of failure.
+ */
+export function errorMessage(e: unknown, describe?: Describe): string {
+  if (!(e instanceof OikomeError)) return strings.errors.generic;
+  if (e.code === "network") return strings.errors.network;
+  if (e.code === "unauthenticated") return strings.errors.session;
+  const own = describe?.(e);
+  if (own) return own;
+  switch (e.code) {
+    case "permission_denied":
+      return strings.errors.refused;
+    case "not_found":
+      return strings.errors.gone;
+    case "conflict":
+      return strings.errors.conflict;
+    case "invalid":
+      return strings.errors.invalid;
+    default:
+      return strings.errors.generic;
   }
-  return strings.errors.generic;
 }
+
+/** The node's own message: for the SQL workbench, whose people know SQL. */
+export const rawMessage: Describe = (e) => e.message;
 
 export interface Loaded<T> {
   data: T | undefined;
@@ -39,13 +63,19 @@ export interface Loaded<T> {
 }
 
 /** Load `load()` now and whenever `deps` change; `reload` loads again. */
-export function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[]): Loaded<T> {
+export function useLoad<T>(
+  load: () => Promise<T>,
+  deps: readonly unknown[],
+  describe?: Describe,
+): Loaded<T> {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const latest = useRef(load);
   latest.current = load;
+  const words = useRef(describe);
+  words.current = describe;
   useEffect(() => {
     let current = true;
     setLoading(true);
@@ -58,7 +88,7 @@ export function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[]): Lo
         }
       })
       .catch((e: unknown) => {
-        if (current) setError(errorMessage(e));
+        if (current) setError(errorMessage(e, words.current));
       })
       .finally(() => {
         if (current) setLoading(false);
@@ -76,22 +106,25 @@ export function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[]): Lo
 export function useAction(): {
   busy: boolean;
   error: string | undefined;
-  run: <T>(action: () => Promise<T>) => Promise<T | undefined>;
+  /** Runs `action`; a failure is put in `describe`'s words when it has some. */
+  run: <T>(action: () => Promise<T>, describe?: Describe) => Promise<T | undefined>;
+  /** Shows a problem found before calling the node (a name in the wrong shape). */
+  fail: (message: string) => void;
   clear: () => void;
 } {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const run = useCallback(async <T,>(action: () => Promise<T>) => {
+  const run = useCallback(async <T,>(action: () => Promise<T>, describe?: Describe) => {
     setBusy(true);
     setError(undefined);
     try {
       return await action();
     } catch (e) {
-      setError(errorMessage(e));
+      setError(errorMessage(e, describe));
       return undefined;
     } finally {
       setBusy(false);
     }
   }, []);
-  return { busy, error, run, clear: () => setError(undefined) };
+  return { busy, error, run, fail: setError, clear: () => setError(undefined) };
 }

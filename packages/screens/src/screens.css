@@ -34,8 +34,11 @@
   height: 32px;
   border-radius: 9px;
   background: var(--color-ink);
-  color: var(--color-ground);
-  font: 700 16px/1 var(--font-sans);
+  color: var(--color-white);
+}
+.screen-brand__mark .oik-icon {
+  width: 16px;
+  height: 16px;
 }
 .screen-brand__name {
   display: block;

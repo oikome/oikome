@@ -30,9 +30,9 @@ export function App({ client }: { client: NodeClient }) {
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: "/collections", label: strings.nav.collections, icon: "collection" },
-  { to: "/sharing", label: strings.nav.sharing, icon: "people" },
+  { to: "/sharing", label: strings.nav.sharing, icon: "person-plus" },
   { to: "/activity", label: strings.nav.activity, icon: "activity" },
-  { to: "/settings", label: strings.nav.settings, icon: "gear" },
+  { to: "/settings", label: strings.nav.settings, icon: "sliders" },
 ];
 
 function Root() {
@@ -100,7 +100,7 @@ function Root() {
     screen = (
       <Card>
         <EmptyState
-          title="This page doesn't exist"
+          title={strings.notFound.title}
           action={<Link to="/collections">{strings.nav.collections}</Link>}
         />
       </Card>
@@ -136,7 +136,7 @@ function Shell({
         <div className="screen-sidebar__inner">
         <div className="screen-brand">
           <span className="screen-brand__mark" aria-hidden="true">
-            O
+            <Icon name="mark" />
           </span>
           <span>
             <span className="screen-brand__name">{strings.brand}</span>

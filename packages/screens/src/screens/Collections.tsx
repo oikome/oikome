@@ -26,6 +26,8 @@ import { strings } from "../strings";
 
 const PAGE_ROWS = 100;
 const s = strings.collections;
+/** The node's rule for a name: ASCII letters, digits, _ and -, not led by a digit, 1 to 64. */
+const NAME = /^[A-Za-z_-][A-Za-z0-9_-]{0,63}$/;
 
 /** Contact names each collection is shared with now. */
 function sharedNames(shares: Share[] | undefined): Map<string, string[]> {
@@ -95,7 +97,15 @@ export function Collections({ selected }: { selected?: string }) {
             className="screen-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              const space = await create.run(() => client.createSpace({ name: name.trim() }));
+              const wanted = name.trim();
+              if (!NAME.test(wanted)) {
+                create.fail(s.nameInvalid);
+                return;
+              }
+              const space = await create.run(
+                () => client.createSpace({ name: wanted }),
+                (err) => (err.code === "conflict" ? s.nameTaken(wanted) : undefined),
+              );
               if (space) {
                 setCreating(false);
                 setName("");
@@ -108,10 +118,13 @@ export function Collections({ selected }: { selected?: string }) {
               label={s.nameLabel}
               hint={s.nameHint}
               value={name}
-              onChange={setName}
+              onChange={(value) => {
+                setName(value);
+                create.clear();
+              }}
+              error={create.error}
               autoFocus
             />
-            {create.error && <ErrorText>{create.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" disabled={create.busy || !name.trim()}>
                 {s.create}
@@ -193,12 +206,15 @@ function Detail({
   onRemoved: () => void;
 }) {
   const client = useClient();
-  const tables = useLoad(() => client.listTables({ space: space.name }), [space.name]);
+  const local = space.kind !== "remote";
+  // A shared collection is read from its owner's computer, which can be off
+  // or may have stopped sharing; say so instead of the node's message.
+  const unreadable = local ? undefined : () => s.cantRead;
+  const tables = useLoad(() => client.listTables({ space: space.name }), [space.name], unreadable);
   const [table, setTable] = useState<string>();
   const [offset, setOffset] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const remove = useAction();
-  const local = space.kind !== "remote";
 
   useEffect(() => {
     const first = tables.data?.[0]?.name;
@@ -209,6 +225,7 @@ function Detail({
     async () =>
       table ? client.readRows({ space: space.name, table, limit: PAGE_ROWS, offset }) : undefined,
     [space.name, table, offset],
+    unreadable,
   );
   const count = rows.data?.table.numRows ?? 0;
   const who = [strings.common.you, ...names];

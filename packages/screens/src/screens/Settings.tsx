@@ -18,6 +18,7 @@ import {
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { RecoveryKeyPanel } from "../parts";
+import { shortId } from "../format";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
@@ -144,10 +145,10 @@ export function Settings({
         )}
         <Row
           title={strings.sharing.yourId}
-          meta={<span className="oik-mono">{info.did}</span>}
+          meta={<span className="oik-mono">{shortId(info.did)}</span>}
           trailing={
             <CopyButton
-              value={info.did}
+              value={shortId(info.did)}
               copyLabel={strings.common.copy}
               copiedLabel={strings.common.copied}
             />
@@ -157,8 +158,12 @@ export function Settings({
         <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
       </Group>
 
-      <Group title={s.languageTitle}>
-        <Row title={s.language} meta={s.languageMore} />
+      <Group>
+        <Row
+          title={s.languageTitle}
+          meta={s.languageMore}
+          trailing={<span className="oik-row__value">{s.language}</span>}
+        />
       </Group>
 
       <Group title={s.advancedTitle}>

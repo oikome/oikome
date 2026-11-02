@@ -16,12 +16,12 @@ export type IconName =
   | "copy"
   | "download"
   | "error"
-  | "gear"
   | "key"
   | "mark"
   | "more"
-  | "people"
+  | "person-plus"
   | "plus"
+  | "sliders"
   | "table"
   | "terminal"
   | "updown"
@@ -59,12 +59,6 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M12 7.5v5.5m0 3v.01" />
     </>
   ),
-  gear: (
-    <>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 3.5v2.5m0 12v2.5M3.5 12H6m12 0h2.5M6 6l1.8 1.8m8.4 8.4L18 18M6 18l1.8-1.8m8.4-8.4L18 6" />
-    </>
-  ),
   key: (
     <>
       <circle cx="8" cy="15" r="4" />
@@ -79,15 +73,20 @@ const PATHS: Record<IconName, ReactElement> = {
       <circle cx="18" cy="12" r="0.9" />
     </>
   ),
-  people: (
+  "person-plus": (
     <>
-      <circle cx="9" cy="9" r="3.25" />
-      <path d="M3.5 19c.6-3 2.8-4.75 5.5-4.75S13.9 16 14.5 19" />
-      <circle cx="16.5" cy="9.5" r="2.5" />
-      <path d="M16 14.3c2.3.2 3.9 1.7 4.5 4.2" />
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M18 8v6M15 11h6" />
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  sliders: (
+    <>
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+      <circle cx="15" cy="7" r="2" />
+      <circle cx="9" cy="17" r="2" />
+    </>
+  ),
   table: (
     <>
       <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

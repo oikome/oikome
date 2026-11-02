@@ -41,3 +41,16 @@ export function cell(value: unknown): string | null {
   }
   return String(value);
 }
+
+const KEY_PREFIX = "did:key:";
+
+/** An ID as people see and pass it on: the key, without the `did:key:` scheme. */
+export function shortId(id: string): string {
+  return id.startsWith(KEY_PREFIX) ? id.slice(KEY_PREFIX.length) : id;
+}
+
+/** An ID someone pasted, in either form, as the node expects it. */
+export function fullId(input: string): string {
+  const id = input.trim();
+  return id.startsWith("did:") ? id : `${KEY_PREFIX}${id}`;
+}

@@ -25,7 +25,7 @@ import {
 } from "@oikome/ui";
 import type { Contact, NewShare, NodeInfo, Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
-import { dateFromSeconds } from "../format";
+import { dateFromSeconds, fullId, shortId } from "../format";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
@@ -108,12 +108,12 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
             ))}
           </Group>
 
-          <Contacts contacts={contacts.data ?? []} shares={active} onChange={reload} />
+          <Contacts contacts={contacts.data ?? []} shares={active} me={info.did} onChange={reload} />
 
           <Group title={s.yourId} footnote={s.yourIdBody}>
             <GroupPanel>
               <CopyField
-                value={info.did}
+                value={shortId(info.did)}
                 copyLabel={strings.common.copy}
                 copiedLabel={strings.common.copied}
               />
@@ -277,10 +277,13 @@ function NewSharePanel({
 function Contacts({
   contacts,
   shares,
+  me,
   onChange,
 }: {
   contacts: Contact[];
   shares: Share[];
+  /** This data center's own ID, which is never a contact. */
+  me: string;
   onChange: () => void;
 }) {
   const client = useClient();
@@ -379,8 +382,19 @@ function Contacts({
             className="screen-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              const added = await action.run(() =>
-                client.addContact({ did: did.trim(), name: name.trim() }),
+              const id = fullId(did);
+              const known = contacts.find((c) => c.did === id);
+              if (id === me) {
+                action.fail(s.idIsYours);
+                return;
+              }
+              if (known) {
+                action.fail(s.idTaken(known.name));
+                return;
+              }
+              const added = await action.run(
+                () => client.addContact({ did: id, name: name.trim() }),
+                (err) => (err.code === "invalid" ? s.idInvalid : undefined),
               );
               if (added) {
                 setAdding(false);

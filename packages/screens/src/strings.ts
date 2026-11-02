@@ -36,7 +36,15 @@ export const strings = {
   errors: {
     network: "Oikome is not answering. Check that it is still running, then try again.",
     session: "You were signed out. Run `oikome web open` on this computer to sign in again.",
-    generic: "Something went wrong.",
+    generic: "Something went wrong. Try again in a moment.",
+    refused: "You don't have access to this.",
+    gone: "This isn't here any more. Reload the page to see what's current.",
+    conflict: "That already exists.",
+    invalid: "Oikome couldn't do that. Check what you entered, then try again.",
+  },
+
+  notFound: {
+    title: "This page doesn't exist",
   },
 
   backup: {
@@ -80,7 +88,12 @@ export const strings = {
     mine: "My Collections",
     sharedWithYou: "Shared With You",
     nameLabel: "Name",
-    nameHint: "Letters, numbers, - and _. You can't rename it later.",
+    nameHint: "Letters, numbers, - and _, starting with a letter. You can't rename it later.",
+    nameInvalid:
+      "Use only letters, numbers, - and _, start with a letter or _, and keep it to 64 characters.",
+    nameTaken: (name: string) => `You already have a collection named ${name}.`,
+    cantRead:
+      "This collection can't be read right now. Whoever shared it may have stopped sharing, or their computer may be off.",
     create: "Create",
     emptyTitle: "No collections yet",
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
@@ -142,6 +155,9 @@ export const strings = {
     contactName: "Name",
     contactId: "Their ID",
     contactIdHint: "They find it in Oikome, under Settings.",
+    idInvalid: "That isn't an Oikome ID. Ask them to copy theirs from Settings.",
+    idIsYours: "That's your own ID. Add the ID of the person you want to share with.",
+    idTaken: (name: string) => `${name} already has this ID.`,
     add: "Add",
     rename: "Rename",
     remove: "Remove",

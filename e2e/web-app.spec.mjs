@@ -192,6 +192,41 @@ test("Activity shows the contact's reads and the refusal", async () => {
   }).toPass({ timeout: 20_000 });
 });
 
+test("screens use words for people, also when something fails", async () => {
+  // Engine words never reach the screens (PRD success criterion); "SQL" only
+  // names the workbench under Settings > Advanced.
+  const ENGINE = /\b(space|spaces|ucan|did|token|principal)\b/i;
+
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "New Collection" }).first().click();
+  await page.getByLabel("Name").fill("bad name!");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("alert")).toHaveText(/^Use only letters, numbers/);
+  await page.getByLabel("Name").fill("notes");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("alert")).toHaveText("You already have a collection named notes.");
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await page.goto(`${base}/sharing`);
+  await page.getByRole("button", { name: "Add Contact" }).click();
+  await page.getByLabel("Name").fill("Nobody");
+  await page.getByLabel("Their ID").fill("hello");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(/^That isn't an Oikome ID/);
+  await page.getByLabel("Their ID").fill((await api("node_info")).did);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(/^That's your own ID/);
+  await page.getByRole("button", { name: "Cancel" }).last().click();
+
+  for (const path of ["/onboarding", "/collections/notes", "/sharing?share=notes", "/activity", "/settings"]) {
+    await page.goto(`${base}${path}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    const text = await page.locator("body").innerText();
+    expect(text, path).not.toMatch(ENGINE);
+    if (path !== "/settings") expect(text, path).not.toMatch(/\bsql\b/i);
+  }
+});
+
 test("a collection is removed from its More menu with the keyboard", async () => {
   await page.goto(`${base}/collections`);
   await page.getByRole("button", { name: "New Collection" }).first().click();

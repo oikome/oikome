@@ -342,6 +342,14 @@ oikome/
 - 用户端（网页、桌面、手机）测试连本地节点：e2e 用临时数据目录起 `oikome serve`，经命令行或接口写入测试数据；不做假数据层和 mock `NodeClient`。
 - 测试中禁止使用真实用户数据。
 
+### 6.2.1 本地构建目录
+
+`target/` 不会自己变小：每换一种 package 和 feature 的组合（`-p a` 和 `-p b`、测试和二进制），Cargo 都会另编一份依赖和测试程序，旧的一直留着，每个测试程序都链接了 DuckDB、DataFusion 和 Lance。2026-11-02 曾因此涨到 183 GB，把磁盘占满。
+
+- 编译和测试优先用 `--workspace`，再用 `--test`、`--lib`、`--bin` 过滤，而不是每次换 `-p`，这样依赖的 feature 组合保持一致。
+- `target/` 上限 60 GB：`cargo trim`（`.cargo/config.toml` 的别名，需要 `cargo install cargo-sweep`）会删掉最老的产物，直到低于上限。每个阶段开始前和跑全量验证前执行一次。
+- 开发用的 debug 配置只保留行号调试信息（依赖和本仓库的 crate 都是），报错栈仍有文件和行号；需要用调试器看变量时，临时在命令上加 `--config profile.dev.debug=true`。
+
 ### 6.3 CI 要求
 
 - `cargo fmt --check`

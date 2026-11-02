@@ -1,5 +1,9 @@
-# Dependencies keep only line tables: backtraces stay readable, but DataFusion /
-# Arrow no longer ship full debug info into every test binary.
+# Only line tables, for dependencies and for the workspace's own crates:
+# backtraces keep file and line, and the dozens of test binaries (each links
+# DuckDB, DataFusion and Lance) stay a fraction of their size.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 debug = "line-tables-only"
 
@@ -21,5 +25,10 @@ rustflags = ["-C", "symbol-mangling-version=v0", "--cfg", 'getrandom_backend="wa
 # `cargo sweep` is cargo-sweep's own subcommand, so an alias with that name
 # would call itself. `cargo sweep-old` removes artifacts unused for 30 days.
 sweep-old = "sweep --time 30"
+# Keep target/ under 60 GB by removing the oldest artifacts. Each new mix of
+# packages and features (`-p a` vs `-p b`, tests vs binaries) builds and
+# keeps another copy of the dependencies and test binaries, so target/ only
+# grows; run this when it is large (needs `cargo install cargo-sweep`).
+trim = "sweep --maxsize 60GB"
 
 check-tests = "test --no-run"

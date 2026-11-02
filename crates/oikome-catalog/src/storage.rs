@@ -13,12 +13,13 @@
 // limitations under the License.
 
 //! Storages (architecture v3 §7.5): places other than this node's disk
-//! that hold Spaces, such as a NAS at home reached over WebDAV or mounted
-//! as a folder.
+//! that hold Spaces: a NAS at home reached over WebDAV or mounted as a
+//! folder, or a cloud drive's sync folder.
 //!
 //! A storage is registered on each node that uses it (`oikome storage
-//! add`). The registry keeps its address and user name, never a password
-//! or token: those come from the environment when the storage is opened.
+//! add`). The registry keeps its address, user name and whether its files
+//! are encrypted, never a password, token or key: the node keeps those
+//! apart (`oikome-node`'s secrets).
 
 use std::path::{Component, Path};
 
@@ -40,6 +41,9 @@ pub struct StorageDef {
     pub name: String,
     #[serde(flatten)]
     pub kind: StorageKind,
+    /// Files are encrypted on this node before they reach the storage.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub encrypted: bool,
     pub created_at_ms: u64,
 }
 
@@ -56,6 +60,10 @@ pub enum StorageKind {
     /// A local folder, such as a NAS share mounted over SMB or NFS; an
     /// absolute path.
     Folder { path: String },
+    /// A folder a cloud drive's desktop client syncs (iCloud Drive, Dropbox,
+    /// OneDrive, Google Drive); an absolute path. Always encrypted: the
+    /// drive's provider can read what is uploaded.
+    Drive { path: String },
 }
 
 impl StorageKind {
@@ -140,6 +148,41 @@ pub fn validate_webdav_endpoint(endpoint: &str) -> Result<String, CatalogError> 
     Ok(endpoint.trim_end_matches('/').to_string())
 }
 
+/// Folders, relative to the home directory, that cloud drives' desktop
+/// clients sync: a folder under one of them is on a drive.
+const DRIVE_FOLDERS: [&str; 7] = [
+    "Library/Mobile Documents", // iCloud Drive (macOS)
+    "Library/CloudStorage",     // Dropbox, OneDrive, Google Drive, Box (macOS)
+    "iCloudDrive",              // iCloud for Windows
+    "Dropbox",                  // also "Dropbox (Personal)"
+    "OneDrive",                 // also "OneDrive - <organization>"
+    "Google Drive",
+    "Box",
+];
+
+/// Whether `path` is inside a folder a cloud drive's desktop client syncs,
+/// under the home directory `home`.
+pub fn is_drive_folder(path: &str, home: &Path) -> bool {
+    let Ok(rest) = Path::new(path).strip_prefix(home) else {
+        return false;
+    };
+    let rest = rest.to_string_lossy().replace('\\', "/");
+    DRIVE_FOLDERS.iter().any(|drive| {
+        rest.strip_prefix(drive).is_some_and(|after| {
+            after.is_empty()
+                || after.starts_with('/')
+                || (!drive.contains('/') && after.starts_with([' ', '-', '(']))
+        })
+    })
+}
+
+/// The home directory, for [`is_drive_folder`].
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(Into::into)
+}
+
 /// Check a mounted folder: an absolute path without `.` or `..`.
 pub fn validate_folder(path: &str) -> Result<String, CatalogError> {
     // `components()` drops `.` segments, so check the text as well.
@@ -157,9 +200,29 @@ pub fn validate_folder(path: &str) -> Result<String, CatalogError> {
 }
 
 impl OikomeCatalog {
-    /// Register the storage `name`. Fails if the name is taken.
-    pub fn add_storage(&self, name: &str, kind: StorageKind) -> Result<StorageDef, CatalogError> {
+    /// Register the storage `name`, its files encrypted on this node when
+    /// `encrypted`. A cloud drive must be encrypted. Fails if the name is
+    /// taken.
+    pub fn add_storage(
+        &self,
+        name: &str,
+        kind: StorageKind,
+        encrypted: bool,
+    ) -> Result<StorageDef, CatalogError> {
         validate_storage_name(name)?;
+        let on_drive = match &kind {
+            StorageKind::Drive { .. } => true,
+            StorageKind::Folder { path } => {
+                home_dir().is_some_and(|home| is_drive_folder(path, &home))
+            }
+            StorageKind::Webdav { .. } => false,
+        };
+        if on_drive && !encrypted {
+            return Err(CatalogError::InvalidProperty(format!(
+                "storage '{name}' is on a cloud drive, whose provider can read what is uploaded; \
+                 add it as a drive, which is encrypted"
+            )));
+        }
         let kind = match kind {
             StorageKind::Webdav { endpoint, username } => {
                 if username
@@ -178,10 +241,14 @@ impl OikomeCatalog {
             StorageKind::Folder { path } => StorageKind::Folder {
                 path: validate_folder(&path)?,
             },
+            StorageKind::Drive { path } => StorageKind::Drive {
+                path: validate_folder(&path)?,
+            },
         };
         let def = StorageDef {
             name: name.to_string(),
             kind,
+            encrypted,
             created_at_ms: now_ms(),
         };
         self.mutate_registry(|reg| {
@@ -266,6 +333,29 @@ mod tests {
         validate_folder("/Volumes/nas/oikome").unwrap();
         for bad in ["relative", "/a/../b", "/a/./b"] {
             assert!(validate_folder(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn folders_of_cloud_drives_are_recognised() {
+        let home = Path::new("/Users/me");
+        for drive in [
+            "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/Oikome",
+            "/Users/me/Library/CloudStorage/Dropbox/Oikome",
+            "/Users/me/Dropbox",
+            "/Users/me/Dropbox (Personal)/x",
+            "/Users/me/OneDrive - Contoso/x",
+            "/Users/me/Google Drive/x",
+        ] {
+            assert!(is_drive_folder(drive, home), "{drive}");
+        }
+        for not in [
+            "/Volumes/nas/oikome",
+            "/Users/me/Documents/x",
+            "/Users/me/Dropboxes",
+            "/Users/other/Dropbox",
+        ] {
+            assert!(!is_drive_folder(not, home), "{not}");
         }
     }
 }

@@ -13,6 +13,11 @@ reqwest = { version = "0.12", default-features = false, features = ["stream", "r
 thiserror = { workspace = true }
 url = "2"
 zeroize = { workspace = true }
+# Client-side encryption of files on a storage (seal.rs).
+base64 = { workspace = true }
+blake3 = { workspace = true }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+getrandom = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 iceberg = { workspace = true }
 serde = { workspace = true }

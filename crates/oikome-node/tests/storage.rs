@@ -37,9 +37,10 @@ use oikome_catalog::{OikomeCatalog, StorageKind};
 use oikome_engine_duckdb::DuckDbConfig;
 use oikome_identity::NodeIdentity;
 use oikome_node::{
-    spawn_storage_sync, EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig,
-    SessionError, StorageSecrets,
+    spawn_storage_sync, EngineRegistry, FileSecrets, MemorySecrets, NodeConfig, OikomeSession,
+    QueryResult, SecretBackend, SessionConfig, SessionError, StorageCredentials, StorageSecrets,
 };
+use zeroize::Zeroizing;
 
 const USER: &str = "oikome";
 const PASSWORD_VAR: &str = "OIKOME_STORAGE_NAS_PASSWORD";
@@ -146,6 +147,18 @@ struct Node {
 }
 
 fn node_with(seed: u8, secrets: StorageSecrets, allow_http: bool, duckdb: DuckDbConfig) -> Node {
+    node_full(seed, secrets, allow_http, duckdb, None)
+}
+
+/// A node; `backend` (default: in memory) keeps its credentials, so tests
+/// never touch the machine's keychain.
+fn node_full(
+    seed: u8,
+    secrets: StorageSecrets,
+    allow_http: bool,
+    duckdb: DuckDbConfig,
+    backend: Option<Arc<dyn SecretBackend>>,
+) -> Node {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
@@ -154,6 +167,7 @@ fn node_with(seed: u8, secrets: StorageSecrets, allow_http: bool, duckdb: DuckDb
         identity: Some(Arc::new(NodeIdentity::from_seed(&[seed; 32]))),
         allow_http,
         storage_secrets: secrets,
+        secret_backend: Some(backend.unwrap_or_else(|| Arc::new(MemorySecrets::default()))),
         ..Default::default()
     };
     let engines = Arc::new(EngineRegistry::new(catalog.clone(), config).unwrap());
@@ -261,7 +275,7 @@ async fn a_space_on_a_nas_is_written_by_one_node_and_read_by_another() {
     let a = node(1, nas.secrets());
     let b = node(2, nas.secrets());
     for n in [&a, &b] {
-        n.catalog.add_storage("nas", nas.kind()).unwrap();
+        n.catalog.add_storage("nas", nas.kind(), false).unwrap();
         n.owner.check_storage("nas").await.unwrap();
     }
     for sql in [
@@ -350,7 +364,7 @@ async fn a_space_on_a_nas_is_written_by_one_node_and_read_by_another() {
 async fn wrong_credentials_and_plaintext_are_refused() {
     let nas = Nas::start().await;
     let wrong = node(1, StorageSecrets::new(|_| Some("wrong".to_string())));
-    wrong.catalog.add_storage("nas", nas.kind()).unwrap();
+    wrong.catalog.add_storage("nas", nas.kind(), false).unwrap();
     let e = wrong.owner.check_storage("nas").await.unwrap_err();
     assert!(e.to_string().contains("refused the credentials"), "{e}");
     let e = wrong.err("CREATE SPACE photos WITH STORAGE = 'nas'").await;
@@ -358,7 +372,10 @@ async fn wrong_credentials_and_plaintext_are_refused() {
     assert!(wrong.catalog.get_space("photos").is_err());
 
     let strict = node_with(2, nas.secrets(), false, DuckDbConfig::default());
-    strict.catalog.add_storage("nas", nas.kind()).unwrap();
+    strict
+        .catalog
+        .add_storage("nas", nas.kind(), false)
+        .unwrap();
     let e = strict.err("CREATE SPACE photos WITH STORAGE = 'nas'").await;
     assert!(e.to_string().contains("plaintext"), "{e}");
 }
@@ -372,7 +389,7 @@ async fn a_reader_skips_a_snapshot_whose_files_are_missing() {
     let a = node(1, StorageSecrets::default());
     let b = node(2, StorageSecrets::default());
     for n in [&a, &b] {
-        n.catalog.add_storage("nas", folder.clone()).unwrap();
+        n.catalog.add_storage("nas", folder.clone(), false).unwrap();
     }
     for sql in [
         "CREATE SPACE photos WITH STORAGE = 'nas', PATH = 'family/photos'",
@@ -410,7 +427,7 @@ async fn a_failed_push_is_made_up_by_the_next_write() {
     let a = node(1, nas.secrets());
     let b = node(2, nas.secrets());
     for n in [&a, &b] {
-        n.catalog.add_storage("nas", nas.kind()).unwrap();
+        n.catalog.add_storage("nas", nas.kind(), false).unwrap();
     }
     for sql in [
         "CREATE SPACE photos WITH STORAGE = 'nas'",
@@ -442,7 +459,7 @@ async fn a_copy_follows_the_storage_while_the_node_serves() {
     let a = node(1, StorageSecrets::default());
     let b = node(2, StorageSecrets::default());
     for n in [&a, &b] {
-        n.catalog.add_storage("nas", folder.clone()).unwrap();
+        n.catalog.add_storage("nas", folder.clone(), false).unwrap();
     }
     for sql in [
         "CREATE SPACE photos WITH STORAGE = 'nas'",
@@ -470,6 +487,198 @@ async fn a_copy_follows_the_storage_while_the_node_serves() {
     sync.abort();
 }
 
+fn no_env() -> StorageSecrets {
+    StorageSecrets::new(|_| None)
+}
+
+fn drive_at(dir: &Path) -> StorageKind {
+    StorageKind::Drive {
+        path: dir.to_str().unwrap().to_string(),
+    }
+}
+
+/// Whether any file under `dir` contains `needle`.
+fn any_file_contains(dir: &Path, needle: &[u8]) -> bool {
+    files_under(dir).iter().any(|f| {
+        std::fs::read(f)
+            .unwrap()
+            .windows(needle.len())
+            .any(|w| w == needle)
+    })
+}
+
+#[tokio::test]
+async fn a_space_on_a_drive_is_encrypted_and_read_with_the_same_key() {
+    let drive = tempfile::tempdir().unwrap();
+    let a = node(1, no_env());
+    a.owner
+        .add_storage(
+            "drive",
+            drive_at(drive.path()),
+            true,
+            StorageCredentials::default(),
+        )
+        .await
+        .unwrap();
+    for sql in [
+        "CREATE SPACE vault WITH STORAGE = 'drive'",
+        "CREATE TABLE vault.lighthouse_log (id BIGINT, note VARCHAR)",
+        "INSERT INTO vault.lighthouse_log VALUES (1, 'lantern'), (2, 'beacon')",
+        "INSERT INTO vault.lighthouse_log VALUES (3, 'flare')",
+    ] {
+        a.sql(sql).await;
+    }
+
+    // Another node reads it with the key exported on the first.
+    let key = a.owner.export_storage_key("drive").unwrap();
+    let b = node(2, no_env());
+    b.owner
+        .add_storage(
+            "drive",
+            drive_at(drive.path()),
+            true,
+            StorageCredentials {
+                key: Some(key),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    b.sql("CREATE SPACE vault WITH STORAGE = 'drive', ACCESS = 'readonly'")
+        .await;
+    assert_eq!(b.count("vault.lighthouse_log").await, 3);
+
+    // The drive sees neither names nor content.
+    let folder = drive.path().join("vault");
+    let mut top: Vec<String> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    top.sort();
+    assert_eq!(top, vec!["objects", "oikome-space.sealed", "snapshots"]);
+    for needle in [&b"lighthouse_log"[..], b"PAR1", b"parquet", b"iceberg"] {
+        assert!(!any_file_contains(drive.path(), needle), "{needle:?}");
+    }
+
+    // Without the right key, or registered as unencrypted, nothing is read.
+    let c = node(3, no_env());
+    c.owner
+        .add_storage(
+            "drive",
+            drive_at(drive.path()),
+            true,
+            StorageCredentials::default(),
+        )
+        .await
+        .unwrap();
+    let e = c
+        .err("CREATE SPACE vault WITH STORAGE = 'drive', ACCESS = 'readonly'")
+        .await
+        .to_string();
+    assert!(e.contains("another key"), "{e}");
+    let d = node(4, no_env());
+    d.catalog
+        .add_storage(
+            "drive",
+            StorageKind::Folder {
+                path: drive.path().to_str().unwrap().to_string(),
+            },
+            false,
+        )
+        .unwrap();
+    let e = d
+        .err("CREATE SPACE vault WITH STORAGE = 'drive', ACCESS = 'readonly'")
+        .await
+        .to_string();
+    assert!(e.contains("is encrypted"), "{e}");
+
+    // A drive is never left unencrypted.
+    assert!(d
+        .catalog
+        .add_storage("plain", drive_at(drive.path()), false)
+        .is_err());
+}
+
+#[tokio::test]
+async fn credentials_given_to_the_node_stay_with_the_node() {
+    let nas = Nas::start().await;
+    let identity = tempfile::tempdir().unwrap();
+    let backend: Arc<dyn SecretBackend> = Arc::new(FileSecrets::new(identity.path()));
+    let n = node_full(
+        1,
+        no_env(),
+        true,
+        DuckDbConfig::default(),
+        Some(backend.clone()),
+    );
+    let password = || StorageCredentials {
+        password: Some(Zeroizing::new(nas.password.clone())),
+        ..Default::default()
+    };
+
+    // A wrong password is refused and leaves nothing behind.
+    let wrong = StorageCredentials {
+        password: Some(Zeroizing::new("wrong".to_string())),
+        ..Default::default()
+    };
+    let e = n
+        .owner
+        .add_storage("nas", nas.kind(), false, wrong)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("refused the credentials"), "{e}");
+    assert!(n.catalog.get_storage("nas").is_err());
+    assert!(backend.get("storage/nas/password").unwrap().is_none());
+
+    n.owner
+        .add_storage("nas", nas.kind(), false, password())
+        .await
+        .unwrap();
+    n.sql("CREATE SPACE photos WITH STORAGE = 'nas'").await;
+    // Only the secret store holds the password, readable by this user only.
+    let store = identity.path().join("storage_access.json");
+    assert!(any_file_contains(identity.path(), nas.password.as_bytes()));
+    assert!(!any_file_contains(n.dir.path(), nas.password.as_bytes()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&store).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    assert!(n.owner.export_storage_key("nas").is_err(), "not encrypted");
+
+    // The environment wins over the store.
+    let overridden = node_full(
+        2,
+        StorageSecrets::new(|name| (name == "OIKOME_STORAGE_NAS_PASSWORD").then(|| "wrong".into())),
+        true,
+        DuckDbConfig::default(),
+        Some(Arc::new(FileSecrets::new(identity.path()))),
+    );
+    overridden
+        .catalog
+        .add_storage("nas", nas.kind(), false)
+        .unwrap();
+    let e = overridden.owner.check_storage("nas").await.unwrap_err();
+    assert!(e.to_string().contains("refused the credentials"), "{e}");
+
+    // A storage with a Space on it stays; removing one forgets its
+    // credentials.
+    assert!(
+        n.owner.remove_storage("nas").is_err(),
+        "a location is on it"
+    );
+    n.owner
+        .add_storage("spare", nas.kind(), false, password())
+        .await
+        .unwrap();
+    assert!(backend.get("storage/spare/password").unwrap().is_some());
+    n.owner.remove_storage("spare").unwrap();
+    assert!(backend.get("storage/spare/password").unwrap().is_none());
+}
+
 #[tokio::test]
 #[ignore = "downloads the DuckDB lance extension"]
 async fn a_lance_space_on_a_nas_is_searched_with_the_writers_index() {
@@ -482,7 +691,7 @@ async fn a_lance_space_on_a_nas_is_searched_with_the_writers_index() {
     let a = node_with(1, nas.secrets(), true, lance());
     let b = node_with(2, nas.secrets(), true, lance());
     for n in [&a, &b] {
-        n.catalog.add_storage("nas", nas.kind()).unwrap();
+        n.catalog.add_storage("nas", nas.kind(), false).unwrap();
     }
     for sql in [
         "CREATE SPACE notes WITH STORAGE = 'nas', FORMAT = 'lance'",

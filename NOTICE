@@ -115,7 +115,8 @@ sctp-proto (sctp-proto; SCTP for WebRTC data channels)
   Copyright (c) 2021-2026 WebRTC.rs, Copyright (c) 2026 Martin Algesten
 
 RustCrypto (sha2, p256, p384, ecdsa, elliptic-curve, hkdf, ccm, x509-cert and their
-  support crates; used by str0m's DTLS)
+  support crates, used by str0m's DTLS; chacha20poly1305 and aead, which encrypt
+  files on storages)
   https://github.com/RustCrypto  -  MIT License (also Apache-2.0)
   Copyright (c) RustCrypto Developers (sha2: Copyright (c) 2016 Artyom Pavlov)
 
@@ -123,6 +124,11 @@ Lance (lance-table, lance-io, lance-core, lance-file, lance-encoding and the oth
   crates, fsst; read Lance manifests to ship one version of a dataset)
   https://github.com/lance-format/lance  -  Apache License 2.0
   Copyright The Lance Authors
+
+keyring-rs (keyring-core, apple-native-keyring-store, windows-native-keyring-store;
+  storage credentials in the OS keychain)
+  https://github.com/open-source-cooperative/keyring-rs  -  MIT License or Apache License 2.0
+  Copyright (c) 2016 keyring Developers
 
 sqlite-vec (sqlite-vec; vector search in transactional Spaces, compiled into SQLite)
   https://github.com/asg017/sqlite-vec  -  MIT License (also Apache-2.0)

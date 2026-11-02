@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Spaces on a storage (architecture v3 §7.5): a NAS at home reached over
-//! WebDAV or mounted as a folder.
+//! WebDAV or mounted as a folder, or a cloud drive's sync folder.
 //!
 //! The writing node keeps the Space on its own disk as usual and, after
 //! each write, pushes the new snapshot to the Space's folder on the
@@ -21,22 +21,28 @@
 //! complete snapshot into a local copy, which is read like a subscription
 //! (§5.3), also while the writer is offline.
 //!
-//! The folder holds:
+//! A plain folder holds:
 //! - `oikome-space.json`: the node that writes the folder, and the format;
 //! - `snapshots/<seq>.json`: one snapshot, its tables and their files,
 //!   written after the files it names;
 //! - `files/<blake3>.parquet`: Iceberg data files;
 //! - `lance/<table>.lance/...`: Lance datasets.
 //!
+//! An encrypted folder (always on a cloud drive) holds the same, sealed
+//! with the storage's key (`oikome_vfs::seal`): `oikome-space.sealed`,
+//! `snapshots/<seq>.sealed` and `objects/<id>`, where the id is a keyed
+//! hash of the file's plain path, so the storage sees neither content nor
+//! names.
+//!
 //! The writer keeps the last [`KEEP_SNAPSHOTS`] snapshots and the files
-//! they name. The writer's DID in `oikome-space.json` guards against two
+//! they name. The writer's DID in the folder's record guards against two
 //! nodes writing one folder by mistake; it is not access control: anyone
-//! the storage lets in can change the files. Passwords and tokens come
-//! from the environment (`OIKOME_STORAGE_<NAME>_PASSWORD` or `_TOKEN`) and
-//! are never written down.
+//! the storage lets in can change the files. Passwords, tokens and keys
+//! come from the node's secrets ([`crate::secrets`]) and are never written
+//! to the storage or the registry.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,7 +52,7 @@ use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt};
 use oikome_catalog::lance::{lance_tables, DATASET_SUFFIX};
-use oikome_catalog::{Location, LocationFormat, StorageBinding, StorageKind};
+use oikome_catalog::{Location, LocationFormat, StorageBinding, StorageDef, StorageKind};
 use oikome_core::AccessMode;
 use oikome_engine::EngineError;
 use oikome_identity::unix_now_ms;
@@ -55,7 +61,8 @@ use oikome_network::protocol::{
     TableSnapshot,
 };
 use oikome_network::ChunkStream;
-use oikome_vfs::{Credentials, RemoteStore, StoreError};
+use oikome_vfs::seal::{open_bytes, open_stream, seal_bytes, seal_stream, SealError};
+use oikome_vfs::{file_chunks, sealed_size, Credentials, RemoteStore, SealKey, StoreError};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use zeroize::Zeroizing;
@@ -63,20 +70,21 @@ use zeroize::Zeroizing;
 use crate::error::SessionError;
 use crate::lance::lance_root;
 use crate::result::QueryResult;
+use crate::secrets::SecretKind;
 use crate::session::OikomeSession;
 use crate::snapshot::table_snapshot;
 use crate::subscribe::{lock_location, refresh, RefreshReport, RefreshedTable, Source};
 
-const SPACE_FILE: &str = "oikome-space.json";
 const SNAPSHOTS_DIR: &str = "snapshots";
 const FILES_DIR: &str = "files";
 const LANCE_DIR: &str = "lance";
+const OBJECTS_DIR: &str = "objects";
 /// Snapshots kept on a storage: the newest and the one before it, so a
 /// reader copying the previous one can finish.
 const KEEP_SNAPSHOTS: usize = 2;
 /// Version of the folder layout this node writes and reads.
 const LAYOUT_VERSION: u32 = 1;
-/// Largest `oikome-space.json` read.
+/// Largest record read.
 const MAX_RECORD_BYTES: u64 = 64 << 10;
 /// Largest snapshot file read (some 100,000 files).
 const MAX_SNAPSHOT_BYTES: u64 = 16 << 20;
@@ -84,8 +92,9 @@ const MAX_SNAPSHOT_BYTES: u64 = 16 << 20;
 /// Looks a secret up by environment variable name.
 type SecretLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
-/// Where storages' passwords and tokens come from: a lookup by
-/// environment variable name, the process environment by default.
+/// Environment overrides of storages' credentials
+/// (`OIKOME_STORAGE_<NAME>_PASSWORD`, `_TOKEN`, `_KEY`): a lookup by
+/// variable name, the process environment by default.
 #[derive(Clone)]
 pub struct StorageSecrets(Arc<SecretLookup>);
 
@@ -100,7 +109,7 @@ impl StorageSecrets {
         Self::new(|name| std::env::var(name).ok())
     }
 
-    fn get(&self, name: &str) -> Option<Zeroizing<String>> {
+    pub(crate) fn get(&self, name: &str) -> Option<Zeroizing<String>> {
         (self.0)(name).filter(|v| !v.is_empty()).map(Zeroizing::new)
     }
 }
@@ -117,7 +126,29 @@ impl std::fmt::Debug for StorageSecrets {
     }
 }
 
-/// `oikome-space.json`: who writes the folder and how.
+/// What a person gives for a storage, from the apps or the command line.
+/// Values never appear in `Debug`.
+#[derive(Default)]
+pub struct StorageCredentials {
+    pub password: Option<Zeroizing<String>>,
+    pub token: Option<Zeroizing<String>>,
+    /// The key of an encrypted storage another node made (`export_storage_key`
+    /// there); a new one is made when this is `None`.
+    pub key: Option<Zeroizing<String>>,
+}
+
+impl std::fmt::Debug for StorageCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let shown = |v: &Option<Zeroizing<String>>| v.as_ref().map(|_| "<redacted>");
+        f.debug_struct("StorageCredentials")
+            .field("password", &shown(&self.password))
+            .field("token", &shown(&self.token))
+            .field("key", &shown(&self.key))
+            .finish()
+    }
+}
+
+/// The folder's record: who writes it and how.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct SpaceRecord {
     version: u32,
@@ -129,7 +160,7 @@ struct SpaceRecord {
     created_at_ms: u64,
 }
 
-/// `snapshots/<seq>.json`.
+/// `snapshots/<seq>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct StoredSnapshot {
     seq: u64,
@@ -137,12 +168,9 @@ struct StoredSnapshot {
     tables: Vec<TableSnapshot>,
 }
 
-fn snapshot_path(seq: u64) -> String {
-    format!("{SNAPSHOTS_DIR}/{seq:020}.json")
-}
-
-/// Where `file` of `table` lives in the Space's folder.
-fn stored_path(table: &TableSnapshot, file: &FileEntry) -> Result<String, String> {
+/// Where `file` of `table` lives in the Space's folder, before any
+/// encryption renames it.
+fn plain_path(table: &TableSnapshot, file: &FileEntry) -> Result<String, String> {
     if !is_identifier(&table.name) || !is_file_hash(&file.hash) {
         return Err(format!("invalid file in table '{}'", table.name));
     }
@@ -154,6 +182,317 @@ fn stored_path(table: &TableSnapshot, file: &FileEntry) -> Result<String, String
             }
             _ => Err(format!("invalid file in Lance table '{}'", table.name)),
         },
+    }
+}
+
+/// How a folder names and stores its files: as they are, or sealed with the
+/// storage's key.
+#[derive(Clone)]
+enum Layout {
+    Plain,
+    Sealed(Arc<SealKey>),
+}
+
+impl Layout {
+    fn record(&self) -> &'static str {
+        match self {
+            Layout::Plain => "oikome-space.json",
+            Layout::Sealed(_) => "oikome-space.sealed",
+        }
+    }
+
+    fn other_record(&self) -> &'static str {
+        match self {
+            Layout::Plain => "oikome-space.sealed",
+            Layout::Sealed(_) => "oikome-space.json",
+        }
+    }
+
+    fn suffix(&self) -> &'static str {
+        match self {
+            Layout::Plain => ".json",
+            Layout::Sealed(_) => ".sealed",
+        }
+    }
+
+    fn snapshot(&self, seq: u64) -> String {
+        format!("{SNAPSHOTS_DIR}/{seq:020}{}", self.suffix())
+    }
+
+    /// The name on the storage of the data file at `plain`.
+    fn data(&self, plain: &str) -> String {
+        match self {
+            Layout::Plain => plain.to_string(),
+            Layout::Sealed(key) => format!("{OBJECTS_DIR}/{}", key.object_name(plain)),
+        }
+    }
+
+    fn data_dirs(&self) -> &'static [&'static str] {
+        match self {
+            Layout::Plain => &[FILES_DIR, LANCE_DIR],
+            Layout::Sealed(_) => &[OBJECTS_DIR],
+        }
+    }
+}
+
+fn seal_message(e: SealError) -> String {
+    match e {
+        SealError::WrongKey => {
+            "it was encrypted with another key; add the storage with the key of the node \
+             that wrote it"
+                .to_string()
+        }
+        e => e.to_string(),
+    }
+}
+
+/// The folder of one Space on its storage.
+#[derive(Clone)]
+pub(crate) struct Folder {
+    store: RemoteStore,
+    binding: StorageBinding,
+    layout: Layout,
+}
+
+impl Folder {
+    fn err(&self, e: impl std::fmt::Display) -> SessionError {
+        SessionError::Store {
+            storage: self.binding.storage.clone(),
+            message: e.to_string(),
+        }
+    }
+
+    /// A small file, opened; `None` if it is not there.
+    async fn read(&self, name: &str, max: u64) -> Result<Option<Vec<u8>>, SessionError> {
+        let limit = match self.layout {
+            Layout::Plain => max,
+            Layout::Sealed(_) => sealed_size(max),
+        };
+        let bytes = match self.store.read(name, limit).await {
+            Ok(bytes) => bytes,
+            Err(StoreError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(self.err(e)),
+        };
+        match &self.layout {
+            Layout::Plain => Ok(Some(bytes.to_vec())),
+            Layout::Sealed(key) => open_bytes(key, name, &bytes)
+                .map(Some)
+                .map_err(|e| self.err(format!("{name}: {}", seal_message(e)))),
+        }
+    }
+
+    /// Write a small file, sealing it if the folder is encrypted.
+    async fn write(&self, name: &str, plain: Vec<u8>) -> Result<(), SessionError> {
+        let bytes = match &self.layout {
+            Layout::Plain => plain,
+            Layout::Sealed(key) => {
+                seal_bytes(key, name, &plain).map_err(|e| self.err(seal_message(e)))?
+            }
+        };
+        self.store
+            .write(name, Bytes::from(bytes))
+            .await
+            .map_err(|e| self.err(e))
+    }
+
+    async fn read_record(&self) -> Result<Option<SpaceRecord>, SessionError> {
+        let Some(bytes) = self.read(self.layout.record(), MAX_RECORD_BYTES).await? else {
+            // Registered one way, written the other.
+            if self
+                .store
+                .size(self.layout.other_record())
+                .await
+                .map_err(|e| self.err(e))?
+                .is_some()
+            {
+                return Err(self.err(match self.layout {
+                    Layout::Plain => format!(
+                        "folder '{}' is encrypted; add the storage with encryption and its key",
+                        self.binding.path
+                    ),
+                    Layout::Sealed(_) => format!(
+                        "folder '{}' is not encrypted; add the storage without encryption",
+                        self.binding.path
+                    ),
+                }));
+            }
+            return Ok(None);
+        };
+        let record: SpaceRecord = serde_json::from_slice(&bytes)
+            .map_err(|e| self.err(format!("{}: {e}", self.layout.record())))?;
+        if record.version > LAYOUT_VERSION {
+            return Err(self.err(format!(
+                "folder '{}' was written by a newer Oikome (layout {})",
+                self.binding.path, record.version
+            )));
+        }
+        Ok(Some(record))
+    }
+
+    async fn write_record(&self, record: &SpaceRecord) -> Result<(), SessionError> {
+        let bytes = serde_json::to_vec_pretty(record)
+            .map_err(|e| self.err(format!("{}: {e}", self.layout.record())))?;
+        self.write(self.layout.record(), bytes).await
+    }
+
+    /// Sequence numbers of the snapshots, oldest first.
+    async fn snapshots(&self) -> Result<Vec<u64>, SessionError> {
+        let suffix = self.layout.suffix();
+        let mut seqs: Vec<u64> = self
+            .store
+            .list(SNAPSHOTS_DIR)
+            .await
+            .map_err(|e| self.err(e))?
+            .into_iter()
+            .filter(|e| !e.is_dir)
+            .filter_map(|e| e.name.strip_suffix(suffix)?.parse().ok())
+            .collect();
+        seqs.sort_unstable();
+        Ok(seqs)
+    }
+
+    async fn read_snapshot(&self, seq: u64) -> Result<Option<StoredSnapshot>, SessionError> {
+        let Some(bytes) = self
+            .read(&self.layout.snapshot(seq), MAX_SNAPSHOT_BYTES)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let snapshot: StoredSnapshot =
+            serde_json::from_slice(&bytes).map_err(|e| self.err(format!("snapshot {seq}: {e}")))?;
+        if snapshot.seq != seq {
+            return Err(self.err(format!("snapshot {seq} is misnamed")));
+        }
+        Ok(Some(snapshot))
+    }
+
+    async fn write_snapshot(&self, snapshot: &StoredSnapshot) -> Result<(), SessionError> {
+        let bytes = serde_json::to_vec_pretty(snapshot)
+            .map_err(|e| self.err(format!("snapshot {}: {e}", snapshot.seq)))?;
+        self.write(&self.layout.snapshot(snapshot.seq), bytes).await
+    }
+
+    /// The name on the storage of `file` of `table`.
+    fn data_name(&self, table: &TableSnapshot, file: &FileEntry) -> Result<String, SessionError> {
+        plain_path(table, file)
+            .map(|p| self.layout.data(&p))
+            .map_err(|m| self.err(m))
+    }
+
+    /// The names of the data files on the storage.
+    async fn data_present(&self) -> Result<HashSet<String>, SessionError> {
+        let mut found = HashSet::new();
+        let mut pending: Vec<String> = self
+            .layout
+            .data_dirs()
+            .iter()
+            .map(|d| d.to_string())
+            .collect();
+        while let Some(dir) = pending.pop() {
+            for entry in self.store.list(&dir).await.map_err(|e| self.err(e))? {
+                let path = format!("{dir}/{}", entry.name);
+                if entry.is_dir {
+                    pending.push(path);
+                } else {
+                    found.insert(path);
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// Upload the local file `local` as `name`. Returns the bytes sent.
+    async fn upload(&self, local: &Path, name: &str) -> Result<u64, SessionError> {
+        match &self.layout {
+            Layout::Plain => self.store.upload(local, name).await,
+            Layout::Sealed(key) => {
+                let (size, chunks) = file_chunks(local).await.map_err(|e| self.err(e))?;
+                let sealed = seal_stream(key.clone(), name.to_string(), chunks);
+                self.store
+                    .upload_stream(name, sealed_size(size), sealed)
+                    .await
+            }
+        }
+        .map_err(|e| self.err(e))
+    }
+
+    /// The bytes of the data file `name`, opened; `Ok(None)` if it is not
+    /// on the storage.
+    async fn open(&self, name: &str) -> Result<Option<ChunkStream>, SessionError> {
+        // A reader may fail only once the download started; ask first, so
+        // a missing file is told apart from a broken connection.
+        if self
+            .store
+            .size(name)
+            .await
+            .map_err(|e| self.err(e))?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let chunks = match self.store.reader(name).await {
+            Ok(chunks) => chunks,
+            Err(StoreError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(self.err(e)),
+        };
+        let storage = self.binding.storage.clone();
+        let remote = move |m: String| EngineError::Remote(format!("storage '{storage}': {m}"));
+        Ok(Some(match &self.layout {
+            Layout::Plain => chunks.map_err(move |e| remote(e.to_string())).boxed(),
+            Layout::Sealed(key) => open_stream(key.clone(), name.to_string(), chunks)
+                .map_err(move |e| remote(seal_message(e)))
+                .boxed(),
+        }))
+    }
+
+    /// Delete the snapshots older than the [`KEEP_SNAPSHOTS`] newest, then
+    /// the files no kept snapshot names, including temporary files left by
+    /// interrupted uploads. `seqs` are the snapshots before `kept`'s newest
+    /// was written; `kept` the snapshots kept.
+    async fn prune(&self, seqs: &[u64], kept: &[&StoredSnapshot]) -> Result<(), SessionError> {
+        let keep_from = (seqs.len() + 1).saturating_sub(KEEP_SNAPSHOTS);
+        for &seq in &seqs[..keep_from.min(seqs.len())] {
+            self.store
+                .delete(&self.layout.snapshot(seq))
+                .await
+                .map_err(|e| self.err(e))?;
+        }
+        let mut keep = HashSet::new();
+        for snapshot in kept {
+            for table in &snapshot.tables {
+                for file in &table.files {
+                    keep.insert(self.data_name(table, file)?);
+                }
+            }
+        }
+        for name in self.data_present().await? {
+            if !keep.contains(&name) {
+                self.store.delete(&name).await.map_err(|e| self.err(e))?;
+            }
+        }
+        // Datasets of dropped tables, now empty.
+        if let Layout::Plain = self.layout {
+            for dataset in self.store.list(LANCE_DIR).await.map_err(|e| self.err(e))? {
+                let dir = format!("{LANCE_DIR}/{}", dataset.name);
+                if !keep.iter().any(|k| k.starts_with(&format!("{dir}/"))) {
+                    self.store.delete_dir(&dir).await.map_err(|e| self.err(e))?;
+                }
+            }
+        }
+        for entry in self
+            .store
+            .list(SNAPSHOTS_DIR)
+            .await
+            .map_err(|e| self.err(e))?
+        {
+            if entry.name.starts_with(".tmp-") {
+                self.store
+                    .delete(&format!("{SNAPSHOTS_DIR}/{}", entry.name))
+                    .await
+                    .map_err(|e| self.err(e))?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -217,8 +556,7 @@ impl PushReport {
 /// ([`Source::Storage`]). Remembers whether a file was missing, so the
 /// caller can fall back to an older snapshot.
 pub(crate) struct StoredFiles {
-    store: RemoteStore,
-    storage: String,
+    folder: Folder,
     missing: AtomicBool,
 }
 
@@ -228,43 +566,20 @@ impl StoredFiles {
         table: &TableSnapshot,
         file: &FileEntry,
     ) -> Result<ChunkStream, SessionError> {
-        let path = stored_path(table, file).map_err(|m| self.error(m))?;
-        // A reader may fail only once the download started; ask first, so
-        // a missing file is told apart from a broken connection.
-        if self
-            .store
-            .size(&path)
-            .await
-            .map_err(|e| self.fail(e))?
-            .is_none()
-        {
-            self.missing.store(true, Ordering::Relaxed);
-            return Err(self.error(format!("{path} is missing")));
-        }
-        let chunks = self.store.reader(&path).await.map_err(|e| self.fail(e))?;
-        Ok(chunks
-            .map_err(|e| EngineError::Remote(e.to_string()))
-            .boxed())
-    }
-
-    fn fail(&self, e: StoreError) -> SessionError {
-        if matches!(e, StoreError::NotFound(_)) {
-            self.missing.store(true, Ordering::Relaxed);
-        }
-        self.error(e.to_string())
-    }
-
-    fn error(&self, message: String) -> SessionError {
-        SessionError::Store {
-            storage: self.storage.clone(),
-            message,
+        let name = self.folder.data_name(table, file)?;
+        match self.folder.open(&name).await? {
+            Some(chunks) => Ok(chunks),
+            None => {
+                self.missing.store(true, Ordering::Relaxed);
+                Err(self.folder.err(format!("{name} is missing")))
+            }
         }
     }
 }
 
-fn store_error(binding: &StorageBinding, e: impl std::fmt::Display) -> SessionError {
+fn store_error(storage: &str, e: impl std::fmt::Display) -> SessionError {
     SessionError::Store {
-        storage: binding.storage.clone(),
+        storage: storage.to_string(),
         message: e.to_string(),
     }
 }
@@ -274,105 +589,162 @@ fn store_error(binding: &StorageBinding, e: impl std::fmt::Display) -> SessionEr
 type LocalTables = (Vec<String>, Option<PathBuf>);
 
 impl OikomeSession {
-    /// The folder of a Space on its storage.
-    fn open_store(&self, binding: &StorageBinding) -> Result<RemoteStore, SessionError> {
+    /// The folder `binding` names, with the storage's credentials and, for
+    /// an encrypted storage, its key.
+    fn open_folder(&self, binding: &StorageBinding) -> Result<Folder, SessionError> {
         let def = self.catalog.get_storage(&binding.storage)?;
-        let err = |e: StoreError| store_error(binding, e);
-        match &def.kind {
+        let err = |e: StoreError| store_error(&def.name, e);
+        let secret = |kind| self.engines().storage_secret(&def.name, kind);
+        let store = match &def.kind {
             StorageKind::Webdav { endpoint, username } => {
                 if def.kind.is_plaintext() && !self.engines().allow_http() {
                     return Err(store_error(
-                        binding,
+                        &def.name,
                         "it is reached over plaintext http://, which sends its password \
                          unencrypted; use https:// or allow it with --allow-http",
                     ));
                 }
-                let prefix = format!("OIKOME_STORAGE_{}", def.name.to_ascii_uppercase());
-                let secrets = self.engines().storage_secrets();
                 let credentials = Credentials {
                     username: username.clone(),
-                    password: secrets.get(&format!("{prefix}_PASSWORD")),
-                    token: secrets.get(&format!("{prefix}_TOKEN")),
+                    password: secret(SecretKind::Password)?,
+                    token: secret(SecretKind::Token)?,
                 };
-                RemoteStore::webdav(endpoint, &binding.path, credentials).map_err(err)
+                RemoteStore::webdav(endpoint, &binding.path, credentials).map_err(err)?
             }
-            StorageKind::Folder { path } => {
-                RemoteStore::folder(std::path::Path::new(path), &binding.path).map_err(err)
+            StorageKind::Folder { path } | StorageKind::Drive { path } => {
+                RemoteStore::folder(Path::new(path), &binding.path).map_err(err)?
             }
-        }
+        };
+        let layout = if def.encrypted {
+            let key = secret(SecretKind::Key)?.ok_or_else(|| {
+                store_error(
+                    &def.name,
+                    "it is encrypted and this node has no key for it; add it again with the \
+                     key exported on a node that has it",
+                )
+            })?;
+            let key = SealKey::parse(&key).map_err(|e| store_error(&def.name, e))?;
+            Layout::Sealed(Arc::new(key))
+        } else {
+            Layout::Plain
+        };
+        Ok(Folder {
+            store,
+            binding: binding.clone(),
+            layout,
+        })
     }
 
     /// Check that the storage `name` answers and accepts this node's
     /// credentials.
     pub async fn check_storage(&self, name: &str) -> Result<(), SessionError> {
         self.deny_principal("checking a storage")?;
-        let binding = StorageBinding {
+        let folder = self.open_folder(&StorageBinding {
             storage: name.to_string(),
             path: String::new(),
-        };
-        let store = self.open_store(&binding)?;
-        store.check().await.map_err(|e| store_error(&binding, e))
+        })?;
+        folder.store.check().await.map_err(|e| folder.err(e))
     }
 
-    async fn read_record(
+    /// Register the storage `name` with what a person entered for it, in
+    /// the apps or on the command line: credentials go to the node's secret
+    /// store (never the registry), an encrypted storage gets `credentials.key`
+    /// or a new key, and the storage is checked. If anything fails, nothing
+    /// is kept.
+    pub async fn add_storage(
         &self,
-        store: &RemoteStore,
-        binding: &StorageBinding,
-    ) -> Result<Option<SpaceRecord>, SessionError> {
-        let bytes = match store.read(SPACE_FILE, MAX_RECORD_BYTES).await {
-            Ok(bytes) => bytes,
-            Err(StoreError::NotFound(_)) => return Ok(None),
-            Err(e) => return Err(store_error(binding, e)),
-        };
-        let record: SpaceRecord = serde_json::from_slice(&bytes)
-            .map_err(|e| store_error(binding, format!("{SPACE_FILE}: {e}")))?;
-        if record.version > LAYOUT_VERSION {
-            return Err(store_error(
-                binding,
-                format!(
-                    "folder '{}' was written by a newer Oikome (layout {})",
-                    binding.path, record.version
-                ),
+        name: &str,
+        kind: StorageKind,
+        encrypted: bool,
+        credentials: StorageCredentials,
+    ) -> Result<StorageDef, SessionError> {
+        self.deny_principal("adding a storage")?;
+        if credentials.key.is_some() && !encrypted {
+            return Err(SessionError::Unsupported(
+                "a key is for an encrypted storage".to_string(),
             ));
         }
-        Ok(Some(record))
-    }
-
-    /// Sequence numbers of the snapshots on the storage, oldest first.
-    async fn stored_snapshots(
-        &self,
-        store: &RemoteStore,
-        binding: &StorageBinding,
-    ) -> Result<Vec<u64>, SessionError> {
-        let mut seqs: Vec<u64> = store
-            .list(SNAPSHOTS_DIR)
-            .await
-            .map_err(|e| store_error(binding, e))?
-            .into_iter()
-            .filter(|e| !e.is_dir)
-            .filter_map(|e| e.name.strip_suffix(".json")?.parse().ok())
-            .collect();
-        seqs.sort_unstable();
-        Ok(seqs)
-    }
-
-    async fn read_snapshot(
-        &self,
-        store: &RemoteStore,
-        binding: &StorageBinding,
-        seq: u64,
-    ) -> Result<Option<StoredSnapshot>, SessionError> {
-        let bytes = match store.read(&snapshot_path(seq), MAX_SNAPSHOT_BYTES).await {
-            Ok(bytes) => bytes,
-            Err(StoreError::NotFound(_)) => return Ok(None),
-            Err(e) => return Err(store_error(binding, e)),
-        };
-        let snapshot: StoredSnapshot = serde_json::from_slice(&bytes)
-            .map_err(|e| store_error(binding, format!("snapshot {seq}: {e}")))?;
-        if snapshot.seq != seq {
-            return Err(store_error(binding, format!("snapshot {seq} is misnamed")));
+        let def = self.catalog.add_storage(name, kind, encrypted)?;
+        let added = async {
+            let backend = self.engines().secret_backend()?;
+            if let Some(password) = &credentials.password {
+                backend.set(&SecretKind::Password.account(name), password)?;
+            }
+            if let Some(token) = &credentials.token {
+                backend.set(&SecretKind::Token.account(name), token)?;
+            }
+            if encrypted {
+                let key = match &credentials.key {
+                    Some(text) => SealKey::parse(text).map_err(|e| store_error(name, e))?,
+                    None => SealKey::generate().map_err(|e| store_error(name, e))?,
+                };
+                // A key in the environment wins over the stored one anyway.
+                backend.set(&SecretKind::Key.account(name), &key.export())?;
+            }
+            self.check_storage(name).await
         }
-        Ok(Some(snapshot))
+        .await;
+        match added {
+            Ok(()) => Ok(def),
+            Err(e) => {
+                if let Err(undo) = self.forget_storage(name) {
+                    tracing::warn!(storage = %name, error = %undo, "could not undo a failed storage");
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Replace one credential of the storage `name`.
+    pub fn set_storage_secret(
+        &self,
+        name: &str,
+        kind: SecretKind,
+        value: &str,
+    ) -> Result<(), SessionError> {
+        self.deny_principal("setting a storage credential")?;
+        let def = self.catalog.get_storage(name)?;
+        if kind == SecretKind::Key {
+            if !def.encrypted {
+                return Err(SessionError::Unsupported(format!(
+                    "storage '{name}' is not encrypted"
+                )));
+            }
+            SealKey::parse(value).map_err(|e| store_error(name, e))?;
+        }
+        self.engines()
+            .secret_backend()?
+            .set(&kind.account(name), value)
+    }
+
+    /// The key of the encrypted storage `name`, to add the storage on
+    /// another node.
+    pub fn export_storage_key(&self, name: &str) -> Result<Zeroizing<String>, SessionError> {
+        self.deny_principal("exporting a storage key")?;
+        if !self.catalog.get_storage(name)?.encrypted {
+            return Err(SessionError::Unsupported(format!(
+                "storage '{name}' is not encrypted"
+            )));
+        }
+        self.engines()
+            .storage_secret(name, SecretKind::Key)?
+            .ok_or_else(|| store_error(name, "this node has no key for it"))
+    }
+
+    /// Unregister the storage `name` and forget its credentials; refused
+    /// while a Space is on it. Nothing on the storage is touched.
+    pub fn remove_storage(&self, name: &str) -> Result<(), SessionError> {
+        self.deny_principal("removing a storage")?;
+        self.forget_storage(name)
+    }
+
+    fn forget_storage(&self, name: &str) -> Result<(), SessionError> {
+        self.catalog.remove_storage(name)?;
+        let backend = self.engines().secret_backend()?;
+        for kind in SecretKind::ALL {
+            backend.delete(&kind.account(name))?;
+        }
+        Ok(())
     }
 
     /// Make this node the writer of the Space's folder on its storage: the
@@ -387,58 +759,49 @@ impl OikomeSession {
             .storage
             .as_ref()
             .ok_or_else(|| SessionError::Unsupported("a location without a storage".into()))?;
-        let store = self.open_store(binding)?;
+        let folder = self.open_folder(binding)?;
         let did = self.engines().identity()?.did().to_string();
         let ours =
             |r: &SpaceRecord| r.writer == did && r.location == location.id && r.format == format;
-        match self.read_record(&store, binding).await? {
+        match folder.read_record().await? {
             Some(record) if ours(&record) => return Ok(()),
             Some(record) => {
-                return Err(store_error(
-                    binding,
-                    format!(
-                        "folder '{}' is written by {}; bind it with ACCESS = 'readonly'",
-                        binding.path, record.writer
-                    ),
-                ))
+                return Err(folder.err(format!(
+                    "folder '{}' is written by {}; bind it with ACCESS = 'readonly'",
+                    binding.path, record.writer
+                )))
             }
             None => {}
         }
-        if !store
+        if !folder
+            .store
             .list("")
             .await
-            .map_err(|e| store_error(binding, e))?
+            .map_err(|e| folder.err(e))?
             .is_empty()
         {
-            return Err(store_error(
-                binding,
-                format!(
-                    "folder '{}' holds files but no Oikome space; choose another PATH",
-                    binding.path
-                ),
-            ));
+            return Err(folder.err(format!(
+                "folder '{}' holds files but no Oikome space; choose another PATH",
+                binding.path
+            )));
         }
-        let record = SpaceRecord {
-            version: LAYOUT_VERSION,
-            writer: did.clone(),
-            location: location.id.clone(),
-            format,
-            created_at_ms: unix_now_ms(),
-        };
-        let bytes = serde_json::to_vec_pretty(&record)
-            .map_err(|e| store_error(binding, format!("{SPACE_FILE}: {e}")))?;
-        store
-            .write(SPACE_FILE, Bytes::from(bytes))
-            .await
-            .map_err(|e| store_error(binding, e))?;
-        // WebDAV cannot create a file only if it is absent: read back, in
+        folder
+            .write_record(&SpaceRecord {
+                version: LAYOUT_VERSION,
+                writer: did.clone(),
+                location: location.id.clone(),
+                format,
+                created_at_ms: unix_now_ms(),
+            })
+            .await?;
+        // A storage cannot create a file only if it is absent: read back, in
         // case another node claimed the folder at the same moment.
-        match self.read_record(&store, binding).await? {
+        match folder.read_record().await? {
             Some(record) if ours(&record) => Ok(()),
-            _ => Err(store_error(
-                binding,
-                format!("another node claimed folder '{}' first", binding.path),
-            )),
+            _ => Err(folder.err(format!(
+                "another node claimed folder '{}' first",
+                binding.path
+            ))),
         }
     }
 
@@ -462,25 +825,23 @@ impl OikomeSession {
                 )))
             }
         };
-        let store = self.open_store(&binding)?;
+        let folder = self.open_folder(&binding)?;
         let _lock = lock_location(&self.catalog, &location.id).await?;
         let did = self.engines().identity()?.did().to_string();
-        match self.read_record(&store, &binding).await? {
+        match folder.read_record().await? {
             Some(record) if record.writer == did && record.location == location.id => {}
             Some(record) => {
-                return Err(store_error(
-                    &binding,
-                    format!(
-                        "folder '{}' is now written by {}; this space no longer writes it",
-                        binding.path, record.writer
-                    ),
-                ))
+                return Err(folder.err(format!(
+                    "folder '{}' is now written by {}; this space no longer writes it",
+                    binding.path, record.writer
+                )))
             }
             None => {
-                return Err(store_error(
-                    &binding,
-                    format!("folder '{}' lost its {SPACE_FILE}", binding.path),
-                ))
+                return Err(folder.err(format!(
+                    "folder '{}' lost its {}",
+                    binding.path,
+                    folder.layout.record()
+                )))
             }
         }
 
@@ -500,9 +861,9 @@ impl OikomeSession {
             local.push(paths);
         }
 
-        let seqs = self.stored_snapshots(&store, &binding).await?;
+        let seqs = folder.snapshots().await?;
         let latest = match seqs.last() {
-            Some(&seq) => self.read_snapshot(&store, &binding, seq).await?,
+            Some(&seq) => folder.read_snapshot(seq).await?,
             None => None,
         };
         let mut report = PushReport {
@@ -520,17 +881,14 @@ impl OikomeSession {
         };
         // Upload what the storage lacks: new files, and any a reader or a
         // person removed.
-        let present = self.stored_files(&store, &binding).await?;
+        let present = folder.data_present().await?;
         for ((table, paths), pushed) in current.iter().zip(&local).zip(&mut report.tables) {
             for (file, path) in table.files.iter().zip(paths) {
-                let target = stored_path(table, file).map_err(|m| store_error(&binding, m))?;
+                let target = folder.data_name(table, file)?;
                 if present.contains(&target) {
                     continue;
                 }
-                pushed.bytes_uploaded += store
-                    .upload(path, &target)
-                    .await
-                    .map_err(|e| store_error(&binding, e))?;
+                pushed.bytes_uploaded += folder.upload(path, &target).await?;
                 pushed.files_uploaded += 1;
             }
         }
@@ -544,43 +902,15 @@ impl OikomeSession {
             created_at_ms: unix_now_ms(),
             tables: current,
         };
-        let bytes = serde_json::to_vec_pretty(&snapshot)
-            .map_err(|e| store_error(&binding, format!("snapshot {seq}: {e}")))?;
-        store
-            .write(&snapshot_path(seq), Bytes::from(bytes))
-            .await
-            .map_err(|e| store_error(&binding, e))?;
+        folder.write_snapshot(&snapshot).await?;
         report.seq = Some(seq);
 
         let kept: Vec<&StoredSnapshot> = latest.iter().chain([&snapshot]).collect();
-        if let Err(e) = self.prune(&store, &binding, &seqs, &kept).await {
+        if let Err(e) = folder.prune(&seqs, &kept).await {
             // The next push tries again.
             tracing::warn!(space = %name, error = %e, "removing old snapshots from the storage failed");
         }
         Ok(report)
-    }
-
-    /// The data files on the storage: `files/*` and every file under
-    /// `lance/`, as paths in the Space's folder.
-    async fn stored_files(
-        &self,
-        store: &RemoteStore,
-        binding: &StorageBinding,
-    ) -> Result<HashSet<String>, SessionError> {
-        let err = |e: StoreError| store_error(binding, e);
-        let mut found = HashSet::new();
-        let mut pending = vec![FILES_DIR.to_string(), LANCE_DIR.to_string()];
-        while let Some(dir) = pending.pop() {
-            for entry in store.list(&dir).await.map_err(err)? {
-                let path = format!("{dir}/{}", entry.name);
-                if entry.is_dir {
-                    pending.push(path);
-                } else {
-                    found.insert(path);
-                }
-            }
-        }
-        Ok(found)
     }
 
     /// The local tables of `space` and, for Lance, its datasets' directory.
@@ -594,54 +924,9 @@ impl OikomeSession {
         })
     }
 
-    /// Delete the snapshots older than the [`KEEP_SNAPSHOTS`] newest, then
-    /// the files no kept snapshot names, including temporary files left by
-    /// interrupted uploads. `kept` are the kept snapshots.
-    async fn prune(
-        &self,
-        store: &RemoteStore,
-        binding: &StorageBinding,
-        seqs: &[u64],
-        kept: &[&StoredSnapshot],
-    ) -> Result<(), SessionError> {
-        let err = |e: StoreError| store_error(binding, e);
-        let keep_from = (seqs.len() + 1).saturating_sub(KEEP_SNAPSHOTS);
-        for &seq in &seqs[..keep_from.min(seqs.len())] {
-            store.delete(&snapshot_path(seq)).await.map_err(err)?;
-        }
-        let keep: HashSet<String> = kept
-            .iter()
-            .flat_map(|s| s.tables.iter())
-            .flat_map(|t| t.files.iter().map(move |f| stored_path(t, f)))
-            .filter_map(Result::ok)
-            .collect();
-        for path in self.stored_files(store, binding).await? {
-            if !keep.contains(&path) {
-                store.delete(&path).await.map_err(err)?;
-            }
-        }
-        // Datasets of dropped tables, now empty.
-        for dataset in store.list(LANCE_DIR).await.map_err(err)? {
-            let dir = format!("{LANCE_DIR}/{}", dataset.name);
-            if !keep.iter().any(|k| k.starts_with(&format!("{dir}/"))) {
-                store.delete_dir(&dir).await.map_err(err)?;
-            }
-        }
-        let snapshots_dir = store.list(SNAPSHOTS_DIR).await.map_err(err)?;
-        for entry in snapshots_dir {
-            if entry.name.starts_with(".tmp-") {
-                store
-                    .delete(&format!("{SNAPSHOTS_DIR}/{}", entry.name))
-                    .await
-                    .map_err(err)?;
-            }
-        }
-        Ok(())
-    }
-
     /// Copy the newest complete snapshot of a Space on a storage into the
     /// local copy of `location`. A snapshot whose files are not all on the
-    /// storage (pruned meanwhile, or never uploaded) is passed over for the
+    /// storage (pruned meanwhile, or not synced yet) is passed over for the
     /// one before it.
     pub(crate) async fn pull(
         &self,
@@ -651,26 +936,23 @@ impl OikomeSession {
             .storage
             .as_ref()
             .ok_or_else(|| SessionError::Unsupported("a location without a storage".into()))?;
-        let store = self.open_store(binding)?;
+        let folder = self.open_folder(binding)?;
         let _lock = lock_location(&self.catalog, &location.id).await?;
-        let record = self.read_record(&store, binding).await?.ok_or_else(|| {
-            store_error(
-                binding,
-                format!("folder '{}' holds no Oikome space", binding.path),
-            )
+        let record = folder.read_record().await?.ok_or_else(|| {
+            folder.err(format!("folder '{}' holds no Oikome space", binding.path))
         })?;
         let dir = self.catalog.replica_dir(&location.id);
+        let files = |folder: &Folder| StoredFiles {
+            folder: folder.clone(),
+            missing: AtomicBool::new(false),
+        };
         // The writer may prune the snapshot being copied: list again once.
         for _ in 0..2 {
-            let seqs = self.stored_snapshots(&store, binding).await?;
+            let seqs = folder.snapshots().await?;
             if seqs.is_empty() {
-                let source = Source::Storage(&StoredFiles {
-                    store: store.clone(),
-                    storage: binding.storage.clone(),
-                    missing: AtomicBool::new(false),
-                });
+                let empty = files(&folder);
                 return refresh(
-                    &source,
+                    &Source::Storage(&empty),
                     SnapshotResponse::default(),
                     &dir,
                     Some(record.format),
@@ -678,20 +960,16 @@ impl OikomeSession {
                 .await;
             }
             for &seq in seqs.iter().rev() {
-                let Some(snapshot) = self.read_snapshot(&store, binding, seq).await? else {
+                let Some(snapshot) = folder.read_snapshot(seq).await? else {
                     continue;
                 };
-                let files = StoredFiles {
-                    store: store.clone(),
-                    storage: binding.storage.clone(),
-                    missing: AtomicBool::new(false),
-                };
+                let stored = files(&folder);
                 let response = SnapshotResponse {
                     tables: snapshot.tables,
                     restricted: Vec::new(),
                 };
                 match refresh(
-                    &Source::Storage(&files),
+                    &Source::Storage(&stored),
                     response,
                     &dir,
                     Some(record.format),
@@ -699,17 +977,17 @@ impl OikomeSession {
                 .await
                 {
                     Ok(tables) => return Ok(tables),
-                    Err(e) if files.missing.load(Ordering::Relaxed) => {
+                    Err(e) if stored.missing.load(Ordering::Relaxed) => {
                         tracing::info!(storage = %binding.storage, seq, error = %e, "snapshot incomplete; trying an older one");
                     }
                     Err(e) => return Err(e),
                 }
             }
         }
-        Err(store_error(
-            binding,
-            format!("folder '{}' holds no complete snapshot", binding.path),
-        ))
+        Err(folder.err(format!(
+            "folder '{}' holds no complete snapshot",
+            binding.path
+        )))
     }
 
     /// `CREATE SPACE ... WITH STORAGE = '<storage>'`: claim the folder and

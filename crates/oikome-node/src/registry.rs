@@ -23,8 +23,10 @@ use oikome_core::{CatalogError, EngineKind};
 use oikome_engine::QueryEngine;
 use oikome_identity::{load_node_identity, Did, NodeIdentity};
 use oikome_network::{FlightEngine, RemoteSpaceConfig};
+use zeroize::Zeroizing;
 
 use crate::error::SessionError;
+use crate::secrets::{default_backend, SecretBackend, SecretKind};
 use crate::snapshot::HashCache;
 use crate::storage::StorageSecrets;
 
@@ -44,9 +46,13 @@ pub struct NodeConfig {
     /// peers are reached over TLS with their certificate pinned to their
     /// DID.
     pub allow_http: bool,
-    /// Where storages' passwords and tokens come from (§7.5); the
+    /// Environment overrides of storages' credentials (§7.5); the process
     /// environment by default.
     pub storage_secrets: StorageSecrets,
+    /// Where the node keeps storages' credentials; by default the OS
+    /// keychain where there is one, otherwise a private file under
+    /// `.oikome/identity/`.
+    pub secret_backend: Option<Arc<dyn SecretBackend>>,
 }
 
 /// A remote Space's engine and the binding (peer, Space, owner, token id)
@@ -74,6 +80,7 @@ pub struct EngineRegistry {
     /// Hashes of the data files this node serves or pushes.
     hashes: HashCache,
     storage_secrets: StorageSecrets,
+    secret_backend: OnceLock<Arc<dyn SecretBackend>>,
 }
 
 impl std::fmt::Debug for EngineRegistry {
@@ -116,6 +123,10 @@ impl EngineRegistry {
             graphs: Mutex::new(HashMap::new()),
             hashes: HashCache::default(),
             storage_secrets: config.storage_secrets,
+            secret_backend: config
+                .secret_backend
+                .map(OnceLock::from)
+                .unwrap_or_default(),
         })
     }
 
@@ -125,8 +136,27 @@ impl EngineRegistry {
         &self.hashes
     }
 
-    pub(crate) fn storage_secrets(&self) -> &StorageSecrets {
-        &self.storage_secrets
+    /// The node's secret store (§7.5).
+    pub fn secret_backend(&self) -> Result<Arc<dyn SecretBackend>, SessionError> {
+        if let Some(backend) = self.secret_backend.get() {
+            return Ok(backend.clone());
+        }
+        let did = self.identity()?.did().to_string();
+        let backend = default_backend(&self.catalog.oikome_dir().join("identity"), &did);
+        Ok(self.secret_backend.get_or_init(|| backend).clone())
+    }
+
+    /// The credential `kind` of `storage`: from the environment, otherwise
+    /// from the node's secret store.
+    pub(crate) fn storage_secret(
+        &self,
+        storage: &str,
+        kind: SecretKind,
+    ) -> Result<Option<Zeroizing<String>>, SessionError> {
+        if let Some(value) = self.storage_secrets.get(&kind.env_var(storage)) {
+            return Ok(Some(value));
+        }
+        self.secret_backend()?.get(&kind.account(storage))
     }
 
     /// Whether the DuckDB of this process has graph `name` as `sql` creates it.

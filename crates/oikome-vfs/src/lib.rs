@@ -15,9 +15,13 @@
 pub mod file_read;
 pub mod file_write;
 pub mod remote;
+pub mod seal;
 pub mod storage;
 
 pub use file_read::OpenDalFileRead;
 pub use file_write::OpenDalFileWrite;
-pub use remote::{check_relative_path, Credentials, RemoteStore, StoreEntry, StoreError};
+pub use remote::{
+    check_relative_path, file_chunks, Credentials, RemoteStore, StoreEntry, StoreError,
+};
+pub use seal::{sealed_size, SealError, SealKey};
 pub use storage::{OpenDalStorage, OpenDalStorageConfig, OpenDalStorageFactory};

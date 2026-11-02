@@ -36,6 +36,7 @@ mod lance;
 pub mod publish;
 pub mod registry;
 pub mod result;
+pub mod secrets;
 pub mod session;
 pub mod snapshot;
 pub mod storage;
@@ -46,7 +47,10 @@ pub use error::SessionError;
 pub use publish::{spawn_publisher, PublishReport, PublishedTable};
 pub use registry::{EngineRegistry, NodeConfig};
 pub use result::QueryResult;
+pub use secrets::{FileSecrets, MemorySecrets, SecretBackend, SecretKind};
 pub use session::{OikomeSession, SessionConfig};
 pub use snapshot::HashCache;
-pub use storage::{spawn_storage_sync, PushReport, PushedTable, StorageSecrets};
+pub use storage::{
+    spawn_storage_sync, PushReport, PushedTable, StorageCredentials, StorageSecrets,
+};
 pub use subscribe::{spawn_refresher, RefreshReport, RefreshedTable};

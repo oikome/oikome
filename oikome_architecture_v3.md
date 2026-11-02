@@ -8,6 +8,7 @@
 > **Status**: 3.0-A (engines), 3.0-B (local federation), 3.0-C (semantic layer) and 3.0-D (publishing) implemented on `main`. Supersedes v2.0.
 > **Revised 2026-10-30**: positioning changed to an AI-native, multimodal private data center (§1). Added cloud drives (§7.5), Lance as a third Location format (§7.6), connectors (§11), compute sharing (§12) and roadmap phases 3.4–3.6. The engine, federation and semantic layers are unchanged.
 > **Revised 2026-11-01**: added the user-facing apps: repository layout (§13.3), apps and the API layer (§13.4) and an apps track beside the core phases (§14.1).
+> **Revised 2026-11-02**: storages (§7.5): a NAS at home first (3.4a), cloud drives step by step, each once files are encrypted on the client (3.4b onward).
 
 ---
 
@@ -138,10 +139,11 @@ CREATE SPACE orders_ro WITH KIND = 'analytical', LOCATION = 'orders', ACCESS = '
 ```rust
 pub struct Location {
     pub id: LocationId,
-    pub format: LocationFormat,      // IcebergParquet { metadata_root } | SqliteFile { path } | Lance { root }
-    pub vfs: VfsScheme,              // file:// | s3:// | opfs:// | idb://
-    pub residency: Vec<Residency>,   // browser | disk | s3 (v1 storage strategy)
-    pub writer: Option<SpaceUri>,    // at most ONE writable Space per Location
+    pub format: LocationFormat,      // IcebergParquet { namespace } | SqliteFile { path } | Lance { root }
+                                     // | Remote / Replica (another node's Space) | StorageCopy (§7.5)
+    pub residency: Vec<String>,      // "disk"
+    pub writer: Option<String>,      // at most ONE writable Space per Location
+    pub storage: Option<StorageBinding>, // the storage (a NAS) the Location is kept on as well (§7.5)
 }
 ```
 
@@ -385,36 +387,59 @@ PUBLISH SPACE orders [TABLES (orders, items)] [TO orders_published]
 
 ### 7.4 VFS
 
-Unchanged (`opendal`: fs, s3; OPFS/IDB for browser). One addition: DuckDB and SQLite need *real file paths* (or DuckDB `httpfs` URLs). The VFS therefore exposes `materialize(path) -> LocalPath` — for `file://` it is the identity; for `s3://` and OPFS it is a cache-backed download. It is wired in with cloud drives (3.4); subscription copies (§5.3) are written to local disk directly. DuckDB `httpfs` may be used directly for S3-resident Parquet when the node has credentials, bypassing the cache.
+`oikome-vfs` holds the opendal VFS. Since 3.4a it also has `RemoteStore`: the folder of one Space on a storage (§7.5), over WebDAV or as a mounted folder. Every file is written under a temporary name, checked for size and renamed into place, so a reader sees a file whole or not at all. opendal sends a WebDAV file as a single request body, so uploads are streamed with a plain PUT instead.
 
-### 7.5 Cloud Drives
+DuckDB and SQLite need real file paths, and DuckDB reads an Iceberg table as a list of local Parquet files. A Space on a storage is therefore never read in place: each node keeps a local copy of a whole snapshot (§7.5). The per-file `materialize()` cache planned earlier was dropped; a size-bounded cache only helps once an engine reads part of a table. The Iceberg `Storage` adapter in `oikome-vfs` is still unused.
 
-A cloud drive is one more place a Location can live. There are two ways to reach one:
+### 7.5 Storages: a NAS First, Cloud Drives Step by Step
 
-| Way | How Oikome sees it | Use when |
-|-----|---------------------|----------|
-| The drive's desktop client syncs a local folder (iCloud Drive `~/Library/Mobile Documents/com~apple~CloudDocs`, Dropbox, OneDrive, Google Drive for desktop) | `file://` — no new code | The node runs on a machine with the client installed |
-| The drive's API, through an opendal service | One VFS scheme per service; `materialize()` downloads into the local cache (§7.4) | NAS or server nodes without a desktop client |
+A storage is a place other than the node's disk where a Space is kept: first a NAS at home (3.4a), reached over WebDAV (Synology, QNAP, Nextcloud and most others) or mounted as a folder (SMB, NFS). Cloud drives follow step by step (3.4b onward). A drive provider can read whatever is uploaded, so each drive service opens only once files are encrypted on the client.
 
-opendal 0.52 (already the VFS) has these services behind feature flags: `webdav` (most NAS systems, e.g. Synology and QNAP, and Nextcloud), `gdrive`, `dropbox`, `onedrive`, `aliyun-drive`, `pcloud`, `koofr`, `seafile`, `yandex-disk` and `icloud`. They are enabled per build, like the engine features. `icloud` signs in with an Apple ID password and a web session token rather than an official API, so on macOS the sync folder is the dependable path.
+```sh
+export OIKOME_STORAGE_NAS_PASSWORD=...          # or OIKOME_STORAGE_NAS_TOKEN; never stored
+oikome storage add nas --webdav https://nas.local:5006/oikome --username me
+oikome storage add share --folder /Volumes/oikome  # a mounted share; must exist
+```
 
-**What may live on a drive**
+```sql
+-- node A writes the Space
+CREATE SPACE photos WITH STORAGE = 'nas';                 -- folder = Space name; PATH = 'family/photos' chooses another
+INSERT INTO photos.items ...;                             -- each write is pushed to the NAS
+-- node B copies it
+CREATE SPACE photos WITH STORAGE = 'nas', ACCESS = 'readonly';
+REFRESH SPACE photos;                                     -- `oikome serve` also syncs every 60 s (--storage-sync)
+```
 
-| Data | On a drive? | Why |
-|------|-------------|-----|
-| Analytical Space (Iceberg + Parquet) | Yes, written by one node | Parquet data files are immutable, which sync clients and drive APIs handle well |
-| Analytical Space (Lance, §7.6) | Yes, written by one node | Lance data files are immutable too; each version adds a manifest |
-| Transactional Space (SQLite file) | **No** — rejected at `CREATE SPACE` / `ALTER SPACE` | SQLite's WAL needs file locks and shared memory on a local filesystem; a synced or remote copy can be corrupted. To put transactional data on a drive, `PUBLISH` it (§7.3) to an analytical Space there |
-| Node registry (`.oikome/`), identity key, drive credentials | No | They belong to one node. Keys and drive tokens live in the OS keychain (AGENT.md §7.1) |
+**How it works.** The writing node keeps the Space on its own disk as before. After each write it pushes the new snapshot: the files the storage lacks first, then a snapshot file naming them. Other nodes copy the newest complete snapshot into a local copy (`.oikome/replicas/<location>/`, Location format `StorageCopy`) and read it like a subscription (§5.3), also while the writer is offline. Iceberg and Lance Spaces work the same way; a Lance copy is searched with the writer's indexes.
+
+```
+<storage>/<PATH>/
+  oikome-space.json          layout version, writer's DID, Location id, format
+  snapshots/<seq>.json       one snapshot: per table its schema, snapshot id and files (BLAKE3, size, Lance path)
+  files/<blake3>.parquet     Iceberg data files
+  lance/<table>.lance/...    Lance data, deletion, index and version files
+```
+
+**What may live on a storage**
+
+| Data | On a storage? | Why |
+|------|---------------|-----|
+| Analytical Space (Iceberg + Parquet) | Yes, written by one node | Parquet data files are immutable |
+| Analytical Space (Lance, §7.6) | Yes, written by one node | Lance files are immutable too; each version adds a manifest |
+| Transactional Space (SQLite file) | **No** — rejected at `CREATE SPACE` | SQLite's WAL needs file locks and shared memory on a local filesystem |
+| Node registry (`.oikome/`), identity key, storage credentials | No | They belong to one node |
 
 **Rules**
 
-- **One writing node per drive Location.** The writer's DID is recorded in the Location root; any other node binds the Location `ACCESS = 'readonly'`. This extends the single-writer rule of §3.2 across nodes.
-- **Readers take the newest complete snapshot.** A sync client may upload a metadata file before the data files it points to. A node reading a drive Location uses the newest snapshot (or Lance version) whose data files are all present, otherwise the one before it. Files no snapshot references (half-finished uploads, a client's conflict copies) are ignored, as Iceberg already ignores them.
-- **The cache never goes stale.** Parquet files are immutable, so a cached file stays valid; the cache only needs a size limit and LRU eviction.
-- **Data on a third-party drive is encrypted on the client.** The drive provider can read whatever is uploaded, which defeats the point of a private data center. Keys stay in the OS keychain.
+- **One writing node per folder.** The writer's DID is in `oikome-space.json`; a writable binding needs an empty folder or one this node already writes for the same Location. This guards against mistakes, not attacks: anyone the storage lets in can change its files, so access is controlled by the storage's own accounts. WebDAV cannot create a file only if it is absent, so the claim is read back.
+- **Readers take the newest complete snapshot.** A snapshot whose files are not all present (pruned while being copied, or never finished) is passed over for the one before it. Downloads are checked against size and BLAKE3; the local copy changes with one rename.
+- **The writer keeps two snapshots** and the files they name, so a reader copying the older one can finish; it removes everything else, including leftovers of interrupted uploads. A push uploads whatever the storage lacks, so a removed file is put back.
+- **A failed push does not fail the write.** The write is committed on the writer's disk; the next write, `REFRESH SPACE` or the serving node's sync pushes it. Failing the statement would invite a retry that duplicates rows.
+- **Credentials come from the environment** (`OIKOME_STORAGE_<NAME>_PASSWORD` or `_TOKEN`), never from `.oikome/`, SQL or logs. The OS keychain comes with the connectors' credentials (3.5). Plaintext `http://` needs `--allow-http`.
 
-Open: the encryption mechanism. Parquet modular encryption (the pinned `parquet` 58 has an `encryption` feature, which pulls in `ring` and must pass `cargo deny`) leaves Iceberg manifests in plain text, and manifests carry per-column min/max values. Whole-file encryption in the VFS covers manifests too, with `materialize()` decrypting into the local cache.
+Not done yet: a size-bounded cache (every node holds the current snapshot of each Space it reads in full), restoring a writer from its storage, `PUBLISH` into a Space on a storage, the keychain, and cloud drives.
+
+**Cloud drives (3.4b onward).** A drive is reached either through its desktop client's sync folder (iCloud Drive, Dropbox, OneDrive, Google Drive for desktop), which is a `--folder` storage, or through its API with an opendal service (`gdrive`, `dropbox`, `onedrive`, `aliyun-drive`, `pcloud` and others, behind feature flags). Either way, every file is encrypted before it leaves the node, the snapshot files included, and the key stays in the OS keychain. Because every file passes through `RemoteStore`, whole-file encryption there covers data, indexes and snapshot files alike; Parquet modular encryption would leave the snapshot files and Lance datasets in plain text. Sync clients may upload files out of order or create conflict copies; readers already take the newest complete snapshot and ignore files no snapshot names.
 
 ### 7.6 Lance Locations
 
@@ -446,7 +471,7 @@ Rules:
 - **Versions.** Every statement commits one Lance version. Reads see the latest version (§5.4). Subscription ships exactly one version (§9): Oikome reads that version's manifest with `lance-table` 12 (the extension cannot list a version's files) and ships the manifest, data, deletion and index files it references, so rows deleted before that version never leave the node.
 - **Indexes travel with the data.** A subscriber searches its copy with the owner's indexes and never builds one.
 - **Single writer** as for any Location (§3.2); a second Space bound `ACCESS = 'readonly'` reads it and refuses writes.
-- **Cloud drives:** the same rules as Iceberg Locations (§7.5).
+- **Storages:** the same rules as Iceberg Locations (§7.5); a copy is searched with the writer's indexes.
 - **Not in the browser.** The `lance` extension is published for linux (amd64, arm64), macOS arm64 and windows amd64, not WebAssembly; browser nodes reach Lance Spaces through a Full Node (§10).
 
 Not done yet: reading a pinned version (waits for the extension), `PUBLISH` (§7.3) into a Lance Space, peers searching over query shipping, and a search spanning several Spaces.
@@ -687,7 +712,7 @@ Open:
 ```
 crates/
 ├── oikome-core            errors, SpaceUri, SpaceKind/EngineKind/AccessMode, CreateSpaceRequest   [done]
-├── oikome-vfs             opendal VFS (not wired yet; materialize() and cloud drives in 3.4)       [kept]
+├── oikome-vfs             opendal VFS; RemoteStore: a Space's folder on a storage (WebDAV, folder) [3.4a]
 ├── oikome-catalog         Iceberg Catalog + Space/Location registries (.oikome/*.json) + resolve_table [done]
 ├── oikome-storage         Parquet write path (keyed by TableIdent), compaction                     [done]
 ├── oikome-engine          QueryEngine trait, TableSource, Capabilities, BlockingWorker             [done]
@@ -728,6 +753,9 @@ The Arrow-line crates must move together: DataFusion 55 and `datafusion-federati
 | Add | `lance-table`, `lance-io` | **=12.0.0** (Lance manifests only; `protoc` built from source; no cloud stores) | Apache-2.0 |
 | Add | `rusqlite` | **0.40** (`bundled`, `column_decltype`) | MIT |
 | Add | `sqlite-vec` | **=0.1.9** (compiled with the bundled SQLite) | MIT / Apache-2.0 |
+| Feature | `opendal` | 0.52 `services-webdav` (no new crates) | Apache-2.0 |
+| Add | `reqwest` | **0.12**, direct (streamed WebDAV uploads; the same version and TLS stack opendal uses) | MIT / Apache-2.0 |
+| Add (tests) | `dav-server` | **0.11**, dev-dependency (a WebDAV server standing in for a NAS) | Apache-2.0 |
 | Remove | `datafusion-datasource/-common/-execution/-physical-plan` direct deps, `dashmap`, `memmap2` | — | — |
 
 `datafusion-table-providers` was evaluated and **not** used: it brings its own connection pools (a second path to each engine besides `QueryEngine`) and pins an older `rusqlite`. Licenses are checked by `cargo deny check licenses` (`deny.toml`).
@@ -826,7 +854,7 @@ Which Owner operations a paired device may perform is settled in M1b.
 - They serve the owner's personal data center: onboarding, Spaces, sources, sharing, AI assistants, plugins and settings. Node operations (engines, logs, peers' internals) stay in the CLI. Members and family roles come later.
 - The UI is English; other languages arrive through i18n later.
 - Visual design: Apple-style minimal on a low-chroma cream palette. One crimson primary action per view; blue only for links and focus. Its tokens and rules move into `design/` with DESIGN.md.
-- **Storage.** Onboarding offers local folders and NAS only, because the product rule is that data stays at home. Whether a cloud drive may be a Location (§7.5, phase 3.4) is undecided, and the apps do not offer it until it is decided. Browsing files already on a drive (as AList does) and serving Oikome over WebDAV are planned but not scheduled.
+- **Storage.** Onboarding offers local folders and a NAS (§7.5, phase 3.4a). Cloud drives arrive step by step from 3.4b, each once its files are encrypted on the client, and the apps offer each as it arrives. Browsing files already on a drive (as AList does) and serving Oikome over WebDAV are planned but not scheduled.
 
 ---
 
@@ -841,7 +869,8 @@ Which Owner operations a paired device may perform is settled in M1b.
 | **3.1 Network** ✅ | DID/UCAN, Arrow Flight remote Spaces (3.1a ✅), snapshot subscription (3.1b ✅), libp2p discovery and TLS (3.1c ✅), two Docker nodes plus an mDNS-only node, run in CI (3.1d ✅) | Two Docker nodes: UCAN-gated federated query; revocation cuts access |
 | **3.2 Browser** ✅ | WASM core + `HostEngine` on duckdb-wasm (3.2a ✅); federated queries via a Full Node over WebRTC (3.2b ✅); browser SQLite later | Browser node runs a local query and a federated query via a Full Node |
 | **3.3 Multimodal** ✅ | Lance Locations through DuckDB's `lance` extension: vector, full-text and hybrid search, indexes, version sync (3.3a ✅); FTS5/`sqlite-vec` on transactional Spaces (3.3b ✅); DuckPGQ on Lance Spaces (3.3c ✅); capability checks | Vector + FTS query on a Lance Space and on a transactional Space; a subscribed Lance Space is searchable without rebuilding its index |
-| **3.4 Cloud drives** | opendal drive services behind feature flags; one writing node per drive Location; newest-complete-snapshot reads; bounded local cache; client-side encryption; transactional Spaces rejected on drive Locations | An analytical Space on a WebDAV Location is written by one node and read by another; a transactional Space on a drive Location is rejected at DDL; files on the drive cannot be read without the key |
+| **3.4a NAS** ✅ | Storages registered per node (`oikome storage add`: WebDAV or a mounted folder); the writer pushes each snapshot, other nodes copy the newest complete one; one writing node per folder; credentials from the environment; transactional Spaces refused | An analytical Space (Iceberg and Lance) on a WebDAV NAS is written by one node and read by another, and the Lance copy is searched with the writer's index; a second node cannot bind it writable; a transactional Space on a NAS is rejected at DDL; a reader never reads a snapshot with missing files |
+| **3.4b Cloud drives** | Client-side encryption of every file on a storage, the key in the OS keychain; then drive services one by one, through their sync folder or an opendal service | Set when 3.4b is planned; includes: files on the drive cannot be read without the key |
 | **3.5 Connectors** | `Connector` contract; upsert and cursor in one SQLite transaction; scheduled and on-demand pulls; credentials from the OS keychain; file import and flomo connectors | flomo memos land in `flomo.memos`; a second pull touches only changed memos; an edited memo is updated, not duplicated; a failed pull leaves data and cursor unchanged |
 | **3.6 Compute sharing** | `compute/<runtime>` UCAN abilities with limits; task routing over Arrow Flight; host-registered runtimes; per-peer quotas | Node B runs a task for node A within its quota; a task over its limits is refused; revoking the UCAN drops A's queued tasks; A's compute grant gives no access to B's Spaces, and a data grant does not let A run tasks |
 
@@ -858,7 +887,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | **M1c Usable** | `packages/ui`, `packages/screens` and `apps/web`: the M1 screens (onboarding and the recovery key, Spaces, sharing and contacts, phone pairing, access log, advanced SQL, settings), desktop and phone layouts | M1b | In e2e on CI, against a local node started from an empty data directory: onboarding; a Space browsed; the Space shared with a contact and revoked; a phone browser paired that then queries over WebRTC. Each M1 screen renders at desktop and phone widths; no text pair fails its WCAG contrast ratio |
 | **M2 Connect** | Sources screen and sync status, Home dashboard, built-in cards, dashboard plugins v1 (`plugin-sdk`, data contract, plugin grants), reference plugins | 3.5, M1c | A connector's data appears on Home; a plugin reads only what its grant allows and cannot reach the network |
 | **M3 Find** | Full-text and semantic search, photo and note views, AI Assistants screen, `oikome-mcp` | 3.3 ✅, M2 | An MCP client lists and searches only the Spaces granted to it; revoking the grant in the app cuts it off; Owner commands are not offered over MCP |
-| **M4 Extend** | Borrowed compute, third-party connector plugins, plugin directory; cloud-drive storage only if §7.5 is confirmed (§13.4) | 3.4, 3.6, M3 | Set when M4 starts |
+| **M4 Extend** | Borrowed compute, third-party connector plugins, plugin directory; cloud-drive storage as 3.4b and later bring it (§7.5, §13.4) | 3.4b, 3.6, M3 | Set when M4 starts |
 
 **Tests use a local node.** e2e starts `oikome serve` on a temporary data directory and writes its test data through the CLI or the API. There is no fake-data layer and no mock `NodeClient`. The API comes before the screens, and each screen arrives with the milestone whose data it shows: Sources and Home in M2, search and AI Assistants in M3.
 
@@ -876,8 +905,11 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | Cross-engine type mapping (SQLite dynamic typing → Arrow) | Catalog stores declared Arrow schema per transactional table; `SqliteEngine` casts on the way out. |
 | Two Spaces over one Location with divergent policies leak via timing/side-channels | Policies are applied per Space before pushdown; engines see only the rewritten SQL. Documented; audited in Phase 3.1 security review. |
 | `datafusion-federation` unparser cannot express an engine-specific construct (e.g. `MATCH` in DuckPGQ) | Semantic layer marks such subtrees as *opaque* and pushes the original text verbatim to the single owning engine; opaque subtrees cannot span Spaces. |
-| Drive APIs change, rate-limit or expire tokens | Services are maintained in opendal and feature-gated; the sync-folder path needs no API; a failed upload leaves the previous snapshot readable |
-| Sync clients reorder uploads or create conflict copies | One writing node per drive Location; readers take the newest complete snapshot; files no snapshot references are ignored |
+| WebDAV servers differ (MOVE overwrite, PROPFIND depth, chunked uploads) | Every upload goes to a temporary name, is checked for size and renamed; tested against `dav-server` and rclone; NAS models are tested on real devices as they come |
+| A node needs room for the current snapshot of every Space on a storage it reads | Stated; a size-bounded cache helps only once engines read part of a table |
+| Two nodes claim one folder at the same moment (WebDAV has no create-if-absent) | The claim is read back; the DID record guards against mistakes, the storage's accounts control access |
+| Drive APIs change, rate-limit or expire tokens (3.4b) | Services are maintained in opendal and feature-gated; the sync-folder path needs no API; a failed upload leaves the previous snapshot readable |
+| Sync clients reorder uploads or create conflict copies (3.4b) | Snapshot files are written after the files they name; readers take the newest complete snapshot; files no snapshot names are ignored |
 | A connector breaks when an app changes its API or export format | Connectors are isolated from each other; a failed pull changes nothing because data and cursor commit together; only official APIs and exports are used |
 | Data sent for remote compute cannot be proven deleted | Only to explicitly trusted peers; the input is a chosen query result, not a Space; documented as trust-based |
 | Peers overuse a node's compute | Deny-by-default, per-peer quotas, UCAN limits and expiry |
@@ -938,6 +970,9 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-01 | `oikome-api`: one transport-free API with the caller as Owner or Principal; HTTP in `oikome-server --web`, desktop in process, MCP in `oikome-mcp` exposing Principal operations only; `packages/api` generated from it | One set of handlers for every client; the name covers plugins and MCP, not just Oikome's own apps, while the peer protocol keeps its own crates; an AI tool can never reach Owner commands |
 | 2026-11-01 | Desktop and phone apps on Tauri (later) | Its backend is Rust and links our crates directly, so the desktop app is a Full Node with a UI and no command line; Tauri 2 also targets iOS and Android; Apache-2.0 / MIT |
 | 2026-11-01 | The apps offer local folders and NAS as storage; cloud drives as Locations stay undecided, with §7.5 and phase 3.4 unchanged until then | The product rule is that data stays at home, which conflicts with keeping it on a drive provider's servers; browsing existing drive files and serving WebDAV are planned separately |
+| 2026-11-02 | Storages: a NAS first (3.4a, WebDAV or a mounted folder); cloud drives step by step, each only once its files are encrypted on the client (3.4b onward). Settles the entry above | Data on a NAS stays at home; a drive provider can read what is uploaded, so encryption comes first |
+| 2026-11-02 | A Space on a storage is copied, not read in place: the writer keeps it on its disk and pushes each snapshot (files, then a snapshot file); readers copy the newest complete snapshot and read it like a subscription. `materialize()` dropped | DuckDB reads Iceberg as lists of local Parquet files and the `lance` extension attaches only local directories; Iceberg commits over WebDAV have no compare-and-swap; the subscription code already copies verified snapshots, so one mechanism serves Iceberg and Lance, and encryption later wraps each file |
+| 2026-11-02 | One writing node per folder, recorded in `oikome-space.json`; passwords and tokens only from the environment; a failed push does not fail the write | WebDAV has no conditional create, so the record is a guard, not access control; servers and containers have no keychain (it comes with 3.5); failing a committed write invites a retry that duplicates rows |
 | 2026-11-01 | App tests run against a local node (temporary data directory, test data written through the CLI or the API); no fake data and no mock `NodeClient`. So the API (M1b) comes before the screens (M1c), and each screen arrives with the milestone whose data it shows | One test chain instead of a fake one followed by a real one; screens exercise the real API from the start, and there are no fixtures to drift from it |
 | 2026-11-01 | Visual design: Apple-style minimal, low-chroma cream palette, one crimson primary action per view, blue only for links and focus | Calm and familiar for ordinary users; color marks the one thing to do instead of decorating; every text pair is checked against WCAG contrast |
 

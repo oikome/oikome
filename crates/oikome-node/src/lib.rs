@@ -37,6 +37,8 @@ pub mod publish;
 pub mod registry;
 pub mod result;
 pub mod session;
+pub mod snapshot;
+pub mod storage;
 pub mod subscribe;
 
 pub use capability::query_spaces;
@@ -45,4 +47,6 @@ pub use publish::{spawn_publisher, PublishReport, PublishedTable};
 pub use registry::{EngineRegistry, NodeConfig};
 pub use result::QueryResult;
 pub use session::{OikomeSession, SessionConfig};
+pub use snapshot::HashCache;
+pub use storage::{spawn_storage_sync, PushReport, PushedTable, StorageSecrets};
 pub use subscribe::{spawn_refresher, RefreshReport, RefreshedTable};

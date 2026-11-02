@@ -21,7 +21,8 @@
 //!                           ENGINE = 'duckdb' | 'sqlite',
 //!                           LOCATION = '<location id>',
 //!                           ACCESS = 'writable' | 'readonly',
-//!                           STORAGE = 'disk',
+//!                           STORAGE = 'disk' | '<storage>',
+//!                           PATH = '<folder on the storage>',
 //!                           FORMAT = 'iceberg' | 'lance']
 //! CREATE SPACE <name> WITH TOKEN = '<ucan>' [, PEER = 'https://host:port'
 //!                                             | 'webrtc:<record>' (browser node)]
@@ -385,6 +386,7 @@ fn parse_create_space(stmt: &str) -> Result<OikomeStatement, SemanticError> {
             "ACCESS" => request.access = Some(value.parse().map_err(invalid)?),
             "LOCATION" => request.location = Some(value),
             "STORAGE" => request.storage = Some(value),
+            "PATH" => request.path = Some(value),
             "FORMAT" => request.format = Some(value.parse().map_err(invalid)?),
             "PEER" => request.peer = Some(value),
             "REMOTE" => request.remote = Some(validate_name(&value)?),
@@ -393,7 +395,7 @@ fn parse_create_space(stmt: &str) -> Result<OikomeStatement, SemanticError> {
             other => {
                 return Err(SemanticError::InvalidProperty(format!(
                     "unknown CREATE SPACE property '{other}' \
-                     (expected KIND, ENGINE, LOCATION, ACCESS, STORAGE, FORMAT, PEER, REMOTE, TOKEN or MODE)"
+                     (expected KIND, ENGINE, LOCATION, ACCESS, STORAGE, PATH, FORMAT, PEER, REMOTE, TOKEN or MODE)"
                 )))
             }
         }
@@ -418,6 +420,7 @@ fn parse_create_space(stmt: &str) -> Result<OikomeStatement, SemanticError> {
             || request.location.is_some()
             || request.access.is_some()
             || request.storage.is_some()
+            || request.path.is_some()
             || request.format.is_some()
         {
             return Err(SemanticError::InvalidProperty(
@@ -624,6 +627,17 @@ mod tests {
         assert_eq!(req.kind, Some(SpaceKind::Analytical));
         assert_eq!(req.location.as_deref(), Some("orders"));
         assert_eq!(req.access, Some(AccessMode::ReadOnly));
+    }
+
+    #[test]
+    fn test_parse_create_space_on_a_storage() {
+        let req = create("CREATE SPACE photos WITH STORAGE = 'nas', PATH = 'family/photos'");
+        assert_eq!(req.storage.as_deref(), Some("nas"));
+        assert_eq!(req.path.as_deref(), Some("family/photos"));
+        assert!(matches!(
+            parse_single("CREATE SPACE r WITH TOKEN = 't', PATH = 'p'"),
+            Err(SemanticError::InvalidProperty(_))
+        ));
     }
 
     #[test]

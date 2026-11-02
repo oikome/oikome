@@ -17,8 +17,9 @@
 # docker/compose.yml: discovery, TLS pinned to DIDs, a UCAN-gated federated
 # query, subscription, revocation cutting access, Lance search on a Space
 # and on a subscribed copy of it, FTS5 / sqlite-vec search on a
-# transactional Space, and a DuckPGQ graph query. Every step prints what
-# was expected and what happened; the first mismatch fails the run.
+# transactional Space, a DuckPGQ graph query, and Spaces node-a writes to a
+# NAS (WebDAV) that node-b copies. Every step prints what was expected and
+# what happened; the first mismatch fails the run.
 #
 #   E2E_BUILD=1     build the image first (default)
 #   E2E_LOG_DIR=d   on failure, write the nodes' logs to d/compose.log
@@ -28,6 +29,9 @@ cd "$(dirname "$0")/../.."
 
 COMPOSE=(docker compose -f docker/compose.yml)
 LOG_DIR=${E2E_LOG_DIR:-e2e-logs}
+# The NAS's password, made up for this run.
+E2E_NAS_PASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+export E2E_NAS_PASSWORD
 
 cleanup() {
     local status=$?
@@ -197,6 +201,46 @@ sql node-a "INSERT INTO social.knows VALUES (1, 2), (2, 3), (3, 4), (1, 3)" >/de
 sql node-a "CREATE PROPERTY GRAPH social.friends VERTEX TABLES (people LABEL person) EDGE TABLES (knows SOURCE KEY (src) REFERENCES people (id) DESTINATION KEY (dst) REFERENCES people (id) LABEL knows)" >/dev/null
 check "hops from alice to dave" "2" \
     "$(sql node-a "FROM GRAPH_TABLE (social.friends MATCH p = ANY SHORTEST (a:person WHERE a.name = 'alice')-[k:knows]->+(b:person WHERE b.name = 'dave') COLUMNS (path_length(p) AS hops))")"
+
+echo "== NAS (3.4a): node-a writes Spaces to WebDAV, node-b copies them"
+# The NAS is reached over plain http inside the test network.
+nas() { "${COMPOSE[@]}" exec -T "$1" oikome --allow-http "${@:2}"; }
+nas_err() {
+    local out
+    if out=$(nas "$@" 2>&1); then
+        fail "expected an error from $1: ${*:2} (got: $out)"
+    fi
+    printf '%s' "$out"
+}
+"${COMPOSE[@]}" up -d nas
+for node in node-a node-b; do
+    wait_for "$node registers the NAS" 60 \
+        nas "$node" storage add nas --webdav http://172.28.0.20:8080 --username oikome
+done
+nas node-a sql "CREATE SPACE album WITH STORAGE = 'nas'" >/dev/null
+nas node-a sql "CREATE TABLE album.photos (id BIGINT, title VARCHAR)" >/dev/null
+nas node-a sql "INSERT INTO album.photos VALUES (1, 'beach'), (2, 'hills')" >/dev/null
+nas node-b sql "CREATE SPACE album WITH STORAGE = 'nas', ACCESS = 'readonly'" >/dev/null
+check "node-b reads node-a's rows from the NAS" "2" "$(nas node-b sql --raw "SELECT count(*) FROM album.photos")"
+nas node-a sql "INSERT INTO album.photos VALUES (3, 'lake')" >/dev/null
+nas node-b sql "REFRESH SPACE album" >/dev/null
+check "node-b reads the newer snapshot after a refresh" "3" "$(nas node-b sql --raw "SELECT count(*) FROM album.photos")"
+check_contains "node-b cannot write its copy" "read-only" \
+    "$(nas_err node-b sql "INSERT INTO album.photos VALUES (4, 'mist')")"
+check_contains "node-b cannot write node-a's folder" "is written by $DID_A" \
+    "$(nas_err node-b sql "CREATE SPACE mine WITH STORAGE = 'nas', PATH = 'album'")"
+check_contains "a transactional Space stays on the node's disk" "SQLite" \
+    "$(nas_err node-b sql "CREATE SPACE ledger WITH KIND = 'transactional', STORAGE = 'nas'")"
+nas node-a sql "CREATE SPACE clips WITH STORAGE = 'nas', FORMAT = 'lance'" >/dev/null
+nas node-a sql "CREATE TABLE clips.items (id BIGINT, body VARCHAR)" >/dev/null
+nas node-a sql "INSERT INTO clips.items SELECT i, CASE WHEN i % 3 = 0 THEN 'apple banana' ELSE 'cherry date' END || ' note ' || i FROM (SELECT unnest(range(300)) AS i) t" >/dev/null
+nas node-a sql "CREATE INDEX body ON clips.items USING INVERTED (body)" >/dev/null
+nas node-b sql "CREATE SPACE clips WITH STORAGE = 'nas', ACCESS = 'readonly'" >/dev/null
+check "node-b's copy from the NAS holds node-a's index (none built on node-b)" \
+    "$(indexes node-a /data/.oikome/lance/clips)" \
+    "$(indexes node-b /data/.oikome/replicas/clips/lance)"
+check "full-text search on node-b's copy from the NAS" "5" \
+    "$(nas node-b sql --raw "$(printf "$BANANAS" clips)")"
 
 echo "== mDNS (node-c was given no address)"
 wait_for "node-c discovers node-a by mDNS" 60 knows_peer node-c "$DID_A"

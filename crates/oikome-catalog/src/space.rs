@@ -20,6 +20,8 @@ use oikome_core::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::storage::{validate_storage_path, StorageBinding};
+
 /// Identifier of a [`Location`]; defaults to the name of the Space that created it.
 pub type LocationId = String;
 
@@ -34,7 +36,8 @@ pub const SQLITE_DIR: &str = ".oikome/sqlite";
 /// is never listed as an Iceberg namespace.
 pub const LANCE_DIR: &str = ".oikome/lance";
 
-/// The only storage strategy supported in 3.0.
+/// `STORAGE` of a Space on this node's disk only (the default); any other
+/// value names a registered storage (§7.5).
 pub const STORAGE_DISK: &str = "disk";
 
 /// A logical Space: the unit of sovereignty, authorization and engine binding.
@@ -89,6 +92,10 @@ pub enum LocationFormat {
         /// DID of the owning node (root issuer of the UCAN).
         owner: String,
     },
+    /// A local copy of a Space another node writes on a storage (§7.5):
+    /// the newest complete snapshot, under `.oikome/replicas/<location id>/`.
+    /// The storage and folder are in [`Location::storage`].
+    StorageCopy,
 }
 
 impl LocationFormat {
@@ -100,7 +107,17 @@ impl LocationFormat {
             LocationFormat::Lance { .. } => "lance",
             LocationFormat::Remote { .. } => "remote",
             LocationFormat::Replica { .. } => "replica",
+            LocationFormat::StorageCopy => "storage_copy",
         }
+    }
+
+    /// Whether the Location is a local copy of a Space written elsewhere (a
+    /// subscription or a Space on a storage), kept under `replica_dir`.
+    pub fn is_copy(&self) -> bool {
+        matches!(
+            self,
+            LocationFormat::Replica { .. } | LocationFormat::StorageCopy
+        )
     }
 
     /// Whether the Location belongs to another node's Space (queried
@@ -123,6 +140,11 @@ pub struct Location {
     pub residency: Vec<String>,
     /// Name of the Space that owns the Location, if any.
     pub writer: Option<String>,
+    /// The storage the Location is kept on besides this node's disk (§7.5):
+    /// the writer pushes each snapshot there; a [`LocationFormat::StorageCopy`]
+    /// pulls from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<StorageBinding>,
 }
 
 /// Whether `engine` can read `format` at all.
@@ -139,7 +161,8 @@ pub fn engine_reads(engine: EngineKind, format: &LocationFormat) -> bool {
             EngineKind::Sqlite,
             LocationFormat::IcebergParquet { .. }
             | LocationFormat::Lance { .. }
-            | LocationFormat::Replica { .. },
+            | LocationFormat::Replica { .. }
+            | LocationFormat::StorageCopy,
         ) => false,
     }
 }
@@ -158,13 +181,6 @@ pub fn validate_binding(
         return Err(CatalogError::InvalidProperty(
             "space name must not be empty".to_string(),
         ));
-    }
-    if let Some(storage) = &request.storage {
-        if storage != STORAGE_DISK {
-            return Err(CatalogError::InvalidProperty(format!(
-                "STORAGE = '{storage}' is not supported yet (only '{STORAGE_DISK}')"
-            )));
-        }
     }
     if request.location.is_some() && existing.is_none() {
         return Err(CatalogError::LocationNotFound(
@@ -185,9 +201,23 @@ pub fn validate_binding(
             "FORMAT applies to a new analytical space only".to_string(),
         ));
     }
+    let storage = storage_binding(request, kind)?;
+    let copy = storage.is_some() && request.access == Some(AccessMode::ReadOnly);
+    if copy && request.format.is_some() {
+        return Err(CatalogError::InvalidProperty(
+            "a read-only space on a storage takes its FORMAT from the storage".to_string(),
+        ));
+    }
 
     let mut location = match existing {
         Some(loc) => loc.clone(),
+        None if copy => Location {
+            id: request.name.clone(),
+            format: LocationFormat::StorageCopy,
+            residency: vec![STORAGE_DISK.to_string()],
+            writer: None,
+            storage,
+        },
         None => Location {
             id: request.name.clone(),
             format: match kind {
@@ -205,11 +235,26 @@ pub fn validate_binding(
             },
             residency: vec![STORAGE_DISK.to_string()],
             writer: None,
+            storage,
         },
     };
 
     let access = match (kind, &location.format) {
-        (_, LocationFormat::Remote { .. } | LocationFormat::Replica { .. })
+        (SpaceKind::Analytical, LocationFormat::StorageCopy) => {
+            if request.access == Some(AccessMode::Writable) {
+                return Err(CatalogError::InvalidProperty(format!(
+                    "location '{}' is a copy of a space written on a storage and is read-only",
+                    location.id
+                )));
+            }
+            AccessMode::ReadOnly
+        }
+        (
+            _,
+            LocationFormat::Remote { .. }
+            | LocationFormat::Replica { .. }
+            | LocationFormat::StorageCopy,
+        )
         | (SpaceKind::Remote, _) => {
             return Err(CatalogError::KindFormatMismatch {
                 kind: kind.to_string(),
@@ -283,6 +328,40 @@ pub fn validate_binding(
     Ok((space, location))
 }
 
+/// Where a `CREATE SPACE` request puts the Space on a storage, if it names
+/// one (`STORAGE` other than `'disk'`). Whether the storage is registered
+/// is checked by the registry.
+fn storage_binding(
+    request: &CreateSpaceRequest,
+    kind: SpaceKind,
+) -> Result<Option<StorageBinding>, CatalogError> {
+    let Some(storage) = request.storage.as_deref().filter(|s| *s != STORAGE_DISK) else {
+        if request.path.is_some() {
+            return Err(CatalogError::InvalidProperty(
+                "PATH applies to a space on a storage (STORAGE = '<name>')".to_string(),
+            ));
+        }
+        return Ok(None);
+    };
+    if kind != SpaceKind::Analytical {
+        return Err(CatalogError::InvalidProperty(format!(
+            "a {kind} space cannot live on storage '{storage}': SQLite needs this node's disk; \
+             create it without STORAGE"
+        )));
+    }
+    if request.location.is_some() {
+        return Err(CatalogError::InvalidProperty(
+            "LOCATION and STORAGE cannot be combined".to_string(),
+        ));
+    }
+    let path = request.path.clone().unwrap_or_else(|| request.name.clone());
+    validate_storage_path(&path)?;
+    Ok(Some(StorageBinding {
+        storage: storage.to_string(),
+        path,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +378,7 @@ mod tests {
             },
             residency: vec![STORAGE_DISK.to_string()],
             writer: writer.map(str::to_string),
+            storage: None,
         }
     }
 
@@ -310,6 +390,7 @@ mod tests {
             },
             residency: vec![STORAGE_DISK.to_string()],
             writer: writer.map(str::to_string),
+            storage: None,
         }
     }
 
@@ -423,13 +504,62 @@ mod tests {
     }
 
     #[test]
-    fn storage_other_than_disk_rejected_and_missing_location_errors() {
-        let mut r = req("x");
-        r.storage = Some("s3".to_string());
-        assert!(matches!(
-            validate_binding(&r, None, 0),
-            Err(CatalogError::InvalidProperty(_))
-        ));
+    fn spaces_on_a_storage_and_missing_location_errors() {
+        // The writer keeps its tables on disk and pushes them to the storage.
+        let mut r = req("photos");
+        r.storage = Some("nas".to_string());
+        let (space, loc) = validate_binding(&r, None, 0).unwrap();
+        assert_eq!(space.access, AccessMode::Writable);
+        assert_eq!(loc.format, parquet_location("photos", None).format);
+        let binding = loc.storage.clone().unwrap();
+        assert_eq!(
+            (binding.storage.as_str(), binding.path.as_str()),
+            ("nas", "photos")
+        );
+
+        // Another node copies it, read-only.
+        r.access = Some(AccessMode::ReadOnly);
+        r.path = Some("family/photos".to_string());
+        let (space, loc) = validate_binding(&r, None, 0).unwrap();
+        assert_eq!(space.access, AccessMode::ReadOnly);
+        assert_eq!(loc.format, LocationFormat::StorageCopy);
+        assert_eq!(loc.writer, None);
+        assert_eq!(loc.storage.unwrap().path, "family/photos");
+
+        // Binding the copy again stays read-only.
+        let copy = validate_binding(&r, None, 0).unwrap().1;
+        let mut again = req("photos2");
+        again.location = Some("photos".to_string());
+        again.access = Some(AccessMode::Writable);
+        assert!(validate_binding(&again, Some(&copy), 0).is_err());
+
+        for (field, value) in [
+            ("kind", "transactional"),
+            ("path", "../x"),
+            ("format", "lance"),
+        ] {
+            let mut bad = req("x");
+            bad.storage = Some("nas".to_string());
+            bad.access = Some(AccessMode::ReadOnly);
+            match field {
+                "kind" => bad.kind = Some(SpaceKind::Transactional),
+                "path" => bad.path = Some(value.to_string()),
+                _ => bad.format = Some(SpaceFormat::Lance),
+            }
+            assert!(
+                matches!(
+                    validate_binding(&bad, None, 0),
+                    Err(CatalogError::InvalidProperty(_))
+                ),
+                "{field}"
+            );
+        }
+        let mut bad = req("x");
+        bad.path = Some("p".to_string());
+        assert!(
+            validate_binding(&bad, None, 0).is_err(),
+            "PATH without STORAGE"
+        );
 
         let mut r = req("x");
         r.location = Some("ghost".to_string());
@@ -450,6 +580,7 @@ mod tests {
             },
             residency: vec![RESIDENCY_REMOTE.to_string()],
             writer: None,
+            storage: None,
         };
         assert!(engine_reads(EngineKind::Flight, &remote.format));
         assert!(!engine_reads(EngineKind::DuckDb, &remote.format));
@@ -483,6 +614,7 @@ mod tests {
             },
             residency: vec![RESIDENCY_REMOTE.to_string()],
             writer: None,
+            storage: None,
         };
         assert!(replica.format.is_peer_space());
         assert!(!parquet_location("a", None).format.is_peer_space());

@@ -60,6 +60,10 @@ Tokio (tokio, tokio-stream)
   https://tokio.rs/  -  MIT License
   Copyright (c) Tokio Contributors
 
+reqwest (reqwest; streamed uploads to WebDAV storages)
+  https://github.com/seanmonstar/reqwest  -  MIT License or Apache License 2.0
+  Copyright Sean McArthur
+
 Tonic (tonic)
   https://github.com/hyperium/tonic  -  MIT License
   Copyright (c) 2025 Lucio Franco

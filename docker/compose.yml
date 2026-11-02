@@ -1,10 +1,12 @@
-# Three Oikome nodes on one bridge network, for the 3.1 end-to-end check
+# Three Oikome nodes on one bridge network, for the end-to-end check
 # (tests/e2e/docker_nodes.sh). All serve Arrow Flight over TLS.
 #
 #   node-a  owns the data
 #   node-b  reads it; dials node-a's libp2p address, so discovery does not
 #           depend on multicast
 #   node-c  finds node-a by mDNS only
+#   nas     a WebDAV server standing in for a NAS (3.4a); its password is
+#           made up by the script and passed in E2E_NAS_PASSWORD
 #
 #   docker compose -f docker/compose.yml build
 #   bash tests/e2e/docker_nodes.sh
@@ -15,6 +17,10 @@ name: oikome-e2e
 x-node: &node
   image: oikome:e2e
   pull_policy: never
+  environment:
+    OIKOME_STORAGE_NAS_PASSWORD: ${E2E_NAS_PASSWORD:-}
+    # The script refreshes copies itself.
+    OIKOME_STORAGE_SYNC: "0"
 
 services:
   node-a:
@@ -44,6 +50,16 @@ services:
     networks:
       oikome:
         ipv4_address: 172.28.0.12
+
+  nas:
+    image: rclone/rclone:1.75.2
+    command: ["serve", "webdav", "/data", "--addr", ":8080"]
+    environment:
+      RCLONE_USER: oikome
+      RCLONE_PASS: ${E2E_NAS_PASSWORD:-}
+    networks:
+      oikome:
+        ipv4_address: 172.28.0.20
 
 networks:
   oikome:

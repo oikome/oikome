@@ -73,4 +73,8 @@ pub enum SessionError {
 
     #[error("space '{space}' is published from '{origin}'; change '{origin}' and run PUBLISH SPACE {origin}")]
     PublishedSpace { space: String, origin: String },
+
+    /// A storage (§7.5) failed or refused an operation.
+    #[error("storage '{storage}': {message}")]
+    Store { storage: String, message: String },
 }

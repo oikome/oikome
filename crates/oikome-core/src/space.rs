@@ -262,8 +262,11 @@ pub struct CreateSpaceRequest {
     /// Bind to an existing Location instead of creating one.
     pub location: Option<String>,
     pub access: Option<AccessMode>,
-    /// Storage strategy (`'disk'` only in 3.0).
+    /// Where the Space lives: `'disk'` (default) or the name of a storage
+    /// registered with `oikome storage add` (a NAS, §7.5).
     pub storage: Option<String>,
+    /// Folder of the Space on its storage; defaults to the Space name.
+    pub path: Option<String>,
     /// Format of a new analytical Location (default Iceberg).
     pub format: Option<SpaceFormat>,
     /// Flight endpoint of the node owning a remote Space (`http://host:port`).
@@ -286,6 +289,7 @@ impl fmt::Debug for CreateSpaceRequest {
             .field("location", &self.location)
             .field("access", &self.access)
             .field("storage", &self.storage)
+            .field("path", &self.path)
             .field("format", &self.format)
             .field("peer", &self.peer)
             .field("remote", &self.remote)

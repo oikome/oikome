@@ -25,6 +25,8 @@ use oikome_identity::{load_node_identity, Did, NodeIdentity};
 use oikome_network::{FlightEngine, RemoteSpaceConfig};
 
 use crate::error::SessionError;
+use crate::snapshot::HashCache;
+use crate::storage::StorageSecrets;
 
 /// Node-level configuration.
 #[derive(Debug, Clone, Default)]
@@ -38,9 +40,13 @@ pub struct NodeConfig {
     /// The node's signing identity. When unset it is loaded on first use
     /// from `OIKOME_NODE_KEY` or `<catalog root>/.oikome/identity/`.
     pub identity: Option<Arc<NodeIdentity>>,
-    /// Accept plaintext (`http://`) peers. Off by default: peers are
-    /// reached over TLS with their certificate pinned to their DID.
+    /// Accept plaintext (`http://`) peers and storages. Off by default:
+    /// peers are reached over TLS with their certificate pinned to their
+    /// DID.
     pub allow_http: bool,
+    /// Where storages' passwords and tokens come from (§7.5); the
+    /// environment by default.
+    pub storage_secrets: StorageSecrets,
 }
 
 /// A remote Space's engine and the binding (peer, Space, owner, token id)
@@ -65,6 +71,9 @@ pub struct EngineRegistry {
     /// Property graphs created in the DuckDB of this process: DuckDB name
     /// → the statement that created it (§8).
     graphs: Mutex<HashMap<String, String>>,
+    /// Hashes of the data files this node serves or pushes.
+    hashes: HashCache,
+    storage_secrets: StorageSecrets,
 }
 
 impl std::fmt::Debug for EngineRegistry {
@@ -105,7 +114,19 @@ impl EngineRegistry {
             temp_dir,
             allow_http: config.allow_http,
             graphs: Mutex::new(HashMap::new()),
+            hashes: HashCache::default(),
+            storage_secrets: config.storage_secrets,
         })
+    }
+
+    /// Hashes of the data files this node copies to subscribers and
+    /// storages.
+    pub fn hashes(&self) -> &HashCache {
+        &self.hashes
+    }
+
+    pub(crate) fn storage_secrets(&self) -> &StorageSecrets {
+        &self.storage_secrets
     }
 
     /// Whether the DuckDB of this process has graph `name` as `sql` creates it.

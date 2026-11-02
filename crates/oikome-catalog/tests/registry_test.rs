@@ -428,3 +428,103 @@ fn discovered_peers_persist_across_processes() {
     assert!(serving.record_peer(did, "https://a:1/path").is_err());
     assert!(serving.get_peer("did:key:z6Mkother").is_none());
 }
+
+/// Two catalogs over one directory stand for two processes of a node
+/// (`oikome serve` and `oikome sql`). A write by one must survive the next
+/// write by the other, which used to save its stale copy over it.
+#[tokio::test]
+async fn writes_by_another_process_are_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap().to_string();
+    let serve = open(&root);
+    let sql = open(&root);
+    serve
+        .create_space(CreateSpaceRequest::new("blog"))
+        .await
+        .unwrap();
+
+    // `oikome sql` revokes a token; `serve` has not refreshed since.
+    let id = "0123456789abcdef0123456789abcdef";
+    assert!(sql.revoke_ucan(id).unwrap());
+    // `serve` then records something else.
+    serve.grant_space_select("did:key:zalice", "blog").unwrap();
+
+    let reopened = open(&root);
+    assert!(reopened.revoked_ucans().contains(id));
+    assert!(reopened.has_space_grant("did:key:zalice", "blog"));
+    assert!(serve.revoked_ucans().contains(id));
+}
+
+/// Refreshing (as every peer request does) while another thread writes
+/// must not deadlock.
+#[tokio::test]
+async fn refresh_and_writes_do_not_deadlock() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap().to_string();
+    let catalog = Arc::new(open(&root));
+    catalog
+        .create_space(CreateSpaceRequest::new("blog"))
+        .await
+        .unwrap();
+    let writer = {
+        let catalog = catalog.clone();
+        std::thread::spawn(move || {
+            for i in 0..200 {
+                catalog
+                    .grant_space_select(&format!("did:key:z{i}"), "blog")
+                    .unwrap();
+            }
+        })
+    };
+    let reader = {
+        let catalog = catalog.clone();
+        std::thread::spawn(move || {
+            for _ in 0..200 {
+                catalog.refresh().unwrap();
+            }
+        })
+    };
+    writer.join().unwrap();
+    reader.join().unwrap();
+    assert_eq!(catalog.list_space_grants().len(), 200);
+}
+
+#[tokio::test]
+async fn space_names_cannot_leave_the_data_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let catalog = open(dir.path().to_str().unwrap());
+    for name in ["../escape", "a/b", "a.b", ".hidden", "1st"] {
+        let mut req = CreateSpaceRequest::new(name);
+        req.kind = Some(SpaceKind::Transactional);
+        assert!(
+            matches!(
+                catalog.create_space(req).await,
+                Err(CatalogError::InvalidProperty(_))
+            ),
+            "{name} must be refused"
+        );
+    }
+    assert!(!dir.path().parent().unwrap().join("escape.sqlite").exists());
+}
+
+#[tokio::test]
+async fn contacts_persist() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_str().unwrap().to_string();
+    let catalog = open(&root);
+    catalog.add_contact("did:key:zalice", " Alice ").unwrap();
+    assert!(catalog.add_contact("did:key:zalice", "Again").is_err());
+    assert!(catalog.add_contact("alice", "Not a DID").is_err());
+    catalog.rename_contact("did:key:zalice", "Alice B").unwrap();
+    let reopened = open(&root);
+    assert_eq!(reopened.list_contacts().len(), 1);
+    assert_eq!(
+        reopened.get_contact("did:key:zalice").unwrap().name,
+        "Alice B"
+    );
+    reopened.remove_contact("did:key:zalice").unwrap();
+    assert!(matches!(
+        reopened.remove_contact("did:key:zalice"),
+        Err(CatalogError::ContactNotFound(_))
+    ));
+}

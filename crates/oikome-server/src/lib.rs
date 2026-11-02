@@ -13,11 +13,12 @@
 // limitations under the License.
 
 //! The Oikome node server (architecture v3 §9): the Arrow Flight endpoint
-//! through which peers query this node's Spaces with UCANs, and the
-//! `oikome` binary.
+//! through which peers query this node's Spaces with UCANs, the owner's web
+//! API (§13.4), and the `oikome` binary.
 
 pub mod replay;
 pub mod service;
+pub mod web;
 
 use std::future::Future;
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use tonic::transport::server::TcpIncoming;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
 
 pub use service::OikomeFlightService;
+pub use web::WebApp;
 
 /// Largest header block accepted: the UCAN, with its embedded proofs,
 /// travels in a header (gRPC servers default to 16 KiB).

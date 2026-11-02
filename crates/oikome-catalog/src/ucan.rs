@@ -270,6 +270,8 @@ impl OikomeCatalog {
                 "remote space, name and owner must not be empty".to_string(),
             ));
         }
+        oikome_core::validate_space_name(name)?;
+        oikome_core::validate_space_name(space)?;
         let peer = peer.map(validate_peer_url).transpose()?;
         let (engine, format) = match mode {
             RemoteMode::Query => (

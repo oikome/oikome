@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Semantic-layer metadata: views, SELECT grants and row policies
-//! (architecture v3 §6). Persisted next to the Space registry.
+//! Semantic-layer metadata: views, SELECT grants (per relation and per
+//! Space) and row policies (architecture v3 §6). Persisted next to the Space
+//! registry.
 
 use oikome_core::CatalogError;
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,22 @@ impl Grant {
             self.space.clone(),
             self.relation.clone(),
         )
+    }
+}
+
+/// `GRANT SELECT ON SPACE <space> TO <principal>`: every table of the Space,
+/// including tables created later, with all columns, and the views whose
+/// expansion reads only this Space. Row policies still apply. Kept apart from
+/// [`Grant`] so no relation name can stand for "the whole Space".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceGrant {
+    pub principal: String,
+    pub space: String,
+}
+
+impl SpaceGrant {
+    pub(crate) fn key(&self) -> (String, String) {
+        (self.principal.clone(), self.space.clone())
     }
 }
 
@@ -186,13 +203,54 @@ impl OikomeCatalog {
         })
     }
 
-    /// Whether `principal` holds any grant in `space`.
+    /// Whether `principal` holds any grant in `space`, on a relation or on
+    /// the whole Space.
     pub fn has_grants_in(&self, principal: &str, space: &str) -> bool {
         self.with_registry(|reg| {
-            reg.grants
-                .keys()
-                .any(|(p, s, _)| p == principal && s == space)
+            reg.space_grants
+                .contains_key(&(principal.to_string(), space.to_string()))
+                || reg
+                    .grants
+                    .keys()
+                    .any(|(p, s, _)| p == principal && s == space)
         })
+    }
+
+    /// Record a whole-Space SELECT grant; granting it again changes nothing.
+    pub fn grant_space_select(&self, principal: &str, space: &str) -> Result<(), CatalogError> {
+        self.require_space(space)?;
+        let grant = SpaceGrant {
+            principal: principal.to_string(),
+            space: space.to_string(),
+        };
+        self.mutate_registry(|reg| {
+            reg.space_grants.insert(grant.key(), grant);
+            Ok(())
+        })
+    }
+
+    /// Remove a whole-Space SELECT grant; returns whether one existed.
+    /// Grants on single relations are left alone.
+    pub fn revoke_space_select(&self, principal: &str, space: &str) -> Result<bool, CatalogError> {
+        self.mutate_registry(|reg| {
+            Ok(reg
+                .space_grants
+                .remove(&(principal.to_string(), space.to_string()))
+                .is_some())
+        })
+    }
+
+    /// Whether `principal` holds a whole-Space grant on `space`.
+    pub fn has_space_grant(&self, principal: &str, space: &str) -> bool {
+        self.with_registry(|reg| {
+            reg.space_grants
+                .contains_key(&(principal.to_string(), space.to_string()))
+        })
+    }
+
+    /// Every whole-Space grant, ordered by principal and Space.
+    pub fn list_space_grants(&self) -> Vec<SpaceGrant> {
+        self.with_registry(|reg| reg.space_grants.values().cloned().collect())
     }
 
     /// Create a row policy; names are unique per relation.

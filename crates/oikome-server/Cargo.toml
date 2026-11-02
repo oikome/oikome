@@ -11,6 +11,7 @@ name = "oikome"
 path = "src/main.rs"
 
 [dependencies]
+oikome-api = { path = "../oikome-api" }
 oikome-catalog = { path = "../oikome-catalog" }
 oikome-core = { path = "../oikome-core" }
 oikome-discovery = { path = "../oikome-discovery" }
@@ -27,15 +28,22 @@ arrow-flight = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
 blake3 = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+getrandom = { workspace = true }
 iceberg = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+subtle = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+http-body-util = { workspace = true }
 tempfile = { workspace = true }
+tower = { workspace = true }

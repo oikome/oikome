@@ -58,6 +58,15 @@ libbzip2 (libbz2-rs-sys, via DataFusion's default `compression` feature)
 
 Tokio (tokio, tokio-stream)
   https://tokio.rs/  -  MIT License
+
+axum (the owner's web API, `oikome serve --web`)
+  https://github.com/tokio-rs/axum  -  MIT License
+
+subtle (constant-time comparison of login tokens)
+  https://github.com/dalek-cryptography/subtle  -  BSD 3-Clause License
+
+ts-rs (TypeScript types of the API, packages/api)
+  https://github.com/Aleph-Alpha/ts-rs  -  MIT License
   Copyright (c) Tokio Contributors
 
 reqwest (reqwest; streamed uploads to WebDAV storages)
@@ -144,3 +153,7 @@ DuckDB extensions sqlite, lance and duckpgq (downloaded by `oikome extensions
 DuckDB-Wasm (@duckdb/duckdb-wasm, JavaScript, loaded by packages/node)
   https://github.com/duckdb/duckdb-wasm  -  MIT License
   Copyright 2018-2025 Stichting DuckDB Foundation
+
+TypeScript (type checking of packages/client; development only)
+  https://github.com/microsoft/TypeScript  -  Apache License 2.0
+  Copyright (c) Microsoft Corporation

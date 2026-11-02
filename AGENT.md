@@ -156,7 +156,7 @@ v3 路线图（详见 `oikome_architecture_v3.md` §14）：
 | 里程碑 | 目标 | 前置 | 状态 |
 |-------|------|------|----------|
 | M1a 目录拆分 | `web/` 拆到 `packages/node` 和 `e2e/`，根目录 `package.json` 用 npm workspaces；browser-e2e 原样通过 | 3.2 | ✅ |
-| M1b 接口 | `oikome-api`（M1 页面要用的主人操作：身份与恢复密钥、资料库、分享与收回、手机配对、访问记录、SQL）、`oikome serve --web`、`packages/api`、`packages/client`（HTTP 实现） | 3.0–3.2、M1a | 待开始 |
+| M1b 接口 | `oikome-api`（资料库、表与行、SQL、联系人、分享与收回、访问记录）、整个资料库的授权（`GRANT SELECT ON SPACE`）、访问记录、`oikome serve --web` 与 `oikome web open`、`packages/api`、`packages/client`（HTTP 实现）；恢复密钥和手机配对在 M1c 之前单独设计 | 3.0–3.2、M1a | ✅ |
 | M1c 能用 | `packages/ui`、`packages/screens`、`apps/web`：M1 范围的页面（首次启动与恢复密钥、资料库、分享与联系人、手机配对、访问记录、高级 SQL、设置），桌面和手机两套布局 | M1b | 待开始 |
 | M2 能接 | 接入页与同步状态、首页看板、内置卡片、看板插件 v1（`plugin-sdk`、数据契约、插件授权）、参考插件 | 3.5、M1c | 待开始 |
 | M3 能找 | 全文和语义搜索、照片和笔记视图、AI 助手页、`oikome-mcp` | 3.3、M2 | 待开始 |
@@ -258,11 +258,14 @@ oikome/
 │   ├── oikome-protocol/       # 节点间协议类型与请求摘要、WebRTC 接入记录与分帧（原生和浏览器共用）
 │   ├── oikome-webrtc/         # 浏览器用的 WebRTC 端点（str0m）：会话、DTLS 证书、接入记录
 │   ├── oikome-wasm/           # 浏览器节点：BrowserNode、HostEngine（duckdb-wasm）、RemoteEngine、JS 接口
-│   └── oikome-server/         # Arrow Flight 服务、oikome 命令行
+│   ├── oikome-api/            # 对上层的统一接口（不含传输层），调用者分主人和 principal；生成 packages/api 的类型
+│   └── oikome-server/         # Arrow Flight 服务、主人的网页接口（serve --web）、oikome 命令行
 ├── tests/                      # oikome-tests（TPC-H Q1–Q5）+ tools/data-gen + e2e/（Docker 节点端到端脚本）
 ├── docker/                     # 节点镜像（oikome.Dockerfile）与三节点 compose
 ├── package.json                # npm workspaces：packages/*、e2e
 ├── packages/
+│   ├── api/                    # 由 oikome-api 生成的接口类型（@oikome/api）
+│   ├── client/                 # NodeClient 接口和 HTTP 实现（@oikome/client）
 │   └── node/                   # 浏览器节点的 JS 宿主（duckdb-wasm、IndexedDB、WebRTC）和 wasm 构建脚本（@oikome/node）
 ├── e2e/                        # Playwright 测试与浏览器节点测试页 harness/（@oikome/e2e）
 ├── third_party/                # 打了补丁的第三方代码（datafusion-federation，见 README）
@@ -273,8 +276,8 @@ oikome/
 计划中：`oikome-connect`（3.5），`oikome-cli`。
 
 用户端计划中（目录等对应工作开始时才建，结构见架构 §13.3）：
-- crate：`oikome-api`（M1b）、`oikome-mcp`（M3）。
-- 根目录：`apps/`（web 在 M1c；desktop、mobile 以后）、`packages/` 其余的包（api、client 在 M1b；screens、ui 在 M1c；plugin-sdk 在 M2）、`plugins/`（M2）、`design/`（以后）。`apps/*`、`plugins/*` 建了再加进 workspaces。
+- crate：`oikome-mcp`（M3）。
+- 根目录：`apps/`（web 在 M1c；desktop、mobile 以后）、`packages/` 其余的包（screens、ui 在 M1c；plugin-sdk 在 M2）、`plugins/`（M2）、`design/`（以后）。`apps/*`、`plugins/*` 建了再加进 workspaces。
 - M1a 已把 `web/` 拆到 `packages/node` 和 `e2e/`，根目录加了 `package.json`。
 
 ---
@@ -435,6 +438,7 @@ oikome/
 | 2026-11-01 | M1a：`web/` 拆到 `packages/node`（`@oikome/node`，导出 host、store、transport、wasm）和 `e2e/`（`@oikome/e2e`，测试页在 `harness/`）；根目录 npm workspaces 先只含 `packages/*` 和 `e2e`，`apps/*`、`plugins/*` 建了再加；测试服务器按 URL 前缀映射目录（`/pkg/`、`/node_modules/`、`/`），越界路径拒绝；wasm 构建和 remote 测试跟随 `CARGO_TARGET_DIR` | 只搬位置、不改行为，browser-e2e 的断言不变；外部依赖版本和 lockfile 里的完全一样。见架构 §13.3 |
 | 2026-11-02 | 3.4 拆成 3.4a NAS 和 3.4b 网盘：先做家里的 NAS（WebDAV 或挂载目录），网盘逐步支持、每种网盘先有客户端加密才开放。存储上的 Space 不在原处读：写入节点照常写本地、每次写入后推快照（先文件、后快照文件），其他节点拉最新的完整快照到本地副本，像订阅副本一样读；一个目录一个写入节点（记在 `oikome-space.json`，防误操作，不是访问控制）；密码只从环境变量 `OIKOME_STORAGE_<NAME>_PASSWORD` / `_TOKEN` 读，钥匙串随 3.5 做；推送失败不让写语句报错；`materialize()` 不做了 | 数据放 NAS 仍在家里；网盘服务商能读上传的内容，所以先加密。DuckDB 按本地 Parquet 文件列表读 Iceberg、`lance` 扩展只能挂本地目录，WebDAV 上的 Iceberg 提交没有原子的比较交换；订阅已有校验过的快照复制，一套做法同时管 Iceberg 和 Lance，以后加密只是包一层。见架构 §7.4、§7.5 |
 | 2026-11-01 | 用户端测试连本地节点（临时数据目录、经命令行或接口写入测试数据），不做假数据和 mock 客户端；M1 改为先做接口（M1b）再做页面（M1c），各页面随有数据的里程碑做 | 只有一条测试链路，不用先测假数据再换真实数据测一遍；页面从一开始就走真实接口，不会和接口对不上。见架构 §14.1 |
+| 2026-11-01 | M1b：新 crate `oikome-api`（不含传输层，主人和 principal 两种调用者，接口层不拼 SQL）；`oikome serve --web` 只监听本机，一次性登录链接写进只有主人能读的 `.oikome/web/login`，由 `oikome web open` 打开，不打印；整个资料库的授权 `GRANT SELECT ON SPACE` 单独存放，视图展开后只读本 Space 才算在内；访问记录存 `.oikome/access_log.sqlite`，后台线程写，认证失败按分钟合并；注册表写入加文件锁并先重新读取；Space 名字在目录层校验；类型用 ts-rs 生成到 `packages/api` | 网页端开始在 serve 进程里写注册表，`oikome sql` 收回的令牌不能被覆盖；分享按资料库，新建的表也要包含，而视图可能跨 Space；令牌留在终端记录里不安全。见架构 §6.1、§9、§13.4 |
 
 ---
 

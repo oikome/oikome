@@ -55,7 +55,9 @@ use sqlparser::keywords::Keyword;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-use crate::capability::{parse_issue_ucan, parse_revoke_ucan, IssueUcanRequest};
+use crate::capability::{
+    parse_issue_ucan, parse_revoke_ucan, parse_space_grant, IssueUcanRequest, SpaceGrantRequest,
+};
 use crate::error::SemanticError;
 use crate::graph::{
     mentions_graph_table, parse_create_graph, parse_drop_graph, parse_graph_query,
@@ -84,6 +86,11 @@ pub enum OikomeStatement {
     RevokeUcan(String),
     /// `SHOW UCANS`: issued and revoked tokens.
     ShowUcans,
+    /// `GRANT SELECT ON SPACE <space> TO ...`: every table of the Space, now
+    /// and later, and the views that read only it.
+    GrantSpace(SpaceGrantRequest),
+    /// `REVOKE SELECT ON SPACE <space> FROM ...`
+    RevokeSpace(SpaceGrantRequest),
     /// `SHOW PEERS`: nodes found by discovery.
     ShowPeers,
     /// `SHOW WEBRTC`: the signed access record browsers connect with.
@@ -184,6 +191,16 @@ fn parse_one(stmt: &str) -> Result<OikomeStatement, SemanticError> {
         (Some("PUBLISH"), Some("SPACE")) => parse_publish(stmt),
         (Some("ISSUE"), Some("UCAN")) => Ok(OikomeStatement::IssueUcan(parse_issue_ucan(stmt)?)),
         (Some("REVOKE"), Some("UCAN")) => Ok(OikomeStatement::RevokeUcan(parse_revoke_ucan(stmt)?)),
+        (Some(verb @ ("GRANT" | "REVOKE")), Some("SELECT"))
+            if upper(2).as_deref() == Some("ON") && upper(3).as_deref() == Some("SPACE") =>
+        {
+            let request = parse_space_grant(stmt, verb == "REVOKE")?;
+            Ok(if verb == "REVOKE" {
+                OikomeStatement::RevokeSpace(request)
+            } else {
+                OikomeStatement::GrantSpace(request)
+            })
+        }
         (Some("SHOW"), Some(second @ ("IDENTITY" | "UCANS" | "PEERS" | "WEBRTC"))) => {
             if words.len() > 2 {
                 return Err(SemanticError::Parse(format!(

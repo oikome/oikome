@@ -254,6 +254,26 @@ impl FromStr for RemoteMode {
 /// authorizes this node to read it and `mode` says whether queries are
 /// shipped to the owner or run on a local copy. `Debug` never prints the
 /// token.
+/// Check a Space name: letters, digits, `_` or `-`, not starting with a
+/// digit, at most 64 bytes. The name becomes part of file paths (a SQLite
+/// file, a Lance directory, an Iceberg namespace), so this is enforced where
+/// a Space is registered, whichever way the request arrived.
+pub fn validate_space_name(name: &str) -> Result<(), crate::CatalogError> {
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && !name.starts_with(|c: char| c.is_ascii_digit());
+    if ok {
+        Ok(())
+    } else {
+        Err(crate::CatalogError::InvalidProperty(format!(
+            "invalid space name '{name}': use letters, digits, '_' or '-', do not start with a digit, at most 64 characters"
+        )))
+    }
+}
+
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct CreateSpaceRequest {
     pub name: String,
@@ -311,6 +331,16 @@ impl CreateSpaceRequest {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn space_names_cannot_leave_their_directory() {
+        assert!(validate_space_name("blog").is_ok());
+        assert!(validate_space_name("my-notes_2").is_ok());
+        for bad in ["", "../x", "a/b", "a.b", "1abc", "a b", &"x".repeat(65)] {
+            assert!(validate_space_name(bad).is_err(), "{bad}");
+        }
+    }
+
     use super::*;
 
     #[test]

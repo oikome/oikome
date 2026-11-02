@@ -333,12 +333,16 @@ DROP VIEW [IF EXISTS] blog.recent;
 
 GRANT SELECT [(id, title)] ON blog.posts TO alice, "did:key:z6Mk...";
 REVOKE SELECT ON blog.posts FROM alice;
+GRANT SELECT ON SPACE blog TO "did:key:z6Mk...";
+REVOKE SELECT ON SPACE blog FROM "did:key:z6Mk...";
 
 CREATE POLICY own ON orders.orders [FOR SELECT] TO alice, bob USING (customer = current_user);
 DROP POLICY [IF EXISTS] own ON orders.orders;
 ```
 
-Views, grants and policies live in the node registry (`.oikome/views.json`, `grants.json`, `policies.json`) and are removed with their Space (and grants/policies with their view). Every definition is validated by running it with `LIMIT 0` before it is stored, so a view, a grant's column list or a policy predicate that references something missing is rejected up front; a view that would expand into itself is rejected as recursive.
+Views, grants and policies live in the node registry (`.oikome/views.json`, `grants.json`, `space_grants.json`, `policies.json`) and are removed with their Space (and grants/policies with their view).
+
+A **whole-Space grant** (`ON SPACE`, M1b) covers every table of the Space, including tables created later, with all columns; row policies still apply. It covers a view only when the view's expansion reads nothing outside the Space: views run with the owner's rights and may read other Spaces, while a peer's UCAN is checked against the Spaces it names, so sharing one Space must not open another through a view. Whole-Space grants are kept apart from relation grants, so no relation name can stand for the whole Space. Grants add up: under a whole-Space grant, a column grant on one of its tables no longer narrows it. Every definition is validated by running it with `LIMIT 0` before it is stored, so a view, a grant's column list or a policy predicate that references something missing is rejected up front; a view that would expand into itself is rejected as recursive.
 
 ### 6.2 Principals
 
@@ -555,6 +559,15 @@ The peer protocol over Arrow Flight (`oikome-network::protocol`). Every call car
 - `node-c` is given no address and has to find `node-a` by mDNS.
 
 `tests/e2e/docker_nodes.sh` drives them, checking each step against its expected result: discovery, a UCAN-gated federated query over TLS with no `PEER`, a subscription, then revocation stopping both the query and refreshes while the copy stays readable. `.github/workflows/docker-e2e.yml` runs it on GitHub Actions on every push to `feat/**` or `ci/**`.
+
+**Access log (M1b, `oikome-node::access_log`).** A serving node records every request a peer or a browser sends it, so the owner can see who read what and when.
+- One row per call of the six entry points (`get_schema`, `do_get`, the three actions, `serve_envelope`): time, caller DID, method, Spaces, the id of the UCAN that let it in, outcome (`allowed`, `denied`, `failed`) and the reason. The reason is never sent to the caller.
+- `fetch_file` is recorded only when refused; the subscription is recorded by its `oikome.snapshot` call.
+- Rows live in `.oikome/access_log.sqlite`. Requests never wait for the log: a writer thread takes entries from a bounded channel (10,000), and entries are dropped (and counted) when it falls behind.
+- Failed authentications carry no caller and can come from anyone who reaches the port, so they are merged into one row per method and minute, under a cap of their own (10,000 rows). The log keeps 90 days, at most 100,000 rows.
+- The owner reads it through `list_access` (§13.4).
+
+**Registry writes across processes (M1b).** `serve` and `oikome sql` are separate processes over the same `.oikome/`. A writer holds an exclusive lock on `.oikome/registry.lock`, reads the registry files again, changes them and saves them; `refresh` holds the lock shared while it reads. Without this, a write from one process could save a copy loaded before the other process's write and undo it, for example bringing back a token revoked with `oikome sql`.
 
 ---
 
@@ -827,12 +840,28 @@ oikome/
 - **`oikome-api`** is what Oikome offers to everything above the node: its own clients, plugins and MCP. The peer-to-peer protocol stays in `oikome-protocol` / `oikome-network`.
   - It has no transport.
   - Every call carries the caller: **Owner**, or **Principal** (a DID with a UCAN, e.g. an AI tool or a plugin). Owner-only operations (create Spaces, connect sources, share, issue and revoke grants) refuse a Principal. A Principal's reads go through the semantic layer like a peer's (§6), so it sees only what it is granted.
-- **HTTP** is a thin layer in `oikome-server`, turned on by `oikome serve --web`. It serves the embedded `apps/web` build and the API.
-  - It listens on loopback by default.
-  - `serve` prints a one-time token; the page exchanges it for an HttpOnly, SameSite=Strict session cookie.
-  - Requests whose `Host` or `Origin` is not the served address are refused, which covers DNS rebinding and cross-site requests.
+- **HTTP** is a thin layer in `oikome-server` (`web.rs`), turned on by `oikome serve --web` (`--web-listen`, default `127.0.0.1:7340`). It serves the API now and the embedded `apps/web` build from M1c.
+  - It listens on loopback only.
+  - **Login.** A one-time token (32 random bytes, 10 minutes) is written into a login link in `.oikome/web/login`, readable by the owner only; it is never printed or logged. `oikome web open` opens that link in the browser. Using it sets the cookie `oikome_session_<port>` (HttpOnly, SameSite=Strict; the port keeps two nodes on one machine apart) and replaces the token. Sessions live in memory and end after 12 idle hours or a restart. The login file is removed when the node stops.
+  - **Every request**: `Host` must name this server (DNS rebinding).
+  - **API calls**: `Origin` must be this server, `Sec-Fetch-Site` (when sent) `same-origin`, `Content-Type` `application/json`, and the session valid. Bodies are capped at 1 MiB; token comparison is constant-time.
+  - Operations are `POST /api/<operation>` with a JSON request. Replies are JSON, or an Arrow IPC stream (`application/vnd.apache.arrow.stream`) for rows. Errors are `{code, message}` with code `invalid` (400), `unauthenticated` (401), `permission_denied` (403), `not_found` (404), `conflict` (409) or `internal` (500, details only in the node's log).
 - **Desktop** (later) links `oikome-api` into its Tauri process and runs the Full Node there. Tauri commands call the handlers directly, so no port is opened.
-- **`packages/api`** is generated from `oikome-api`'s types. The generator is chosen in M1b; its license is checked by `cargo deny`.
+- **`packages/api`** is generated from `oikome-api`'s types with ts-rs (MIT). The `bindings` test fails when `packages/api/src/index.ts` is out of date; `UPDATE_BINDINGS=1 cargo test -p oikome-api --test bindings` rewrites it.
+- **Operations (M1b)**, the same names for HTTP, later Tauri commands and MCP tools. All are owner-only except `node_info`:
+
+| Operation | What it does |
+|-----------|--------------|
+| `node_info` | DID, version and the Flight URL peers reach |
+| `list_spaces`, `create_space`, `drop_space` | Local Spaces and how many contacts each is shared with. `drop_space` first revokes the Space's active shares, since a token names a Space by name and would work again on a new Space of that name |
+| `list_tables`, `read_rows` | Tables and views; a page of rows (at most 1,000) as Arrow |
+| `run_sql` | The owner's statements in one session (at most 256 KiB); the last result as Arrow (cut at 10,000 rows or about 32 MiB, flagged by `oikome-truncated: true`) or `{rowsAffected}` |
+| `list_contacts`, `add_contact`, `rename_contact`, `remove_contact` | Names for the DIDs the owner shares with (`contacts.json`). Removing a contact revokes their shares and whole-Space grants |
+| `share_space` | A whole-Space grant plus a UCAN (`space/query`, or `space/read` to allow copying an analytical Space) for 1 to 366 days; the token is returned once. Only to contacts |
+| `list_shares`, `revoke_share` | Shares: issued UCANs whose capabilities all name one Space (tokens issued with SQL for several Spaces or `*` are not listed). Revoking the contact's last active share of a Space removes their grant on it |
+| `list_access` | The access log (§9), newest first, by DID or Space, with contact names |
+
+- The API never builds SQL from request fields: names are checked against the catalog and operations call the node directly. Only `run_sql` runs SQL, the owner's own.
 - **`oikome-mcp`** (M3) exposes Principal operations only: list the Spaces it may read, then search and query within its grants. It never exposes Owner commands.
   - Grants for AI tools are managed on the app's AI Assistants screen.
   - `oikome mcp`, when started by an AI client, is a thin bridge: it reaches the running node with that assistant's UCAN. It does not open the data directory, where it would contend for DuckDB and SQLite file locks.
@@ -848,7 +877,7 @@ How each client reaches data (screens depend only on `NodeClient`):
 | Desktop app (later) | Tauri window | In-process calls to `oikome-api` | Desktop |
 | Phone app (later) | Tauri 2 mobile | WebRTC with a UCAN, as the phone browser | Phone |
 
-Which Owner operations a paired device may perform is settled in M1b.
+Which Owner operations a paired device may perform is decided with phone pairing, which is designed separately before M1c, together with the recovery key: a phone browser needs the page over HTTPS, and where that page comes from is not decided.
 
 **Scope of the apps.**
 - They serve the owner's personal data center: onboarding, Spaces, sources, sharing, AI assistants, plugins and settings. Node operations (engines, logs, peers' internals) stay in the CLI. Members and family roles come later.
@@ -883,7 +912,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | Milestone | Goal | Gate | Exit criterion |
 |-----------|------|------|----------------|
 | **M1a Layout** ✅ | `web/` split into `packages/node` and `e2e/`; root `package.json` with npm workspaces | 3.2 ✅ | `browser-e2e` passes from the new paths with no change to the tests' assertions |
-| **M1b API** | `oikome-api` with the Owner operations M1's screens need (identity and recovery key, Spaces, sharing and revoking with contacts, phone pairing, access log, SQL); `oikome serve --web`; `packages/api`; `packages/client` with its HTTP implementation | 3.0–3.2 ✅, M1a | e2e starts `oikome serve --web` on an empty temporary data directory and, through `packages/client`, creates a Space, writes and reads rows, shares the Space with a contact and revokes it, after which the contact's query fails. A request without the session cookie or with a foreign `Origin` is refused |
+| **M1b API** ✅ | `oikome-api` with the Owner operations of §13.4 (Spaces, rows, SQL, contacts, sharing and revoking, access log); whole-Space grants; the access log; `oikome serve --web` and `oikome web open`; `packages/api`; `packages/client` with its HTTP implementation. The recovery key and phone pairing are designed separately before M1c | 3.0–3.2 ✅, M1a | e2e starts `oikome serve --web` on an empty temporary data directory and, through `packages/client`, creates a Space, writes and reads rows, shares the Space with a contact and revokes it, after which the contact's query fails. A request without the session cookie or with a foreign `Origin` is refused |
 | **M1c Usable** | `packages/ui`, `packages/screens` and `apps/web`: the M1 screens (onboarding and the recovery key, Spaces, sharing and contacts, phone pairing, access log, advanced SQL, settings), desktop and phone layouts | M1b | In e2e on CI, against a local node started from an empty data directory: onboarding; a Space browsed; the Space shared with a contact and revoked; a phone browser paired that then queries over WebRTC. Each M1 screen renders at desktop and phone widths; no text pair fails its WCAG contrast ratio |
 | **M2 Connect** | Sources screen and sync status, Home dashboard, built-in cards, dashboard plugins v1 (`plugin-sdk`, data contract, plugin grants), reference plugins | 3.5, M1c | A connector's data appears on Home; a plugin reads only what its grant allows and cannot reach the network |
 | **M3 Find** | Full-text and semantic search, photo and note views, AI Assistants screen, `oikome-mcp` | 3.3 ✅, M2 | An MCP client lists and searches only the Spaces granted to it; revoking the grant in the app cuts it off; Owner commands are not offered over MCP |
@@ -974,6 +1003,10 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-02 | A Space on a storage is copied, not read in place: the writer keeps it on its disk and pushes each snapshot (files, then a snapshot file); readers copy the newest complete snapshot and read it like a subscription. `materialize()` dropped | DuckDB reads Iceberg as lists of local Parquet files and the `lance` extension attaches only local directories; Iceberg commits over WebDAV have no compare-and-swap; the subscription code already copies verified snapshots, so one mechanism serves Iceberg and Lance, and encryption later wraps each file |
 | 2026-11-02 | One writing node per folder, recorded in `oikome-space.json`; passwords and tokens only from the environment; a failed push does not fail the write | WebDAV has no conditional create, so the record is a guard, not access control; servers and containers have no keychain (it comes with 3.5); failing a committed write invites a retry that duplicates rows |
 | 2026-11-01 | App tests run against a local node (temporary data directory, test data written through the CLI or the API); no fake data and no mock `NodeClient`. So the API (M1b) comes before the screens (M1c), and each screen arrives with the milestone whose data it shows | One test chain instead of a fake one followed by a real one; screens exercise the real API from the start, and there are no fixtures to drift from it |
+| 2026-11-01 | Whole-Space grants (`GRANT SELECT ON SPACE`) in their own registry; they cover a view only when its expansion stays in the Space | Sharing is per Space in the apps and should include tables created later; a relation name such as `"*"` could not stand for the Space safely; owner-rights views would otherwise open other Spaces |
+| 2026-11-01 | The access log is SQLite under `.oikome/`, written by a thread behind a bounded channel; failed authentications merged per method and minute | Requests never wait for logging; the owner can page and filter it; unauthenticated callers cannot push real entries out |
+| 2026-11-01 | The web API's login link is written to an owner-only file and opened with `oikome web open`, never printed | A token in terminal output stays in scrollback and logs; whoever can read the data directory is the owner anyway |
+| 2026-11-01 | Registry writes take a file lock and re-read the files first; `refresh` reads under a shared lock | With the web API, `serve` writes the registry too; a `REVOKE UCAN` from `oikome sql` must not be undone by its next write |
 | 2026-11-01 | Visual design: Apple-style minimal, low-chroma cream palette, one crimson primary action per view, blue only for links and focus | Calm and familiar for ordinary users; color marks the one thing to do instead of decorating; every text pair is checked against WCAG contrast |
 
 ---

@@ -22,6 +22,8 @@
 //! oikome [--root DIR] web open          open the web app, logged in
 //! oikome [--root DIR] extensions install
 //!                                       fetch the DuckDB extensions Oikome uses
+//! oikome [--root DIR] storage add|list|remove
+//!                                       manage storages (a NAS) for Spaces
 //! ```
 //!
 //! DuckDB extensions (`lance` for Lance Spaces, `duckpgq` for their graphs,
@@ -32,6 +34,10 @@
 //!
 //! The node key is read from `OIKOME_NODE_KEY` (base64url seed) when set,
 //! otherwise from `<root>/.oikome/identity/node_ed25519`, created on first use.
+//!
+//! A storage's password or token is read from
+//! `OIKOME_STORAGE_<NAME>_PASSWORD` or `OIKOME_STORAGE_<NAME>_TOKEN` each
+//! time it is used, and is never stored.
 
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
@@ -45,11 +51,12 @@ use clap::{Parser, Subcommand};
 use iceberg::io::FileIO;
 use oikome_api::Api;
 use oikome_catalog::registry::OIKOME_DIR;
-use oikome_catalog::OikomeCatalog;
+use oikome_catalog::{OikomeCatalog, StorageKind};
 use oikome_discovery::{Discovery, DiscoveryConfig, EndpointResponse};
 use oikome_engine_duckdb::{DuckDbConfig, DuckDbEngine, Extension};
 use oikome_node::{
-    AccessLog, EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig,
+    spawn_storage_sync, AccessLog, EngineRegistry, NodeConfig, OikomeSession, QueryResult,
+    SessionConfig,
 };
 use oikome_server::web::{login_file, DEFAULT_WEB_LISTEN};
 use oikome_server::{serve, serve_webrtc, DtlsIdentity, OikomeFlightService, WebApp};
@@ -97,6 +104,31 @@ enum ExtensionsCommand {
 }
 
 #[derive(Subcommand)]
+enum StorageCommand {
+    /// Register a storage Spaces can live on: a WebDAV server such as a NAS,
+    /// or a mounted folder. Its password or token is read from
+    /// OIKOME_STORAGE_<NAME>_PASSWORD or OIKOME_STORAGE_<NAME>_TOKEN; the
+    /// storage is checked before it is registered.
+    Add {
+        /// Lowercase letters, digits and `_`, starting with a letter.
+        name: String,
+        /// WebDAV address, https://host[:port][/path].
+        #[arg(long, conflicts_with = "folder", required_unless_present = "folder")]
+        webdav: Option<String>,
+        /// WebDAV user name.
+        #[arg(long, requires = "webdav")]
+        username: Option<String>,
+        /// A mounted folder (absolute path), such as a NAS share.
+        #[arg(long)]
+        folder: Option<PathBuf>,
+    },
+    /// List the registered storages.
+    List,
+    /// Unregister a storage no Space is on; its files are left in place.
+    Remove { name: String },
+}
+
+#[derive(Subcommand)]
 enum WebCommand {
     /// Open the running node's web app in the default browser, logged in
     /// with the one-time link `serve --web` keeps in the data directory.
@@ -109,6 +141,11 @@ enum Command {
     Extensions {
         #[command(subcommand)]
         command: ExtensionsCommand,
+    },
+    /// Manage storages (a NAS) that Spaces can live on.
+    Storage {
+        #[command(subcommand)]
+        command: StorageCommand,
     },
     /// Print this node's DID.
     Identity,
@@ -153,6 +190,11 @@ enum Command {
         /// record); defaults to the listen IP.
         #[arg(long, env = "OIKOME_WEBRTC_ADVERTISE")]
         webrtc_advertise: Option<IpAddr>,
+        /// Seconds between syncs of Spaces on a storage: copies pull the
+        /// newest snapshot, writers push one a failed push left behind. 0
+        /// turns it off.
+        #[arg(long, env = "OIKOME_STORAGE_SYNC", default_value_t = 60)]
+        storage_sync: u64,
         /// Also serve the owner's web API on --web-listen (loopback only);
         /// `oikome web open` logs in.
         #[arg(long, env = "OIKOME_WEB")]
@@ -164,6 +206,15 @@ enum Command {
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+/// Stops a background task when dropped.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 
 /// The DuckDB configuration of the node at `root`.
 fn duckdb_config(root: &Path, extension_dir: Option<&Path>) -> DuckDbConfig {
@@ -256,6 +307,52 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 println!("{}\t{version}", ext.name());
             }
         }
+        Command::Storage { command } => {
+            let (catalog, engines) =
+                open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
+            match command {
+                StorageCommand::Add {
+                    name,
+                    webdav,
+                    username,
+                    folder,
+                } => {
+                    let kind = match (webdav, folder) {
+                        (Some(endpoint), _) => StorageKind::Webdav { endpoint, username },
+                        (None, Some(path)) => StorageKind::Folder {
+                            path: path
+                                .to_str()
+                                .ok_or("the folder path must be valid UTF-8")?
+                                .to_string(),
+                        },
+                        (None, None) => return Err("give --webdav or --folder".into()),
+                    };
+                    catalog.add_storage(&name, kind)?;
+                    let session =
+                        OikomeSession::new(catalog.clone(), engines, SessionConfig::default());
+                    if let Err(e) = session.check_storage(&name).await {
+                        catalog.remove_storage(&name)?;
+                        return Err(e.into());
+                    }
+                    println!("OK");
+                }
+                StorageCommand::List => {
+                    for def in catalog.list_storages() {
+                        let (kind, address, user) = match &def.kind {
+                            StorageKind::Webdav { endpoint, username } => {
+                                ("webdav", endpoint.as_str(), username.as_deref())
+                            }
+                            StorageKind::Folder { path } => ("folder", path.as_str(), None),
+                        };
+                        println!("{}\t{kind}\t{address}\t{}", def.name, user.unwrap_or(""));
+                    }
+                }
+                StorageCommand::Remove { name } => {
+                    catalog.remove_storage(&name)?;
+                    println!("OK");
+                }
+            }
+        }
         Command::Identity => {
             let (_, engines) = open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
             println!("{}", engines.identity()?.did());
@@ -304,6 +401,7 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             dial,
             webrtc_listen,
             webrtc_advertise,
+            storage_sync,
             web,
             web_listen,
         } => {
@@ -323,6 +421,15 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 Some(engines.identity()?.tls_identity()?)
             };
             let identity = engines.identity()?;
+            // Spaces on a storage follow it while the node serves (§7.5).
+            let _storage_sync = (storage_sync > 0).then(|| {
+                let owner =
+                    OikomeSession::new(catalog.clone(), engines.clone(), SessionConfig::default());
+                AbortOnDrop(spawn_storage_sync(
+                    Arc::new(owner),
+                    Duration::from_secs(storage_sync),
+                ))
+            });
             let access_log = AccessLog::open(&catalog_dir)?;
             let service = OikomeFlightService::new(catalog.clone(), engines.clone())?
                 .with_access_log(access_log.clone());

@@ -45,7 +45,7 @@ const INDEX_TYPES: [&str; 14] = [
 ];
 
 /// The directory of `space`'s datasets, if it is stored as Lance: its own
-/// Location, or a subscribed copy of a Lance Space.
+/// Location, or a copy of a Lance Space (subscribed or on a storage).
 pub(crate) fn lance_root(
     catalog: &OikomeCatalog,
     space: &Space,
@@ -53,7 +53,9 @@ pub(crate) fn lance_root(
     let location = catalog.get_location(&space.location)?;
     Ok(match &location.format {
         LocationFormat::Lance { .. } => Some(catalog.lance_root(&location)?),
-        LocationFormat::Replica { .. } => replica_lance_root(catalog, &location)?,
+        LocationFormat::Replica { .. } | LocationFormat::StorageCopy => {
+            replica_lance_root(catalog, &location)?
+        }
         _ => None,
     })
 }

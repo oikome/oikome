@@ -184,7 +184,16 @@ impl OikomeSession {
                 Ok(QueryResult::Empty)
             }
             OikomeStatement::PublishSpace(request) => self.publish(&request).await?.into_result(),
-            OikomeStatement::RefreshSpace(name) => self.refresh_space(&name).await?.into_result(),
+            OikomeStatement::RefreshSpace(name) => {
+                self.deny_principal("REFRESH SPACE")?;
+                let space = self.space(&name)?;
+                let location = self.catalog.get_location(&space.location)?;
+                if location.storage.is_some() && !location.format.is_copy() {
+                    Box::pin(self.push_space(&name)).await?.into_result()
+                } else {
+                    Box::pin(self.refresh_space(&name)).await?.into_result()
+                }
+            }
             OikomeStatement::SetSpace(name) => {
                 // A principal cannot tell a Space it has no grant in from one
                 // that does not exist.
@@ -201,12 +210,20 @@ impl OikomeSession {
                 let routed = self.route(*stmt, sql)?;
                 match routed.class.clone() {
                     StatementClass::Tcl(kind) => self.run_tcl(kind).await,
-                    StatementClass::TableDdl { space } => self.run_table_ddl(&space, routed).await,
+                    StatementClass::TableDdl { space } => {
+                        let done = self.run_table_ddl(&space, routed).await?;
+                        Box::pin(self.push_after_write(&space)).await;
+                        Ok(done)
+                    }
                     StatementClass::Dml {
                         space,
                         kind,
                         spaces,
-                    } => self.run_dml(&space, kind, &spaces, routed).await,
+                    } => {
+                        let done = self.run_dml(&space, kind, &spaces, routed).await?;
+                        Box::pin(self.push_after_write(&space)).await;
+                        Ok(done)
+                    }
                     StatementClass::Query { spaces } => {
                         self.check_search(&routed, &spaces).await?;
                         let (schema, stream) = self.run_query(&spaces, &routed.text).await?;
@@ -235,6 +252,15 @@ impl OikomeSession {
                 RemoteMode::Subscribe => self.create_subscribed_space(request).await,
             };
         }
+        if request
+            .storage
+            .as_deref()
+            .is_some_and(|s| s != oikome_catalog::space::STORAGE_DISK)
+        {
+            // Boxed, like the other storage calls here: their futures
+            // would otherwise enlarge every statement's.
+            return Box::pin(self.create_space_on_storage(request)).await;
+        }
         self.catalog.create_space(request).await?;
         Ok(QueryResult::Empty)
     }
@@ -246,7 +272,8 @@ impl OikomeSession {
         self.deny_principal("DROP SPACE")?;
         let space = self.space(name)?;
         let format = self.catalog.get_location(&space.location).map(|l| l.format);
-        let replica = matches!(format, Ok(LocationFormat::Replica { .. }));
+        // A subscription or a copy of a Space on a storage.
+        let replica = format.as_ref().is_ok_and(LocationFormat::is_copy);
         if matches!(format, Ok(LocationFormat::Lance { .. })) || replica {
             // A Lance Space (or a copy of one) is attached whole.
             self.engines.duckdb()?.detach_space(name).await?;

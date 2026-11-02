@@ -42,7 +42,7 @@ use oikome_identity::ucan::ABILITY_READ;
 use oikome_identity::{unix_now_ms, Did};
 use oikome_network::protocol::{
     decode_schema, is_file_hash, is_identifier, is_lance_file_path, FetchFileRequest, FileEntry,
-    TableFormat, TableSnapshot,
+    SnapshotResponse, TableFormat, TableSnapshot,
 };
 use oikome_network::{ChunkStream, PeerClient};
 use serde::{Deserialize, Serialize};
@@ -52,8 +52,11 @@ use tokio::task::JoinHandle;
 use crate::error::SessionError;
 use crate::result::QueryResult;
 use crate::session::OikomeSession;
+use crate::storage::StoredFiles;
 
 const MANIFEST_FILE: &str = "manifest.json";
+/// Lock files of Locations, under `.oikome/`.
+const LOCKS_DIR: &str = "locks";
 const FILES_DIR: &str = "files";
 /// Where a copy of a Lance Space keeps its datasets, `<table>.lance` each.
 const LANCE_DIR: &str = "lance";
@@ -160,16 +163,52 @@ fn unique_suffix() -> String {
     )
 }
 
-/// One refresh at a time per replica directory.
-fn refresh_lock(dir: &Path) -> Arc<tokio::sync::Mutex<()>> {
+/// Held while a Location's copy is refreshed or its snapshot pushed to a
+/// storage: one at a time per Location, across the processes of the node.
+pub(crate) struct LocationLock {
+    _file: std::fs::File,
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
+/// Wait for the lock of the Location `location`.
+pub(crate) async fn lock_location(
+    catalog: &OikomeCatalog,
+    location: &str,
+) -> Result<LocationLock, SessionError> {
     static LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
         LazyLock::new(Default::default);
-    LOCKS
+    let path = catalog
+        .oikome_dir()
+        .join(LOCKS_DIR)
+        .join(format!("{location}.lock"));
+    let mutex = LOCKS
         .lock()
         .unwrap_or_else(|p| p.into_inner())
-        .entry(dir.to_path_buf())
+        .entry(path.clone())
         .or_default()
-        .clone()
+        .clone();
+    let guard = mutex.lock_owned().await;
+    // Another process of this node (`oikome sql` next to `oikome serve`)
+    // takes the same file lock.
+    let file = tokio::task::spawn_blocking(move || -> std::io::Result<std::fs::File> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)?;
+        file.lock()?;
+        Ok(file)
+    })
+    .await
+    .map_err(|e| io(std::io::Error::other(e)))?
+    .map_err(io)?;
+    Ok(LocationLock {
+        _file: file,
+        _guard: guard,
+    })
 }
 
 fn read_manifest(dir: &Path) -> Result<ReplicaManifest, SessionError> {
@@ -306,20 +345,61 @@ async fn remove_unreferenced(
     Ok(())
 }
 
-/// Copy the owner's current snapshot of `remote` into `dir`.
-async fn refresh(
-    client: &PeerClient,
-    remote: &str,
+/// Where a copy's files come from.
+pub(crate) enum Source<'a> {
+    /// The owner node, over Arrow Flight.
+    Peer {
+        client: &'a PeerClient,
+        remote: &'a str,
+    },
+    /// A storage holding the Space's snapshots (§7.5).
+    Storage(&'a StoredFiles),
+}
+
+impl Source<'_> {
+    /// The bytes of `file` of `table`.
+    async fn open(
+        &self,
+        table: &TableSnapshot,
+        file: &FileEntry,
+    ) -> Result<ChunkStream, SessionError> {
+        match self {
+            Source::Peer { client, remote } => {
+                let snapshot_id = table
+                    .snapshot_id
+                    .ok_or_else(|| bad_peer("a table without a snapshot lists files"))?;
+                Ok(client
+                    .fetch_file(&FetchFileRequest {
+                        space: remote.to_string(),
+                        table: table.name.clone(),
+                        snapshot_id,
+                        hash: file.hash.clone(),
+                    })
+                    .await?)
+            }
+            Source::Storage(files) => files.open(table, file).await,
+        }
+    }
+}
+
+/// Copy `snapshot` from `source` into `dir`. `format`, when known, is the
+/// format every table must have; otherwise the first table's is used.
+pub(crate) async fn refresh(
+    source: &Source<'_>,
+    snapshot: SnapshotResponse,
     dir: &Path,
+    format: Option<TableFormat>,
 ) -> Result<Vec<RefreshedTable>, SessionError> {
-    let snapshot = client.snapshot(remote).await?;
     let files_dir = dir.join(FILES_DIR);
     tokio::fs::create_dir_all(&files_dir).await.map_err(io)?;
     let previous = read_manifest(dir)?;
-    let lance = snapshot
-        .tables
-        .first()
-        .is_some_and(|t| t.format == TableFormat::Lance);
+    let lance = match format {
+        Some(format) => format == TableFormat::Lance,
+        None => snapshot
+            .tables
+            .first()
+            .is_some_and(|t| t.format == TableFormat::Lance),
+    };
     if snapshot
         .tables
         .iter()
@@ -340,7 +420,7 @@ async fn refresh(
         }
         decode_schema(&table.schema)?;
         if lance {
-            let (copied, paths) = refresh_lance_table(client, remote, dir, &table).await?;
+            let (copied, paths) = refresh_lance_table(source, dir, &table).await?;
             report.push(copied);
             manifest.tables.insert(
                 table.name,
@@ -364,17 +444,7 @@ async fn refresh(
             {
                 continue;
             }
-            let snapshot_id = table
-                .snapshot_id
-                .ok_or_else(|| bad_peer("a table without a snapshot lists files"))?;
-            let chunks = client
-                .fetch_file(&FetchFileRequest {
-                    space: remote.to_string(),
-                    table: table.name.clone(),
-                    snapshot_id,
-                    hash: file.hash.clone(),
-                })
-                .await?;
+            let chunks = source.open(&table, file).await?;
             bytes += download(chunks, file, &file_path(&files_dir, &file.hash)).await?;
             fetched += 1;
         }
@@ -417,8 +487,7 @@ async fn refresh(
 /// see either the previous version or the whole new one. Files already held
 /// are not fetched again; Lance never rewrites a file under the same name.
 async fn refresh_lance_table(
-    client: &PeerClient,
-    remote: &str,
+    source: &Source<'_>,
     dir: &Path,
     table: &TableSnapshot,
 ) -> Result<(RefreshedTable, Vec<String>), SessionError> {
@@ -456,14 +525,7 @@ async fn refresh_lance_table(
         if let Some(parent) = target.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(io)?;
         }
-        let chunks = client
-            .fetch_file(&FetchFileRequest {
-                space: remote.to_string(),
-                table: table.name.clone(),
-                snapshot_id: version,
-                hash: file.hash.clone(),
-            })
-            .await?;
+        let chunks = source.open(table, file).await?;
         bytes += download(chunks, file, &target).await?;
         fetched += 1;
     }
@@ -562,34 +624,43 @@ impl OikomeSession {
         }
     }
 
-    /// `REFRESH SPACE <name>`: copy the owner's current snapshot of a
-    /// subscribed Space, downloading only files not held yet.
+    /// `REFRESH SPACE <name>` on a copy: copy the owner's current snapshot
+    /// of a subscribed Space, or the newest complete snapshot of a Space on
+    /// a storage, downloading only files not held yet.
     pub async fn refresh_space(&self, name: &str) -> Result<RefreshReport, SessionError> {
         self.deny_principal("REFRESH SPACE")?;
         let space = self.space(name)?;
         let location = self.catalog.get_location(&space.location)?;
-        let LocationFormat::Replica {
-            peer,
-            space: remote,
-            owner,
-        } = &location.format
-        else {
-            return Err(SessionError::Unsupported(format!(
-                "space '{name}' is not a subscribed space"
-            )));
+        let tables = match &location.format {
+            LocationFormat::Replica {
+                peer,
+                space: remote,
+                owner,
+            } => {
+                let token = self.catalog.remote_token(name)?;
+                let client = PeerClient::new(
+                    self.engines().peer_endpoint(peer.as_deref(), owner)?,
+                    Did::parse(owner)?,
+                    token.expose().to_string(),
+                    self.engines().identity()?,
+                )
+                .allow_http(self.engines().allow_http());
+                let dir = self.catalog.replica_dir(&location.id);
+                let _lock = lock_location(&self.catalog, &location.id).await?;
+                let snapshot = client.snapshot(remote).await?;
+                let source = Source::Peer {
+                    client: &client,
+                    remote,
+                };
+                refresh(&source, snapshot, &dir, None).await?
+            }
+            LocationFormat::StorageCopy => self.pull(&location).await?,
+            _ => {
+                return Err(SessionError::Unsupported(format!(
+                    "space '{name}' is not a subscribed space or a copy of a space on a storage"
+                )))
+            }
         };
-        let token = self.catalog.remote_token(name)?;
-        let client = PeerClient::new(
-            self.engines().peer_endpoint(peer.as_deref(), owner)?,
-            Did::parse(owner)?,
-            token.expose().to_string(),
-            self.engines().identity()?,
-        )
-        .allow_http(self.engines().allow_http());
-        let dir = self.catalog.replica_dir(&location.id);
-        let lock = refresh_lock(&dir);
-        let _guard = lock.lock().await;
-        let tables = refresh(&client, remote, &dir).await?;
         // A copy of a Lance Space is attached whole; attach it afresh so the
         // new version is read.
         self.engines().duckdb()?.detach_space(name).await?;
@@ -599,11 +670,10 @@ impl OikomeSession {
         })
     }
 
-    /// Remove the files of a dropped subscribed Space.
+    /// Remove the files of a dropped copy (subscription or storage).
     pub(crate) async fn remove_replica(&self, location: &str) -> Result<(), SessionError> {
         let dir = self.catalog.replica_dir(location);
-        let lock = refresh_lock(&dir);
-        let _guard = lock.lock().await;
+        let _lock = lock_location(&self.catalog, location).await?;
         match tokio::fs::remove_dir_all(&dir).await {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io(e)),
             _ => Ok(()),

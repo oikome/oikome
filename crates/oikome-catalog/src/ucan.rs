@@ -309,6 +309,7 @@ impl OikomeCatalog {
             format,
             residency: vec![RESIDENCY_REMOTE.to_string()],
             writer: None,
+            storage: None,
         };
         self.mutate_registry(|reg| {
             if reg.spaces.contains_key(name) {

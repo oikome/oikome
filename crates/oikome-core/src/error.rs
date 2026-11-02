@@ -57,6 +57,9 @@ pub enum CatalogError {
     #[error("Location not found: {0}")]
     LocationNotFound(String),
 
+    #[error("Storage not found: {0}; register it with `oikome storage add`")]
+    StorageNotFound(String),
+
     #[error("Engine {engine} cannot read a {format} location")]
     IncompatibleFormat { engine: String, format: String },
 

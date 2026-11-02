@@ -30,7 +30,8 @@ use crate::catalog::OikomeCatalog;
 use crate::contact::Contact;
 use crate::graph::GraphDef;
 use crate::peer::Peer;
-use crate::space::{validate_binding, Location, LocationFormat, LocationId, Space};
+use crate::space::{validate_binding, Location, LocationFormat, LocationId, Space, STORAGE_DISK};
+use crate::storage::StorageDef;
 use crate::ucan::{IssuedUcan, RemoteToken, Revocation};
 
 /// Name of the hidden directory holding registries and SQLite files.
@@ -46,6 +47,7 @@ const POLICIES_FILE: &str = "policies.json";
 const UCANS_FILE: &str = "ucans.json";
 const REVOCATIONS_FILE: &str = "revocations.json";
 const PEERS_FILE: &str = "peers.json";
+const STORAGES_FILE: &str = "storages.json";
 /// Held UCANs live apart from the other registries, readable by the owner only.
 const IDENTITY_DIR: &str = "identity";
 const REMOTE_TOKENS_FILE: &str = "remote_tokens.json";
@@ -86,6 +88,8 @@ pub(crate) struct Registry {
     pub(crate) tokens: BTreeMap<String, RemoteToken>,
     /// Discovered peers, keyed by DID.
     pub(crate) peers: BTreeMap<String, Peer>,
+    /// Registered storages, keyed by name.
+    pub(crate) storages: BTreeMap<String, StorageDef>,
     /// The owner's contacts, keyed by DID.
     pub(crate) contacts: BTreeMap<String, Contact>,
 }
@@ -179,6 +183,7 @@ impl Registry {
         let tokens: Vec<RemoteToken> =
             read_items(&dir.join(IDENTITY_DIR).join(REMOTE_TOKENS_FILE), &mut h)?;
         let peers: Vec<Peer> = read_items(&dir.join(PEERS_FILE), &mut h)?;
+        let storages: Vec<StorageDef> = read_items(&dir.join(STORAGES_FILE), &mut h)?;
         let contacts: Vec<Contact> = read_items(&dir.join(CONTACTS_FILE), &mut h)?;
         let registry = Self {
             spaces: spaces.into_iter().map(|s| (s.name.clone(), s)).collect(),
@@ -192,6 +197,7 @@ impl Registry {
             revoked: revoked.into_iter().map(|r| (r.id.clone(), r)).collect(),
             tokens: tokens.into_iter().map(|t| (t.space.clone(), t)).collect(),
             peers: peers.into_iter().map(|p| (p.did.clone(), p)).collect(),
+            storages: storages.into_iter().map(|s| (s.name.clone(), s)).collect(),
             contacts: contacts.into_iter().map(|c| (c.did.clone(), c)).collect(),
         };
         Ok((registry, h.finish()))
@@ -239,6 +245,10 @@ impl Registry {
         write_items(
             &dir.join(PEERS_FILE),
             self.peers.values().cloned().collect(),
+        )?;
+        write_items(
+            &dir.join(STORAGES_FILE),
+            self.storages.values().cloned().collect(),
         )?;
         write_items(
             &dir.join(CONTACTS_FILE),
@@ -351,13 +361,14 @@ impl OikomeCatalog {
         Ok(true)
     }
 
-    /// Create a Space (and, unless `LOCATION` names an existing one, its Location).
-    ///
-    /// Analytical Spaces get an Iceberg namespace of the same name; the
-    /// database file of a transactional Space is created by its engine on
-    /// first open.
-    pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, CatalogError> {
-        let (space, location, is_new_location) = self.with_registry(|reg| {
+    /// Check a `CREATE SPACE` request against the registry without
+    /// registering anything. Returns the Space and Location it would
+    /// create, and whether the Location is new.
+    pub fn plan_space(
+        &self,
+        request: &CreateSpaceRequest,
+    ) -> Result<(Space, Location, bool), CatalogError> {
+        self.with_registry(|reg| {
             if reg.spaces.contains_key(&request.name) {
                 return Err(CatalogError::SpaceExists(request.name.clone()));
             }
@@ -365,15 +376,29 @@ impl OikomeCatalog {
                 Some(id) => reg.locations.get(id),
                 None => None,
             };
+            if let Some(storage) = request.storage.as_deref().filter(|s| *s != STORAGE_DISK) {
+                if !reg.storages.contains_key(storage) {
+                    return Err(CatalogError::StorageNotFound(storage.to_string()));
+                }
+            }
             if request.location.is_none() && reg.locations.contains_key(&request.name) {
                 return Err(CatalogError::Registry(format!(
                     "a location named '{}' already exists; bind it with LOCATION = '{}'",
                     request.name, request.name
                 )));
             }
-            let (space, location) = validate_binding(&request, existing, now_ms())?;
+            let (space, location) = validate_binding(request, existing, now_ms())?;
             Ok((space, location, existing.is_none()))
-        })?;
+        })
+    }
+
+    /// Create a Space (and, unless `LOCATION` names an existing one, its Location).
+    ///
+    /// Analytical Spaces get an Iceberg namespace of the same name; the
+    /// database file of a transactional Space is created by its engine on
+    /// first open.
+    pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, CatalogError> {
+        let (space, location, is_new_location) = self.plan_space(&request)?;
 
         if is_new_location {
             match &location.format {
@@ -398,6 +423,8 @@ impl OikomeCatalog {
                 }
                 // validate_binding never creates these (see create_peer_space).
                 LocationFormat::Remote { .. } | LocationFormat::Replica { .. } => {}
+                // The node fills the copy (`replica_dir`) from the storage.
+                LocationFormat::StorageCopy => {}
             }
         }
 
@@ -451,12 +478,13 @@ impl OikomeCatalog {
             reg.grants.retain(|(_, s, _), _| s != name);
             reg.space_grants.retain(|(_, s), _| s != name);
             reg.policies.retain(|(s, _, _), _| s != name);
-            // Another node's Space: forget its Location with the token. The
-            // caller removes a replica's files (see `replica_dir`).
+            // Another node's Space, or a copy of one on a storage: forget its
+            // Location with the token. The caller removes a copy's files (see
+            // `replica_dir`).
             if reg
                 .locations
                 .get(&space.location)
-                .is_some_and(|l| l.format.is_peer_space())
+                .is_some_and(|l| l.format.is_peer_space() || l.format.is_copy())
             {
                 reg.locations.remove(&space.location);
             }

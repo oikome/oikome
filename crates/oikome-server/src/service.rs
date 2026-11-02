@@ -32,11 +32,10 @@
 //!
 //! Authentication and capability failures all look the same to the caller.
 
-use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_flight::encode::FlightDataEncoderBuilder;
@@ -60,13 +59,14 @@ use oikome_identity::ucan::{
 use oikome_identity::{unix_now, unix_now_ms, AuthRequest, Did, NodeIdentity};
 use oikome_network::protocol::webrtc::{encode_reply, Envelope, ReplyHeader};
 use oikome_network::protocol::{
-    digest, encode_schema, encode_stream, is_file_hash, is_identifier, parse_schema_payload,
-    schema_payload, FetchFileRequest, FileEntry, ListTablesRequest, ListTablesResponse,
-    QueryTicket, SnapshotRequest, SnapshotResponse, TableFormat, TableSnapshot, ACTION_FETCH_FILE,
-    ACTION_LIST_TABLES, ACTION_SNAPSHOT, FILE_CHUNK_BYTES, HEADER_AUTH, HEADER_UCAN, MAX_SQL_BYTES,
-    METHOD_DO_GET, METHOD_FETCH_FILE, METHOD_GET_SCHEMA, METHOD_LIST_TABLES, METHOD_SNAPSHOT,
+    digest, encode_stream, is_file_hash, is_identifier, parse_schema_payload, schema_payload,
+    FetchFileRequest, ListTablesRequest, ListTablesResponse, QueryTicket, SnapshotRequest,
+    SnapshotResponse, ACTION_FETCH_FILE, ACTION_LIST_TABLES, ACTION_SNAPSHOT, FILE_CHUNK_BYTES,
+    HEADER_AUTH, HEADER_UCAN, MAX_SQL_BYTES, METHOD_DO_GET, METHOD_FETCH_FILE, METHOD_GET_SCHEMA,
+    METHOD_LIST_TABLES, METHOD_SNAPSHOT,
 };
 use oikome_node::access_log::entry_now;
+use oikome_node::snapshot::table_snapshot;
 use oikome_node::{
     query_spaces, AccessEntry, AccessLog, EngineRegistry, OikomeSession, Outcome, SessionConfig,
     SessionError,
@@ -80,39 +80,6 @@ use crate::replay::{ReplayError, ReplayGuard};
 
 const DENIED: &str = "permission denied";
 const MAX_ACTION_BODY_BYTES: usize = 4096;
-/// Entries kept by [`HashCache`] before it starts over.
-const HASH_CACHE_ENTRIES: usize = 100_000;
-
-/// BLAKE3 hashes of data files, keyed by path, size and modification time.
-/// Data files are immutable, so an entry never goes stale.
-#[derive(Default)]
-struct HashCache(Mutex<HashMap<(PathBuf, u64, SystemTime), String>>);
-
-impl HashCache {
-    /// Hash and size of the file at `path`.
-    async fn hash(&self, path: &Path) -> std::io::Result<(String, u64)> {
-        let meta = tokio::fs::metadata(path).await?;
-        let key = (path.to_path_buf(), meta.len(), meta.modified()?);
-        if let Some(hash) = self.0.lock().unwrap_or_else(|p| p.into_inner()).get(&key) {
-            return Ok((hash.clone(), meta.len()));
-        }
-        let owned = path.to_path_buf();
-        let hash = tokio::task::spawn_blocking(move || -> std::io::Result<String> {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update_reader(std::fs::File::open(&owned)?)?;
-            Ok(hasher.finalize().to_hex().to_string())
-        })
-        .await
-        .map_err(std::io::Error::other)??;
-        let mut map = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        if map.len() >= HASH_CACHE_ENTRIES {
-            map.clear();
-        }
-        map.insert(key, hash.clone());
-        Ok((hash, meta.len()))
-    }
-}
-
 /// Log a local I/O failure and return a status that does not reveal it.
 fn io_status(e: std::io::Error) -> Status {
     tracing::warn!(error = %e, "serving a data file failed");
@@ -133,7 +100,6 @@ pub struct OikomeFlightService {
     engines: Arc<EngineRegistry>,
     identity: Arc<NodeIdentity>,
     replay: ReplayGuard,
-    hashes: HashCache,
     access_log: Option<AccessLog>,
 }
 
@@ -184,7 +150,6 @@ impl OikomeFlightService {
             engines,
             identity,
             replay: ReplayGuard::default(),
-            hashes: HashCache::default(),
             access_log: None,
         })
     }
@@ -507,56 +472,19 @@ impl OikomeFlightService {
                 }
                 Some(true) => {}
             }
-            if let Some(root) = &lance {
-                let dataset = root.join(format!("{table}{DATASET_SUFFIX}"));
-                let version = lance_version(&dataset, None)
-                    .await
-                    .map_err(|e| session_status(e.into()))?;
-                let mut files = Vec::with_capacity(version.files.len() + 1);
-                for relative in version.files.iter().chain([&version.manifest]) {
-                    let (hash, size) = self
-                        .hashes
-                        .hash(&dataset.join(relative))
-                        .await
-                        .map_err(io_status)?;
-                    files.push(FileEntry {
-                        hash,
-                        size,
-                        path: Some(relative.clone()),
-                    });
-                }
-                response.tables.push(TableSnapshot {
-                    name: table,
-                    snapshot_id: Some(version.version as i64),
-                    schema: encode_schema(&version.schema)
-                        .map_err(|e| Status::internal(e.to_string()))?,
-                    files,
-                    format: TableFormat::Lance,
-                });
-                continue;
-            }
-            let resolved = self
-                .catalog
-                .resolve_table(&space, &table, None)
-                .await
-                .map_err(|e| session_status(e.into()))?;
-            let mut files = Vec::with_capacity(resolved.files.len());
-            for path in &resolved.files {
-                let (hash, size) = self.hashes.hash(path).await.map_err(io_status)?;
-                files.push(FileEntry {
-                    hash,
-                    size,
-                    path: None,
-                });
-            }
-            response.tables.push(TableSnapshot {
-                name: table,
-                snapshot_id: resolved.snapshot_id,
-                schema: encode_schema(&resolved.schema)
-                    .map_err(|e| Status::internal(e.to_string()))?,
-                files,
-                format: TableFormat::Iceberg,
-            });
+            let (snapshot, _) = table_snapshot(
+                &self.catalog,
+                self.engines.hashes(),
+                &space,
+                lance.as_deref(),
+                &table,
+            )
+            .await
+            .map_err(|e| match e {
+                SessionError::Catalog(CatalogError::Io(e)) => io_status(e),
+                e => session_status(e),
+            })?;
+            response.tables.push(snapshot);
         }
         tracing::debug!(caller = %caller.did, %principal, space = %space.name, tables = response.tables.len(), "serving snapshot");
         serde_json::to_vec(&response).map_err(|e| Status::internal(e.to_string()))
@@ -619,7 +547,15 @@ impl OikomeFlightService {
         };
         let mut found = None;
         for path in files {
-            if self.hashes.hash(&path).await.map_err(io_status)?.0 == req.hash {
+            if self
+                .engines
+                .hashes()
+                .hash(&path)
+                .await
+                .map_err(io_status)?
+                .0
+                == req.hash
+            {
                 found = Some(path);
                 break;
             }

@@ -211,10 +211,11 @@ impl BrowserNode {
             || request.location.is_some()
             || request.access.is_some()
             || request.storage.is_some()
+            || request.path.is_some()
             || request.format.is_some()
         {
             return Err(NodeError::Unsupported(
-                "ENGINE, LOCATION, ACCESS, STORAGE and FORMAT (every browser space is a duckdb-wasm \
+                "ENGINE, LOCATION, ACCESS, STORAGE, PATH and FORMAT (every browser space is a duckdb-wasm \
                  schema; Lance spaces are reached through a Full Node)"
                     .to_string(),
             ));

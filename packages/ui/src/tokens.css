@@ -1,0 +1,141 @@
+/* Copyright 2025 The Oikome Authors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Design tokens of the Oikome apps: Apple-style minimal on a low-chroma
+ * cream ground. Crimson marks the one primary action of a view, the current
+ * choice and progress; blue is for links, focus and selection only; errors
+ * are text with an icon, never a fill. Light mode only for now.
+ */
+
+:root {
+  /* Accents */
+  --color-primary: #cc2b45;
+  --color-primary-deep: #b11e39;
+  --color-primary-tint: #fcf2f2;
+  --color-link: #376992;
+  --color-link-deep: #235277;
+  --color-selection: #cce1f4;
+
+  /* Health */
+  --color-sage: #4f8a68;
+  --color-sage-dot: #5e9b78;
+  --color-sage-text: #3b6b50;
+  --color-sage-bar: #afcfbd;
+
+  /* Status */
+  --color-error: #a01e35;
+  --color-error-dot: #c93a50;
+  --color-warning: #8a572a;
+  --color-warning-wash: #fcf2e2;
+
+  /* Neutrals */
+  --color-ground: #f9f7f0;
+  --color-surface: #fefefb;
+  --color-sidebar: #f4f1e9;
+  --color-white: #ffffff;
+  --color-wash: #f6f4ed;
+  --color-nav-hover: #f0ede5;
+  --color-fill: #eeebe3;
+  --color-fill-hover: #e8e3da;
+  --color-selected: #eae6dc;
+  --color-hairline: #eae7e1;
+  --color-sidebar-rule: #e7e4dd;
+  --color-stroke: #d6d2cb;
+  --color-chevron: #aeaaa4;
+
+  /* Ink */
+  --color-ink: #2d2926;
+  --color-ink-secondary: #6b6761;
+  --color-disc: #dad5cb;
+  --color-disc-glyph: #3f3b37;
+
+  /* Tiles: a pale fill with a glyph of the same hue */
+  --tile-honey-fill: #f2dfb0;
+  --tile-honey-glyph: #7e5b22;
+  --tile-rose-fill: #f1d2e3;
+  --tile-rose-glyph: #874d6f;
+  --tile-sage-fill: #cfe6d8;
+  --tile-sage-glyph: #376a50;
+  --tile-periwinkle-fill: #d8dffa;
+  --tile-periwinkle-glyph: #4e5a8b;
+  --tile-mist-fill: #d2e3ec;
+  --tile-mist-glyph: #32647f;
+  --tile-oat-fill: #eadfcc;
+  --tile-oat-glyph: #6e5946;
+  --tile-lavender-fill: #e3d9f5;
+  --tile-lavender-glyph: #655384;
+  --tile-stone-fill: #e1dcd2;
+  --tile-stone-glyph: #4b4742;
+  --tile-apricot-fill: #fcdcc2;
+  --tile-apricot-glyph: #8f522b;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-control: 10px;
+  --radius-group: 12px;
+  --radius-card: 16px;
+  --radius-pill: 999px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-page-top: 28px;
+  --space-page-x: 40px;
+
+  /* Type: the system stack, tabular numerals everywhere */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-display: 700 32px/1.15 var(--font-sans);
+  --text-headline: 700 22px/1.25 var(--font-sans);
+  --text-title: 600 15px/1.35 var(--font-sans);
+  --text-lede: 400 15px/1.5 var(--font-sans);
+  --text-body: 400 14px/1.45 var(--font-sans);
+  --text-button: 500 14px/1 var(--font-sans);
+  --text-label: 600 13px/1.35 var(--font-sans);
+  --text-meta: 400 13px/1.4 var(--font-sans);
+  --text-caption: 400 12.5px/1.4 var(--font-sans);
+
+  /* Shadows */
+  --shadow-whisper: 0 1px 2px rgba(45, 41, 38, 0.05), 0 4px 14px rgba(45, 41, 38, 0.04);
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.14);
+  --focus-ring: 3px solid rgba(55, 105, 146, 0.45);
+
+  color-scheme: light;
+}
+
+html {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font: var(--text-body);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ground);
+}
+
+::selection {
+  background: var(--color-selection);
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

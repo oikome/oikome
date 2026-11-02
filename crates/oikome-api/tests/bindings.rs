@@ -51,6 +51,8 @@ fn bindings() -> String {
         ApiError,
         Empty,
         NodeInfo,
+        NodeName,
+        RecoveryKey,
         SpaceKind,
         SpaceSummary,
         NewSpace,

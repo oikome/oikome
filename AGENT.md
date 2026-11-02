@@ -120,6 +120,7 @@ L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官
 - 不接受匿名贡献；所有作者身份必须可识别
 - 禁止从 Stack Overflow 或其他来源复制代码而不验证许可证
 - 仓库中禁止包含二进制 blob
+- PR 正文按 `.github/PULL_REQUEST_TEMPLATE.md` 写（Summary、Related issue、Documentation impact、Validation、Checklist）；标题用一行 Conventional Commits
 
 ### 3.4 行为准则
 
@@ -158,7 +159,7 @@ v3 路线图（详见 `oikome_architecture_v3.md` §14）：
 |-------|------|------|----------|
 | M1a 目录拆分 | `web/` 拆到 `packages/node` 和 `e2e/`，根目录 `package.json` 用 npm workspaces；browser-e2e 原样通过 | 3.2 | ✅ |
 | M1b 接口 | `oikome-api`（资料库、表与行、SQL、联系人、分享与收回、访问记录）、整个资料库的授权（`GRANT SELECT ON SPACE`）、访问记录、`oikome serve --web` 与 `oikome web open`、`packages/api`、`packages/client`（HTTP 实现）；恢复密钥和手机配对在 M1c 之前单独设计 | 3.0–3.2、M1a | ✅ |
-| M1c 能用 | `packages/ui`、`packages/screens`、`apps/web`：M1 范围的页面（首次启动与恢复密钥、资料库、分享与联系人、手机配对、访问记录、高级 SQL、设置），桌面和手机两套布局 | M1b | 待开始 |
+| M1c 能用 | `packages/ui`、`packages/screens`、`apps/web`（React 19 + Vite 7）：首次启动与恢复密钥、Collections、分享与联系人、Activity、SQL 工作台、设置，桌面和手机两套布局；`--web-root`；`oikome identity restore`。手机配对改到手机 App 再做 | M1b | ✅ |
 | M2 能接 | 接入页与同步状态、首页看板、内置卡片、看板插件 v1（`plugin-sdk`、数据契约、插件授权）、参考插件 | 3.5、M1c | 待开始 |
 | M3 能找 | 全文和语义搜索、照片和笔记视图、AI 助手页、`oikome-mcp` | 3.3、M2 | 待开始 |
 | M4 能扩 | 借用算力、第三方接入插件、插件目录；网盘存储随 3.4b 及以后逐步提供 | 3.4b、3.6、M3 | 待开始 |
@@ -264,11 +265,15 @@ oikome/
 ├── tests/                      # oikome-tests（TPC-H Q1–Q5）+ tools/data-gen + e2e/（Docker 节点端到端脚本）
 ├── docker/                     # 节点镜像（oikome.Dockerfile）与三节点 compose
 ├── package.json                # npm workspaces：packages/*、e2e
+├── apps/
+│   └── web/                    # 网页端（React + Vite），由 oikome serve --web --web-root apps/web/dist 提供
 ├── packages/
 │   ├── api/                    # 由 oikome-api 生成的接口类型（@oikome/api）
 │   ├── client/                 # NodeClient 接口和 HTTP 实现（@oikome/client）
+│   ├── screens/                # 所有页面与界面文案，各端共用（@oikome/screens）
+│   ├── ui/                     # 设计系统：token 与组件（@oikome/ui）
 │   └── node/                   # 浏览器节点的 JS 宿主（duckdb-wasm、IndexedDB、WebRTC）和 wasm 构建脚本（@oikome/node）
-├── e2e/                        # Playwright 测试与浏览器节点测试页 harness/（@oikome/e2e）
+├── e2e/                        # Playwright：浏览器节点、网页接口和网页端的测试，浏览器节点测试页 harness/（@oikome/e2e）
 ├── third_party/                # 打了补丁的第三方代码（datafusion-federation，见 README）
 ├── .github/workflows/          # docker-e2e（三个 Docker 节点）、browser-e2e（无头 Chromium 跑浏览器节点）
 └── docs/                       # 用户和开发者文档（gitignored）
@@ -278,7 +283,7 @@ oikome/
 
 用户端计划中（目录等对应工作开始时才建，结构见架构 §13.3）：
 - crate：`oikome-mcp`（M3）。
-- 根目录：`apps/`（web 在 M1c；desktop、mobile 以后）、`packages/` 其余的包（screens、ui 在 M1c；plugin-sdk 在 M2）、`plugins/`（M2）、`design/`（以后）。`apps/*`、`plugins/*` 建了再加进 workspaces。
+- 根目录：`apps/` 的 desktop、mobile（以后）、`packages/plugin-sdk`（M2）、`plugins/`（M2）、`design/`（以后）。`apps/*`、`plugins/*` 建了再加进 workspaces。
 - M1a 已把 `web/` 拆到 `packages/node` 和 `e2e/`，根目录加了 `package.json`。
 
 ---
@@ -441,6 +446,7 @@ oikome/
 | 2026-11-02 | 3.4b：网盘先走同步文件夹，走 API 放 3.4c；网盘上的每个文件整文件加密（XChaCha20-Poly1305 分段、文件名用带密钥的哈希），一个存储一把随机密钥，另一节点用 `export-key` 导出的密钥读取；凭据由用户在页面（现在是命令行标准输入）输入一次，节点存进系统钥匙串，没有钥匙串时存 0600 私有文件，环境变量优先，替代 3.4a 的「只从环境变量读」 | 同步文件夹不需要 OAuth 应用就能覆盖主流网盘；整文件加密同时盖住数据、索引、快照和文件名；普通用户不该自己设环境变量，页面直接调用节点的 `add_storage` / `set_storage_secret` / `export_storage_key`。见架构 §7.5 |
 | 2026-11-01 | 用户端测试连本地节点（临时数据目录、经命令行或接口写入测试数据），不做假数据和 mock 客户端；M1 改为先做接口（M1b）再做页面（M1c），各页面随有数据的里程碑做 | 只有一条测试链路，不用先测假数据再换真实数据测一遍；页面从一开始就走真实接口，不会和接口对不上。见架构 §14.1 |
 | 2026-11-01 | M1b：新 crate `oikome-api`（不含传输层，主人和 principal 两种调用者，接口层不拼 SQL）；`oikome serve --web` 只监听本机，一次性登录链接写进只有主人能读的 `.oikome/web/login`，由 `oikome web open` 打开，不打印；整个资料库的授权 `GRANT SELECT ON SPACE` 单独存放，视图展开后只读本 Space 才算在内；访问记录存 `.oikome/access_log.sqlite`，后台线程写，认证失败按分钟合并；注册表写入加文件锁并先重新读取；Space 名字在目录层校验；类型用 ts-rs 生成到 `packages/api` | 网页端开始在 serve 进程里写注册表，`oikome sql` 收回的令牌不能被覆盖；分享按资料库，新建的表也要包含，而视图可能跨 Space；令牌留在终端记录里不安全。见架构 §6.1、§9、§13.4 |
+| 2026-11-02 | M1c：网页端用 React 19 + Vite 7（Vite 8 必须依赖 MPL-2.0 的 lightningcss，不符合依赖政策），页面由 `--web-root` 指定的目录提供，严格 CSP；界面用语 Collection、Contact、Share、Activity、Your ID，SQL 工作台放在 Settings → Advanced；恢复密钥是 Crockford Base32 分组码（14 组，带 2 字节校验），只能恢复到空节点（`oikome identity restore`，节点停止时执行）；手机配对改到手机 App 再做 | 手机浏览器需要 HTTPS 页面，本机回环服务给不了，公共来源和局域网自签证书都不采用；分组码不需要词表依赖、打错能发现。见架构 §13.4、§14.1 |
 
 ---
 

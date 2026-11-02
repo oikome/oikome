@@ -27,13 +27,42 @@ pub struct Empty {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeInfo {
-    /// The node's DID; contacts add it to share with this node.
+    /// The node's DID ("Your ID" in the apps); contacts add it to share with
+    /// this node.
     pub did: String,
+    /// The name the owner gave the data center; empty until they do.
+    pub name: String,
     /// Oikome version.
     pub version: String,
+    /// The data directory on this computer.
+    pub data_dir: String,
+    /// Whether the owner said they stored the recovery key.
+    pub recovery_key_saved: bool,
     /// Where peers reach this node's Arrow Flight service (`https://ip:port`),
     /// when it is serving.
     pub flight_url: Option<String>,
+}
+
+/// `rename_node`: the data center's name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeName {
+    /// 1 to 64 characters.
+    pub name: String,
+}
+
+/// The node's recovery key, as 14 groups of 4 characters. Whoever has it
+/// can act as this node: show it only to the owner, never store it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryKey {
+    pub key: String,
+}
+
+impl std::fmt::Debug for RecoveryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RecoveryKey(<redacted>)")
+    }
 }
 
 /// What a Space holds and which engine runs it.

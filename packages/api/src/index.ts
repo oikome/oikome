@@ -25,18 +25,46 @@ export type Empty = Record<symbol, never>;
  */
 export type NodeInfo = { 
 /**
- * The node's DID; contacts add it to share with this node.
+ * The node's DID ("Your ID" in the apps); contacts add it to share with
+ * this node.
  */
 did: string, 
+/**
+ * The name the owner gave the data center; empty until they do.
+ */
+name: string, 
 /**
  * Oikome version.
  */
 version: string, 
 /**
+ * The data directory on this computer.
+ */
+dataDir: string, 
+/**
+ * Whether the owner said they stored the recovery key.
+ */
+recoveryKeySaved: boolean, 
+/**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
  */
 flightUrl: string | null, };
+
+/**
+ * `rename_node`: the data center's name.
+ */
+export type NodeName = { 
+/**
+ * 1 to 64 characters.
+ */
+name: string, };
+
+/**
+ * The node's recovery key, as 14 groups of 4 characters. Whoever has it
+ * can act as this node: show it only to the owner, never store it.
+ */
+export type RecoveryKey = { key: string, };
 
 /**
  * What a Space holds and which engine runs it.

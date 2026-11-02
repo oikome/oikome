@@ -2,9 +2,10 @@
   "name": "oikome",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Oikome's JavaScript workspaces: the browser-node runtime and the end-to-end tests",
+  "description": "Oikome's JavaScript workspaces: the web app, its packages and the end-to-end tests",
   "workspaces": [
     "packages/*",
+    "apps/*",
     "e2e"
   ],
   "scripts": {

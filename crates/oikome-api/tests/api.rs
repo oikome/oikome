@@ -436,3 +436,68 @@ async fn principals_cannot_use_owner_operations() {
     let info = n.api.node_info(&principal, Empty {}).await.unwrap();
     assert!(info.did.starts_with("did:key:z"));
 }
+
+#[tokio::test]
+async fn naming_the_node_and_backing_up_its_recovery_key() {
+    let n = node();
+    let info = n.api.node_info(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(info.name, "");
+    assert!(!info.recovery_key_saved);
+    assert!(!info.data_dir.is_empty());
+
+    let info = n
+        .api
+        .rename_node(
+            &OWNER,
+            NodeName {
+                name: "  Home ".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(info.name, "Home");
+    let e = n
+        .api
+        .rename_node(&OWNER, NodeName { name: " ".into() })
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // The key decodes to this node's identity.
+    let key = n.api.recovery_key(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(key.key.split('-').count(), 14);
+    let seed = oikome_identity::decode_recovery_key(&key.key).unwrap();
+    assert_eq!(NodeIdentity::from_seed(&seed).did().to_string(), info.did);
+    let info = n.api.confirm_recovery_key(&OWNER, Empty {}).await.unwrap();
+    assert!(info.recovery_key_saved);
+
+    let principal = Caller::Principal { did: did(9) };
+    let e = n.api.recovery_key(&principal, Empty {}).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let seen = n.api.node_info(&principal, Empty {}).await.unwrap();
+    assert!(seen.data_dir.is_empty() && seen.name.is_empty());
+}
+
+#[tokio::test]
+async fn an_identity_is_restored_only_into_an_empty_node() {
+    let old = node();
+    let key = old.api.recovery_key(&OWNER, Empty {}).await.unwrap();
+    let old_did = old.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+
+    let fresh = node();
+    let restored = restore_identity(&fresh.catalog, &key.key).unwrap();
+    assert_eq!(restored, old_did);
+    let key_file = fresh
+        .catalog
+        .oikome_dir()
+        .join("identity")
+        .join("node_ed25519");
+    assert!(key_file.is_file());
+
+    let e = restore_identity(&fresh.catalog, "not a key").unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    notes(&old).await;
+    let e = restore_identity(&old.catalog, &key.key).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+}

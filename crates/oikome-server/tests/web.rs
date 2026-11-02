@@ -308,3 +308,79 @@ async fn the_web_api_listens_on_loopback_only() {
     let login = login_file(&node.catalog.oikome_dir());
     assert!(WebApp::new(api, "0.0.0.0:7340".parse().unwrap(), login).is_err());
 }
+
+#[tokio::test]
+async fn the_app_is_served_with_a_strict_policy() {
+    let node = Node::new(43);
+    let pages = tempfile::tempdir().unwrap();
+    std::fs::write(
+        pages.path().join("index.html"),
+        "<!doctype html><title>Oikome</title>",
+    )
+    .unwrap();
+    std::fs::create_dir(pages.path().join("assets")).unwrap();
+    std::fs::write(pages.path().join("assets/app-1a2b.js"), "export {}").unwrap();
+    let api = Api::new(node.catalog.clone(), node.engines.clone());
+    let app = WebApp::new(
+        api,
+        HOST.parse().unwrap(),
+        login_file(&node.catalog.oikome_dir()),
+    )
+    .unwrap()
+    .with_web_root(pages.path())
+    .unwrap();
+    let router = app.router();
+    let get = |path: &str| {
+        let request = Request::get(path)
+            .header(header::HOST, HOST)
+            .body(Body::empty())
+            .unwrap();
+        router.clone().oneshot(request)
+    };
+
+    // The app's own routes get index.html.
+    for path in ["/", "/sharing", "/collections/notes"] {
+        let response = get(path).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(response.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .contains("default-src 'self'"));
+        assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+    let asset = get("/assets/app-1a2b.js").await.unwrap();
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert!(asset.headers()[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/javascript"));
+    assert!(asset.headers()[header::CACHE_CONTROL]
+        .to_str()
+        .unwrap()
+        .contains("immutable"));
+    for path in [
+        "/../Cargo.toml",
+        "/%2e%2e/Cargo.toml",
+        "/missing.js",
+        "/api/node_info",
+    ] {
+        assert_eq!(
+            get(path).await.unwrap().status(),
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+
+    // A directory without index.html is refused up front.
+    let empty = tempfile::tempdir().unwrap();
+    let api = Api::new(node.catalog.clone(), node.engines.clone());
+    assert!(WebApp::new(
+        api,
+        HOST.parse().unwrap(),
+        login_file(&node.catalog.oikome_dir())
+    )
+    .unwrap()
+    .with_web_root(empty.path())
+    .is_err());
+}

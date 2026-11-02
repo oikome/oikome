@@ -19,7 +19,9 @@ import type {
   NewShare,
   NewSpace,
   NodeInfo,
+  NodeName,
   ReadRows,
+  RecoveryKey,
   RemovedContact,
   RevokedShare,
   RunSql,
@@ -49,6 +51,9 @@ export type SqlResult = ({ kind: "rows" } & RowsResult) | ({ kind: "done" } & Sq
 /** Everything a screen can ask a node for. */
 export interface NodeClient {
   nodeInfo(): Promise<NodeInfo>;
+  renameNode(request: NodeName): Promise<NodeInfo>;
+  recoveryKey(): Promise<RecoveryKey>;
+  confirmRecoveryKey(): Promise<NodeInfo>;
   listSpaces(): Promise<SpaceSummary[]>;
   createSpace(request: NewSpace): Promise<SpaceSummary>;
   dropSpace(request: SpaceRef): Promise<Empty>;
@@ -140,6 +145,18 @@ export class HttpClient implements NodeClient {
 
   nodeInfo(): Promise<NodeInfo> {
     return this.#json("node_info", {});
+  }
+
+  renameNode(request: NodeName): Promise<NodeInfo> {
+    return this.#json("rename_node", request);
+  }
+
+  recoveryKey(): Promise<RecoveryKey> {
+    return this.#json("recovery_key", {});
+  }
+
+  confirmRecoveryKey(): Promise<NodeInfo> {
+    return this.#json("confirm_recovery_key", {});
   }
 
   listSpaces(): Promise<SpaceSummary[]> {

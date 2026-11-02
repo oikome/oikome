@@ -160,6 +160,14 @@ DuckDB-Wasm (@duckdb/duckdb-wasm, JavaScript, loaded by packages/node)
   https://github.com/duckdb/duckdb-wasm  -  MIT License
   Copyright 2018-2025 Stichting DuckDB Foundation
 
-TypeScript (type checking of packages/client; development only)
+React and React DOM (react, react-dom; the web app)
+  https://react.dev/  -  MIT License
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Vite and Rollup (building the web app; development only)
+  https://vite.dev/  -  MIT License
+  https://rollupjs.org/  -  MIT License
+
+TypeScript (type checking of the TypeScript packages; development only)
   https://github.com/microsoft/TypeScript  -  Apache License 2.0
   Copyright (c) Microsoft Corporation

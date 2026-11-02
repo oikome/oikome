@@ -38,13 +38,17 @@ use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
 use oikome_catalog::{LocationFormat, OikomeCatalog};
 use oikome_core::{validate_space_name, AccessMode, CreateSpaceRequest};
+use oikome_identity::keys::NODE_KEY_FILE;
 use oikome_identity::ucan::{ABILITY_QUERY, ABILITY_READ};
-use oikome_identity::{unix_now, Did};
+use oikome_identity::{
+    decode_recovery_key, encode_recovery_key, unix_now, Did, NodeIdentity, ENV_NODE_KEY,
+};
 use oikome_node::{
     AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult, SessionConfig,
 };
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
+use serde::{Deserialize, Serialize};
 
 pub use error::{ApiError, ErrorCode};
 pub use types::*;
@@ -61,6 +65,28 @@ const DEFAULT_PAGE_ROWS: u32 = 100;
 const DEFAULT_ACCESS_ROWS: u32 = 100;
 const DEFAULT_SHARE_DAYS: u32 = 365;
 const MAX_SHARE_DAYS: u32 = 366;
+/// The data center's name and whether its recovery key was stored, under
+/// `.oikome/`.
+const NODE_SETTINGS_FILE: &str = "node.json";
+/// Longest data center name, in characters.
+const MAX_NODE_NAME_CHARS: usize = 64;
+
+/// What the owner set about the data center itself.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct NodeSettings {
+    #[serde(default)]
+    name: String,
+    /// When the owner said they stored the recovery key.
+    #[serde(default)]
+    recovery_key_saved_at_ms: Option<u64>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Who is calling.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,15 +243,92 @@ impl Api {
         Ok(self.engines.identity()?.did().to_string())
     }
 
+    fn settings_path(&self) -> std::path::PathBuf {
+        self.catalog.oikome_dir().join(NODE_SETTINGS_FILE)
+    }
+
+    fn settings(&self) -> Result<NodeSettings, ApiError> {
+        match std::fs::read(self.settings_path()) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(ApiError::internal),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(NodeSettings::default()),
+            Err(e) => Err(ApiError::internal(e)),
+        }
+    }
+
+    /// Replace the settings file at once (temporary file, then rename).
+    fn save_settings(&self, settings: &NodeSettings) -> Result<(), ApiError> {
+        let path = self.settings_path();
+        let bytes = serde_json::to_vec_pretty(settings).map_err(ApiError::internal)?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::create_dir_all(self.catalog.oikome_dir()).map_err(ApiError::internal)?;
+        std::fs::write(&tmp, bytes).map_err(ApiError::internal)?;
+        std::fs::rename(&tmp, &path).map_err(ApiError::internal)
+    }
+
     // ----- Node -----
 
-    /// This node: its DID, version and Flight address.
-    pub async fn node_info(&self, _caller: &Caller, _: Empty) -> Result<NodeInfo, ApiError> {
+    /// This node: its DID, name, version, data directory and Flight address.
+    pub async fn node_info(&self, caller: &Caller, _: Empty) -> Result<NodeInfo, ApiError> {
+        let owner = caller.require_owner().is_ok();
+        let settings = if owner {
+            self.settings()?
+        } else {
+            NodeSettings::default()
+        };
         Ok(NodeInfo {
             did: self.node_did()?,
+            name: settings.name,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            // Only the owner learns where the data lives.
+            data_dir: if owner {
+                self.catalog.root_path().to_string()
+            } else {
+                String::new()
+            },
+            recovery_key_saved: settings.recovery_key_saved_at_ms.is_some(),
             flight_url: self.flight_url.clone(),
         })
+    }
+
+    /// Give the data center a name.
+    pub async fn rename_node(&self, caller: &Caller, req: NodeName) -> Result<NodeInfo, ApiError> {
+        caller.require_owner()?;
+        let name = req.name.trim();
+        if name.is_empty()
+            || name.chars().count() > MAX_NODE_NAME_CHARS
+            || name.chars().any(char::is_control)
+        {
+            return Err(ApiError::invalid(format!(
+                "a name has 1 to {MAX_NODE_NAME_CHARS} characters"
+            )));
+        }
+        let mut settings = self.settings()?;
+        settings.name = name.to_string();
+        self.save_settings(&settings)?;
+        self.node_info(caller, Empty {}).await
+    }
+
+    /// The node's recovery key, for the owner to store. It is never logged.
+    pub async fn recovery_key(&self, caller: &Caller, _: Empty) -> Result<RecoveryKey, ApiError> {
+        caller.require_owner()?;
+        let identity = self.engines.identity()?;
+        let key = identity.with_seed(encode_recovery_key);
+        Ok(RecoveryKey {
+            key: key.to_string(),
+        })
+    }
+
+    /// Record that the owner stored the recovery key.
+    pub async fn confirm_recovery_key(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<NodeInfo, ApiError> {
+        caller.require_owner()?;
+        let mut settings = self.settings()?;
+        settings.recovery_key_saved_at_ms = Some(now_ms());
+        self.save_settings(&settings)?;
+        self.node_info(caller, Empty {}).await
     }
 
     // ----- Spaces -----
@@ -719,6 +822,33 @@ impl Api {
             })
             .collect())
     }
+}
+
+/// Restore a node's identity from its recovery key (`oikome identity
+/// restore`): write the seed as the node key of `catalog`'s data directory.
+/// Only a node that holds nothing yet (no Spaces, contacts or issued tokens)
+/// can take another identity; a running node keeps its old one until it is
+/// restarted. Returns the restored DID.
+pub fn restore_identity(catalog: &OikomeCatalog, recovery_key: &str) -> Result<String, ApiError> {
+    if std::env::var_os(ENV_NODE_KEY).is_some_and(|v| !v.is_empty()) {
+        return Err(ApiError::invalid(format!(
+            "{ENV_NODE_KEY} is set and overrides the key file; unset it to restore"
+        )));
+    }
+    let seed = decode_recovery_key(recovery_key).map_err(|e| ApiError::invalid(e.to_string()))?;
+    catalog.refresh()?;
+    let busy = !catalog.list_spaces().is_empty()
+        || !catalog.list_contacts().is_empty()
+        || !catalog.list_issued_ucans().is_empty();
+    if busy {
+        return Err(ApiError::new(
+            ErrorCode::Conflict,
+            "this node already holds data; restore into a new, empty data directory",
+        ));
+    }
+    let path = catalog.oikome_dir().join("identity").join(NODE_KEY_FILE);
+    let identity = NodeIdentity::write_key_file(&path, &seed).map_err(ApiError::internal)?;
+    Ok(identity.did().to_string())
 }
 
 #[cfg(test)]

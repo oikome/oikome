@@ -26,6 +26,10 @@
 //! - **API calls.** `Origin` must be this server, `Sec-Fetch-Site` (when
 //!   sent) `same-origin`, `Content-Type` JSON, and the session cookie valid.
 //!   Bodies are capped at 1 MiB.
+//! - **The app.** With a web root (`--web-root`, the `apps/web` build), GET
+//!   serves its files under a strict Content-Security-Policy. Paths are
+//!   checked segment by segment and must resolve inside the root; paths
+//!   without an extension get `index.html` (the app's own routes).
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -43,7 +47,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
     Api, ApiError, Caller, ContactInput, DidRef, Empty, ErrorCode, ListAccess, ListShares,
-    NewSpace, ReadRows, Rows, RunSql, ShareRef, ShareSpace, SpaceRef, SqlResult,
+    NewSpace, NodeName, ReadRows, Rows, RunSql, ShareRef, ShareSpace, SpaceRef, SqlResult,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -60,6 +64,10 @@ pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 3600);
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 const ARROW_STREAM: &str = "application/vnd.apache.arrow.stream";
 const TRUNCATED_HEADER: &str = "oikome-truncated";
+/// The app loads only its own files and talks only to this server.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+     img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
+     form-action 'self'";
 
 /// Where the login link is written, under the node's `.oikome/` directory.
 pub fn login_file(oikome_dir: &Path) -> PathBuf {
@@ -111,6 +119,8 @@ struct WebState {
     port: u16,
     cookie: String,
     login_file: PathBuf,
+    /// The app's files (`apps/web/dist`), canonicalized.
+    web_root: Option<PathBuf>,
     login_ttl: Duration,
     login: Mutex<LoginToken>,
     /// Session id -> last request.
@@ -163,6 +173,7 @@ impl WebApp {
                 port,
                 cookie: format!("oikome_session_{port}"),
                 login_file,
+                web_root: None,
                 login_ttl,
                 login: Mutex::new(LoginToken {
                     value: String::new(),
@@ -173,6 +184,26 @@ impl WebApp {
         };
         app.state.rotate_login()?;
         Ok(app)
+    }
+
+    /// Serve the app's files from `root` (the `apps/web` build), which must
+    /// hold an `index.html`.
+    pub fn with_web_root(mut self, root: &Path) -> std::io::Result<Self> {
+        let root = root.canonicalize()?;
+        if !root.join("index.html").is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "{} has no index.html (build apps/web first)",
+                    root.display()
+                ),
+            ));
+        }
+        let state = Arc::get_mut(&mut self.state).ok_or_else(|| {
+            std::io::Error::other("set the web root before serving or cloning the app")
+        })?;
+        state.web_root = Some(root);
+        Ok(self)
     }
 
     /// The HTTP routes, for serving or for calling directly in tests.
@@ -348,6 +379,9 @@ impl WebState {
         }
         match op {
             "node_info" => json_op!(node_info, Empty),
+            "rename_node" => json_op!(rename_node, NodeName),
+            "recovery_key" => json_op!(recovery_key, Empty),
+            "confirm_recovery_key" => json_op!(confirm_recovery_key, Empty),
             "list_spaces" => json_op!(list_spaces, Empty),
             "create_space" => json_op!(create_space, NewSpace),
             "drop_space" => json_op!(drop_space, SpaceRef),
@@ -431,6 +465,69 @@ fn plain(status: StatusCode, text: &str) -> Response {
     )
 }
 
+fn content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" | "map" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "ico" => "image/x-icon",
+        "woff2" => "font/woff2",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+/// The file under `root` that `path` names, or `None`. Paths with escapes,
+/// backslashes, empty, dot or hidden segments are refused before touching
+/// the disk, and the file found must still lie inside `root` once symbolic
+/// links are resolved. A path without an extension is one of the app's own
+/// routes and gets `index.html`.
+fn app_file(root: &Path, path: &str) -> Option<PathBuf> {
+    if path.contains(['%', '\\', '\0']) {
+        return None;
+    }
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.iter().any(|s| s.starts_with('.')) {
+        return None;
+    }
+    let file = match segments.last() {
+        Some(last) if last.contains('.') => {
+            segments.iter().fold(root.to_path_buf(), |p, s| p.join(s))
+        }
+        _ => root.join("index.html"),
+    };
+    let file = file.canonicalize().ok()?;
+    (file.starts_with(root) && file.is_file()).then_some(file)
+}
+
+async fn serve_app_file(root: &Path, path: &str) -> Response {
+    let Some(file) = app_file(root, path) else {
+        return error(ApiError::not_found("not found"));
+    };
+    let body = match tokio::fs::read(&file).await {
+        Ok(body) => body,
+        Err(_) => return error(ApiError::not_found("not found")),
+    };
+    let mut response = respond(StatusCode::OK, content_type(&file), body);
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    // Built assets are named by their content; everything else may change.
+    if path.starts_with("/assets/") {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+    }
+    response
+}
+
 fn status_of(code: ErrorCode) -> StatusCode {
     match code {
         ErrorCode::Invalid => StatusCode::BAD_REQUEST,
@@ -472,9 +569,20 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
     let path = parts.uri.path();
     match (&parts.method, path) {
         (&Method::GET, "/login") => state.login(parts.uri.query()),
+        (&Method::GET, _) if path.starts_with("/api/") => {
+            error(ApiError::not_found("API calls use POST"))
+        }
+        (&Method::GET, _) if state.web_root.is_some() => {
+            let root = state
+                .web_root
+                .as_deref()
+                .unwrap_or(Path::new("/nonexistent"));
+            serve_app_file(root, path).await
+        }
         (&Method::GET, "/") => plain(
             StatusCode::OK,
-            "Oikome is running. Its app arrives with milestone M1c; the API is at POST /api/<operation>.\n",
+            "Oikome is running without its app (start it with --web-root apps/web/dist); \
+             the API is at POST /api/<operation>.\n",
         ),
         (&Method::POST, _) if path.starts_with("/api/") => {
             if let Err(e) = state.api_request_ok(&parts.headers, host) {
@@ -508,6 +616,35 @@ mod tests {
         );
         assert_eq!(cookie(&headers, "oikome_session_7340"), Some("abc"));
         assert_eq!(cookie(&headers, "oikome_session_7341"), None);
+    }
+
+    #[test]
+    fn app_files_stay_inside_the_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("index.html"), "<!doctype html>").unwrap();
+        std::fs::create_dir(root.join("assets")).unwrap();
+        std::fs::write(root.join("assets/app-1a2b.js"), "").unwrap();
+        std::fs::write(dir.path().parent().unwrap().join("secret.txt"), "").ok();
+        assert_eq!(app_file(&root, "/").unwrap(), root.join("index.html"));
+        assert_eq!(
+            app_file(&root, "/sharing").unwrap(),
+            root.join("index.html")
+        );
+        assert_eq!(
+            app_file(&root, "/assets/app-1a2b.js").unwrap(),
+            root.join("assets/app-1a2b.js")
+        );
+        for bad in [
+            "/../secret.txt",
+            "/assets/../../secret.txt",
+            "/%2e%2e/secret.txt",
+            "/.hidden.txt",
+            "/assets\\..\\x.js",
+            "/missing.js",
+        ] {
+            assert!(app_file(&root, bad).is_none(), "{bad}");
+        }
     }
 
     #[test]

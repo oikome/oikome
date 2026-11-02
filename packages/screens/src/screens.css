@@ -1,0 +1,316 @@
+/* Copyright 2025 The Oikome Authors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Layout of the screens: a 232px sidebar on wide windows, a strip of
+ * labelled items on top below 720px.
+ */
+
+.screen-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.screen-sidebar {
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-sidebar-rule);
+}
+.screen-sidebar__inner {
+  position: sticky;
+  top: 0;
+  box-sizing: border-box;
+  padding: var(--space-7) var(--space-4);
+}
+.screen-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 var(--space-2) var(--space-7);
+}
+.screen-brand__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--color-ink);
+  color: var(--color-ground);
+  font: 700 16px/1 var(--font-sans);
+}
+.screen-brand__name {
+  display: block;
+  font: var(--text-title);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-brand__subtitle {
+  display: block;
+  font: var(--text-caption);
+  color: var(--color-ink-secondary);
+}
+.screen-nav {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-control);
+  color: var(--color-ink);
+  text-decoration: none;
+  font: var(--text-body);
+}
+.screen-nav__item:hover {
+  background: var(--color-nav-hover);
+}
+.screen-nav__item[aria-current="page"] {
+  background: var(--color-selected);
+  font-weight: 600;
+}
+
+.screen-main {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1080px;
+  padding: var(--space-page-top) var(--space-page-x) 64px;
+}
+.screen-main > .oik-banner {
+  margin-bottom: var(--space-8);
+}
+.screen-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  margin: 0 0 var(--space-8);
+}
+.screen-title {
+  margin: 0;
+  font: var(--text-display);
+  letter-spacing: -0.022em;
+}
+.screen-subtitle {
+  margin: 0 0 var(--space-3);
+  font: var(--text-headline);
+  letter-spacing: -0.02em;
+}
+.screen-lede {
+  max-width: 62ch;
+  margin: 0 0 var(--space-7);
+  font: var(--text-lede);
+  color: var(--color-ink-secondary);
+}
+.screen-muted {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-ink-secondary);
+}
+.screen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-5);
+  margin-top: var(--space-6);
+}
+.screen-stack {
+  display: grid;
+  gap: var(--space-6);
+}
+.screen-stack > .oik-card {
+  margin: 0;
+}
+
+/* Two columns: a list and the selected item */
+.screen-split {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+}
+.screen-detail__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-bottom: var(--space-7);
+}
+.screen-detail__name {
+  flex: 1;
+  min-width: 0;
+}
+.screen-detail__name h2 {
+  margin: 0;
+  font: var(--text-headline);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.screen-who {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+}
+.screen-who__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.screen-who__names {
+  flex: 1;
+  min-width: 0;
+  font: var(--text-body);
+}
+.screen-inline-form {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+.screen-inline-form .oik-field {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}
+.screen-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+}
+
+.screen-recovery {
+  display: grid;
+  gap: var(--space-6);
+  max-width: 560px;
+}
+.screen-recovery .screen-actions {
+  margin-top: 0;
+}
+.screen-recovery__hint {
+  margin: var(--space-3) 0 var(--space-5);
+}
+
+.screen-onboarding {
+  display: grid;
+  place-items: start center;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 72px var(--space-6) var(--space-8);
+}
+.screen-onboarding__card {
+  width: 100%;
+  max-width: 600px;
+  box-sizing: border-box;
+  padding: 32px 36px;
+}
+.screen-onboarding__card .screen-title {
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.screen-result {
+  margin-top: var(--space-7);
+}
+.screen-form {
+  max-width: 480px;
+}
+.screen-panel {
+  margin: 0 0 var(--space-8);
+}
+.screen-filter {
+  max-width: 280px;
+}
+.screen-path {
+  font: 400 12.5px/1.5 var(--font-mono);
+  color: var(--color-ink-secondary);
+  overflow-wrap: anywhere;
+}
+
+.screen-status-ok {
+  color: var(--color-sage-text);
+}
+.screen-status-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-warning);
+}
+.screen-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.screen-dot--ok {
+  background: var(--color-sage-dot);
+}
+.screen-dot--bad {
+  background: var(--color-error-dot);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 960px) {
+  .screen-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .screen-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .screen-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-sidebar-rule);
+  }
+  .screen-sidebar__inner {
+    position: static;
+    padding: var(--space-5) var(--space-6) var(--space-3);
+  }
+  .screen-brand {
+    margin: 0 0 var(--space-4);
+  }
+  .screen-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .screen-nav__item {
+    height: 44px;
+  }
+  .screen-main {
+    padding: var(--space-7) var(--space-6) 48px;
+  }
+  .screen-title {
+    font-size: 28px;
+  }
+  .screen-header {
+    flex-wrap: wrap;
+  }
+  .screen-onboarding {
+    padding-top: var(--space-7);
+  }
+  .screen-onboarding__card {
+    padding: var(--space-8) var(--space-6);
+  }
+  .oik-button {
+    min-height: 44px;
+  }
+}

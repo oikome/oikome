@@ -101,8 +101,12 @@ test("first run: name the data center and save its recovery key", async () => {
   await page.goto(loginLink());
   await expect(page.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
   // A lazy Continue is a fine answer: the name is filled in already.
-  await expect(page.getByLabel("Name")).toHaveValue("My data center");
-  await page.getByLabel("Name").fill("Home");
+  // The storage choices also mention a user name: the field is "Name" exactly.
+  const name = page.getByLabel("Name", { exact: true });
+  await expect(name).toHaveValue("My data center");
+  // Where collections are kept is chosen already: this computer.
+  await expect(page.getByRole("radio", { name: /^This computer/ })).toBeChecked();
+  await name.fill("Home");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Save Your Recovery Key" })).toBeVisible();
@@ -174,6 +178,52 @@ test("the examples open as photos, notes and a table; a collection of one's own"
   await expect(rows.getByRole("cell", { name: "call mum" })).toBeVisible();
   // Two rows fit on one page: no pager.
   await expect(page.getByText("Rows 1–2")).toHaveCount(0);
+});
+
+test("a place picked on this computer keeps new collections", async () => {
+  // The folder browser lists this computer's folders; a web page can't ask
+  // the system for one.
+  await page.goto(`${base}/settings`);
+  await page.getByRole("button", { name: "Add Storage" }).click();
+  const add = page.getByRole("dialog", { name: "Add Storage" });
+  await add.getByRole("button", { name: "Choose…" }).click();
+  const browse = page.getByRole("dialog", { name: "Choose a Folder" });
+  await expect(browse.getByText(/^Oikome keeps its files in /)).toBeVisible();
+  await browse.getByRole("button", { name: "Cancel" }).click();
+  await add.getByRole("button", { name: "Cancel" }).click();
+
+  // A folder picked (here through the node, as the browser would) becomes
+  // where new collections go.
+  const picked = mkdtempSync(join(tmpdir(), "oikome-app-place-"));
+  try {
+    const added = await api("add_storage", {
+      label: "Projects",
+      type: "folder",
+      address: picked,
+      makeDefault: true,
+    });
+    expect(added).toMatchObject({ label: "Projects", isDefault: true, type: "folder" });
+    expect(existsSync(join(picked, "Oikome"))).toBe(true);
+    await page.reload();
+    await expect(page.getByText("Projects")).toBeVisible();
+
+    await page.goto(`${base}/collections`);
+    await page.getByRole("button", { name: "New Collection" }).first().click();
+    await expect(page.getByLabel("Store on")).toHaveValue(added.name);
+    await page.getByLabel("Name").fill("plans");
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page).toHaveURL(/\/collections\/plans$/);
+    await expect(page.getByText("Stored on Projects")).toBeVisible();
+
+    // Back to this computer for what comes next.
+    await page.goto(`${base}/settings`);
+    await page.getByRole("button", { name: "More actions for This computer" }).click();
+    await page.getByRole("menuitem", { name: "Use for New Collections" }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("New collections go to This computer.");
+    await api("drop_space", { space: "plans" });
+  } finally {
+    rmSync(picked, { recursive: true, force: true });
+  }
 });
 
 test("a contact reads a shared collection until the share is stopped", async () => {

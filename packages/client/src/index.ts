@@ -32,6 +32,11 @@ import type {
   SpaceSummary,
   SqlDone,
   StorageSummary,
+  NewStorage,
+  DefaultStorage,
+  FoundPlace,
+  FolderRef,
+  FolderListing,
   TableSummary,
 } from "@oikome/api";
 import { tableFromIPC } from "apache-arrow";
@@ -61,6 +66,10 @@ export interface NodeClient {
   listTables(request: SpaceRef): Promise<TableSummary[]>;
   addExamples(): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
+  addStorage(request: NewStorage): Promise<StorageSummary>;
+  setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
+  findPlaces(): Promise<FoundPlace[]>;
+  listFolders(request?: FolderRef): Promise<FolderListing>;
   readRows(request: ReadRows): Promise<RowsResult>;
   runSql(request: RunSql): Promise<SqlResult>;
   listContacts(): Promise<Contact[]>;
@@ -184,6 +193,22 @@ export class HttpClient implements NodeClient {
 
   listStorages(): Promise<StorageSummary[]> {
     return this.#json("list_storages", {});
+  }
+
+  addStorage(request: NewStorage): Promise<StorageSummary> {
+    return this.#json("add_storage", request);
+  }
+
+  setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]> {
+    return this.#json("set_default_storage", request);
+  }
+
+  findPlaces(): Promise<FoundPlace[]> {
+    return this.#json("find_places", {});
+  }
+
+  listFolders(request: FolderRef = {}): Promise<FolderListing> {
+    return this.#json("list_folders", request);
   }
 
   async readRows(request: ReadRows): Promise<RowsResult> {

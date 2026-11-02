@@ -37,9 +37,9 @@ const STORAGE_ICONS: Record<StorageSummary["type"], IconName> = {
   drive: "drive",
 };
 
-/** What a storage is called in a choice: this computer, or its name. */
+/** What a storage is called: this computer, or the name the owner gave it. */
 export function storageLabel(storage: StorageSummary): string {
-  return storage.name ?? s.thisComputer;
+  return storage.name === null ? s.thisComputer : storage.label;
 }
 
 export function Collections({ startCreating = false }: { startCreating?: boolean }) {
@@ -147,6 +147,11 @@ function NewCollection({ onClose, onCreated }: { onClose: () => void; onCreated:
   const toast = useToast();
   const choices = storages.data ?? [];
   const here = choices.find((x) => x.name === null);
+  // The default place is chosen already.
+  useEffect(() => {
+    const preferred = storages.data?.find((x) => x.isDefault);
+    if (preferred) setStorage(preferred.name ?? "");
+  }, [storages.data]);
 
   return (
     <Dialog

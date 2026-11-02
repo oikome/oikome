@@ -130,6 +130,10 @@ pub enum StorageType {
 pub struct StorageSummary {
     /// `None` for this computer; otherwise the name to create a Space with.
     pub name: Option<String>,
+    /// What the owner called it ("Documents", "Home NAS").
+    pub label: String,
+    /// New collections go here unless another storage is chosen.
+    pub is_default: bool,
     #[serde(rename = "type")]
     pub kind: StorageType,
     /// Where: the data directory, the folder, or the WebDAV address.
@@ -138,6 +142,91 @@ pub struct StorageSummary {
     pub encrypted: bool,
     /// Local Spaces kept there.
     pub spaces: u32,
+}
+
+/// `add_storage`: a place to keep Spaces in, as the owner picked it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct NewStorage {
+    /// What to call it: "Documents", "Home NAS".
+    pub label: String,
+    /// `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+    #[serde(rename = "type")]
+    pub kind: StorageType,
+    /// The WebDAV address, or the folder picked: the files go in an
+    /// `Oikome` folder inside it.
+    pub address: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Kept in the system keychain, never in the registry or a log.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Encrypt files before they leave this computer; a cloud drive always is.
+    #[serde(default)]
+    pub encrypted: Option<bool>,
+    /// Keep new collections, and the examples, there.
+    #[serde(default)]
+    pub make_default: Option<bool>,
+}
+
+impl std::fmt::Debug for NewStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewStorage")
+            .field("label", &self.label)
+            .field("kind", &self.kind)
+            .field("address", &self.address)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("encrypted", &self.encrypted)
+            .field("make_default", &self.make_default)
+            .finish()
+    }
+}
+
+/// `set_default_storage`: where new collections go; `None` for this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultStorage {
+    pub storage: Option<String>,
+}
+
+/// A place on this computer found to keep Spaces in: a cloud drive's
+/// folder, or a drive plugged in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundPlace {
+    /// "iCloud Drive", "Dropbox", or a drive's name.
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: StorageType,
+    pub path: String,
+}
+
+/// `list_folders`: a folder on this computer; the home folder when left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct FolderRef {
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// The folders in one folder, hidden ones left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderListing {
+    pub path: String,
+    /// The folder above; `None` at the top.
+    pub parent: Option<String>,
+    pub folders: Vec<FolderEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderEntry {
+    pub name: String,
+    pub path: String,
 }
 
 /// Names one Space.

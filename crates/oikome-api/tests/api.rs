@@ -621,3 +621,82 @@ async fn a_new_data_center_gets_examples_once() {
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::NotFound, "{err}");
 }
+
+#[tokio::test]
+async fn a_folder_the_owner_picks_keeps_new_collections() {
+    let n = node();
+    let picked = tempfile::tempdir().unwrap();
+    let added = n
+        .api
+        .add_storage(
+            &OWNER,
+            NewStorage {
+                label: "Documents".into(),
+                kind: StorageType::Folder,
+                address: picked.path().to_str().unwrap().into(),
+                username: None,
+                password: None,
+                encrypted: None,
+                make_default: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(added.name.as_deref(), Some("documents"));
+    assert_eq!(added.label, "Documents");
+    assert!(added.is_default);
+    assert!(added.place.ends_with("/Oikome"));
+    assert!(picked.path().join("Oikome").is_dir());
+
+    // The examples go where new collections go.
+    let examples = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    assert!(examples
+        .iter()
+        .all(|s| s.storage.as_deref() == Some("documents")));
+    let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(storages[0].spaces, 0);
+    assert!(!storages[0].is_default);
+    assert_eq!(storages[1].spaces, 3);
+
+    // Back to this computer.
+    let storages = n
+        .api
+        .set_default_storage(&OWNER, DefaultStorage { storage: None })
+        .await
+        .unwrap();
+    assert!(storages[0].is_default && !storages[1].is_default);
+
+    // A folder that is not there, or not a path, is refused.
+    let err = n
+        .api
+        .add_storage(
+            &OWNER,
+            NewStorage {
+                label: "Nowhere".into(),
+                kind: StorageType::Folder,
+                address: "relative/folder".into(),
+                username: None,
+                password: None,
+                encrypted: None,
+                make_default: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err}");
+
+    // The folder browser lists folders, not files.
+    std::fs::create_dir(picked.path().join("Photos")).unwrap();
+    let listing = n
+        .api
+        .list_folders(
+            &OWNER,
+            FolderRef {
+                path: Some(picked.path().to_str().unwrap().into()),
+            },
+        )
+        .await
+        .unwrap();
+    let names: Vec<&str> = listing.folders.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["Oikome", "Photos"]);
+}

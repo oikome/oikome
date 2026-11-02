@@ -46,8 +46,9 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    Api, ApiError, Caller, ContactInput, DidRef, Empty, ErrorCode, ListAccess, ListShares,
-    NewSpace, NodeName, ReadRows, Rows, RunSql, ShareRef, ShareSpace, SpaceRef, SqlResult,
+    Api, ApiError, Caller, ContactInput, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef,
+    ListAccess, ListShares, NewSpace, NewStorage, NodeName, ReadRows, Rows, RunSql, ShareRef,
+    ShareSpace, SpaceRef, SqlResult,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -388,6 +389,10 @@ impl WebState {
             "list_tables" => json_op!(list_tables, SpaceRef),
             "add_examples" => json_op!(add_examples, Empty),
             "list_storages" => json_op!(list_storages, Empty),
+            "add_storage" => json_op!(add_storage, NewStorage),
+            "set_default_storage" => json_op!(set_default_storage, DefaultStorage),
+            "find_places" => json_op!(find_places, Empty),
+            "list_folders" => json_op!(list_folders, FolderRef),
             "read_rows" => match parse::<ReadRows>(&body) {
                 Ok(request) => match api.read_rows(&caller, request).await {
                     Ok(rows) => arrow(rows),

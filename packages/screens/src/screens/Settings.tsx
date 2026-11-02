@@ -7,10 +7,13 @@
 import { useState } from "react";
 import {
   Button,
+  Checkbox,
   CopyButton,
+  Dialog,
   ErrorText,
   Group,
   GroupPanel,
+  Menu,
   Row,
   TextField,
   Tile,
@@ -20,7 +23,8 @@ import type { IconName, TileTone } from "@oikome/ui";
 import type { NodeInfo, StorageSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { RecoveryKeyPanel, ScreenHeader } from "../parts";
-import { shortId } from "../format";
+import { homeRelative, shortId } from "../format";
+import { addPlanned, useStoragePicker } from "../storage";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
@@ -33,15 +37,19 @@ const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
   drive: ["drive", "periwinkle"],
 };
 
-/** Where collections can be kept, with how many are on each. */
+/** Where collections can be kept, with how many are on each, and which one new ones go to. */
 function Storage() {
   const client = useClient();
+  const toast = useToast();
   const storages = useLoad(() => client.listStorages(), []);
+  const [adding, setAdding] = useState(false);
+  const change = useAction();
   return (
     <Group title={s.storageTitle} footnote={s.storageFootnote}>
       {storages.error && <Row title={storages.error} muted />}
       {(storages.data ?? []).map((x) => {
         const [icon, tone] = STORAGE_LOOK[x.type];
+        const label = x.name === null ? s.thisComputer : x.label;
         const meta = [
           s.storageCount(x.spaces),
           x.name === null ? null : s.storageKind[x.type],
@@ -53,20 +61,106 @@ function Storage() {
           <Row
             key={x.name ?? ""}
             leading={<Tile icon={icon} tone={tone} />}
-            title={x.name ?? s.thisComputer}
+            title={
+              <>
+                {label}
+                {x.isDefault && <span className="screen-tag screen-tag--inline">{strings.storage.isDefault}</span>}
+              </>
+            }
             meta={
               <>
                 {meta}
                 <br />
                 <span className="oik-mono" translate="no">
-                  {x.place}
+                  {homeRelative(x.place)}
                 </span>
               </>
+            }
+            trailing={
+              x.isDefault ? undefined : (
+                <Menu
+                  label={strings.common.moreActions(label)}
+                  items={[
+                    {
+                      label: strings.storage.useForNew,
+                      onSelect: async () => {
+                        const updated = await change.run(() =>
+                          client.setDefaultStorage({ storage: x.name }),
+                        );
+                        if (updated) {
+                          toast(strings.toast.defaultStorage(label));
+                          storages.reload();
+                        }
+                      },
+                    },
+                  ]}
+                />
+              )
             }
           />
         );
       })}
+      <Row
+        add
+        leading={<Tile icon="plus" tone="stone" />}
+        title={strings.storage.add}
+        onClick={() => setAdding(true)}
+      />
+      {adding && (
+        <AddStorage
+          onClose={() => setAdding(false)}
+          onAdded={(label) => {
+            toast(strings.toast.storageAdded(label));
+            setAdding(false);
+            storages.reload();
+          }}
+        />
+      )}
     </Group>
+  );
+}
+
+/** Add a place: a cloud drive or drive found here, a NAS, or a folder. */
+function AddStorage({ onClose, onAdded }: { onClose: () => void; onAdded: (label: string) => void }) {
+  const client = useClient();
+  const storage = useStoragePicker({ withThisComputer: false });
+  const [makeDefault, setMakeDefault] = useState(false);
+  const add = useAction();
+  return (
+    <Dialog
+      title={strings.storage.add}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button type="submit" form="add-storage" variant="primary" disabled={add.busy}>
+            {add.busy ? strings.storage.connecting : strings.storage.add}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="add-storage"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const plan = storage.plan();
+          if ("error" in plan) {
+            add.fail(plan.error);
+            return;
+          }
+          const added = await add.run(
+            () => addPlanned(client, plan, makeDefault),
+            (err) => (err.code === "invalid" ? strings.storage.unreachable : undefined),
+          );
+          if (added) onAdded(added.label);
+        }}
+      >
+        {storage.picker}
+        <Checkbox label={strings.storage.useForNew} checked={makeDefault} onChange={setMakeDefault} />
+        {add.error && <ErrorText>{add.error}</ErrorText>}
+      </form>
+    </Dialog>
   );
 }
 

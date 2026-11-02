@@ -569,6 +569,85 @@
   accent-color: var(--color-primary);
 }
 
+/* ----- Choices as cards ----- */
+
+.oik-choices {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  border: 0;
+  text-align: left;
+}
+.oik-choices > legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+}
+.oik-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  transition:
+    box-shadow 150ms var(--ease),
+    background-color 150ms var(--ease);
+}
+.oik-choice:hover {
+  box-shadow: inset 0 0 0 1px var(--color-stroke);
+}
+/* The chosen one in crimson, as every current choice */
+.oik-choice--on,
+.oik-choice--on:hover {
+  background: var(--color-primary-tint);
+  box-shadow: inset 0 0 0 1.5px var(--color-primary);
+}
+.oik-choice__row {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  cursor: pointer;
+}
+.oik-choice__row input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+.oik-choice__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.oik-choice__title {
+  font: var(--text-row);
+}
+.oik-choice__meta {
+  font: var(--text-meta);
+  color: var(--color-ink-secondary);
+  overflow-wrap: anywhere;
+}
+.oik-choice__aside {
+  flex: none;
+}
+.oik-choice__more {
+  box-sizing: border-box;
+  flex: 1 0 100%;
+  min-width: 0;
+  padding: var(--space-2) 0 var(--space-1) 30px;
+}
+.oik-choice__more > .oik-field:last-child,
+.oik-choice__more > :last-child {
+  margin-bottom: 0;
+}
+
 /* ----- Messages ----- */
 
 .oik-banner {

@@ -29,6 +29,7 @@
 
 pub mod error;
 mod examples;
+mod places;
 pub mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -46,6 +47,7 @@ use oikome_identity::{
 };
 use oikome_node::{
     AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult, SessionConfig,
+    StorageCredentials,
 };
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
@@ -87,6 +89,12 @@ struct NodeSettings {
     /// The examples still there.
     #[serde(default)]
     examples: Vec<String>,
+    /// Where new collections go; this computer when `None`.
+    #[serde(default)]
+    default_storage: Option<String>,
+    /// What the owner called each storage, by its name.
+    #[serde(default)]
+    storage_labels: BTreeMap<String, String>,
 }
 
 fn now_ms() -> u64 {
@@ -490,6 +498,7 @@ impl Api {
                     .create_space(CreateSpaceRequest {
                         name: example.name.to_string(),
                         kind: Some(oikome_core::SpaceKind::Analytical),
+                        storage: settings.default_storage.clone(),
                         ..Default::default()
                     })
                     .await?;
@@ -535,8 +544,14 @@ impl Api {
                 .map(|b| b.storage);
             *counts.entry(storage).or_default() += 1;
         }
+        let settings = self.settings()?;
+        let default = settings
+            .default_storage
+            .filter(|name| self.catalog.get_storage(name).is_ok());
         let mut out = vec![StorageSummary {
             name: None,
+            label: String::new(),
+            is_default: default.is_none(),
             kind: StorageType::Disk,
             place: self.catalog.root_path().to_string(),
             encrypted: false,
@@ -550,6 +565,12 @@ impl Api {
             };
             out.push(StorageSummary {
                 spaces: counts.get(&Some(def.name.clone())).copied().unwrap_or(0),
+                label: settings
+                    .storage_labels
+                    .get(&def.name)
+                    .cloned()
+                    .unwrap_or_else(|| def.name.clone()),
+                is_default: default.as_deref() == Some(def.name.as_str()),
                 name: Some(def.name),
                 kind,
                 place,
@@ -557,6 +578,136 @@ impl Api {
             });
         }
         Ok(out)
+    }
+
+    /// Add a place to keep Spaces in, as the owner picked it: a folder (an
+    /// `Oikome` folder is made inside), a cloud drive's folder (always
+    /// encrypted) or a WebDAV server. The password goes to the system
+    /// keychain, and the storage is checked before it is kept.
+    pub async fn add_storage(
+        &self,
+        caller: &Caller,
+        req: NewStorage,
+    ) -> Result<StorageSummary, ApiError> {
+        caller.require_owner()?;
+        let label = req.label.trim();
+        if label.is_empty()
+            || label.chars().count() > MAX_NODE_NAME_CHARS
+            || label.chars().any(char::is_control)
+        {
+            return Err(ApiError::invalid(format!(
+                "a storage's name has 1 to {MAX_NODE_NAME_CHARS} characters"
+            )));
+        }
+        self.refresh()?;
+        let home = places::home();
+        let (kind, encrypted) = match req.kind {
+            StorageType::Disk => {
+                return Err(ApiError::invalid("this computer is already a storage"));
+            }
+            StorageType::Webdav => (
+                StorageKind::Webdav {
+                    endpoint: req.address.trim().to_string(),
+                    username: req.username.clone().filter(|u| !u.is_empty()),
+                },
+                req.encrypted.unwrap_or(false),
+            ),
+            StorageType::Folder | StorageType::Drive => {
+                let (path, on_drive) = places::data_folder(req.address.trim(), home.as_deref())?;
+                if on_drive || req.kind == StorageType::Drive {
+                    (StorageKind::Drive { path }, true)
+                } else {
+                    (StorageKind::Folder { path }, req.encrypted.unwrap_or(false))
+                }
+            }
+        };
+        let taken: Vec<String> = self
+            .catalog
+            .list_storages()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        let name = places::storage_name(label, &taken);
+        let credentials = StorageCredentials {
+            password: req.password.filter(|p| !p.is_empty()).map(Into::into),
+            token: None,
+            key: None,
+        };
+        self.session(None)
+            .add_storage(&name, kind, encrypted, credentials)
+            .await
+            .map_err(|e| match e {
+                // It did not answer, or refused the credentials: the owner
+                // can fix what they entered.
+                oikome_node::SessionError::Store { .. } => ApiError::invalid(e.to_string()),
+                other => other.into(),
+            })?;
+        let mut settings = self.settings()?;
+        settings
+            .storage_labels
+            .insert(name.clone(), label.to_string());
+        if req.make_default.unwrap_or(false) {
+            settings.default_storage = Some(name.clone());
+        }
+        self.save_settings(&settings)?;
+        self.list_storages(caller, Empty {})
+            .await?
+            .into_iter()
+            .find(|s| s.name.as_deref() == Some(name.as_str()))
+            .ok_or_else(|| ApiError::internal("the added storage is missing"))
+    }
+
+    /// Choose where new collections go: a registered storage, or this
+    /// computer (`None`).
+    pub async fn set_default_storage(
+        &self,
+        caller: &Caller,
+        req: DefaultStorage,
+    ) -> Result<Vec<StorageSummary>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        if let Some(name) = &req.storage {
+            self.catalog.get_storage(name)?;
+        }
+        let mut settings = self.settings()?;
+        settings.default_storage = req.storage;
+        self.save_settings(&settings)?;
+        self.list_storages(caller, Empty {}).await
+    }
+
+    /// Cloud drives synced on this computer and drives plugged into it,
+    /// not yet added.
+    pub async fn find_places(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<FoundPlace>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let added: Vec<String> = self
+            .catalog
+            .list_storages()
+            .into_iter()
+            .filter_map(|d| match d.kind {
+                StorageKind::Folder { path } | StorageKind::Drive { path } => Some(path),
+                StorageKind::Webdav { .. } => None,
+            })
+            .collect();
+        let home = places::home();
+        Ok(places::find_places(home.as_deref(), &places::volumes())
+            .into_iter()
+            .filter(|p| !added.iter().any(|a| a.starts_with(&p.path)))
+            .collect())
+    }
+
+    /// The folders in a folder of this computer, to pick one.
+    pub async fn list_folders(
+        &self,
+        caller: &Caller,
+        req: FolderRef,
+    ) -> Result<FolderListing, ApiError> {
+        caller.require_owner()?;
+        places::list_folders(req.path.as_deref())
     }
 
     /// Tables and views of a Space.

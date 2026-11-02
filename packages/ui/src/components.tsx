@@ -363,6 +363,7 @@ export function TextField({
   mono,
   autoFocus,
   selectOnFocus,
+  type = "text",
 }: FieldProps & {
   /** The field's name; fields here are never credentials, so autofill is off. */
   name: string;
@@ -373,6 +374,8 @@ export function TextField({
   autoFocus?: boolean;
   /** Select a suggested value on focus, so typing replaces it. */
   selectOnFocus?: boolean;
+  /** `password` hides what is typed (and lets password managers fill it). */
+  type?: "text" | "password" | "url";
 }) {
   const id = useId();
   return (
@@ -383,7 +386,8 @@ export function TextField({
       <input
         id={id}
         name={name}
-        autoComplete="off"
+        type={type}
+        autoComplete={type === "password" ? "current-password" : "off"}
         className={cx("oik-input", mono && "oik-input--mono")}
         value={value}
         placeholder={placeholder}
@@ -487,6 +491,61 @@ export function Checkbox({
       />
       <span>{label}</span>
     </label>
+  );
+}
+
+export interface Choice {
+  value: string;
+  title: ReactNode;
+  meta?: ReactNode;
+  leading?: ReactNode;
+  /** Beside the choice, such as a Change… button. */
+  aside?: ReactNode;
+  /** Shown under the choice while it is chosen: the fields it needs. */
+  more?: ReactNode;
+}
+
+/** One of a few choices, as cards with a radio each; the chosen one in crimson. */
+export function ChoiceList({
+  label,
+  name,
+  value,
+  onChange,
+  choices,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (value: string) => void;
+  choices: Choice[];
+}) {
+  return (
+    <fieldset className="oik-choices">
+      <legend className="oik-field__label">{label}</legend>
+      {choices.map((choice) => {
+        const on = choice.value === value;
+        return (
+          <div key={choice.value} className={cx("oik-choice", on && "oik-choice--on")}>
+            <label className="oik-choice__row">
+              <input
+                type="radio"
+                name={name}
+                value={choice.value}
+                checked={on}
+                onChange={() => onChange(choice.value)}
+              />
+              {choice.leading}
+              <span className="oik-choice__text">
+                <span className="oik-choice__title">{choice.title}</span>
+                {choice.meta && <span className="oik-choice__meta">{choice.meta}</span>}
+              </span>
+            </label>
+            {choice.aside && <span className="oik-choice__aside">{choice.aside}</span>}
+            {on && choice.more && <div className="oik-choice__more">{choice.more}</div>}
+          </div>
+        );
+      })}
+    </fieldset>
   );
 }
 

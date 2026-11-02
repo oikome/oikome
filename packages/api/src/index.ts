@@ -123,7 +123,15 @@ export type StorageSummary = {
 /**
  * `None` for this computer; otherwise the name to create a Space with.
  */
-name: string | null, type: StorageType, 
+name: string | null, 
+/**
+ * What the owner called it ("Documents", "Home NAS").
+ */
+label: string, 
+/**
+ * New collections go here unless another storage is chosen.
+ */
+isDefault: boolean, type: StorageType, 
 /**
  * Where: the data directory, the folder, or the WebDAV address.
  */
@@ -136,6 +144,67 @@ encrypted: boolean,
  * Local Spaces kept there.
  */
 spaces: number, };
+
+/**
+ * `add_storage`: a place to keep Spaces in, as the owner picked it.
+ */
+export type NewStorage = { 
+/**
+ * What to call it: "Documents", "Home NAS".
+ */
+label: string, 
+/**
+ * `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+ */
+type: StorageType, 
+/**
+ * The WebDAV address, or the folder picked: the files go in an
+ * `Oikome` folder inside it.
+ */
+address: string, username?: string, 
+/**
+ * Kept in the system keychain, never in the registry or a log.
+ */
+password?: string, 
+/**
+ * Encrypt files before they leave this computer; a cloud drive always is.
+ */
+encrypted?: boolean, 
+/**
+ * Keep new collections, and the examples, there.
+ */
+makeDefault?: boolean, };
+
+/**
+ * `set_default_storage`: where new collections go; `None` for this computer.
+ */
+export type DefaultStorage = { storage: string | null, };
+
+/**
+ * A place on this computer found to keep Spaces in: a cloud drive's
+ * folder, or a drive plugged in.
+ */
+export type FoundPlace = { 
+/**
+ * "iCloud Drive", "Dropbox", or a drive's name.
+ */
+label: string, type: StorageType, path: string, };
+
+/**
+ * `list_folders`: a folder on this computer; the home folder when left out.
+ */
+export type FolderRef = { path?: string, };
+
+/**
+ * The folders in one folder, hidden ones left out.
+ */
+export type FolderListing = { path: string, 
+/**
+ * The folder above; `None` at the top.
+ */
+parent: string | null, folders: Array<FolderEntry>, };
+
+export type FolderEntry = { name: string, path: string, };
 
 /**
  * Names one Space.

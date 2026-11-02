@@ -8,7 +8,7 @@ import { Button, Card, ErrorText, Icon, StepDots, TextField } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
-import { homeRelative } from "../format";
+import { addPlanned, useStoragePicker } from "../storage";
 import { RecoveryKeyPanel } from "../parts";
 import { strings } from "../strings";
 
@@ -39,6 +39,8 @@ export function Onboarding({
   const [restoreHelp, setRestoreHelp] = useState(false);
   const save = useAction();
   const s = strings.onboarding;
+  // Where collections are kept: this computer unless the owner picks another place.
+  const storage = useStoragePicker({ withThisComputer: true });
 
   return (
     <main className="screen-onboarding">
@@ -49,13 +51,25 @@ export function Onboarding({
             className="screen-form"
             onSubmit={async (e) => {
               e.preventDefault();
-              const updated = await save.run(async () => {
-                const renamed = await client.renameNode({ name: name.trim() || strings.defaultName });
-                // Something to look at on the first day; once, and only on
-                // a data center with nothing in it yet.
-                await client.addExamples().catch(() => undefined);
-                return renamed;
-              });
+              const plan = storage.plan();
+              if ("error" in plan) {
+                save.fail(plan.error);
+                return;
+              }
+              const updated = await save.run(
+                async () => {
+                  const renamed = await client.renameNode({
+                    name: name.trim() || strings.defaultName,
+                  });
+                  // The place picked keeps new collections, the examples first.
+                  await addPlanned(client, plan, true);
+                  // Something to look at on the first day; once, and only on
+                  // a data center with nothing in it yet.
+                  await client.addExamples().catch(() => undefined);
+                  return renamed;
+                },
+                (err) => (err.code === "invalid" && plan.add ? strings.storage.unreachable : undefined),
+              );
               if (updated) {
                 onInfo(updated);
                 setStep(2);
@@ -74,19 +88,12 @@ export function Onboarding({
               selectOnFocus
               autoFocus
             />
-            <div className="screen-location">
-              <Icon name="computer" />
-              <span className="screen-location__text">
-                <span className="screen-location__title">{s.keptHere}</span>
-                <span className="screen-path" title={info.dataDir} translate="no">
-                  {homeRelative(info.dataDir)}
-                </span>
-              </span>
-            </div>
+            {storage.picker}
+            <p className="screen-help">{strings.storage.later}</p>
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" large disabled={save.busy}>
-                {s.continue}
+                {save.busy ? strings.storage.connecting : s.continue}
               </Button>
               <Button variant="text" onClick={() => setRestoreHelp((v) => !v)}>
                 {s.restoreLink}

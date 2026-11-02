@@ -40,6 +40,7 @@ export function Collection({ name }: { name: string }) {
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const contacts = useLoad(() => client.listContacts(), []);
+  const storages = useLoad(() => client.listStorages(), []);
   const [confirming, setConfirming] = useState(false);
   const [sharing, setSharing] = useState(false);
   const remove = useAction();
@@ -96,7 +97,13 @@ export function Collection({ name }: { name: string }) {
             <AvatarStack names={names} label={s.whoSentence(names)} />
             <span>{s.whoSentence(names)}</span>
             <span aria-hidden="true">·</span>
-            <span>{s.storedOn(space.storage)}</span>
+            <span>
+              {s.storedOn(
+                space.storage === null
+                  ? null
+                  : (storages.data?.find((x) => x.name === space.storage)?.label ?? space.storage),
+              )}
+            </span>
             <Link to="/sharing">{s.manage}</Link>
           </>
         ) : (

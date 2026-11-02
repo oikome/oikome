@@ -196,6 +196,21 @@
 .oik-group--list .oik-row::before {
   display: none;
 }
+.oik-group--list .oik-row__title {
+  font-weight: 500;
+}
+.oik-group--list .oik-row--selected .oik-row__title {
+  font-weight: 600;
+}
+.oik-group--list .oik-tile {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.oik-group--list .oik-tile .oik-icon {
+  width: 16px;
+  height: 16px;
+}
 .oik-group__footnote {
   margin: var(--space-3) var(--space-1) 0;
   font: var(--text-caption);
@@ -228,6 +243,10 @@
 }
 .oik-row--button:hover {
   background: var(--color-wash);
+}
+.oik-row--link {
+  box-sizing: border-box;
+  text-decoration: none;
 }
 .oik-row--selected,
 .oik-row--selected:hover {

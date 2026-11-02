@@ -26,6 +26,7 @@ import {
 import type { Contact, NewShare, NodeInfo, Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { dateFromSeconds } from "../format";
+import { navigate } from "../router";
 import { strings } from "../strings";
 
 const s = strings.sharing;
@@ -128,6 +129,8 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
             onClose={() => {
               setComposing(false);
               reload();
+              // Opened by Share… (?share=): a reload should not open it again.
+              if (preselect) navigate("/sharing", { replace: true });
             }}
           />
         )}

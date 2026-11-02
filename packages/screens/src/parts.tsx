@@ -1,16 +1,62 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pieces several screens share: a table of rows and the recovery key panel.
+// Pieces several screens share: a Back link, a table of rows and the
+// recovery key panel.
 
 import { useState } from "react";
-import { Button, Checkbox, CopyField, ErrorText, InsetWell } from "@oikome/ui";
+import { Button, Checkbox, CopyField, ErrorText, Icon, InsetWell } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import { useAction, useClient, useLoad } from "./data";
 import { cell } from "./format";
+import { navigate, plainClick, previousPage } from "./router";
 import { strings } from "./strings";
+
+/** What a page is called in a Back link; undefined for redirects such as "/". */
+function pageTitle(url: string): string | undefined {
+  const path = new URL(url, window.location.origin).pathname;
+  if (path.startsWith("/collections/")) {
+    try {
+      return decodeURIComponent(path.slice("/collections/".length));
+    } catch {
+      return undefined;
+    }
+  }
+  const titles: Record<string, string> = {
+    "/collections": strings.nav.collections,
+    "/sharing": strings.nav.sharing,
+    "/activity": strings.nav.activity,
+    "/settings": strings.nav.settings,
+    "/settings/advanced": strings.sql.title,
+  };
+  return titles[path];
+}
+
+/**
+ * Back to the page this one was opened from, named after it. A page opened
+ * directly (a bookmark, a reload of a fresh tab) goes up to `parent`.
+ */
+export function BackLink({ parent, parentLabel }: { parent: string; parentLabel: string }) {
+  const from = previousPage();
+  const title = from ? pageTitle(from) : undefined;
+  return (
+    <a
+      href={title ? from : parent}
+      className="oik-link screen-back"
+      onClick={(e) => {
+        if (!plainClick(e)) return;
+        e.preventDefault();
+        if (title) window.history.back();
+        else navigate(parent);
+      }}
+    >
+      <Icon name="back" />
+      {title ?? parentLabel}
+    </a>
+  );
+}
 
 /** A value of a column as text: dates as 2026-10-28, times in UTC. */
 function show(field: Field, value: unknown): string | null {

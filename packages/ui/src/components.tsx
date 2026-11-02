@@ -4,7 +4,7 @@
 // Components of the Oikome apps (styles in ui.css).
 
 import { useEffect, useId, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode } from "react";
+import type { ButtonHTMLAttributes, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
 
@@ -100,8 +100,10 @@ export interface RowProps {
   title: ReactNode;
   meta?: ReactNode;
   trailing?: ReactNode;
-  /** Makes the whole row a button. */
+  /** Makes the whole row a button, or with `href` a link that `onClick` follows. */
   onClick?: () => void;
+  /** Makes the whole row a link to another page. */
+  href?: string;
   selected?: boolean;
   chevron?: boolean;
   add?: boolean;
@@ -118,6 +120,7 @@ export function Row({
   meta,
   trailing,
   onClick,
+  href,
   selected,
   chevron,
   add,
@@ -151,6 +154,28 @@ export function Row({
     selected && "oik-row--selected",
     alignStart && "oik-row--start",
   );
+  if (href) {
+    // A plain click goes through `onClick` (the app's router); modified
+    // clicks open the page in a new tab as links do.
+    const follow = (e: MouseEvent<HTMLAnchorElement>) => {
+      if (!onClick || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      onClick();
+    };
+    return (
+      <li className="oik-group__item">
+        <a
+          href={href}
+          className={cx(className, "oik-row--button", "oik-row--link")}
+          onClick={follow}
+          aria-current={selected ? "page" : undefined}
+          aria-label={label}
+        >
+          {body}
+        </a>
+      </li>
+    );
+  }
   return (
     <li className="oik-group__item">
       {onClick ? (

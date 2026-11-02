@@ -5,11 +5,10 @@
 // who know SQL.
 
 import { useState } from "react";
-import { Button, Card, ErrorText, Icon, TextArea } from "@oikome/ui";
+import { Button, Card, ErrorText, TextArea } from "@oikome/ui";
 import type { SqlResult } from "@oikome/client";
 import { useAction, useClient } from "../data";
-import { RowsTable } from "../parts";
-import { Link } from "../router";
+import { BackLink, RowsTable } from "../parts";
 import { strings } from "../strings";
 
 const s = strings.sql;
@@ -22,10 +21,7 @@ export function Sql() {
 
   return (
     <>
-      <Link to="/settings" className="oik-link screen-back">
-        <Icon name="back" />
-        {s.back}
-      </Link>
+      <BackLink parent="/settings" parentLabel={s.back} />
       <header className="screen-header screen-result">
         <h1 className="screen-title">{s.title}</h1>
       </header>

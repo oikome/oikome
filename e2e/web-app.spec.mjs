@@ -136,8 +136,11 @@ test("a collection is filled in the SQL workbench and browsed", async () => {
   await page.getByRole("button", { name: "Run" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Done." })).toBeVisible();
 
+  // Back returns to the collection the workbench was opened from.
+  await page.getByRole("link", { name: "notes" }).click();
+  await expect(page).toHaveURL(/\/collections\/notes$/);
   await page.getByRole("link", { name: "Collections" }).click();
-  await page.getByRole("button", { name: /^notes/ }).click();
+  await page.getByRole("link", { name: /^notes/ }).click();
   const rows = page.getByRole("table", { name: "memos" });
   await expect(rows.getByRole("cell", { name: "buy milk" })).toBeVisible();
   await expect(rows.getByRole("cell", { name: "call mum" })).toBeVisible();
@@ -210,7 +213,43 @@ test("a collection is removed from its More menu with the keyboard", async () =>
   await expect(page.getByText("Remove scratch? Sharing it stops.")).toBeVisible();
   await page.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(page).toHaveURL(/\/collections$/);
-  await expect(page.getByRole("button", { name: /^scratch/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /^scratch/ })).toHaveCount(0);
+  // The removed collection's page is not in the history any more.
+  await page.goBack();
+  await expect(page).not.toHaveURL(/scratch/);
+});
+
+test("Back returns to the page before, and closed panels stay closed", async () => {
+  // "/" forwards to Collections without trapping Back.
+  await page.goto(`${base}/activity`);
+  await page.goto(`${base}/`);
+  await expect(page).toHaveURL(/\/collections$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/activity$/);
+
+  // A new page starts at the top.
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.goto(`${base}/sharing`);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.getByRole("link", { name: "Activity" }).click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // Share… opens the panel; closing it drops ?share, and Back returns to the collection.
+  await page.goto(`${base}/collections/notes`);
+  await page.getByRole("button", { name: "Share…" }).click();
+  await expect(page).toHaveURL(/\/sharing\?share=notes$/);
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page).toHaveURL(/\/sharing$/);
+  await page.reload();
+  await expect(page.getByRole("complementary", { name: "New Share" })).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/collections\/notes$/);
+
+  // The workbench opened directly goes up to Settings.
+  await page.goto(`${base}/settings/advanced`);
+  await page.getByRole("link", { name: "Settings" }).last().click();
+  await expect(page).toHaveURL(/\/settings$/);
 });
 
 test("every screen fits desktop and phone widths, and its text is readable", async () => {

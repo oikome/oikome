@@ -3,9 +3,9 @@
 //
 // Collections: the list, and what is in the selected one, with who can see it.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  AvatarStack,
+  Avatar,
   Button,
   Card,
   EmptyState,
@@ -21,7 +21,7 @@ import {
 import type { Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { RowsTable } from "../parts";
-import { navigate } from "../router";
+import { Link, navigate } from "../router";
 import { strings } from "../strings";
 
 const PAGE_ROWS = 100;
@@ -67,6 +67,7 @@ export function Collections({ selected }: { selected?: string }) {
               : s.notShared
         }
         selected={space.name === selected}
+        href={`/collections/${encodeURIComponent(space.name)}`}
         onClick={() => navigate(`/collections/${encodeURIComponent(space.name)}`)}
       />
     );
@@ -146,7 +147,7 @@ export function Collections({ selected }: { selected?: string }) {
 
       {list.length > 0 && (
         <div className="screen-split">
-          <div>
+          <div className="screen-split__list">
             {mine.length > 0 && (
               <Group title={s.mine} variant="list">
                 {mine.map(item)}
@@ -165,13 +166,16 @@ export function Collections({ selected }: { selected?: string }) {
               names={shared.get(current.name) ?? []}
               onRemoved={() => {
                 reload();
-                navigate("/collections");
+                // The removed collection's page is gone: Back skips it.
+                navigate("/collections", { replace: true });
               }}
             />
           ) : (
-            <Card>
-              <p className="screen-muted">{s.pick}</p>
-            </Card>
+            <div className="screen-split__placeholder">
+              <Card>
+                <p className="screen-muted">{s.pick}</p>
+              </Card>
+            </div>
           )}
         </div>
       )}
@@ -207,93 +211,98 @@ function Detail({
     [space.name, table, offset],
   );
   const count = rows.data?.table.numRows ?? 0;
+  const who = [strings.common.you, ...names];
+  const panel = useRef<HTMLElement>(null);
+
+  // Below 960px the collection sits under the list: bring it into view.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 960px)").matches) {
+      panel.current?.scrollIntoView({ block: "start" });
+    }
+  }, []);
 
   return (
-    <div className="screen-stack">
-      <Card>
-        <div className="screen-detail__head">
-          <Tile icon="collection" tone={toneFor(space.name)} large />
-          <div className="screen-detail__name">
-            <h2>{space.name}</h2>
-            <p className="screen-muted">{local ? s.storedHere : s.fromElsewhere}</p>
-          </div>
-          {local && (
-            <Button
-              variant="primary"
-              onClick={() => navigate(`/sharing?share=${encodeURIComponent(space.name)}`)}
-            >
-              {s.share}
-            </Button>
-          )}
-          <Menu
-            label={strings.common.moreActions(space.name)}
-            items={[{ label: s.remove, destructive: true, onSelect: () => setConfirming(true) }]}
-          />
+    <section ref={panel} className="screen-detail" aria-label={space.name}>
+      <div className="screen-detail__head">
+        <Tile icon="collection" tone={toneFor(space.name)} large />
+        <div className="screen-detail__name">
+          <h2>{space.name}</h2>
+          <p className="screen-muted">{local ? s.storedHere : s.fromElsewhere}</p>
         </div>
         {local && (
-          <div className="screen-who">
-            <span className="oik-field__label">{s.whoCanSee}</span>
-            <div className="screen-who__row">
-              <AvatarStack
-                names={[strings.common.you, ...names]}
-                label={[strings.common.you, ...names].join(", ")}
-              />
-              <span className="screen-who__names">
-                {[strings.common.you, ...names].join(", ")}
-              </span>
-              <Button variant="text" onClick={() => navigate("/sharing")}>
-                {s.manage}
-              </Button>
-            </div>
-          </div>
+          <Button
+            variant="primary"
+            onClick={() => navigate(`/sharing?share=${encodeURIComponent(space.name)}`)}
+          >
+            {s.share}
+          </Button>
         )}
-        {confirming && (
-          <div className="screen-confirm">
-            <p className="screen-confirm__text">{s.removeConfirm(space.name)}</p>
-            {remove.error && <ErrorText>{remove.error}</ErrorText>}
-            <div className="screen-confirm__actions">
-              <Button
-                variant="destructive"
-                disabled={remove.busy}
-                onClick={async () => {
-                  const done = await remove.run(() => client.dropSpace({ space: space.name }));
-                  if (done) onRemoved();
-                }}
-              >
-                {s.removeYes}
-              </Button>
-              <Button variant="quiet" onClick={() => setConfirming(false)}>
-                {strings.common.cancel}
-              </Button>
-            </div>
+        <Menu
+          label={strings.common.moreActions(space.name)}
+          items={[{ label: s.remove, destructive: true, onSelect: () => setConfirming(true) }]}
+        />
+      </div>
+
+      {local && (
+        <div className="screen-who">
+          <span className="screen-who__label">{s.whoCanSee}</span>
+          {who.map((name) => (
+            <span key={name} className="screen-chip">
+              <Avatar name={name} small />
+              {name}
+            </span>
+          ))}
+          <span className="screen-who__manage">
+            <Link to="/sharing">{s.manage}</Link>
+          </span>
+        </div>
+      )}
+
+      {confirming && (
+        <div className="screen-confirm">
+          <p className="screen-confirm__text">{s.removeConfirm(space.name)}</p>
+          {remove.error && <ErrorText>{remove.error}</ErrorText>}
+          <div className="screen-confirm__actions">
+            <Button
+              variant="destructive"
+              disabled={remove.busy}
+              onClick={async () => {
+                const done = await remove.run(() => client.dropSpace({ space: space.name }));
+                if (done) onRemoved();
+              }}
+            >
+              {s.removeYes}
+            </Button>
+            <Button variant="quiet" onClick={() => setConfirming(false)}>
+              {strings.common.cancel}
+            </Button>
           </div>
-        )}
-      </Card>
+        </div>
+      )}
 
       {tables.error && <ErrorText>{tables.error}</ErrorText>}
       {tables.data && tables.data.length === 0 && (
-        <Card>
-          <EmptyState
-            title={s.nothingYetTitle(space.name)}
-            body={s.nothingYetBody}
-            action={
-              <Button onClick={() => navigate("/settings/advanced")}>{s.openAdvanced}</Button>
-            }
-          />
-        </Card>
+        <EmptyState
+          title={s.nothingYetTitle(space.name)}
+          body={s.nothingYetBody}
+          action={<Button onClick={() => navigate("/settings/advanced")}>{s.openAdvanced}</Button>}
+        />
       )}
       {tables.data && tables.data.length > 0 && table && (
-        <section>
+        <div className="screen-detail__content">
           {tables.data.length > 1 && (
-            <Select
-              label={s.tableLabel}
-              value={table}
-              onChange={(value) => {
-                setTable(value);
-                setOffset(0);
-              }}
-              options={tables.data.map((t) => ({ value: t.name, label: t.name }))}
-            />
+            <div className="screen-toolbar">
+              <Select
+                inline
+                label={s.tableLabel}
+                value={table}
+                onChange={(value) => {
+                  setTable(value);
+                  setOffset(0);
+                }}
+                options={tables.data.map((t) => ({ value: t.name, label: t.name }))}
+              />
+            </div>
           )}
           {rows.error && <ErrorText>{rows.error}</ErrorText>}
           {rows.data && <RowsTable table={rows.data.table} label={table} />}
@@ -301,25 +310,27 @@ function Detail({
             <span className="screen-muted">
               {count === 0 ? s.noRows : s.rows(offset + 1, offset + count)}
             </span>
-            <span>
-              <Button
-                variant="quiet"
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - PAGE_ROWS))}
-              >
-                {s.previous}
-              </Button>
-              <Button
-                variant="quiet"
-                disabled={count < PAGE_ROWS}
-                onClick={() => setOffset(offset + PAGE_ROWS)}
-              >
-                {s.next}
-              </Button>
-            </span>
+            {(offset > 0 || count === PAGE_ROWS) && (
+              <span>
+                <Button
+                  variant="quiet"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_ROWS))}
+                >
+                  {s.previous}
+                </Button>
+                <Button
+                  variant="quiet"
+                  disabled={count < PAGE_ROWS}
+                  onClick={() => setOffset(offset + PAGE_ROWS)}
+                >
+                  {s.next}
+                </Button>
+              </span>
+            )}
           </div>
-        </section>
+        </div>
       )}
-    </div>
+    </section>
   );
 }

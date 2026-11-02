@@ -37,6 +37,12 @@ export function Settings({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(info.name);
   const rename = useAction();
+  // Opened from the banner (?backup=1): closing drops the flag, so a reload
+  // or Forward does not open the key again.
+  const close = () => {
+    setShowKey(false);
+    if (backup) navigate("/settings", { replace: true });
+  };
 
   return (
     <div className="screen-settings">
@@ -73,9 +79,9 @@ export function Settings({
               doneLabel={strings.common.done}
               onDone={(updated) => {
                 onInfo(updated);
-                setShowKey(false);
+                close();
               }}
-              onLater={() => setShowKey(false)}
+              onLater={close}
               laterLabel={info.recoveryKeySaved ? strings.common.close : undefined}
             />
           </GroupPanel>
@@ -161,6 +167,7 @@ export function Settings({
           title={s.sqlTitle}
           meta={s.sqlBody}
           chevron
+          href="/settings/advanced"
           onClick={() => navigate("/settings/advanced")}
         />
       </Group>

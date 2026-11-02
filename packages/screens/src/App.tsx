@@ -52,7 +52,7 @@ function Root() {
   }, [node.data]);
 
   useEffect(() => {
-    if (path === "/" && onboarding === false) navigate("/collections");
+    if (path === "/" && onboarding === false) navigate("/collections", { replace: true });
   }, [path, onboarding]);
 
   if (node.error) {
@@ -75,7 +75,7 @@ function Root() {
         onInfo={setInfo}
         onFinished={() => {
           setOnboarding(false);
-          navigate("/collections");
+          navigate("/collections", { replace: true });
         }}
       />
     );

@@ -68,6 +68,30 @@ impl StoreError {
     }
 }
 
+/// The size of the local file `local` and its bytes as a stream.
+pub async fn file_chunks(
+    local: &Path,
+) -> Result<(u64, BoxStream<'static, std::io::Result<Bytes>>), StoreError> {
+    let shown = local.display().to_string();
+    let size = tokio::fs::metadata(local)
+        .await
+        .map_err(|e| StoreError::Other(format!("{shown}: {e}")))?
+        .len();
+    let file = tokio::fs::File::open(local)
+        .await
+        .map_err(|e| StoreError::Other(format!("{shown}: {e}")))?;
+    let chunks = stream::try_unfold(file, |mut file| async move {
+        let mut buf = vec![0u8; UPLOAD_CHUNK_BYTES];
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            return Ok::<_, std::io::Error>(None);
+        }
+        buf.truncate(n);
+        Ok(Some((Bytes::from(buf), file)))
+    });
+    Ok((size, chunks.boxed()))
+}
+
 /// The HTTP status opendal puts in the message of a WebDAV error.
 fn http_status(message: &str) -> Option<u16> {
     let rest = &message[message.find("status: ")? + "status: ".len()..];
@@ -380,38 +404,34 @@ impl RemoteStore {
     /// Copy the local file `local` to `path`, replacing any file there.
     /// Returns the bytes uploaded.
     pub async fn upload(&self, local: &Path, path: &str) -> Result<u64, StoreError> {
+        let (size, chunks) = file_chunks(local).await?;
+        self.upload_stream(path, size, chunks).await
+    }
+
+    /// Write the `size` bytes of `chunks` to `path`, replacing any file
+    /// there. Returns the bytes uploaded.
+    pub async fn upload_stream(
+        &self,
+        path: &str,
+        size: u64,
+        chunks: BoxStream<'static, std::io::Result<Bytes>>,
+    ) -> Result<u64, StoreError> {
         check_relative_path(path)?;
-        let size = tokio::fs::metadata(local)
-            .await
-            .map_err(|e| StoreError::Other(format!("{}: {e}", local.display())))?
-            .len();
         let tmp = temp_name(path);
         let written = async {
-            let file = tokio::fs::File::open(local)
-                .await
-                .map_err(|e| StoreError::Other(format!("{}: {e}", local.display())))?;
-            let chunks = stream::try_unfold(file, |mut file| async move {
-                let mut buf = vec![0u8; UPLOAD_CHUNK_BYTES];
-                let n = file.read(&mut buf).await?;
-                if n == 0 {
-                    return Ok::<_, std::io::Error>(None);
-                }
-                buf.truncate(n);
-                Ok(Some((Bytes::from(buf), file)))
-            });
             match &self.put {
-                Some(put) => self.put_stream(put, &tmp, size, chunks.boxed()).await?,
+                Some(put) => self.put_stream(put, &tmp, size, chunks).await?,
                 None => {
                     let mut writer = self
                         .op
                         .writer(&tmp)
                         .await
                         .map_err(|e| StoreError::from_dal(path, e))?;
-                    let mut chunks = chunks.boxed();
+                    let mut chunks = chunks;
                     while let Some(chunk) = chunks
                         .try_next()
                         .await
-                        .map_err(|e| StoreError::Other(format!("{}: {e}", local.display())))?
+                        .map_err(|e| StoreError::Other(format!("{path}: {e}")))?
                     {
                         writer
                             .write(chunk)

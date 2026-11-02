@@ -35,9 +35,10 @@
 //! The node key is read from `OIKOME_NODE_KEY` (base64url seed) when set,
 //! otherwise from `<root>/.oikome/identity/node_ed25519`, created on first use.
 //!
-//! A storage's password or token is read from
-//! `OIKOME_STORAGE_<NAME>_PASSWORD` or `OIKOME_STORAGE_<NAME>_TOKEN` each
-//! time it is used, and is never stored.
+//! A storage's password, token and encryption key are kept in the OS
+//! keychain (a private file under `<root>/.oikome/identity/` where there is
+//! none); `OIKOME_STORAGE_<NAME>_PASSWORD`, `_TOKEN` and `_KEY` override
+//! them, for servers and containers.
 
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
@@ -56,11 +57,12 @@ use oikome_discovery::{Discovery, DiscoveryConfig, EndpointResponse};
 use oikome_engine_duckdb::{DuckDbConfig, DuckDbEngine, Extension};
 use oikome_node::{
     spawn_storage_sync, AccessLog, EngineRegistry, NodeConfig, OikomeSession, QueryResult,
-    SessionConfig,
+    SessionConfig, StorageCredentials,
 };
 use oikome_server::web::{login_file, DEFAULT_WEB_LISTEN};
 use oikome_server::{serve, serve_webrtc, DtlsIdentity, OikomeFlightService, WebApp};
 use tokio::net::{TcpListener, UdpSocket};
+use zeroize::Zeroizing;
 
 /// The node's DTLS certificate for WebRTC, next to its key.
 const WEBRTC_DTLS_FILE: &str = "webrtc_dtls.json";
@@ -106,26 +108,60 @@ enum ExtensionsCommand {
 #[derive(Subcommand)]
 enum StorageCommand {
     /// Register a storage Spaces can live on: a WebDAV server such as a NAS,
-    /// or a mounted folder. Its password or token is read from
-    /// OIKOME_STORAGE_<NAME>_PASSWORD or OIKOME_STORAGE_<NAME>_TOKEN; the
-    /// storage is checked before it is registered.
+    /// a mounted folder, or a cloud drive's sync folder. Credentials given
+    /// on standard input are kept in the OS keychain (or a private file
+    /// where there is none); OIKOME_STORAGE_<NAME>_PASSWORD, _TOKEN and _KEY
+    /// override them. The storage is checked before it is registered.
     Add {
         /// Lowercase letters, digits and `_`, starting with a letter.
         name: String,
         /// WebDAV address, https://host[:port][/path].
-        #[arg(long, conflicts_with = "folder", required_unless_present = "folder")]
+        #[arg(long, group = "place", required_unless_present_any = ["folder", "drive"])]
         webdav: Option<String>,
         /// WebDAV user name.
         #[arg(long, requires = "webdav")]
         username: Option<String>,
         /// A mounted folder (absolute path), such as a NAS share.
-        #[arg(long)]
+        #[arg(long, group = "place")]
         folder: Option<PathBuf>,
+        /// A folder a cloud drive's desktop client syncs (iCloud Drive,
+        /// Dropbox, OneDrive, Google Drive); always encrypted.
+        #[arg(long, group = "place")]
+        drive: Option<PathBuf>,
+        /// Encrypt files before they reach the storage. A new key is made
+        /// unless --key-stdin gives one exported on another node.
+        #[arg(long)]
+        encrypt: bool,
+        /// Read the password from standard input (first line).
+        #[arg(long, conflicts_with = "token_stdin")]
+        password_stdin: bool,
+        /// Read a bearer token from standard input (first line).
+        #[arg(long)]
+        token_stdin: bool,
+        /// Read the encryption key from standard input (the line after a
+        /// password or token, if any).
+        #[arg(long)]
+        key_stdin: bool,
     },
     /// List the registered storages.
     List,
-    /// Unregister a storage no Space is on; its files are left in place.
+    /// Print the key of an encrypted storage, to add it on another node.
+    ExportKey { name: String },
+    /// Unregister a storage no Space is on and forget its credentials; its
+    /// files are left in place.
     Remove { name: String },
+}
+
+/// `path` with a leading `~/` replaced by the home directory, as UTF-8.
+fn path_text(path: PathBuf) -> Result<String, BoxError> {
+    let path = match (path.strip_prefix("~"), std::env::var_os("HOME")) {
+        (Ok(rest), Some(home)) => PathBuf::from(home).join(rest),
+        _ => path,
+    };
+    Ok(path
+        .to_str()
+        .ok_or("the folder path must be valid UTF-8")?
+        .to_string())
 }
 
 #[derive(Subcommand)]
@@ -316,24 +352,48 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     webdav,
                     username,
                     folder,
+                    drive,
+                    encrypt,
+                    password_stdin,
+                    token_stdin,
+                    key_stdin,
                 } => {
-                    let kind = match (webdav, folder) {
-                        (Some(endpoint), _) => StorageKind::Webdav { endpoint, username },
-                        (None, Some(path)) => StorageKind::Folder {
-                            path: path
-                                .to_str()
-                                .ok_or("the folder path must be valid UTF-8")?
-                                .to_string(),
-                        },
-                        (None, None) => return Err("give --webdav or --folder".into()),
+                    let (kind, encrypted) = match (webdav, folder, drive) {
+                        (Some(endpoint), _, _) => {
+                            (StorageKind::Webdav { endpoint, username }, encrypt)
+                        }
+                        (None, Some(path), _) => (
+                            StorageKind::Folder {
+                                path: path_text(path)?,
+                            },
+                            encrypt,
+                        ),
+                        (None, None, Some(path)) => (
+                            StorageKind::Drive {
+                                path: path_text(path)?,
+                            },
+                            true,
+                        ),
+                        (None, None, None) => {
+                            return Err("give --webdav, --folder or --drive".into())
+                        }
                     };
-                    catalog.add_storage(&name, kind)?;
-                    let session =
-                        OikomeSession::new(catalog.clone(), engines, SessionConfig::default());
-                    if let Err(e) = session.check_storage(&name).await {
-                        catalog.remove_storage(&name)?;
-                        return Err(e.into());
-                    }
+                    let mut lines = std::io::stdin().lines();
+                    let mut next = |what: &str| -> Result<Zeroizing<String>, BoxError> {
+                        match lines.next() {
+                            Some(line) => Ok(Zeroizing::new(line?)),
+                            None => Err(format!("expected the {what} on standard input").into()),
+                        }
+                    };
+                    let credentials = StorageCredentials {
+                        password: password_stdin.then(|| next("password")).transpose()?,
+                        token: token_stdin.then(|| next("token")).transpose()?,
+                        key: key_stdin.then(|| next("key")).transpose()?,
+                    };
+                    let session = OikomeSession::new(catalog, engines, SessionConfig::default());
+                    session
+                        .add_storage(&name, kind, encrypted, credentials)
+                        .await?;
                     println!("OK");
                 }
                 StorageCommand::List => {
@@ -343,12 +403,23 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                                 ("webdav", endpoint.as_str(), username.as_deref())
                             }
                             StorageKind::Folder { path } => ("folder", path.as_str(), None),
+                            StorageKind::Drive { path } => ("drive", path.as_str(), None),
                         };
-                        println!("{}\t{kind}\t{address}\t{}", def.name, user.unwrap_or(""));
+                        let encrypted = if def.encrypted { "encrypted" } else { "" };
+                        println!(
+                            "{}\t{kind}\t{address}\t{}\t{encrypted}",
+                            def.name,
+                            user.unwrap_or("")
+                        );
                     }
                 }
+                StorageCommand::ExportKey { name } => {
+                    let session = OikomeSession::new(catalog, engines, SessionConfig::default());
+                    println!("{}", session.export_storage_key(&name)?.as_str());
+                }
                 StorageCommand::Remove { name } => {
-                    catalog.remove_storage(&name)?;
+                    let session = OikomeSession::new(catalog, engines, SessionConfig::default());
+                    session.remove_storage(&name)?;
                     println!("OK");
                 }
             }

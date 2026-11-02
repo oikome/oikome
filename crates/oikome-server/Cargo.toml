@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 oikome-api = { path = "../oikome-api" }
+zeroize = { workspace = true }
 oikome-catalog = { path = "../oikome-catalog" }
 oikome-core = { path = "../oikome-core" }
 oikome-discovery = { path = "../oikome-discovery" }

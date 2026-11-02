@@ -18,7 +18,7 @@
 # query, subscription, revocation cutting access, Lance search on a Space
 # and on a subscribed copy of it, FTS5 / sqlite-vec search on a
 # transactional Space, a DuckPGQ graph query, and Spaces node-a writes to a
-# NAS (WebDAV) that node-b copies. Every step prints what was expected and
+# NAS (WebDAV) that node-b copies, one of them encrypted. Every step prints what was expected and
 # what happened; the first mismatch fails the run.
 #
 #   E2E_BUILD=1     build the image first (default)
@@ -241,6 +241,30 @@ check "node-b's copy from the NAS holds node-a's index (none built on node-b)" \
     "$(indexes node-b /data/.oikome/replicas/clips/lance)"
 check "full-text search on node-b's copy from the NAS" "5" \
     "$(nas node-b sql --raw "$(printf "$BANANAS" clips)")"
+
+echo "== Encrypted storage (3.4b): the NAS holds only sealed files; node-b reads them with node-a's key"
+# Credentials go in on standard input, as the apps will hand them over; a
+# container has no keychain, so the node keeps them in a private file.
+printf '%s\n' "$E2E_NAS_PASSWORD" | nas node-a storage add vault \
+    --webdav http://172.28.0.20:8080 --username oikome --encrypt --password-stdin >/dev/null
+nas node-a sql "CREATE SPACE sealed WITH STORAGE = 'vault'" >/dev/null
+nas node-a sql "CREATE TABLE sealed.lighthouse_log (id BIGINT, note VARCHAR)" >/dev/null
+nas node-a sql "INSERT INTO sealed.lighthouse_log VALUES (1, 'lantern'), (2, 'beacon')" >/dev/null
+VAULT_KEY=$(nas node-a storage export-key vault)
+printf '%s\n%s\n' "$E2E_NAS_PASSWORD" "$VAULT_KEY" | nas node-b storage add vault \
+    --webdav http://172.28.0.20:8080 --username oikome --encrypt --password-stdin --key-stdin >/dev/null
+unset VAULT_KEY
+nas node-b sql "CREATE SPACE sealed WITH STORAGE = 'vault', ACCESS = 'readonly'" >/dev/null
+check "node-b reads the encrypted Space with node-a's key" "2" \
+    "$(nas node-b sql --raw "SELECT count(*) FROM sealed.lighthouse_log")"
+check "no file on the NAS names the table" "0" \
+    "$("${COMPOSE[@]}" exec -T nas sh -c "grep -rl lighthouse_log /data/sealed | wc -l" | tr -d ' ')"
+check "the NAS holds only sealed files" "objects oikome-space.sealed snapshots" \
+    "$("${COMPOSE[@]}" exec -T nas sh -c "ls /data/sealed | sort | tr '\n' ' '" | sed 's/ $//')"
+check "node-a keeps the password in a file only its user reads" "600" \
+    "$("${COMPOSE[@]}" exec -T node-a stat -c %a /data/.oikome/identity/storage_access.json)"
+check "the storage registry holds no password" "0" \
+    "$("${COMPOSE[@]}" exec -T node-a grep -cF "$E2E_NAS_PASSWORD" /data/.oikome/storages.json || true)"
 
 echo "== mDNS (node-c was given no address)"
 wait_for "node-c discovers node-a by mDNS" 60 knows_peer node-c "$DID_A"

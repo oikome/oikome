@@ -3,8 +3,9 @@
  *
  * Design tokens of the Oikome apps: Apple-style minimal on a low-chroma
  * cream ground. Crimson marks the one primary action of a view, the current
- * choice and progress; blue is for links, focus and selection only; errors
- * are text with an icon, never a fill. Light mode only for now.
+ * choice and progress; blue is for links, focus and selection only (a field
+ * shows focus by darkening its border instead); errors are text with an
+ * icon, never a fill. Light mode only for now.
  */
 
 :root {
@@ -42,6 +43,7 @@
   --color-sidebar-rule: #e7e4dd;
   --color-stroke: #d6d2cb;
   --color-stroke-hover: #c3beb6;
+  --color-stroke-focus: #8f8a82;
   --color-chevron: #aeaaa4;
 
   /* Ink */
@@ -108,9 +110,8 @@
   --shadow-whisper: 0 1px 2px rgba(45, 41, 38, 0.05), 0 4px 14px rgba(45, 41, 38, 0.04);
   --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.14);
   --shadow-menu: 0 2px 6px rgba(45, 41, 38, 0.08), 0 12px 32px rgba(45, 41, 38, 0.12);
-  /* Buttons and links: a ring just outside. Fields: a ring hugging the edge. */
+  /* Buttons, links and option cards; fields darken their border instead. */
   --focus-ring: 3px solid rgba(55, 105, 146, 0.45);
-  --focus-ring-field: 0 0 0 3px rgba(55, 105, 146, 0.22);
 
   color-scheme: light;
 }

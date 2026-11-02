@@ -382,20 +382,19 @@
   background: var(--color-white);
   color: var(--color-ink);
   font: var(--text-body);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color 120ms ease;
 }
 .oik-input:hover,
 .oik-select:hover,
 .oik-textarea:hover {
   border-color: var(--color-stroke-hover);
 }
-/* The ring hugs the field instead of floating outside its border. */
+/* A field in focus only darkens its border: no ring, no blue. */
 .oik-input:focus,
 .oik-select:focus,
 .oik-textarea:focus {
   outline: none;
-  border-color: var(--color-link);
-  box-shadow: var(--focus-ring-field);
+  border-color: var(--color-stroke-focus);
 }
 .oik-input[aria-invalid="true"] {
   border-color: var(--color-error);

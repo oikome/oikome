@@ -912,7 +912,7 @@ How each client reaches data (screens depend only on `NodeClient`):
 **Scope of the apps.**
 - They serve the owner's personal data center: onboarding, Spaces, sources, sharing, AI assistants, plugins and settings. Node operations (engines, logs, peers' internals) stay in the CLI. Members and family roles come later.
 - The UI is English; other languages arrive through i18n later.
-- Visual design: Apple-style minimal on a low-chroma cream palette. One crimson primary action per view; blue only for links and focus. Settings and lists are grouped inset rows; a task beside a list (a new share) opens as a side panel, not a modal; removing something sits behind a More (…) menu and is confirmed inline. Its tokens and rules move into `design/` with DESIGN.md.
+- Visual design: Apple-style minimal on a low-chroma cream palette. One crimson primary action per view; blue only for links and focus. Settings and lists are grouped inset rows; a task beside a list (a new share) opens as a side panel, not a modal; removing something sits behind a More (…) menu and is confirmed inline; a field in focus only darkens its border. Its tokens and rules move into `design/` with DESIGN.md.
 - **Storage.** The web app's onboarding shows where the data is kept; choosing a NAS (§7.5, phase 3.4a) moves into the apps with a storage screen. Cloud drives come through their sync folders (3.4b, always encrypted) and later over their API (3.4c); the apps offer each as it arrives. Credentials and keys are entered in the apps and kept by the node (§7.5). Browsing files already on a drive (as AList does) and serving Oikome over WebDAV are planned but not scheduled.
 
 ---

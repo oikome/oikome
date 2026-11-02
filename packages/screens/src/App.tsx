@@ -88,7 +88,7 @@ function Root() {
     const name = path.slice("/collections/".length);
     screen = <Collections selected={name ? decodeURIComponent(name) : undefined} />;
   } else if (path === "/sharing") {
-    screen = <Sharing info={info} preselect={query.get("share") ?? undefined} />;
+    screen = <Sharing info={info} />;
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {
@@ -109,7 +109,9 @@ function Root() {
   }
 
   return (
-    <Shell info={info} current={section?.to} showBackup={!info.recoveryKeySaved && path !== "/settings"}>
+    // The backup reminder stays on the home screen (Collections) until the
+    // key is saved, rather than on every screen.
+    <Shell info={info} current={section?.to} showBackup={!info.recoveryKeySaved && section?.to === "/collections"}>
       {screen}
     </Shell>
   );

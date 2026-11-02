@@ -1,48 +1,39 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Sharing: what you share and with whom, your contacts, and a new share in a
-// panel beside them.
+// Sharing: what you share and with whom, and your contacts. New Share opens
+// the same share dialog as a collection's Share button.
 
 import { useState } from "react";
 import {
   Avatar,
   Button,
-  ChoiceGroup,
   ConfirmDialog,
   CopyButton,
-  CopyField,
   ErrorText,
   Group,
   GroupPanel,
-  IconButton,
-  InsetWell,
   Menu,
   Row,
-  SegmentedControl,
-  Select,
   TextField,
   Tile,
   collectionTones,
 } from "@oikome/ui";
-import type { TileTone } from "@oikome/ui";
-import type { Contact, NewShare, NodeInfo, Share, SpaceSummary } from "@oikome/client";
+import type { Contact, NodeInfo, Share } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { dateFromSeconds, fullId, shortId } from "../format";
 import { ScreenHeader } from "../parts";
-import { navigate } from "../router";
 import { strings } from "../strings";
+import { ShareDialog } from "./ShareDialog";
 
 const s = strings.sharing;
-type Ends = "7" | "30" | "365";
-type Access = "view" | "copy";
 
-export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: string }) {
+export function Sharing({ info }: { info: NodeInfo }) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const contacts = useLoad(() => client.listContacts(), []);
-  const [composing, setComposing] = useState(Boolean(preselect));
+  const [composing, setComposing] = useState(false);
   const stop = useAction();
 
   const local = (spaces.data ?? []).filter((space) => space.kind !== "remote");
@@ -58,230 +49,99 @@ export function Sharing({ info, preselect }: { info: NodeInfo; preselect?: strin
   const toneOf = collectionTones((spaces.data ?? []).map((space) => space.name));
 
   return (
-    <div className={composing ? undefined : "screen-column"}>
+    <div className="screen-column">
       <ScreenHeader title={s.title}>
-        <Button icon="plus" aria-expanded={composing} onClick={() => setComposing(true)}>
+        <Button icon="plus" onClick={() => setComposing(true)}>
           {s.newShare}
         </Button>
       </ScreenHeader>
 
-      <div className={composing ? "screen-aside-layout screen-aside-layout--open" : "screen-aside-layout"}>
-        <div>
-          {[spaces.error, shares.error, contacts.error, stop.error]
-            .filter(Boolean)
-            .slice(0, 1)
-            .map((e) => (
-              <ErrorText key="error">{e}</ErrorText>
-            ))}
+      {[spaces.error, shares.error, contacts.error, stop.error]
+        .filter(Boolean)
+        .slice(0, 1)
+        .map((e) => (
+          <ErrorText key="error">{e}</ErrorText>
+        ))}
 
-          <Group title={s.sharedByYou}>
-            {all.length === 0 && <Row title={s.nothingShared} muted />}
-            {active.map((share) => (
-              <Row
-                key={share.id}
-                leading={<Tile icon="collection" tone={toneOf(share.space)} />}
-                title={share.space}
-                meta={`${shareWho(share)} · ${s.until(dateFromSeconds(share.expiresAt))}`}
-                trailing={
-                  <Button
-                    variant="quiet"
-                    disabled={stop.busy}
-                    aria-label={`${s.stop}: ${share.space}, ${share.contactName ?? ""}`}
-                    onClick={async () => {
-                      const done = await stop.run(() => client.revokeShare({ id: share.id }));
-                      if (done) reload();
-                    }}
-                  >
-                    {s.stop}
-                  </Button>
-                }
-              />
-            ))}
-            {ended.map((share) => (
+      <Group title={s.sharedByYou}>
+        {active.length === 0 && <Row title={s.nothingShared} muted />}
+        {active.map((share) => {
+          const name = share.contactName ?? strings.common.unknown;
+          return (
+            <Row
+              key={share.id}
+              leading={<Tile icon="collection" tone={toneOf(share.space)} />}
+              title={share.space}
+              meta={s.shareSentence(name, share.access === "copy", dateFromSeconds(share.expiresAt))}
+              trailing={
+                <Button
+                  variant="quiet"
+                  disabled={stop.busy}
+                  aria-label={`${s.stop}: ${share.space}, ${name}`}
+                  onClick={async () => {
+                    const done = await stop.run(() => client.revokeShare({ id: share.id }));
+                    if (done) reload();
+                  }}
+                >
+                  {s.stop}
+                </Button>
+              }
+            />
+          );
+        })}
+      </Group>
+
+      {ended.length > 0 && (
+        <Group title={s.ended}>
+          {ended.map((share) => {
+            const name = share.contactName ?? strings.common.unknown;
+            return (
               <Row
                 key={share.id}
                 muted
                 leading={<Tile icon="collection" tone="stone" />}
                 title={share.space}
-                meta={`${share.contactName ?? strings.common.unknown} · ${
+                meta={
                   share.status === "expired"
-                    ? s.expiredOn(dateFromSeconds(share.expiresAt))
-                    : s.stopped
-                }`}
-                trailing={<span className="screen-muted">{s.ended}</span>}
+                    ? s.expiredFor(name, dateFromSeconds(share.expiresAt))
+                    : s.stoppedFor(name)
+                }
               />
-            ))}
-          </Group>
-
-          <Contacts contacts={contacts.data ?? []} shares={active} me={info.did} onChange={reload} />
-
-          <Group title={s.yourId} footnote={s.yourIdBody}>
-            <Row
-              title={<span className="oik-mono" translate="no">{shortId(info.did)}</span>}
-              trailing={
-                <CopyButton
-                  value={shortId(info.did)}
-                  copyLabel={strings.common.copy}
-                  copiedLabel={strings.common.copied}
-                />
-              }
-            />
-          </Group>
-        </div>
-
-        {composing && spaces.data && contacts.data && (
-          <NewSharePanel
-            spaces={local}
-            toneOf={toneOf}
-            contacts={contacts.data}
-            preselect={preselect}
-            onClose={() => {
-              setComposing(false);
-              reload();
-              // Opened by Share… (?share=): a reload should not open it again.
-              if (preselect) navigate("/sharing", { replace: true });
-            }}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function shareWho(share: Share): string {
-  const name = share.contactName ?? strings.common.unknown;
-  return share.access === "copy" ? s.canCopy(name) : s.canView(name);
-}
-
-function NewSharePanel({
-  spaces,
-  toneOf,
-  contacts,
-  preselect,
-  onClose,
-}: {
-  spaces: SpaceSummary[];
-  toneOf: (name: string) => TileTone;
-  contacts: Contact[];
-  preselect?: string;
-  onClose: () => void;
-}) {
-  const client = useClient();
-  const [space, setSpace] = useState(
-    spaces.find((x) => x.name === preselect)?.name ?? spaces[0]?.name ?? "",
-  );
-  const [did, setDid] = useState(contacts[0]?.did ?? "");
-  const [access, setAccess] = useState<Access>("view");
-  const [ends, setEnds] = useState<Ends>("30");
-  const [made, setMade] = useState<NewShare>();
-  const share = useAction();
-  const copyable = spaces.find((x) => x.name === space)?.kind === "analytical";
-  const contactName = contacts.find((c) => c.did === did)?.name ?? "";
-
-  const head = (title: string) => (
-    <div className="screen-aside__head">
-      <h2 className="screen-aside__title">{title}</h2>
-      <IconButton icon="close" label={strings.common.close} filled onClick={onClose} />
-    </div>
-  );
-
-  if (made) {
-    const name = contacts.find((c) => c.did === made.did)?.name ?? "";
-    return (
-      <aside className="screen-aside" aria-label={s.inviteTitle(name)}>
-        {head(s.inviteTitle(name))}
-        <InsetWell>
-          <CopyField value={made.token} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-        </InsetWell>
-        <p className="screen-muted">{s.inviteBody(name)}</p>
-        <div className="screen-aside__actions">
-          <Button variant="primary" onClick={onClose}>
-            {strings.common.done}
-          </Button>
-        </div>
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="screen-aside" aria-label={s.newShare}>
-      {head(s.newShare)}
-      {spaces.length === 0 ? (
-        <p className="screen-muted">{s.needCollection}</p>
-      ) : contacts.length === 0 ? (
-        <p className="screen-muted">{s.needContact}</p>
-      ) : (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const result = await share.run(() =>
-              client.shareSpace({
-                space,
-                did,
-                allowCopy: copyable && access === "copy",
-                expiresInDays: Number(ends),
-              }),
             );
-            if (result) setMade(result);
-          }}
-        >
-          <Select
-            label={s.collectionLabel}
-            value={space}
-            onChange={(value) => {
-              setSpace(value);
-              if (spaces.find((x) => x.name === value)?.kind !== "analytical") setAccess("view");
-            }}
-            leading={<Tile icon="collection" tone={toneOf(space)} small />}
-            options={spaces.map((x) => ({ value: x.name, label: x.name }))}
-          />
-          <Select
-            label={s.withLabel}
-            value={did}
-            onChange={setDid}
-            leading={<Avatar name={contactName || "?"} small />}
-            options={contacts.map((c) => ({ value: c.did, label: c.name }))}
-          />
-          <ChoiceGroup<Access>
-            label={s.howLabel}
-            value={copyable ? access : "view"}
-            onChange={setAccess}
-            choices={[
-              { value: "view", label: s.viewLive, description: s.viewLiveBody },
-              {
-                value: "copy",
-                label: s.keepCopy,
-                description: copyable ? s.keepCopyBody : s.keepCopyUnavailable,
-                disabled: !copyable,
-              },
-            ]}
-          />
-          <SegmentedControl<Ends>
-            label={s.endsLabel}
-            value={ends}
-            onChange={setEnds}
-            fill
-            options={[
-              { value: "7", label: s.ends7 },
-              { value: "30", label: s.ends30 },
-              { value: "365", label: s.endsYear },
-            ]}
-          />
-          {share.error && <ErrorText>{share.error}</ErrorText>}
-          <div className="screen-aside__actions">
-            <Button onClick={onClose}>{strings.common.cancel}</Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={share.busy || !space || !did}
-              aria-label={`${s.share} ${space} with ${contactName}`}
-            >
-              {s.share}
-            </Button>
-          </div>
-        </form>
+          })}
+        </Group>
       )}
-    </aside>
+
+      <Contacts contacts={contacts.data ?? []} shares={active} me={info.did} onChange={reload} />
+
+      <Group title={s.yourId} footnote={s.yourIdBody}>
+        <Row
+          title={
+            <span className="oik-mono" translate="no">
+              {shortId(info.did)}
+            </span>
+          }
+          trailing={
+            <CopyButton
+              value={shortId(info.did)}
+              copyLabel={strings.common.copy}
+              copiedLabel={strings.common.copied}
+            />
+          }
+        />
+      </Group>
+
+      {composing && spaces.data && contacts.data && shares.data && (
+        <ShareDialog
+          spaces={local}
+          contacts={contacts.data}
+          shares={shares.data}
+          toneOf={toneOf}
+          onClose={() => setComposing(false)}
+          onChange={reload}
+        />
+      )}
+    </div>
   );
 }
 

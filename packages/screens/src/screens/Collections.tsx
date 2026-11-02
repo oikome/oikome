@@ -20,11 +20,12 @@ import {
   collectionTones,
 } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
-import type { Share, SpaceSummary } from "@oikome/client";
+import type { Contact, Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { RowsTable, ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
+import { ShareDialog } from "./ShareDialog";
 
 const PAGE_ROWS = 100;
 const s = strings.collections;
@@ -48,6 +49,7 @@ export function Collections({ selected }: { selected?: string }) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
+  const contacts = useLoad(() => client.listContacts(), []);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const create = useAction();
@@ -195,6 +197,11 @@ export function Collections({ selected }: { selected?: string }) {
               key={current.name}
               space={current}
               tone={toneOf(current.name)}
+              toneOf={toneOf}
+              mine={mine}
+              contacts={contacts.data ?? []}
+              shares={shares.data ?? []}
+              onShared={reload}
               names={shared.get(current.name) ?? []}
               onRemoved={() => {
                 reload();
@@ -218,12 +225,23 @@ export function Collections({ selected }: { selected?: string }) {
 function Detail({
   space,
   tone,
+  toneOf,
+  mine,
+  contacts,
+  shares,
   names,
+  onShared,
   onRemoved,
 }: {
   space: SpaceSummary;
   tone: TileTone;
+  toneOf: (name: string) => TileTone;
+  /** This data center's own collections, for the share dialog. */
+  mine: SpaceSummary[];
+  contacts: Contact[];
+  shares: Share[];
   names: string[];
+  onShared: () => void;
   onRemoved: () => void;
 }) {
   const client = useClient();
@@ -235,6 +253,7 @@ function Detail({
   const [table, setTable] = useState<string>();
   const [offset, setOffset] = useState(0);
   const [confirming, setConfirming] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const remove = useAction();
 
   useEffect(() => {
@@ -268,10 +287,7 @@ function Detail({
           <p className="screen-muted">{local ? s.storedHere : s.fromElsewhere}</p>
         </div>
         {local && (
-          <Button
-            variant="primary"
-            onClick={() => navigate(`/sharing?share=${encodeURIComponent(space.name)}`)}
-          >
+          <Button variant="primary" onClick={() => setSharing(true)}>
             {s.share}
           </Button>
         )}
@@ -298,6 +314,18 @@ function Detail({
             <Link to="/sharing">{s.manage}</Link>
           </span>
         </div>
+      )}
+
+      {sharing && (
+        <ShareDialog
+          collection={space.name}
+          spaces={mine}
+          contacts={contacts}
+          shares={shares}
+          toneOf={toneOf}
+          onClose={() => setSharing(false)}
+          onChange={onShared}
+        />
       )}
 
       {confirming && (

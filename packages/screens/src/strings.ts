@@ -109,6 +109,13 @@ export const strings = {
     removeBody: "Sharing it stops. Its files stay in your data folder.",
     removeYes: "Remove",
     whoCanSee: "Who can see this",
+    /** "Only you can see this." / "You and Sam can see this." / "You, Sam and Alex can see this." */
+    whoSentence: (names: string[]) =>
+      names.length === 0
+        ? "Only you can see this."
+        : names.length === 1
+          ? `You and ${names[0]} can see this.`
+          : `You, ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} can see this.`,
     manage: "Manage",
     nothingYetTitle: (name: string) => `Nothing in ${name} Yet`,
     nothingYetBody:
@@ -129,19 +136,25 @@ export const strings = {
     nothingShared: "You haven't shared anything yet.",
     ended: "Ended",
     stop: "Stop Sharing",
-    canView: (name: string) => `${name} can view live`,
-    canCopy: (name: string) => `${name} can keep a copy`,
-    until: (date: string) => `Until ${date}`,
-    stopped: "Stopped",
-    expiredOn: (date: string) => `Expired ${date}`,
+    /** A share as a sentence, on the Sharing page: "Sam can view live until Dec 2, 2026." */
+    shareSentence: (name: string, copy: boolean, date: string) =>
+      copy ? `${name} keeps a copy until ${date}.` : `${name} can view live until ${date}.`,
+    /** The same share inside the dialog, under the person's name. */
+    accessUntil: (copy: boolean, date: string) =>
+      copy ? `Keeps a copy until ${date}` : `Can view live until ${date}`,
+    stoppedFor: (name: string) => `Stopped for ${name}.`,
+    expiredFor: (name: string, date: string) => `Ended for ${name} on ${date}.`,
+    shareTitle: (name: string) => `Share \u201c${name}\u201d`,
     collectionLabel: "Collection",
     withLabel: "With",
-    howLabel: "How they see it",
-    viewLive: "View live",
-    viewLiveBody: "Stays on your computer. Unavailable while it's off.",
-    keepCopy: "Keep a copy",
-    keepCopyBody: "They keep a copy. Stopping later ends updates, but the copy stays with them.",
-    keepCopyUnavailable: "This collection can only be viewed live.",
+    accessLabel: "Access",
+    accessView: "Can view live",
+    accessCopy: "Can keep a copy",
+    accessCopyUnavailable: "Can keep a copy (not for this collection)",
+    viewHelp: "They read it from this computer while it's on. Nothing is copied to them.",
+    copyHelp: "They keep a copy that stays up to date. If you stop sharing, their copy stays with them.",
+    peopleWithAccess: "People with access",
+    owner: "Owner",
     endsLabel: "Ends",
     ends7: "In 7 days",
     ends30: "In 30 days",
@@ -149,7 +162,7 @@ export const strings = {
     share: "Share",
     needContact: "Add a contact first: sharing is with people you know.",
     needCollection: "Create a collection first.",
-    inviteTitle: (name: string) => `Send This Invite Code to ${name}`,
+    inviteTitle: (name: string) => `Send ${name} This Invite Code`,
     inviteBody: (name: string) =>
       `Only ${name}'s data center can use it, until the share ends or you stop it. It is shown only now.`,
     contacts: "Contacts",

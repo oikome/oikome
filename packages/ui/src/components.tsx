@@ -365,7 +365,7 @@ export function Select({
 }: FieldProps & {
   value: string;
   onChange: (value: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; disabled?: boolean }[];
   /** A tile or avatar for the chosen option, shown inside the control. */
   leading?: ReactNode;
   /** The label beside the control, for a filter in a header. */
@@ -381,7 +381,7 @@ export function Select({
         {leading !== undefined && <span className="oik-select-wrap__leading">{leading}</span>}
         <select id={id} className="oik-select" value={value} onChange={(e) => onChange(e.target.value)}>
           {options.map((o) => (
-            <option key={o.value} value={o.value}>
+            <option key={o.value} value={o.value} disabled={o.disabled}>
               {o.label}
             </option>
           ))}
@@ -391,56 +391,6 @@ export function Select({
         </span>
       </span>
     </div>
-  );
-}
-
-export interface Choice<T extends string> {
-  value: T;
-  label: string;
-  description?: string;
-  disabled?: boolean;
-}
-
-/** A few explained options, one chosen: radio buttons drawn as cards. */
-export function ChoiceGroup<T extends string>({
-  label,
-  value,
-  onChange,
-  choices,
-}: {
-  label: string;
-  value: T;
-  onChange: (value: T) => void;
-  choices: Choice<T>[];
-}) {
-  const name = useId();
-  return (
-    <fieldset className="oik-choices">
-      <legend className="oik-field__label">{label}</legend>
-      {choices.map((c) => (
-        <label
-          key={c.value}
-          className={cx(
-            "oik-choice",
-            c.value === value && "oik-choice--on",
-            c.disabled && "oik-choice--disabled",
-          )}
-        >
-          <input
-            type="radio"
-            name={name}
-            value={c.value}
-            checked={c.value === value}
-            disabled={c.disabled}
-            onChange={() => onChange(c.value)}
-          />
-          <span className="oik-choice__text">
-            <span className="oik-choice__label">{c.label}</span>
-            {c.description && <span className="oik-choice__description">{c.description}</span>}
-          </span>
-        </label>
-      ))}
-    </fieldset>
   );
 }
 
@@ -465,40 +415,6 @@ export function Checkbox({
       />
       <span>{label}</span>
     </label>
-  );
-}
-
-export function SegmentedControl<T extends string>({
-  label,
-  value,
-  onChange,
-  options,
-  fill,
-}: {
-  label: string;
-  value: T;
-  onChange: (value: T) => void;
-  options: { value: T; label: string }[];
-  /** Spans the width, options of equal size. */
-  fill?: boolean;
-}) {
-  return (
-    <div className="oik-field">
-      <span className="oik-field__label">{label}</span>
-      <div className={cx("oik-segmented", fill && "oik-segmented--fill")} role="group" aria-label={label}>
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            className="oik-segmented__option"
-            aria-pressed={o.value === value}
-            onClick={() => onChange(o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -709,9 +625,56 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
 }
 
 /**
- * Asks before removing something. A modal `<dialog>`: the page behind is
- * inert, Escape cancels, and focus starts on Cancel, the safe choice.
+ * A modal over the page: the standard place for a short task (sharing) or a
+ * question (removing). A native `<dialog>`: the page behind is inert, focus
+ * stays inside, Escape closes it. On a phone it rises from the bottom.
  */
+export function Dialog({
+  title,
+  closeLabel,
+  onClose,
+  footer,
+  children,
+  closeButton = true,
+}: {
+  title: string;
+  closeLabel: string;
+  onClose: () => void;
+  footer: ReactNode;
+  children?: ReactNode;
+  /** A close button in the corner; a question leaves it out (Cancel says it). */
+  closeButton?: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => dialog?.close();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="oik-dialog"
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="oik-dialog__head">
+        <h2 id={titleId} className="oik-dialog__title">
+          {title}
+        </h2>
+        {closeButton && <IconButton icon="close" label={closeLabel} filled onClick={onClose} />}
+      </header>
+      {children && <div className="oik-dialog__body">{children}</div>}
+      <footer className="oik-dialog__actions">{footer}</footer>
+    </dialog>
+  );
+}
+
+/** Asks before removing something; focus starts on Cancel, the safe choice. */
 export function ConfirmDialog({
   title,
   body,
@@ -731,36 +694,25 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  useEffect(() => {
-    const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
-    return () => dialog?.close();
-  }, []);
   return (
-    <dialog
-      ref={ref}
-      className="oik-dialog"
-      aria-labelledby={titleId}
-      onCancel={(e) => {
-        e.preventDefault();
-        onCancel();
-      }}
+    <Dialog
+      title={title}
+      closeLabel={cancelLabel}
+      onClose={onCancel}
+      closeButton={false}
+      footer={
+        <>
+          <Button autoFocus onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button variant="destructive" disabled={busy} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
     >
-      <h2 id={titleId} className="oik-dialog__title">
-        {title}
-      </h2>
-      <p className="oik-dialog__body">{body}</p>
+      <p className="oik-dialog__text">{body}</p>
       {error && <ErrorText>{error}</ErrorText>}
-      <div className="oik-dialog__actions">
-        <Button autoFocus onClick={onCancel}>
-          {cancelLabel}
-        </Button>
-        <Button variant="destructive" disabled={busy} onClick={onConfirm}>
-          {confirmLabel}
-        </Button>
-      </div>
-    </dialog>
+    </Dialog>
   );
 }

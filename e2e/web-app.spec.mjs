@@ -158,9 +158,11 @@ test("a contact reads a shared collection until the share is stopped", async () 
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText("Nothing shared").first()).toBeVisible();
 
+  // New Share opens the share dialog, with the collection to choose.
   await page.getByRole("button", { name: "New Share" }).click();
+  await expect(page.getByRole("dialog", { name: "New Share" })).toBeVisible();
   await page.getByRole("button", { name: "Share notes with Bob" }).click();
-  await expect(page.getByRole("heading", { name: "Send This Invite Code to Bob" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
   const token = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Bob can view live")).toBeVisible();
@@ -173,7 +175,7 @@ test("a contact reads a shared collection until the share is stopped", async () 
   ]);
 
   await page.getByRole("button", { name: "Stop Sharing: notes, Bob" }).click();
-  await expect(page.getByText("Bob · Stopped")).toBeVisible();
+  await expect(page.getByText("Stopped for Bob.")).toBeVisible();
   let refused;
   try {
     nodeSql(contact, "SELECT body FROM pub.memos");
@@ -220,13 +222,30 @@ test("screens use words for people, also when something fails", async () => {
   await expect(page.getByRole("alert")).toHaveText(/^That's your own ID/);
   await page.getByRole("button", { name: "Cancel" }).last().click();
 
-  for (const path of ["/onboarding", "/collections/notes", "/sharing?share=notes", "/activity", "/settings"]) {
+  for (const path of ["/onboarding", "/collections/notes", "/sharing", "/activity", "/settings"]) {
     await page.goto(`${base}${path}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     const text = await page.locator("body").innerText();
     expect(text, path).not.toMatch(ENGINE);
     if (path !== "/settings") expect(text, path).not.toMatch(/\bsql\b/i);
   }
+
+  // The share dialog too: plain words, and text that reads at desktop and phone width.
+  for (const [width, height] of [
+    [1280, 800],
+    [390, 844],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.goto(`${base}/collections/notes`);
+    await page.getByRole("button", { name: "Share…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Share \u201cnotes\u201d" });
+    await expect(dialog).toBeVisible();
+    expect(await dialog.innerText()).not.toMatch(ENGINE);
+    expect(await page.evaluate(auditContrast), `share dialog at ${width}px`).toEqual([]);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
 });
 
 test("a collection is removed from its More menu with the keyboard", async () => {
@@ -276,15 +295,13 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   await page.setViewportSize({ width: 1280, height: 800 });
 
-  // Share… opens the panel; closing it drops ?share, and Back returns to the collection.
+  // Share… opens the dialog over the collection; closing it leaves the page as it was.
   await page.goto(`${base}/collections/notes`);
   await page.getByRole("button", { name: "Share…" }).click();
-  await expect(page).toHaveURL(/\/sharing\?share=notes$/);
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page).toHaveURL(/\/collections\/notes$/);
   await page.getByRole("button", { name: "Close" }).click();
-  await expect(page).toHaveURL(/\/sharing$/);
-  await page.reload();
-  await expect(page.getByRole("complementary", { name: "New Share" })).toHaveCount(0);
-  await page.goBack();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page).toHaveURL(/\/collections\/notes$/);
 
   // The workbench opened directly goes up to Settings.
@@ -298,7 +315,6 @@ test("every screen fits desktop and phone widths, and its text is readable", asy
     ["/onboarding", "Save Your Recovery Key"],
     ["/collections/notes", "Collections"],
     ["/sharing", "Sharing"],
-    ["/sharing?share=notes", "Sharing"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],
     ["/settings/advanced", "SQL Workbench"],

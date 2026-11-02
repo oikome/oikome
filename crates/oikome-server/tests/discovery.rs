@@ -125,6 +125,22 @@ async fn discovered_owners_are_reached_without_a_peer_address() {
 }
 
 #[tokio::test]
+async fn nodes_that_dial_each_other_at_once_both_record_the_other() {
+    // As when two nodes find each other by mDNS at the same moment.
+    for round in 0..10u8 {
+        let a = Node::new(60 + 2 * round).serve().await;
+        let b = Node::new(61 + 2 * round).serve().await;
+        let da = discover(&a, "/ip4/127.0.0.1/tcp/0", false).await;
+        let db = discover(&b, "/ip4/127.0.0.1/tcp/0", false).await;
+        let (to_b, to_a) = tokio::join!(da.dial(first_addr(&db)), db.dial(first_addr(&da)));
+        to_b.unwrap();
+        to_a.unwrap();
+        wait_for(&b, &a).await;
+        wait_for(&a, &b).await;
+    }
+}
+
+#[tokio::test]
 async fn an_owner_that_moved_is_found_at_its_new_address() {
     let mut a = Node::new(53).serve().await;
     let b = Node::new(54).serve().await;

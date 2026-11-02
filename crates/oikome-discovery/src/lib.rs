@@ -24,6 +24,11 @@
 //! mDNS finds nodes on the local network; [`Discovery::dial`] connects to a
 //! known address (another network, or tests). Crossing NATs is out of
 //! scope here.
+//!
+//! Dials go out from a new port. By default libp2p dials from the listening
+//! port, so two nodes that find each other at the same moment would open
+//! one TCP connection from both ends, each side would start the Noise
+//! handshake as the initiator, and neither would ever record the other.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -36,6 +41,7 @@ use libp2p::identity::Keypair;
 use libp2p::multiaddr::Protocol;
 use libp2p::request_response::{self, json, ProtocolSupport};
 use libp2p::swarm::behaviour::toggle::Toggle;
+use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{identify, mdns, noise, tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder};
 use oikome_catalog::OikomeCatalog;
@@ -281,7 +287,11 @@ impl State {
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(found))) => {
                 for (peer, addr) in found {
                     if peer != *swarm.local_peer_id() && !swarm.is_connected(&peer) {
-                        if let Err(e) = swarm.dial(addr.clone()) {
+                        let dial = DialOpts::peer_id(peer)
+                            .addresses(vec![addr.clone()])
+                            .allocate_new_port()
+                            .build();
+                        if let Err(e) = swarm.dial(dial) {
                             tracing::debug!(%peer, %addr, error = %e, "dialing a discovered peer failed");
                         }
                     }
@@ -357,7 +367,11 @@ async fn run(mut swarm: Swarm<Behaviour>, mut commands: mpsc::Receiver<Command>,
         tokio::select! {
             command = commands.recv() => match command {
                 Some(Command::Dial(addr, reply)) => {
-                    let _ = reply.send(swarm.dial(addr).map_err(libp2p_err));
+                    let dial = DialOpts::unknown_peer_id()
+                        .address(addr)
+                        .allocate_new_port()
+                        .build();
+                    let _ = reply.send(swarm.dial(dial).map_err(libp2p_err));
                 }
                 None => break,
             },

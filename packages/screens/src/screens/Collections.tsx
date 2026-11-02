@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Avatar,
+  AvatarStack,
   Button,
   Card,
   ConfirmDialog,
@@ -16,9 +17,11 @@ import {
   Menu,
   Row,
   Select,
+  SkeletonRows,
   TextField,
   Tile,
   collectionTones,
+  useToast,
 } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
 import type { Contact, Share, SpaceSummary } from "@oikome/client";
@@ -64,6 +67,7 @@ export function Collections({
   }, [startCreating]);
   const [name, setName] = useState("");
   const create = useAction();
+  const toast = useToast();
   const shared = sharedNames(shares.data);
   const list = spaces.data ?? [];
   const mine = list.filter((space) => space.kind !== "remote");
@@ -85,6 +89,11 @@ export function Collections({
               : s.notShared
         }
         selected={space.name === selected}
+        trailing={
+          space.kind === "remote" ? undefined : (
+            <AvatarStack names={names} label={s.whoSentence(names)} />
+          )
+        }
         href={`/collections/${encodeURIComponent(space.name)}`}
         onClick={() => navigate(`/collections/${encodeURIComponent(space.name)}`)}
       />
@@ -159,6 +168,7 @@ export function Collections({
                 (err) => (err.code === "conflict" ? s.nameTaken(wanted) : undefined),
               );
               if (space) {
+                toast(strings.toast.created(space.name));
                 stopCreating();
                 reload();
                 navigate(`/collections/${encodeURIComponent(space.name)}`);
@@ -182,6 +192,15 @@ export function Collections({
       )}
 
       {spaces.error && <ErrorText>{spaces.error}</ErrorText>}
+      {!spaces.data && !spaces.error && (
+        <div className="screen-split">
+          <div className="screen-split__list">
+            <Group title={s.mine} variant="list">
+              <SkeletonRows />
+            </Group>
+          </div>
+        </div>
+      )}
       {empty && (
         <Card>
           <EmptyState
@@ -223,6 +242,7 @@ export function Collections({
               onShared={reload}
               names={shared.get(current.name) ?? []}
               onRemoved={() => {
+                toast(strings.toast.removed(current.name));
                 reload();
                 // The removed collection's page is gone: Back skips it.
                 navigate("/collections", { replace: true });

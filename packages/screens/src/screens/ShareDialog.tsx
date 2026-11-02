@@ -16,6 +16,7 @@ import {
   InsetWell,
   Select,
   Tile,
+  useToast,
 } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
 import type { Contact, NewShare, Share, SpaceSummary } from "@oikome/client";
@@ -56,6 +57,7 @@ export function ShareDialog({
   const [made, setMade] = useState<NewShare>();
   const share = useAction();
   const stop = useAction();
+  const toast = useToast();
 
   const copyable = spaces.find((x) => x.name === space)?.kind === "analytical";
   const chosen = contacts.find((c) => c.did === did);
@@ -231,7 +233,10 @@ export function ShareDialog({
                   aria-label={`${s.stop}: ${x.space}, ${name}`}
                   onClick={async () => {
                     const done = await stop.run(() => client.revokeShare({ id: x.id }));
-                    if (done) onChange();
+                    if (done) {
+                      toast(strings.toast.stopped(x.space, name));
+                      onChange();
+                    }
                   }}
                 >
                   {s.stop}

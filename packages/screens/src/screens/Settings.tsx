@@ -14,6 +14,7 @@ import {
   Row,
   TextField,
   Tile,
+  useToast,
 } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
@@ -38,6 +39,7 @@ export function Settings({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(info.name);
   const rename = useAction();
+  const toast = useToast();
   // Opened from the banner (?backup=1): closing drops the flag, so a reload
   // or Forward does not open the key again.
   const close = () => {
@@ -77,6 +79,7 @@ export function Settings({
             <RecoveryKeyPanel
               doneLabel={strings.common.done}
               onDone={(updated) => {
+                toast(strings.toast.keySaved);
                 onInfo(updated);
                 close();
               }}
@@ -98,6 +101,7 @@ export function Settings({
                   client.renameNode({ name: name.trim() || strings.defaultName }),
                 );
                 if (updated) {
+                  toast(strings.toast.renamed(updated.name));
                   onInfo(updated);
                   setEditing(false);
                 }

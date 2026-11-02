@@ -13,6 +13,7 @@ export const strings = {
 
   nav: {
     label: "Main",
+    running: "Running on this computer",
     collections: "Collections",
     sharing: "Sharing",
     activity: "Activity",
@@ -33,6 +34,17 @@ export const strings = {
     retry: "Try Again",
     you: "You",
     unknown: "Someone unknown",
+  },
+
+  /** One short line after an action went through. */
+  toast: {
+    created: (name: string) => `Created ${name}.`,
+    removed: (name: string) => `Removed ${name}.`,
+    stopped: (space: string, name: string) => `Stopped sharing ${space} with ${name}.`,
+    contactAdded: (name: string) => `Added ${name} to your contacts.`,
+    contactRenamed: (name: string) => `Renamed to ${name}.`,
+    renamed: (name: string) => `Your data center is now called ${name}.`,
+    keySaved: "Recovery key backed up.",
   },
 
   errors: {

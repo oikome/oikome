@@ -15,9 +15,11 @@ import {
   GroupPanel,
   Menu,
   Row,
+  SkeletonRows,
   TextField,
   Tile,
   collectionTones,
+  useToast,
 } from "@oikome/ui";
 import type { Contact, NodeInfo, Share } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
@@ -43,6 +45,7 @@ export function Sharing({
   const contacts = useLoad(() => client.listContacts(), []);
   const [composing, setComposing] = useState(false);
   const stop = useAction();
+  const toast = useToast();
 
   const local = (spaces.data ?? []).filter((space) => space.kind !== "remote");
   const all = shares.data ?? [];
@@ -72,7 +75,8 @@ export function Sharing({
         ))}
 
       <Group title={s.sharedByYou}>
-        {active.length === 0 && <Row title={s.nothingShared} muted />}
+        {!shares.data && !shares.error && <SkeletonRows count={2} />}
+        {shares.data && active.length === 0 && <Row title={s.nothingShared} muted />}
         {active.map((share) => {
           const name = share.contactName ?? strings.common.unknown;
           return (
@@ -88,7 +92,10 @@ export function Sharing({
                   aria-label={`${s.stop}: ${share.space}, ${name}`}
                   onClick={async () => {
                     const done = await stop.run(() => client.revokeShare({ id: share.id }));
-                    if (done) reload();
+                    if (done) {
+                      toast(strings.toast.stopped(share.space, name));
+                      reload();
+                    }
                   }}
                 >
                   {s.stop}
@@ -187,6 +194,7 @@ function Contacts({
   const [removing, setRemoving] = useState<Contact>();
   const action = useAction();
   const remove = useAction();
+  const toast = useToast();
 
   const stopAdding = () => {
     setAdding(false);
@@ -218,6 +226,7 @@ function Contacts({
                       client.renameContact({ did: contact.did, name: newName.trim() }),
                     );
                     if (done) {
+                      toast(strings.toast.contactRenamed(newName.trim()));
                       setEditing(undefined);
                       onChange();
                     }
@@ -301,6 +310,7 @@ function Contacts({
                   },
                 );
                 if (added) {
+                  toast(strings.toast.contactAdded(name.trim()));
                   stopAdding();
                   onChange();
                 } else if (invalid) {
@@ -362,6 +372,7 @@ function Contacts({
           onConfirm={async () => {
             const done = await remove.run(() => client.removeContact({ did: removing.did }));
             if (done) {
+              toast(strings.toast.removed(removing.name));
               setRemoving(undefined);
               onChange();
             }

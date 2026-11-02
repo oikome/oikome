@@ -4,7 +4,17 @@
 // Activity: who asked for your data, and whether they got it.
 
 import { useEffect, useState } from "react";
-import { Avatar, Button, Card, EmptyState, ErrorText, Group, Row, Select } from "@oikome/ui";
+import {
+  Avatar,
+  Button,
+  Card,
+  EmptyState,
+  ErrorText,
+  Group,
+  Row,
+  Select,
+  SkeletonRows,
+} from "@oikome/ui";
 import type { AccessItem } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { ago } from "../format";
@@ -74,8 +84,10 @@ export function Activity() {
         </Card>
       ) : (
         <Group title={s.recent} footnote={s.footnote}>
-          {items.length === 0 ? (
-            <Row title={load.busy ? strings.common.loading : s.empty} muted />
+          {items.length === 0 && load.busy ? (
+            <SkeletonRows />
+          ) : items.length === 0 ? (
+            <Row title={s.empty} muted />
           ) : (
             items.map((item) => (
               <Row

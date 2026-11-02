@@ -3,7 +3,7 @@
 //
 // Components of the Oikome apps (styles in ui.css).
 
-import { useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
@@ -275,6 +275,74 @@ export function Avatar({ name, small, you }: { name: string; small?: boolean; yo
     <span className={cx("oik-avatar", `oik-avatar--${tone}`, small && "oik-avatar--sm")} aria-hidden="true">
       {(name.trim()[0] ?? "?").toUpperCase()}
     </span>
+  );
+}
+
+/**
+ * Who can see something, as a row of small avatars: you first, in the
+ * neutral disc, then each contact. The product's signature detail, written
+ * the same way wherever it appears.
+ */
+export function AvatarStack({ names, label }: { names: string[]; label: string }) {
+  return (
+    <span className="oik-avatar-stack" role="img" aria-label={label}>
+      <Avatar name="You" you small />
+      {names.slice(0, 3).map((name) => (
+        <Avatar key={name} name={name} small />
+      ))}
+      {names.length > 3 && <span className="oik-avatar-stack__more">+{names.length - 3}</span>}
+    </span>
+  );
+}
+
+/** A row-shaped placeholder while a list loads: a tile and two lines. */
+export function SkeletonRows({ count = 3 }: { count?: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <li key={i} className="oik-group__item" aria-hidden="true">
+          <div className="oik-row oik-row--skeleton">
+            <span className="oik-skel oik-skel--tile" />
+            <span className="oik-row__text">
+              <span className="oik-skel oik-skel--line" />
+              <span className="oik-skel oik-skel--short" />
+            </span>
+          </div>
+        </li>
+      ))}
+    </>
+  );
+}
+
+/* ----- Confirmation toasts: one short line after an action ----- */
+
+const ToastContext = createContext<(message: string) => void>(() => {});
+
+/** Says, briefly, that an action went through ("Removed notes."). */
+export function useToast(): (message: string) => void {
+  return useContext(ToastContext);
+}
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<{ id: number; message: string }[]>([]);
+  const next = useRef(0);
+  const show = useCallback((message: string) => {
+    const id = next.current++;
+    setToasts((list) => [...list.slice(-2), { id, message }]);
+    window.setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 3200);
+  }, []);
+  return (
+    <ToastContext.Provider value={show}>
+      {children}
+      <div className="oik-toasts" role="status" aria-live="polite">
+        {toasts.map((t) => (
+          <p key={t.id} className="oik-toast">
+            <Icon name="check" />
+            {t.message}
+          </p>
+        ))}
+      </div>
+    </ToastContext.Provider>
   );
 }
 

@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Banner, Button, Card, EmptyState, ErrorText, Icon } from "@oikome/ui";
+import { Banner, Button, Card, EmptyState, ErrorText, Icon, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo } from "@oikome/client";
 import { ClientProvider, useClient, useLoad } from "./data";
@@ -24,7 +24,9 @@ import { strings } from "./strings";
 export function App({ client }: { client: NodeClient }) {
   return (
     <ClientProvider client={client}>
-      <Root />
+      <ToastProvider>
+        <Root />
+      </ToastProvider>
     </ClientProvider>
   );
 }
@@ -66,9 +68,9 @@ function Root() {
       </main>
     );
   }
-  if (!info || onboarding === undefined) {
-    return <p className="screen-muted screen-onboarding">{strings.common.loading}</p>;
-  }
+  // The first answer takes a moment on a local node: show the bare ground
+  // rather than flashing a "Loading" line.
+  if (!info || onboarding === undefined) return null;
   if (onboarding || path === "/onboarding") {
     return (
       <Onboarding
@@ -174,6 +176,11 @@ function Shell({
             ))}
           </ul>
         </nav>
+        {/* The node this page is served by: it runs here, on this computer. */}
+        <p className="screen-node">
+          <span className="screen-dot screen-dot--ok" aria-hidden="true" />
+          {strings.nav.running}
+        </p>
         </div>
       </aside>
       <main id="main" tabIndex={-1} className="screen-main">

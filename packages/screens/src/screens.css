@@ -18,6 +18,9 @@
 .screen-sidebar__inner {
   position: sticky;
   top: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
   box-sizing: border-box;
   padding: var(--space-5) var(--space-3);
 }
@@ -50,6 +53,16 @@
 }
 .screen-brand__subtitle {
   display: block;
+  font: var(--text-caption);
+  color: var(--color-ink-secondary);
+}
+/* The data center's state, at the foot of the sidebar. */
+.screen-node {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: auto 0 0;
+  padding: var(--space-3) var(--space-3) 0;
   font: var(--text-caption);
   color: var(--color-ink-secondary);
 }
@@ -526,7 +539,11 @@
     border-right: 0;
     border-bottom: 1px solid var(--color-sidebar-rule);
   }
+  .screen-node {
+    display: none;
+  }
   .screen-sidebar__inner {
+    min-height: 0;
     position: static;
     padding: var(--space-3) var(--space-4) var(--space-2);
   }

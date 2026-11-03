@@ -200,6 +200,53 @@ pub struct DefaultStorage {
     pub storage: Option<String>,
 }
 
+/// What a source reads: a folder of photos, a folder of notes (Markdown
+/// or text, such as a notes vault), a CSV file, or flomo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceKind {
+    Photos,
+    Notes,
+    Csv,
+    FlomoExport,
+    FlomoMcp,
+}
+
+/// A source: where a collection's data comes from, and how its last pull
+/// went. A source writes the collection of its own name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSummary {
+    pub name: String,
+    pub kind: SourceKind,
+    /// The folder or file it reads, or the service it asks.
+    pub place: String,
+    /// Read again every this many seconds while the node runs; `None` only
+    /// when asked.
+    pub every_secs: Option<u64>,
+    /// When it was last read.
+    pub pulled_at_ms: Option<u64>,
+    /// The last read failed: when, and why.
+    pub failed_at_ms: Option<u64>,
+    pub failure: Option<String>,
+}
+
+/// `add_source`: a folder of photos or notes, or a CSV file, by its path on
+/// this computer. The collection is named after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSource {
+    pub kind: SourceKind,
+    pub path: String,
+}
+
+/// A source, by name: `pull_source`, `remove_source`, `show_source_files`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRef {
+    pub source: String,
+}
+
 /// `remove_storage`: a place added before; Local (this computer) is never
 /// removed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -229,7 +276,8 @@ pub struct FolderRef {
     pub path: Option<String>,
 }
 
-/// The folders in one folder, hidden ones left out.
+/// The folders in one folder, hidden ones left out, its CSV files, and how
+/// many photos and notes it holds (what a source of it would read).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderListing {
@@ -237,6 +285,9 @@ pub struct FolderListing {
     /// The folder above; `None` at the top.
     pub parent: Option<String>,
     pub folders: Vec<FolderEntry>,
+    pub csv_files: Vec<FolderEntry>,
+    pub photos: u32,
+    pub notes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

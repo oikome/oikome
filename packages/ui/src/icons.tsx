@@ -32,6 +32,7 @@ export type IconName =
   | "table"
   | "terminal"
   | "updown"
+  | "sync"
   | "warning";
 
 const PATHS: Record<IconName, ReactElement> = {
@@ -89,6 +90,7 @@ const PATHS: Record<IconName, ReactElement> = {
     </>
   ),
   download: <path d="M12 4v11m-5-5l5 5 5-5M5 19.5h14" />,
+  sync: <path d="M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4" />,
   error: (
     <>
       <circle cx="12" cy="12" r="8.5" />

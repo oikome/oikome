@@ -201,6 +201,46 @@ export type DefaultStorage = { storage: string | null, };
 export type StorageRef = { storage: string, };
 
 /**
+ * What a source reads: a folder of photos, a folder of notes (Markdown
+ * or text, such as a notes vault), a CSV file, or flomo.
+ */
+export type SourceKind = "photos" | "notes" | "csv" | "flomo-export" | "flomo-mcp";
+
+/**
+ * A source: where a collection's data comes from, and how its last pull
+ * went. A source writes the collection of its own name.
+ */
+export type SourceSummary = { name: string, kind: SourceKind, 
+/**
+ * The folder or file it reads, or the service it asks.
+ */
+place: string, 
+/**
+ * Read again every this many seconds while the node runs; `None` only
+ * when asked.
+ */
+everySecs: number | null, 
+/**
+ * When it was last read.
+ */
+pulledAtMs: number | null, 
+/**
+ * The last read failed: when, and why.
+ */
+failedAtMs: number | null, failure: string | null, };
+
+/**
+ * `add_source`: a folder of photos or notes, or a CSV file, by its path on
+ * this computer. The collection is named after it.
+ */
+export type NewSource = { kind: SourceKind, path: string, };
+
+/**
+ * A source, by name: `pull_source`, `remove_source`, `show_source_files`.
+ */
+export type SourceRef = { source: string, };
+
+/**
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */
@@ -216,13 +256,14 @@ label: string, type: StorageType, path: string, };
 export type FolderRef = { path?: string, };
 
 /**
- * The folders in one folder, hidden ones left out.
+ * The folders in one folder, hidden ones left out, its CSV files, and how
+ * many photos and notes it holds (what a source of it would read).
  */
 export type FolderListing = { path: string, 
 /**
  * The folder above; `None` at the top.
  */
-parent: string | null, folders: Array<FolderEntry>, };
+parent: string | null, folders: Array<FolderEntry>, csvFiles: Array<FolderEntry>, photos: number, notes: number, };
 
 export type FolderEntry = { name: string, path: string, };
 

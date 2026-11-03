@@ -16,20 +16,43 @@
 //! look at, open and share on the first day: one weekend in Lisbon, kept
 //! three ways (photos, notes and what the trip cost), a short guide to
 //! Oikome itself, a reading list, and two weeks of a home's temperatures,
-//! hour by hour. The owner removes them like any other Space.
+//! hour by hour.
 //!
-//! Every value here is a constant of this file; the statements quote them
-//! like any literal and take nothing from a request.
+//! They are files, written once into the `Examples` folder of where the
+//! owner keeps their data, like a notes app's vault: photos with a
+//! `captions.csv`, notes as Markdown, tables as CSV. Each folder is a
+//! source (§11) of the collection of its name, read again every minute, so
+//! the owner can edit the files with any app. A file already there is left
+//! as it is; the owner removes an example like any other collection, and
+//! its files stay.
+//!
+//! Every value here is a constant of this file.
 
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine as _;
-use oikome_semantic::rewrite::quote_ident;
+/// How an example's folder is read.
+pub(crate) enum Feed {
+    Photos,
+    Notes,
+    /// One CSV file of the folder, as the table `table`.
+    Csv {
+        file: &'static str,
+        table: &'static str,
+    },
+}
 
-/// One example Space and the statements that fill it, after it is created.
+/// One example: the collection's name, the files of its folder, and how
+/// they are read.
 pub(crate) struct Example {
     pub name: &'static str,
-    pub statements: Vec<String>,
+    pub files: Vec<(String, Vec<u8>)>,
+    pub feed: Feed,
+    /// The time to give the files, a minute apart in their order, for those
+    /// that say no time of their own (Unix seconds); `None` leaves now.
+    pub modified: Option<u64>,
 }
+
+/// The guide's notes are dated the Sunday before the trip, 9:00 UTC, so
+/// what the owner edits later comes first.
+const GUIDE_WRITTEN: u64 = 1_761_469_200;
 
 /// A photo of the trip. The pictures are from Wikimedia Commons; `credit`
 /// names each one's author and licence, and travels with the row.
@@ -150,10 +173,10 @@ const SPENDING: &[(&str, &str, &str, &str)] = &[
 const GUIDE: &[&str] = &[
     "Welcome to Oikome. It keeps your photos, notes and tables on your own computer, in \
      collections, and nowhere else unless you share them.",
-    "Everything you see now is an example. Open a collection to see it as photos, notes, \
-     a table or readings over time; remove an example from its More menu when you are done \
-     with it.",
-    "New Collection makes one of your own. Choose where it is stored: this computer, a \
+    "Everything you see now is an example, kept as plain files in the Examples folder where \
+     your data lives. Edit a note, a CSV file or a photo's caption with any app, and Oikome \
+     reads the change within a minute. Sources shows where each collection comes from.",
+    "New Collection makes one of your own. Choose where it is stored: Local, a \
      folder, a NAS or a cloud drive. Settings \u{2192} Storage picks where new ones go.",
     "To share a collection, add the person as a contact with their ID, then press Share. \
      You choose whether they view it live or keep a copy, and until when; they get an invite \
@@ -282,130 +305,210 @@ fn climate(hour: u32) -> (f64, f64, f64, i64) {
     (living, bedroom, outside, humidity.round() as i64)
 }
 
-/// A SQL string literal of a constant above.
-fn text(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+/// One CSV line, each field quoted when it needs to be.
+fn csv_line(fields: &[String]) -> String {
+    let quoted: Vec<String> = fields
+        .iter()
+        .map(|f| {
+            if f.contains([',', '"', '\n']) {
+                format!("\"{}\"", f.replace('"', "\"\""))
+            } else {
+                f.clone()
+            }
+        })
+        .collect();
+    quoted.join(",") + "\n"
 }
 
-fn table(space: &str, table: &str) -> String {
-    format!("{}.{}", quote_ident(space), quote_ident(table))
+fn csv(header: &[&str], rows: impl IntoIterator<Item = Vec<String>>) -> Vec<u8> {
+    let header: Vec<String> = header.iter().map(|h| h.to_string()).collect();
+    let mut out = csv_line(&header);
+    for row in rows {
+        out.push_str(&csv_line(&row));
+    }
+    out.into_bytes()
+}
+
+/// A note as Markdown, with the time it was written in its front matter.
+fn note(written: &str, text: &str) -> Vec<u8> {
+    let written = &written[..16];
+    format!("---\ndate: {written}\n---\n\n{text}\n").into_bytes()
 }
 
 /// The examples, in the order they are created.
 pub(crate) fn examples() -> Vec<Example> {
-    let photos = table("lisbon-photos", "photos");
-    let mut photo_statements = vec![format!(
-        "CREATE TABLE {photos} (title VARCHAR, place VARCHAR, taken TIMESTAMP, photo BLOB, credit VARCHAR)"
+    let guide_titles = [
+        "Welcome",
+        "The examples",
+        "New collections",
+        "Sharing",
+        "Stopping and Activity",
+        "Recovery key",
+        "Shortcuts",
+    ];
+    let guide = GUIDE
+        .iter()
+        .zip(guide_titles)
+        .enumerate()
+        .map(|(i, (text, title))| {
+            (
+                format!("{} {title}.md", i + 1),
+                format!("{text}\n").into_bytes(),
+            )
+        })
+        .collect();
+
+    let mut photos: Vec<(String, Vec<u8>)> = PHOTOS
+        .iter()
+        .map(|p| (format!("{}.jpg", p.title), p.jpeg.to_vec()))
+        .collect();
+    photos.push((
+        "captions.csv".to_string(),
+        csv(
+            &["file", "title", "place", "taken", "credit"],
+            PHOTOS.iter().map(|p| {
+                vec![
+                    format!("{}.jpg", p.title),
+                    p.title.to_string(),
+                    p.place.to_string(),
+                    p.taken[..16].to_string(),
+                    p.credit.to_string(),
+                ]
+            }),
+        ),
+    ));
+
+    let notes = NOTES
+        .iter()
+        .map(|(written, text)| {
+            (
+                format!(
+                    "{} {}.md",
+                    &written[..10],
+                    written[11..16].replace(':', ".")
+                ),
+                note(written, text),
+            )
+        })
+        .collect();
+
+    let spending = vec![(
+        "spending.csv".to_string(),
+        csv(
+            &["what", "day", "category", "euros"],
+            SPENDING.iter().map(|(day, what, category, euros)| {
+                vec![
+                    what.to_string(),
+                    day.to_string(),
+                    category.to_string(),
+                    euros.to_string(),
+                ]
+            }),
+        ),
     )];
-    photo_statements.extend(PHOTOS.iter().map(|p| {
-        format!(
-            "INSERT INTO {photos} VALUES ({}, {}, TIMESTAMP {}, from_base64({}), {})",
-            text(p.title),
-            text(p.place),
-            text(p.taken),
-            text(&STANDARD.encode(p.jpeg)),
-            text(p.credit),
-        )
-    }));
 
-    let notes = table("lisbon-notes", "notes");
-    let note_rows: Vec<String> = NOTES
-        .iter()
-        .map(|(written, note)| format!("(TIMESTAMP {}, {})", text(written), text(note)))
-        .collect();
+    let reading = vec![(
+        "books.csv".to_string(),
+        csv(
+            &["title", "author", "status", "pages", "finished"],
+            READING
+                .iter()
+                .map(|(title, author, status, pages, finished)| {
+                    vec![
+                        title.to_string(),
+                        author.to_string(),
+                        status.to_string(),
+                        pages.to_string(),
+                        finished.unwrap_or_default().to_string(),
+                    ]
+                }),
+        ),
+    )];
 
-    let spending = table("lisbon-spending", "spending");
-    let spending_rows: Vec<String> = SPENDING
-        .iter()
-        .map(|(day, what, category, euros)| {
-            format!(
-                "(DATE {}, {}, {}, {euros})",
-                text(day),
-                text(what),
-                text(category)
-            )
-        })
-        .collect();
-
-    let guide = table("oikome-guide", "guide");
-    let guide_rows: Vec<String> = GUIDE
-        .iter()
-        .map(|note| format!("({})", text(note)))
-        .collect();
-
-    let reading = table("reading-list", "books");
-    let reading_rows: Vec<String> = READING
-        .iter()
-        .map(|(title, author, status, pages, finished)| {
-            let finished = finished.map_or("NULL".to_string(), |day| format!("DATE {}", text(day)));
-            format!(
-                "({}, {}, {}, {pages}, {finished})",
-                text(title),
-                text(author),
-                text(status)
-            )
-        })
-        .collect();
-
-    let readings = table("home-climate", "readings");
-    let climate_rows: Vec<String> = (0..CLIMATE_HOURS)
-        .map(|hour| {
-            let (living, bedroom, outside, humidity) = climate(hour);
-            // From midnight on Monday, October 27, 2025, to the trip's last evening.
-            let day = 27 + hour / 24;
-            let (month, day) = if day > 31 { (11, day - 31) } else { (10, day) };
-            format!(
-                "(TIMESTAMP '2025-{month:02}-{day:02} {:02}:00:00', {living:.1}, {bedroom:.1}, {outside:.1}, {humidity})",
-                hour % 24
-            )
-        })
-        .collect();
+    let readings = vec![(
+        "readings.csv".to_string(),
+        csv(
+            &[
+                "at",
+                "living_room_celsius",
+                "bedroom_celsius",
+                "outside_celsius",
+                "humidity_pct",
+            ],
+            (0..CLIMATE_HOURS).map(|hour| {
+                let (living, bedroom, outside, humidity) = climate(hour);
+                // From midnight on Monday, October 27, 2025, to the trip's last evening.
+                let day = 27 + hour / 24;
+                let (month, day) = if day > 31 { (11, day - 31) } else { (10, day) };
+                vec![
+                    format!("2025-{month:02}-{day:02} {:02}:00:00", hour % 24),
+                    format!("{living:.1}"),
+                    format!("{bedroom:.1}"),
+                    format!("{outside:.1}"),
+                    humidity.to_string(),
+                ]
+            }),
+        ),
+    )];
 
     vec![
         Example {
             name: "oikome-guide",
-            statements: vec![
-                format!("CREATE TABLE {guide} (note VARCHAR)"),
-                format!("INSERT INTO {guide} VALUES {}", guide_rows.join(", ")),
-            ],
+            files: guide,
+            feed: Feed::Notes,
+            modified: Some(GUIDE_WRITTEN),
         },
         Example {
             name: "lisbon-photos",
-            statements: photo_statements,
+            files: photos,
+            feed: Feed::Photos,
+            modified: None,
         },
         Example {
             name: "lisbon-notes",
-            statements: vec![
-                format!("CREATE TABLE {notes} (written TIMESTAMP, note VARCHAR)"),
-                format!("INSERT INTO {notes} VALUES {}", note_rows.join(", ")),
-            ],
+            files: notes,
+            feed: Feed::Notes,
+            modified: None,
         },
         Example {
             name: "lisbon-spending",
-            statements: vec![
-                format!(
-                    "CREATE TABLE {spending} (day DATE, what VARCHAR, category VARCHAR, euros DECIMAL(8, 2))"
-                ),
-                format!("INSERT INTO {spending} VALUES {}", spending_rows.join(", ")),
-            ],
+            files: spending,
+            feed: Feed::Csv {
+                file: "spending.csv",
+                table: "spending",
+            },
+            modified: None,
         },
         Example {
             name: "reading-list",
-            statements: vec![
-                format!(
-                    "CREATE TABLE {reading} (title VARCHAR, author VARCHAR, status VARCHAR, pages INTEGER, finished DATE)"
-                ),
-                format!("INSERT INTO {reading} VALUES {}", reading_rows.join(", ")),
-            ],
+            files: reading,
+            feed: Feed::Csv {
+                file: "books.csv",
+                table: "books",
+            },
+            modified: None,
         },
         Example {
             name: "home-climate",
-            statements: vec![
-                format!(
-                    "CREATE TABLE {readings} (at TIMESTAMP, living_room_celsius DECIMAL(4, 1), bedroom_celsius DECIMAL(4, 1), outside_celsius DECIMAL(4, 1), humidity_pct INTEGER)"
-                ),
-                format!("INSERT INTO {readings} VALUES {}", climate_rows.join(", ")),
-            ],
+            files: readings,
+            feed: Feed::Csv {
+                file: "readings.csv",
+                table: "readings",
+            },
+            modified: None,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_fields_are_quoted_when_they_need_it() {
+        assert_eq!(
+            csv_line(&["a".into(), "b, c".into(), "say \"hi\"".into()]),
+            "a,\"b, c\",\"say \"\"hi\"\"\"\n"
+        );
+    }
 }

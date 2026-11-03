@@ -23,13 +23,16 @@
 //! a failed pull changes nothing. Connectors only move data: reshaping is
 //! done with views.
 //!
-//! Built-in connectors: [`csv::CsvSource`] (a CSV file), and flomo through
-//! its HTML export ([`flomo_export::FlomoExport`]) or its MCP server
-//! ([`flomo_mcp::FlomoMcp`], flomo MAX).
+//! Built-in connectors: [`csv::CsvSource`] (a CSV file), the files of a
+//! folder as photos or notes ([`folder::PhotosFolder`],
+//! [`folder::NotesFolder`]), and flomo through its HTML export
+//! ([`flomo_export::FlomoExport`]) or its MCP server ([`flomo_mcp::FlomoMcp`],
+//! flomo MAX).
 
 pub mod csv;
 pub mod flomo_export;
 pub mod flomo_mcp;
+pub mod folder;
 pub mod mcp;
 
 use async_trait::async_trait;
@@ -61,6 +64,10 @@ pub enum ColumnKind {
     Real,
     Text,
     Boolean,
+    /// Bytes, such as an image.
+    Blob,
+    /// A time as text, `2025-11-07 09:40:00` (or a day, `2025-11-07`).
+    Timestamp,
 }
 
 impl ColumnKind {
@@ -71,6 +78,8 @@ impl ColumnKind {
             ColumnKind::Real => "REAL",
             ColumnKind::Text => "TEXT",
             ColumnKind::Boolean => "BOOLEAN",
+            ColumnKind::Blob => "BLOB",
+            ColumnKind::Timestamp => "TIMESTAMP",
         }
     }
 }
@@ -151,6 +160,10 @@ pub enum SourceConfig {
     },
     /// flomo's HTML export (`flomo_backup.zip`, or its `index.html`).
     FlomoExport { path: String },
+    /// The photos of a folder, with its `captions.csv` if any.
+    PhotosFolder { path: String },
+    /// The Markdown and text files of a folder, such as a notes vault.
+    NotesFolder { path: String },
     /// flomo's MCP server (flomo MAX), with a personal token.
     FlomoMcp {
         endpoint: String,
@@ -169,6 +182,8 @@ impl SourceConfig {
         match self {
             SourceConfig::Csv { .. } => csv::KIND,
             SourceConfig::FlomoExport { .. } => flomo_export::KIND,
+            SourceConfig::PhotosFolder { .. } => folder::PHOTOS_KIND,
+            SourceConfig::NotesFolder { .. } => folder::NOTES_KIND,
             SourceConfig::FlomoMcp { .. } => flomo_mcp::KIND,
         }
     }
@@ -191,6 +206,8 @@ impl SourceConfig {
             SourceConfig::FlomoExport { path } => {
                 Box::new(flomo_export::FlomoExport::new(path.into()))
             }
+            SourceConfig::PhotosFolder { path } => Box::new(folder::PhotosFolder::new(path.into())),
+            SourceConfig::NotesFolder { path } => Box::new(folder::NotesFolder::new(path.into())),
             SourceConfig::FlomoMcp {
                 endpoint,
                 tool,

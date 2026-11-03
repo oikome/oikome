@@ -80,6 +80,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
     }
     out.push(
       { key: "a:new", group: s.actions, icon: "plus", title: strings.collections.newCollection, words: "create add", run: go("/collections?new=1") },
+      { key: "a:source", group: s.actions, icon: "download", title: strings.sources.addTitle, words: "import folder files csv photos notes obsidian sync", run: go("/sources?add=1") },
       { key: "a:share", group: s.actions, icon: "person-plus", title: strings.sharing.newShare, words: "share invite", run: go("/sharing?share=1") },
       { key: "a:contact", group: s.actions, icon: "person-plus", title: strings.sharing.addContact, words: "person friend", run: go("/sharing?add=1") },
       { key: "a:key", group: s.actions, icon: "key", title: strings.backup.backUpNow, words: "recovery key backup", run: go("/settings?backup=1") },
@@ -87,6 +88,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
       { key: "a:bold", group: s.actions, icon: "sliders", title: s.useBold, words: "style theme appearance", run: () => applyTheme("bold") },
       { key: "g:home", group: s.pages, icon: "home", title: strings.nav.home, run: go("/") },
       { key: "g:collections", group: s.pages, icon: "collection", title: strings.nav.collections, run: go("/collections") },
+      { key: "g:sources", group: s.pages, icon: "download", title: strings.nav.sources, words: "files folders sync", run: go("/sources") },
       { key: "g:sharing", group: s.pages, icon: "person-plus", title: strings.nav.sharing, run: go("/sharing") },
       { key: "g:activity", group: s.pages, icon: "activity", title: strings.nav.activity, run: go("/activity") },
       { key: "g:settings", group: s.pages, icon: "sliders", title: strings.nav.settings, words: "storage recovery appearance", run: go("/settings") },

@@ -12,7 +12,7 @@ import type { Table } from "apache-arrow";
 import { DataType } from "apache-arrow";
 import type { Shape } from "./content";
 import { measure, numberAt, withUnit } from "./content";
-import { dateTime, monthAndDay, wallTime } from "./format";
+import { dateTime, isoTime, monthAndDay, wallTime } from "./format";
 import { show } from "./parts";
 import { strings } from "./strings";
 
@@ -77,11 +77,14 @@ export function SeriesCover({ table, shape }: { table: Table; shape: Shape }) {
 /** When each row was, in milliseconds, and how to read it. */
 function timesOf(table: Table, column: number | undefined) {
   const field = column === undefined ? undefined : table.schema.fields[column];
-  // A time without a zone, or a date, is shown as written.
-  const asWritten = !!field && (DataType.isDate(field.type) || (DataType.isTimestamp(field.type) && !field.type.timezone));
+  const text = !!field && (DataType.isUtf8(field.type) || DataType.isLargeUtf8(field.type));
+  // A time without a zone, a date, or one written as text, is shown as written.
+  const asWritten =
+    !!field && (text || DataType.isDate(field.type) || (DataType.isTimestamp(field.type) && !field.type.timezone));
   const times = Array.from({ length: table.numRows }, (_, r) => {
     const v = column === undefined ? undefined : table.getChildAt(column)?.get(r);
-    return v === null || v === undefined ? undefined : Number(v);
+    if (v === null || v === undefined) return undefined;
+    return typeof v === "string" ? isoTime(v)?.ms : Number(v);
   });
   const format = (ms: number) =>
     field && DataType.isDate(field.type) ? monthAndDay(ms, true) : asWritten ? wallTime(ms) : dateTime(ms);

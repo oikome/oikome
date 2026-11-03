@@ -360,14 +360,18 @@
 }
 /* A row's More menu stays quiet until it is pointed at, in both styles. */
 .oik-row__trailing .oik-menu > .oik-icon-button--filled,
-[data-theme="bold"] .oik-row__trailing .oik-menu > .oik-icon-button--filled {
+[data-theme="bold"] .oik-row__trailing .oik-menu > .oik-icon-button--filled,
+.oik-table .oik-menu > .oik-icon-button--filled,
+[data-theme="bold"] .oik-table .oik-menu > .oik-icon-button--filled {
   border-color: transparent;
   background: none;
   box-shadow: none;
   transform: none;
 }
 .oik-row__trailing .oik-menu > .oik-icon-button--filled:hover:not(:disabled),
-.oik-row__trailing .oik-menu > .oik-icon-button--filled[aria-expanded="true"] {
+.oik-row__trailing .oik-menu > .oik-icon-button--filled[aria-expanded="true"],
+.oik-table .oik-menu > .oik-icon-button--filled:hover:not(:disabled),
+.oik-table .oik-menu > .oik-icon-button--filled[aria-expanded="true"] {
   background: var(--hover);
 }
 .oik-row__chevron {

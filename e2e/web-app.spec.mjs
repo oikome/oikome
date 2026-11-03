@@ -22,7 +22,7 @@
 // AA). No fake data: everything goes through the node.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -163,7 +163,7 @@ test("the examples open as photos, notes, tables and readings; a collection of o
   await page.locator(".screen-back").click();
   await page.getByRole("link", { name: /^oikome-guide/ }).click();
   await expect(page.locator(".screen-note")).toHaveCount(7);
-  await expect(page.locator(".screen-note").first()).toHaveText(/^Welcome to Oikome\./);
+  await expect(page.locator(".screen-note__text").first()).toHaveText(/^Welcome to Oikome\./);
 
   await page.locator(".screen-back").click();
   await page.getByRole("link", { name: /^reading-list/ }).click();
@@ -197,6 +197,24 @@ test("the examples open as photos, notes, tables and readings; a collection of o
   await expect(rows.getByRole("cell", { name: "call mum" })).toBeVisible();
   // Two rows fit on one page: no pager.
   await expect(page.getByText("Rows 1–2")).toHaveCount(0);
+});
+
+test("the examples are files: edit one, sync it, and it shows", async () => {
+  // Like a notes app's vault: plain files in the data folder, read by sources.
+  const books = join(owner, "Examples", "reading-list", "books.csv");
+  expect(existsSync(join(owner, "Examples", "lisbon-photos", "captions.csv"))).toBe(true);
+  appendFileSync(books, "The Elephant's Journey,José Saramago,Next,208,\n");
+  await page.goto(`${base}/sources`);
+  const sources = page.getByRole("table", { name: "Sources" });
+  await expect(sources.locator("tbody tr")).toHaveCount(6);
+  await expect(sources.getByText("Up to date").first()).toBeVisible();
+  await page.getByRole("button", { name: "Sync now: books.csv" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Read books.csv again.");
+  await page.goto(`${base}/collections/reading-list`);
+  await expect(page.locator(".screen-facts")).toContainText("Examples/reading-list/books.csv");
+  await expect(
+    page.getByRole("table", { name: "books" }).getByRole("cell", { name: "The Elephant's Journey" }),
+  ).toBeVisible();
 });
 
 test("a place picked on this computer keeps new collections", async () => {
@@ -355,6 +373,7 @@ test("screens use words for people, also when something fails", async () => {
     "/collections/lisbon-photos",
     "/collections/oikome-guide",
     "/collections/home-climate",
+    "/sources",
     "/sharing",
     "/activity",
     "/settings",
@@ -462,6 +481,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/collections/lisbon-photos", "lisbon-photos"],
     ["/collections/lisbon-notes", "lisbon-notes"],
     ["/collections/home-climate", "home-climate"],
+    ["/sources", "Sources"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
     ["/activity", "Activity"],

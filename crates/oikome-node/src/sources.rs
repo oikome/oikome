@@ -33,7 +33,7 @@ use std::time::Duration;
 use arrow_array::{Array, ArrayRef, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
-use oikome_catalog::SourceDef;
+use oikome_catalog::{SourceDef, SourceFailure};
 use oikome_connect::{ConnectError, Connector, Pull, SourceConfig, TableDef, Value};
 use oikome_core::{CatalogError, CreateSpaceRequest, SpaceKind};
 use oikome_engine::name::quote_ident;
@@ -53,7 +53,10 @@ const CURSOR_TABLE: &str = "_oikome_source";
 const KEYS_TABLE: &str = "_oikome_keys";
 
 fn token_env(source: &str) -> String {
-    format!("OIKOME_SOURCE_{}_TOKEN", source.to_ascii_uppercase())
+    format!(
+        "OIKOME_SOURCE_{}_TOKEN",
+        source.to_ascii_uppercase().replace('-', "_")
+    )
 }
 
 fn token_account(source: &str) -> String {
@@ -427,12 +430,30 @@ impl OikomeSession {
         added
     }
 
-    /// Pull the source `name` now.
+    /// Pull the source `name` now. A failure is kept with the source (see
+    /// [`SourceDef::failure`]) until a pull succeeds.
     pub async fn pull_source(&self, name: &str) -> Result<PullReport, SessionError> {
         self.deny_principal("pulling a source")?;
-        let (_, config) = self.source_config(name)?;
-        let connector = self.connector(name, &config)?;
-        self.pull_with(name, connector.as_ref()).await
+        let pulled = async {
+            let (_, config) = self.source_config(name)?;
+            let connector = self.connector(name, &config)?;
+            self.pull_with(name, connector.as_ref()).await
+        }
+        .await;
+        let failure = pulled.as_ref().err().map(|e| SourceFailure {
+            at_ms: unix_now_ms(),
+            message: e.to_string(),
+        });
+        let had = self
+            .catalog
+            .get_source(name)
+            .is_ok_and(|def| def.failure.is_some());
+        if failure.is_some() || had {
+            if let Err(e) = self.catalog.set_source_failure(name, failure) {
+                tracing::warn!(source = %name, error = %e, "keeping the pull's outcome failed");
+            }
+        }
+        pulled
     }
 
     /// Pull the source `name` with `connector` in place of its own, e.g. a

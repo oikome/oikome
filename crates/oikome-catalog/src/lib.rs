@@ -38,7 +38,7 @@ pub use contact::Contact;
 pub use graph::GraphDef;
 pub use peer::Peer;
 pub use resolve::ResolvedTable;
-pub use source::SourceDef;
+pub use source::{SourceDef, SourceFailure};
 pub use space::{Location, LocationFormat, LocationId, Space};
 pub use storage::{StorageBinding, StorageDef, StorageKind};
 pub use ucan::{

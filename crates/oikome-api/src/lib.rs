@@ -30,6 +30,7 @@
 pub mod error;
 mod examples;
 mod places;
+mod sources;
 pub mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,6 +40,7 @@ use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
 use oikome_catalog::{LocationFormat, OikomeCatalog, StorageKind};
+use oikome_connect::SourceConfig;
 use oikome_core::{validate_space_name, AccessMode, CreateSpaceRequest};
 use oikome_identity::keys::NODE_KEY_FILE;
 use oikome_identity::ucan::{ABILITY_QUERY, ABILITY_READ};
@@ -472,6 +474,10 @@ impl Api {
                 session.revoke_token(&share.id)?;
             }
         }
+        // Its source stops with it; the files it read stay.
+        if self.catalog.get_source(&req.space).is_ok() {
+            session.remove_source(&req.space)?;
+        }
         session.drop_space(&req.space).await?;
         let mut settings = self.settings()?;
         if settings.examples.contains(&req.space) {
@@ -481,10 +487,30 @@ impl Api {
         Ok(Empty {})
     }
 
+    /// Where the examples' files go: `Examples` in the folder new
+    /// collections go to when the owner picked one on this computer, or in
+    /// the data folder.
+    fn examples_folder(&self, settings: &NodeSettings) -> std::path::PathBuf {
+        let picked = settings
+            .default_storage
+            .as_deref()
+            .and_then(|name| self.catalog.get_storage(name).ok())
+            .and_then(|def| match def.kind {
+                StorageKind::Folder { path } => Some(std::path::PathBuf::from(path)),
+                _ => None,
+            });
+        picked
+            .unwrap_or_else(|| std::path::PathBuf::from(self.catalog.root_path()))
+            .join("Examples")
+    }
+
     /// Add the examples a new data center starts with (one weekend in
     /// Lisbon as photos, notes and spending; a guide; a reading list; a
-    /// home's temperatures), once. A name already taken is left alone.
-    /// Returns the examples there now.
+    /// home's temperatures), once: their files go into `Examples` where the
+    /// owner keeps their data (a folder they picked, or the data folder),
+    /// and each folder becomes the source of its collection. A name already
+    /// taken is left alone, and so is a file already there. Returns the
+    /// examples there now.
     pub async fn add_examples(
         &self,
         caller: &Caller,
@@ -495,27 +521,43 @@ impl Api {
         if settings.examples_added_at_ms.is_none() {
             self.refresh()?;
             let session = self.session(None);
+            let folder = self.examples_folder(&settings);
             for example in examples::examples() {
                 if self.catalog.get_space(example.name).is_ok()
                     || self.catalog.get_location(example.name).is_ok()
+                    || self.catalog.get_source(example.name).is_ok()
                 {
                     continue;
                 }
-                session
-                    .create_space(CreateSpaceRequest {
-                        name: example.name.to_string(),
-                        kind: Some(oikome_core::SpaceKind::Analytical),
-                        storage: settings.default_storage.clone(),
-                        ..Default::default()
-                    })
-                    .await?;
-                for statement in &example.statements {
-                    if let Err(e) = session.sql(statement).await {
-                        // Leave no half-filled example behind.
-                        let _ = session.drop_space(example.name).await;
-                        return Err(e.into());
+                let dir = folder.join(example.name);
+                std::fs::create_dir_all(&dir).map_err(ApiError::internal)?;
+                for (i, (file, bytes)) in (0u64..).zip(&example.files) {
+                    let path = dir.join(file);
+                    if path.exists() {
+                        continue;
+                    }
+                    std::fs::write(&path, bytes).map_err(ApiError::internal)?;
+                    if let Some(at) = example.modified {
+                        let at =
+                            std::time::UNIX_EPOCH + std::time::Duration::from_secs(at + 60 * i);
+                        std::fs::File::options()
+                            .write(true)
+                            .open(&path)
+                            .and_then(|f| f.set_modified(at))
+                            .map_err(ApiError::internal)?;
                     }
                 }
+                let place = dir.to_string_lossy().into_owned();
+                let config = match example.feed {
+                    examples::Feed::Photos => SourceConfig::PhotosFolder { path: place },
+                    examples::Feed::Notes => SourceConfig::NotesFolder { path: place },
+                    examples::Feed::Csv { file, table } => {
+                        sources::csv_config(&dir.join(file), table).await?
+                    }
+                };
+                session
+                    .add_source(example.name, config, Some(sources::EVERY), None)
+                    .await?;
                 settings.examples.push(example.name.to_string());
             }
             settings.examples_added_at_ms = Some(now_ms());

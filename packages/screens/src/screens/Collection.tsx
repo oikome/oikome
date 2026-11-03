@@ -23,7 +23,8 @@ import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf } from "..
 import type { Item, Shape } from "../content";
 import { countOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
-import { monthAndDay } from "../format";
+import { homeRelative, monthAndDay } from "../format";
+import { since } from "./Sources";
 import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -42,7 +43,10 @@ export function Collection({ name }: { name: string }) {
   const shares = useLoad(() => client.listShares(), []);
   const contacts = useLoad(() => client.listContacts(), []);
   const storages = useLoad(() => client.listStorages(), []);
+  const sources = useLoad(() => client.listSources(), []);
   const [confirming, setConfirming] = useState(false);
+  const [contentsKey, setContentsKey] = useState(0);
+  const sync = useAction();
   const [sharing, setSharing] = useState(false);
   const remove = useAction();
 
@@ -77,6 +81,16 @@ export function Collection({ name }: { name: string }) {
   const kind = preview.data?.shape.view;
   const place = storages.data?.find((x) => x.name === space.storage);
   const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
+  const source = sources.data?.find((x) => x.name === space.name);
+  const syncNow = async () => {
+    if (!source) return;
+    const done = await sync.run(() => client.pullSource({ source: source.name }));
+    forgetPreviews(space.name);
+    sources.reload();
+    preview.reload();
+    setContentsKey((k) => k + 1);
+    if (done) toast(strings.sources.synced(space.name));
+  };
 
   return (
     <>
@@ -94,9 +108,24 @@ export function Collection({ name }: { name: string }) {
             {s.share}
           </Button>
         )}
+        {source && (
+          <Button icon="sync" disabled={sync.busy} onClick={syncNow}>
+            {strings.sources.syncNow}
+          </Button>
+        )}
         <Menu
           label={strings.common.moreActions(space.name)}
-          items={[{ label: s.remove, destructive: true, onSelect: () => setConfirming(true) }]}
+          items={[
+            ...(source
+              ? [
+                  {
+                    label: strings.sources.showFiles,
+                    onSelect: () => void sync.run(() => client.showSourceFiles({ source: source.name })),
+                  },
+                ]
+              : []),
+            { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
+          ]}
         />
       </ScreenHeader>
 
@@ -108,7 +137,24 @@ export function Collection({ name }: { name: string }) {
           </div>
           <div>
             <dt className="oik-label">{s.factFrom}</dt>
-            <dd>{space.example ? s.fromExample : s.fromYou}</dd>
+            {source ? (
+              <dd className="screen-facts__from">
+                <Link to="/sources">
+                  <span title={source.place} translate="no">
+                    {homeRelative(source.place)}
+                  </span>
+                </Link>
+                <span className="screen-facts__note">
+                  {source.failedAtMs != null
+                    ? strings.sources.failedAgo(since(source.failedAtMs))
+                    : source.pulledAtMs != null
+                      ? strings.sources.syncedAgo(since(source.pulledAtMs))
+                      : strings.sources.waiting}
+                </span>
+              </dd>
+            ) : (
+              <dd>{space.example ? s.fromExample : s.fromYou}</dd>
+            )}
           </div>
           <div>
             <dt className="oik-label">{s.factStored}</dt>
@@ -162,7 +208,8 @@ export function Collection({ name }: { name: string }) {
         />
       )}
 
-      <Contents key={space.name} space={space} />
+      {sync.error && <ErrorText>{sync.error}</ErrorText>}
+      <Contents key={`${space.name}:${contentsKey}`} space={space} />
     </>
   );
 }

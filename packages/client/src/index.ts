@@ -35,6 +35,9 @@ import type {
   NewStorage,
   DefaultStorage,
   StorageRef,
+  SourceSummary,
+  NewSource,
+  SourceRef,
   FoundPlace,
   FolderRef,
   FolderListing,
@@ -70,6 +73,11 @@ export interface NodeClient {
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
   removeStorage(request: StorageRef): Promise<StorageSummary[]>;
+  listSources(): Promise<SourceSummary[]>;
+  addSource(request: NewSource): Promise<SourceSummary>;
+  pullSource(request: SourceRef): Promise<SourceSummary>;
+  removeSource(request: SourceRef): Promise<SourceSummary[]>;
+  showSourceFiles(request: SourceRef): Promise<Empty>;
   findPlaces(): Promise<FoundPlace[]>;
   listFolders(request?: FolderRef): Promise<FolderListing>;
   readRows(request: ReadRows): Promise<RowsResult>;
@@ -207,6 +215,26 @@ export class HttpClient implements NodeClient {
 
   removeStorage(request: StorageRef): Promise<StorageSummary[]> {
     return this.#json("remove_storage", request);
+  }
+
+  listSources(): Promise<SourceSummary[]> {
+    return this.#json("list_sources", {});
+  }
+
+  addSource(request: NewSource): Promise<SourceSummary> {
+    return this.#json("add_source", request);
+  }
+
+  pullSource(request: SourceRef): Promise<SourceSummary> {
+    return this.#json("pull_source", request);
+  }
+
+  removeSource(request: SourceRef): Promise<SourceSummary[]> {
+    return this.#json("remove_source", request);
+  }
+
+  showSourceFiles(request: SourceRef): Promise<Empty> {
+    return this.#json("show_source_files", request);
   }
 
   findPlaces(): Promise<FoundPlace[]> {

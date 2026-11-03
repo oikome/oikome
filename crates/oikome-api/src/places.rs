@@ -189,23 +189,54 @@ pub(crate) fn list_folders(path: Option<&str>) -> Result<FolderListing, ApiError
         }
         _ => ApiError::invalid(format!("'{}' is not a folder", dir.display())),
     })?;
-    let mut folders: Vec<FolderEntry> = entries
+    let paths: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir() && !hidden(p))
-        .filter_map(|p| {
-            Some(FolderEntry {
-                name: p.file_name()?.to_str()?.to_string(),
-                path: text(&p)?,
-            })
+        .filter(|p| !hidden(p))
+        .collect();
+    let entry = |p: &PathBuf| {
+        Some(FolderEntry {
+            name: p.file_name()?.to_str()?.to_string(),
+            path: text(p)?,
         })
+    };
+    let extension = |p: &PathBuf| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default()
+    };
+    let files = || paths.iter().filter(|p| p.is_file());
+    let mut folders: Vec<FolderEntry> = paths
+        .iter()
+        .filter(|p| p.is_dir())
+        .filter_map(entry)
         .collect();
     folders.sort_by_key(|f| f.name.to_lowercase());
     folders.truncate(MAX_FOLDERS);
+    let mut csv_files: Vec<FolderEntry> = files()
+        .filter(|p| extension(p) == "csv")
+        .filter_map(entry)
+        .collect();
+    csv_files.sort_by_key(|f| f.name.to_lowercase());
+    csv_files.truncate(MAX_FOLDERS);
+    let count = |wanted: &[&str]| {
+        u32::try_from(
+            files()
+                .filter(|p| wanted.contains(&extension(p).as_str()))
+                .count(),
+        )
+        .unwrap_or(u32::MAX)
+    };
+    let photos = count(&["jpg", "jpeg", "png", "gif", "webp"]);
+    let notes = count(&["md", "markdown", "txt"]);
     Ok(FolderListing {
         path: text(&dir).ok_or_else(|| ApiError::invalid("the folder's name is not text"))?,
         parent: dir.parent().and_then(text),
         folders,
+        csv_files,
+        photos,
+        notes,
     })
 }
 

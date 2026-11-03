@@ -566,7 +566,7 @@ async fn a_new_data_center_gets_examples_once() {
     for (space, table, count) in [
         ("lisbon-notes", "notes", 7),
         ("lisbon-spending", "spending", 10),
-        ("oikome-guide", "guide", 7),
+        ("oikome-guide", "notes", 7),
         ("reading-list", "books", 10),
         ("home-climate", "readings", 14 * 24),
     ] {
@@ -585,6 +585,62 @@ async fn a_new_data_center_gets_examples_once() {
             .unwrap();
         assert_eq!(row_count(&rows), count, "{space}");
     }
+
+    // They are files, read by sources: edit one and read it again.
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let books = root.join("Examples/reading-list/books.csv");
+    assert!(root.join("Examples/lisbon-photos/captions.csv").is_file());
+    assert!(root.join("Examples/oikome-guide/1 Welcome.md").is_file());
+    let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(sources.len(), 6);
+    let photos = sources.iter().find(|s| s.name == "lisbon-photos").unwrap();
+    assert_eq!(photos.kind, SourceKind::Photos);
+    assert!(photos.pulled_at_ms.is_some() && photos.failure.is_none());
+    let mut text = std::fs::read_to_string(&books).unwrap();
+    text.push_str("The Elephant's Journey,José Saramago,Next,208,\n");
+    std::fs::write(&books, text).unwrap();
+    n.api
+        .pull_source(
+            &OWNER,
+            SourceRef {
+                source: "reading-list".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "reading-list".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(tables.len(), 1, "{tables:?}");
+    assert_eq!(tables[0].rows, Some(11));
+    // A file that no longer reads keeps its rows and says why.
+    std::fs::write(&books, "title,author\nonly,two\n").unwrap();
+    assert!(n
+        .api
+        .pull_source(
+            &OWNER,
+            SourceRef {
+                source: "reading-list".into(),
+            },
+        )
+        .await
+        .is_err());
+    let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    let reading = sources.iter().find(|s| s.name == "reading-list").unwrap();
+    assert!(
+        reading
+            .failure
+            .as_deref()
+            .is_some_and(|f| f.contains("columns")),
+        "{reading:?}"
+    );
 
     // Removing one is for good, and the rest stay examples.
     n.api
@@ -664,15 +720,25 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
     assert!(added.place.ends_with("/Oikome"));
     assert!(picked.path().join("Oikome").is_dir());
 
-    // The examples go where new collections go.
+    // The examples' files go into the picked folder; their collections,
+    // read from them, are kept with the data center.
     let examples = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert!(examples
-        .iter()
-        .all(|s| s.storage.as_deref() == Some("documents")));
+    assert_eq!(examples.len(), 6);
+    assert!(picked.path().join("Oikome/Examples/lisbon-notes").is_dir());
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "plans".into(),
+                kind: None,
+                storage: Some("documents".into()),
+            },
+        )
+        .await
+        .unwrap();
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(storages[0].spaces, 0);
     assert!(!storages[0].is_default);
-    assert_eq!(storages[1].spaces, 6);
+    assert_eq!(storages[1].spaces, 1);
 
     // Back to this computer.
     let storages = n
@@ -694,7 +760,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
         .await
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::Conflict, "{err}");
-    assert!(err.message.contains("6 collections"), "{err}");
+    assert!(err.message.contains("1 collection;"), "{err}");
 
     // An empty one goes, files and all left where they are, and Local is
     // the default again when it was the default.

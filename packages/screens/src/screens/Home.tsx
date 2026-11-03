@@ -48,6 +48,7 @@ export function Home({ info }: { info: NodeInfo }) {
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const storages = useLoad(() => client.listStorages(), []);
+  const sources = useLoad(() => client.listSources(), []);
   const log = useLoad(() => client.listAccess({ limit: 100 }), []);
   const [previews, setPreviews] = useState<Map<string, Preview>>();
 
@@ -81,6 +82,8 @@ export function Home({ info }: { info: NodeInfo }) {
   const now = Date.now();
   const reads = log.data?.filter((x) => x.outcome === "allowed" && now - x.atMs < WEEK_MS).length;
   const places = storages.data ?? [];
+  const sourceList = sources.data ?? [];
+  const failing = sourceList.filter((x) => x.failedAtMs != null).length;
   const preferred = places.find((x) => x.isDefault);
 
   // The newest few things across collections, by their own dates.
@@ -127,7 +130,16 @@ export function Home({ info }: { info: NodeInfo }) {
           </span>
         </div>
         <ol className="screen-pipe">
-          <Stage done label={s.statCollections} value={String(mine.length)} />
+          {sourceList.length > 0 ? (
+            <Stage
+              done={failing === 0}
+              bad={failing > 0}
+              label={strings.nav.sources}
+              value={`${sourceList.length - failing} / ${sourceList.length}`}
+            />
+          ) : (
+            <Stage done label={s.statCollections} value={String(mine.length)} />
+          )}
           <Stage done label={s.stored} value={s.placesCount(places.length)} />
           <Stage done={people > 0} half={people === 0} label={s.shared} value={s.peopleCount(people)} />
           <Stage

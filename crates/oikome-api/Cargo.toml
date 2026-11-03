@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 oikome-catalog = { path = "../oikome-catalog" }
+oikome-connect = { path = "../oikome-connect" }
 oikome-core = { path = "../oikome-core" }
 oikome-engine = { path = "../oikome-engine" }
 oikome-identity = { path = "../oikome-identity" }

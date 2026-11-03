@@ -16,6 +16,7 @@ import { Palette } from "./palette";
 import { BackLink } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
+import { Sources } from "./screens/Sources";
 import { Collection } from "./screens/Collection";
 import { Collections } from "./screens/Collections";
 import { Home } from "./screens/Home";
@@ -43,6 +44,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: "/", label: strings.nav.home, icon: "home" },
   { to: "/collections", label: strings.nav.collections, icon: "collection" },
+  { to: "/sources", label: strings.nav.sources, icon: "download" },
   { to: "/sharing", label: strings.nav.sharing, icon: "person-plus" },
   { to: "/activity", label: strings.nav.activity, icon: "activity" },
 ];
@@ -116,6 +118,8 @@ function Root() {
     screen = (
       <Sharing info={info} startAdding={query.get("add") === "1"} startSharing={query.get("share") === "1"} />
     );
+  } else if (path === "/sources") {
+    screen = <Sources startAdding={query.get("add") === "1"} />;
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {
@@ -271,6 +275,7 @@ function Shell({
   const host = info.host || name;
   const sectionLabel = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
   const spaces = useLoad(() => client.listSpaces(), [path]);
+  const sources = useLoad(() => client.listSources(), [path]);
   const storages = useLoad(() => client.listStorages(), [path]);
   const [picked, setPicked] = useState<string | null>(rememberedPlace);
   const [searching, setSearching] = useState(false);
@@ -328,7 +333,7 @@ function Shell({
             <NavList
               items={NAV}
               current={current}
-              counts={{ "/collections": spaces.data?.length }}
+              counts={{ "/collections": spaces.data?.length, "/sources": sources.data?.length || undefined }}
             />
           </nav>
           <PlaceList places={places} current={place} onPick={pick} />

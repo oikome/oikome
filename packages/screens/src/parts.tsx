@@ -11,7 +11,7 @@ import type { NodeInfo } from "@oikome/client";
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import { useAction, useClient, useLoad } from "./data";
-import { calendarDate, cell, columnLabel, dateTime, decimal, wallTime } from "./format";
+import { calendarDate, cell, columnLabel, dateTime, decimal, isoTime, wallTime } from "./format";
 import { navigate, plainClick, previousPage } from "./router";
 import { strings } from "./strings";
 
@@ -103,6 +103,11 @@ export function show(field: Field, value: unknown): string | null {
     return field.type.timezone ? dateTime(Number(value)) : wallTime(Number(value));
   }
   if (DataType.isDecimal(field.type)) return decimal(String(value), field.type.scale);
+  // A day or a time kept as text reads as one.
+  if (typeof value === "string") {
+    const iso = isoTime(value);
+    if (iso) return iso.day ? calendarDate(iso.ms) : wallTime(iso.ms);
+  }
   return cell(value);
 }
 

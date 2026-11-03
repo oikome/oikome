@@ -172,7 +172,7 @@ export const strings = {
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
     example: "Example",
     sharedChip: "Shared",
-    kinds: { photos: "Photos", notes: "Notes", table: "Table" },
+    kinds: { photos: "Photos", notes: "Notes", table: "Table", series: "Readings" },
     yours: "Yours",
     factHolds: "Holds",
     factStored: "Stored on",
@@ -192,12 +192,22 @@ export const strings = {
     filter: "Show",
     filters: { all: "All", photos: "Photos", notes: "Notes", table: "Tables" },
     examplesNote: "Collections marked Example show what Oikome can keep. Remove them whenever you like.",
-    /** "6 photos", "1 note", "10 rows". */
-    count: (n: number, kind: "photos" | "notes" | "table") => {
+    /** "6 photos", "1 note", "10 rows", "336 readings". */
+    count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const [one, many] =
-        kind === "photos" ? ["photo", "photos"] : kind === "notes" ? ["note", "notes"] : ["row", "rows"];
-      return `${n} ${n === 1 ? one : many}`;
+        kind === "photos"
+          ? ["photo", "photos"]
+          : kind === "notes"
+            ? ["note", "notes"]
+            : kind === "series"
+              ? ["reading", "readings"]
+              : ["row", "rows"];
+      return `${n.toLocaleString("en")} ${n === 1 ? one : many}`;
     },
+    seriesPick: "Show",
+    seriesRange: (low: string, high: string) => `${low} to ${high}`,
+    seriesSummary: (what: string, low: string, high: string, from: string, to: string) =>
+      `${what} from ${low} to ${high}, ${from} to ${to}`,
     moreNotes: (n: number) => `+ ${n.toLocaleString("en")} ${n === 1 ? "note" : "notes"}`,
     noData: "No data yet",
     back: "Collections",

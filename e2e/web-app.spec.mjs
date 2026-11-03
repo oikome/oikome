@@ -130,10 +130,10 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(page.locator(".screen-node__name")).toHaveText("Home");
 });
 
-test("the examples open as photos, notes and a table; a collection of one's own", async () => {
+test("the examples open as photos, notes, tables and readings; a collection of one's own", async () => {
   await page.getByRole("link", { name: "Collections" }).first().click();
-  await expect(page.locator(".screen-cover")).toHaveCount(3);
-  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(3);
+  await expect(page.locator(".screen-cover")).toHaveCount(6);
+  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(6);
 
   await page.getByRole("link", { name: /^lisbon-photos/ }).click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
@@ -158,6 +158,25 @@ test("the examples open as photos, notes and a table; a collection of one's own"
   const spending = page.getByRole("table", { name: "spending" });
   await expect(spending.getByRole("cell", { name: "Metro to the airport" })).toBeVisible();
   await expect(spending.getByRole("cell", { name: "1.85", exact: true })).toBeVisible();
+
+  // The guide reads in order, without dates.
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^oikome-guide/ }).click();
+  await expect(page.locator(".screen-note")).toHaveCount(7);
+  await expect(page.locator(".screen-note").first()).toHaveText(/^Welcome to Oikome\./);
+
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^reading-list/ }).click();
+  await expect(page.getByRole("table", { name: "books" }).getByRole("cell", { name: "The Book of Disquiet" })).toBeVisible();
+
+  // Readings open at the latest ones, as a line with the rows below it.
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^home-climate/ }).click();
+  await expect(page.getByRole("img", { name: /^Living room from .+ °C to .+ °C, / })).toBeVisible();
+  await expect(page.getByText("Rows 237–336")).toBeVisible();
+  await page.getByRole("radio", { name: "Humidity" }).click();
+  await expect(page.getByRole("img", { name: /^Humidity from \d+ % to \d+ %, / })).toBeVisible();
+  await expect(page.getByRole("table", { name: "readings" })).toBeVisible();
 
   // One's own: made here, kept on this computer, filled through the node.
   await page.locator(".screen-back").click();
@@ -320,6 +339,8 @@ test("screens use words for people, also when something fails", async () => {
     "/collections",
     "/collections/notes",
     "/collections/lisbon-photos",
+    "/collections/oikome-guide",
+    "/collections/home-climate",
     "/sharing",
     "/activity",
     "/settings",
@@ -426,6 +447,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/collections", "Collections"],
     ["/collections/lisbon-photos", "lisbon-photos"],
     ["/collections/lisbon-notes", "lisbon-notes"],
+    ["/collections/home-climate", "home-climate"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
     ["/activity", "Activity"],

@@ -3,15 +3,16 @@
 //
 // What a table holds, read from its columns and rows rather than from its
 // name: photos (a column of images), notes (a few columns, one of them long
-// text), or anything else, shown as a table. Covers, Home and a collection's
-// page all show content this way.
+// text), readings (numbers over time, nothing else), or anything else, shown
+// as a table. Covers, Home and a collection's page all show content this way.
 
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import type { NodeClient, SpaceSummary, TableSummary } from "@oikome/client";
+import { measureLabel } from "./format";
 import { numeric, show } from "./parts";
 
-export type View = "photos" | "notes" | "table";
+export type View = "photos" | "notes" | "table" | "series";
 
 /** How to show a table, and which columns play which part. */
 export interface Shape {
@@ -26,6 +27,8 @@ export interface Shape {
   credit?: number;
   /** The first date or time column: when. */
   when?: number;
+  /** The number columns of readings, in table order. */
+  measures?: number[];
 }
 
 /** An item of content as covers and Home show it. */
@@ -87,6 +90,25 @@ const isBytes = (f: Field) => DataType.isBinary(f.type) || DataType.isLargeBinar
 const isWhen = (f: Field) => DataType.isDate(f.type) || DataType.isTimestamp(f.type);
 const named = (f: Field, ...words: string[]) => words.includes(f.name.toLowerCase());
 
+/** Readings need a few rows before they read as a line. */
+const SERIES_MIN_ROWS = 12;
+
+/** A number column's name as a label and the unit its suffix names: living_room_celsius reads "Living room", "°C". */
+export const measure = measureLabel;
+
+/** "21.4 °C", or the value alone. */
+export function withUnit(value: string, unit?: string): string {
+  return unit ? `${value} ${unit}` : value;
+}
+
+/** A number cell as a number, for drawing; undefined when empty. */
+export function numberAt(table: Table, column: number, row: number): number | undefined {
+  const text = show(table.schema.fields[column]!, table.getChildAt(column)?.get(row));
+  if (text === null) return undefined;
+  const n = Number(text.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /** Read how to show `table` from its columns and first rows. */
 export function shapeOf(table: Table): Shape {
   const fields = table.schema.fields;
@@ -107,6 +129,7 @@ export function shapeOf(table: Table): Shape {
     })(),
   );
   const texts = fields.map((f, c) => (isText(f) ? c : -1)).filter((c) => c >= 0);
+  const numbers = fields.map((f, c) => (numeric(f) ? c : -1)).filter((c) => c >= 0);
   if (image >= 0) {
     const credit = texts.find((c) => named(fields[c]!, "credit", "source", "attribution", "license"));
     const rest = texts.filter((c) => c !== credit);
@@ -114,6 +137,11 @@ export function shapeOf(table: Table): Shape {
       rest.find((c) => named(fields[c]!, "title", "name", "caption")) ?? rest[0];
     const detail = rest.find((c) => c !== title);
     return { view: "photos", image, text: title, detail, credit, when: when >= 0 ? when : undefined };
+  }
+
+  // Readings: numbers over time and nothing else, such as a thermometer's.
+  if (when >= 0 && numbers.length > 0 && texts.length === 0 && table.numRows >= SERIES_MIN_ROWS) {
+    return { view: "series", when, measures: numbers };
   }
 
   // Notes: a few columns, one of them text people wrote (long on average).
@@ -141,12 +169,24 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
   const text = (c: number | undefined, r: number) =>
     c === undefined ? undefined : (show(table.schema.fields[c]!, at(c, r)) ?? undefined);
   const whenField = shape.when === undefined ? undefined : table.schema.fields[shape.when];
+  // A reading reads as its first two measures: "Living room 21.4 °C, Bedroom 19.9 °C".
+  const reading = (r: number) =>
+    (shape.measures ?? [])
+      .slice(0, 2)
+      .map((c) => {
+        const value = text(c, r);
+        if (value === undefined) return undefined;
+        const { label, unit } = measure(table.schema.fields[c]!.name);
+        return `${label} ${withUnit(value, unit)}`;
+      })
+      .filter(Boolean)
+      .join(", ") || undefined;
   return Array.from({ length: table.numRows }, (_, r) => {
     const bytes = at(shape.image, r);
     const when = at(shape.when, r);
     return {
       image: bytes instanceof Uint8Array ? imageSrc(bytes) : undefined,
-      text: text(shape.text, r),
+      text: shape.view === "series" ? reading(r) : text(shape.text, r),
       detail: text(shape.detail, r),
       credit: text(shape.credit, r),
       when: when === null || when === undefined ? undefined : Number(when),
@@ -163,6 +203,8 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
 
 /** Rows a cover or Home reads: enough to pick the latest and fill a collage. */
 const PREVIEW_ROWS = 12;
+/** The latest readings a cover draws: three days of hourly ones. */
+const SERIES_ROWS = 72;
 
 const previews = new Map<string, Promise<Preview>>();
 
@@ -185,6 +227,18 @@ export function loadPreview(client: NodeClient, space: SpaceSummary): Promise<Pr
         limit: PREVIEW_ROWS,
       });
       const shape = shapeOf(rows);
+      // Readings are drawn from the latest ones, at the end of the table.
+      const total = Number(table.rows ?? 0);
+      if (shape.view === "series" && total > rows.numRows) {
+        const count = Math.min(SERIES_ROWS, total);
+        const { table: tail } = await client.readRows({
+          space: space.name,
+          table: table.name,
+          limit: count,
+          offset: total - count,
+        });
+        return { table, shape, items: chronological(itemsOf(tail, shape)), rows: tail };
+      }
       const items = itemsOf(rows, shape);
       return { table, shape, items: shape.view === "table" ? items : chronological(items), rows };
     })();

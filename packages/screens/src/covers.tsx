@@ -12,12 +12,13 @@ import { loadPreview } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
 import { calendarDate, dateTime, wallTime } from "./format";
+import { SeriesCover } from "./series";
 import { numeric, show } from "./parts";
 import { Link } from "./router";
 import { strings } from "./strings";
 
 const s = strings.collections;
-const KIND_ICONS = { photos: "photo", notes: "note", table: "table" } as const;
+const KIND_ICONS = { photos: "photo", notes: "note", table: "table", series: "activity" } as const;
 
 /** Contact names each collection is shared with now. */
 export function sharedNames(shares: Share[] | undefined): Map<string, string[]> {
@@ -105,6 +106,7 @@ function Art({ space, tone, preview }: { space: SpaceSummary; tone: TileTone; pr
       </div>
     );
   }
+  if (shape.view === "series" && preview.rows) return <SeriesCover table={preview.rows} shape={shape} />;
   return (
     <div aria-hidden="true" className="screen-cover__art screen-cover__art--table">
       {preview.rows && <MiniTable table={preview.rows} />}

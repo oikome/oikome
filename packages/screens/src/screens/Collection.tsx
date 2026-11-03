@@ -24,6 +24,7 @@ import type { Item, Shape } from "../content";
 import { countOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
 import { monthAndDay } from "../format";
+import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
@@ -194,6 +195,15 @@ function Contents({ space }: { space: SpaceSummary }) {
   useEffect(() => {
     if (shape?.view === "photos" && pageSize !== PAGE_PHOTOS && offset === 0) setPageSize(PAGE_PHOTOS);
   }, [shape, pageSize, offset]);
+  // Readings open at the latest ones; Previous goes back in time.
+  const total = Number(tables.data?.find((t) => t.name === table)?.rows ?? 0);
+  const [atLatest, setAtLatest] = useState(false);
+  useEffect(() => {
+    if (shape?.view === "series" && !atLatest && offset === 0 && total > pageSize) {
+      setAtLatest(true);
+      setOffset(total - pageSize);
+    }
+  }, [shape, atLatest, offset, total, pageSize]);
   const count = rows.data?.table.numRows ?? 0;
 
   if (tables.error) return <ErrorText>{tables.error}</ErrorText>;
@@ -269,6 +279,16 @@ function View({ table, shape, label }: { table: Table; shape: Shape; label: stri
           </article>
         ))}
       </div>
+    );
+  }
+  if (shape.view === "series") {
+    return (
+      <>
+        <SeriesView table={table} shape={shape} />
+        <div className="screen-table-card">
+          <RowsTable table={table} label={label} />
+        </div>
+      </>
     );
   }
   return (

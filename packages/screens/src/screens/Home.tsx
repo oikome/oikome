@@ -87,7 +87,10 @@ export function Home({ info }: { info: NodeInfo }) {
   const all: Recent[] = previews
     ? mine.flatMap((space) => {
         const preview = previews.get(space.name);
-        return (preview?.items ?? []).map((item) => ({ space, view: preview!.shape.view, item }));
+        if (!preview) return [];
+        // Readings come every hour: only the latest one stands for them.
+        const items = preview.shape.view === "series" ? [latest(preview.items)].filter((x) => x !== undefined) : preview.items;
+        return items.map((item) => ({ space, view: preview.shape.view, item }));
       })
     : [];
   const recent = [...all].sort((a, b) => (b.item.when ?? 0) - (a.item.when ?? 0)).slice(0, RECENT);
@@ -333,7 +336,7 @@ function RecentRow({ recent, tone }: { recent: Recent; tone: TileTone }) {
         {item.image ? (
           <img className="screen-list__thumb" src={item.image} alt="" decoding="async" />
         ) : (
-          <Tile icon={view === "notes" ? "note" : "table"} tone={tone} />
+          <Tile icon={view === "notes" ? "note" : view === "series" ? "activity" : "table"} tone={tone} />
         )}
         <span className="screen-list__text">
           <span className="screen-list__title">{item.text ?? space.name}</span>

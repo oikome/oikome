@@ -511,7 +511,17 @@ async fn a_new_data_center_gets_examples_once() {
     let n = node();
     let added = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
     let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["lisbon-notes", "lisbon-photos", "lisbon-spending"]);
+    assert_eq!(
+        names,
+        [
+            "home-climate",
+            "lisbon-notes",
+            "lisbon-photos",
+            "lisbon-spending",
+            "oikome-guide",
+            "reading-list"
+        ]
+    );
     assert!(added.iter().all(|s| s.example && s.storage.is_none()));
 
     // Photos are images, kept whole.
@@ -556,6 +566,9 @@ async fn a_new_data_center_gets_examples_once() {
     for (space, table, count) in [
         ("lisbon-notes", "notes", 7),
         ("lisbon-spending", "spending", 10),
+        ("oikome-guide", "guide", 7),
+        ("reading-list", "books", 10),
+        ("home-climate", "readings", 14 * 24),
     ] {
         let rows = n
             .api
@@ -564,7 +577,7 @@ async fn a_new_data_center_gets_examples_once() {
                 ReadRows {
                     space: space.into(),
                     table: table.into(),
-                    limit: None,
+                    limit: Some(1000),
                     offset: None,
                 },
             )
@@ -584,12 +597,12 @@ async fn a_new_data_center_gets_examples_once() {
         .await
         .unwrap();
     let again = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(again.len(), 2);
+    assert_eq!(again.len(), 5);
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages.len(), 1);
     assert_eq!(storages[0].name, None);
     assert_eq!(storages[0].kind, StorageType::Disk);
-    assert_eq!(storages[0].spaces, 2);
+    assert_eq!(storages[0].spaces, 5);
     if cfg!(unix) {
         assert!(storages[0].total_bytes.is_some_and(|t| t > 0));
     }
@@ -659,7 +672,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages[0].spaces, 0);
     assert!(!storages[0].is_default);
-    assert_eq!(storages[1].spaces, 3);
+    assert_eq!(storages[1].spaces, 6);
 
     // Back to this computer.
     let storages = n

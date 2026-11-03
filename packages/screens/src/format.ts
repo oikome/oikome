@@ -88,14 +88,44 @@ export function homeRelative(path: string): string {
 const ACRONYMS = new Set(["id", "url", "uuid", "ip", "api"]);
 
 /** A column name as a header: "created_at" reads "Created at", "user_id" "User ID". */
-export function columnLabel(name: string): string {
-  const words = name
+// Suffixes that name a unit and little else.
+const UNITS: Record<string, string> = {
+  celsius: "°C",
+  fahrenheit: "°F",
+  pct: "%",
+  percent: "%",
+  kwh: "kWh",
+  km: "km",
+  kg: "kg",
+};
+
+/** A column name and the unit its suffix names: living_room_celsius is "living_room", "°C". */
+export function splitUnit(name: string): { base: string; unit?: string } {
+  const m = /^(.+?)[_-](celsius|fahrenheit|pct|percent|kwh|km|kg)$/i.exec(name);
+  return m ? { base: m[1]!, unit: UNITS[m[2]!.toLowerCase()] } : { base: name };
+}
+
+/** A column name as words: "living_room" reads "Living room". */
+function words(name: string): string {
+  const text = name
     .replace(/[_-]+/g, " ")
     .trim()
     .split(/\s+/)
-    .map((word) => (ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word));
-  const text = words.join(" ");
+    .map((word) => (ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word))
+    .join(" ");
   return text ? text[0]!.toUpperCase() + text.slice(1) : name;
+}
+
+/** A column's header: "Living room (°C)", "Day". */
+export function columnLabel(name: string): string {
+  const { base, unit } = splitUnit(name);
+  return unit ? `${words(base)} (${unit})` : words(name);
+}
+
+/** A measure's name and unit apart: "Living room", "°C". */
+export function measureLabel(name: string): { label: string; unit?: string } {
+  const { base, unit } = splitUnit(name);
+  return { label: words(base), unit };
 }
 const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" });
 

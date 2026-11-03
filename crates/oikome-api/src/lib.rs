@@ -482,8 +482,9 @@ impl Api {
     }
 
     /// Add the examples a new data center starts with (one weekend in
-    /// Lisbon: photos, notes and spending), once. A name already taken is
-    /// left alone. Returns the examples there now.
+    /// Lisbon as photos, notes and spending; a guide; a reading list; a
+    /// home's temperatures), once. A name already taken is left alone.
+    /// Returns the examples there now.
     pub async fn add_examples(
         &self,
         caller: &Caller,

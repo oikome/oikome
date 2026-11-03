@@ -145,6 +145,32 @@ async fn ucan_gated_federated_query_and_revocation_cuts_access() {
     assert_eq!(b.sql(JOIN).await.num_rows(), 3);
 }
 
+/// A page of rows, as the apps read one: LIMIT and OFFSET ship to the owner
+/// too, under the grantee's column grant and row policy.
+#[tokio::test]
+async fn a_shared_space_is_read_a_page_at_a_time() {
+    let a = Node::new(1).serve().await;
+    let b = Node::new(2);
+    seed_owner(&a, &b.did()).await;
+    let (_, token) = a
+        .issue(&format!(
+            "ISSUE UCAN ON SPACE blog TO '{}' EXPIRES IN '1h'",
+            b.did()
+        ))
+        .await;
+    b.sql(&format!(
+        "CREATE SPACE pub WITH PEER = '{}', REMOTE = 'blog', TOKEN = '{token}'",
+        a.url()
+    ))
+    .await;
+
+    let page = b.sql("SELECT * FROM pub.posts LIMIT 2").await;
+    assert_eq!(ints(&page, 0).len(), 2);
+    let page = b.sql("SELECT title FROM pub.posts LIMIT 5 OFFSET 1").await;
+    // Three published posts; the draft stays on A.
+    assert_eq!(strings(&page, 0).len(), 2);
+}
+
 #[tokio::test]
 async fn delegated_tokens_act_for_the_delegator_and_revocation_propagates() {
     let a = Node::new(11).serve().await;

@@ -25,18 +25,46 @@ export type Empty = Record<symbol, never>;
  */
 export type NodeInfo = { 
 /**
- * The node's DID; contacts add it to share with this node.
+ * The node's DID ("Your ID" in the apps); contacts add it to share with
+ * this node.
  */
 did: string, 
+/**
+ * The name the owner gave the data center; empty until they do.
+ */
+name: string, 
 /**
  * Oikome version.
  */
 version: string, 
 /**
+ * The data directory on this computer.
+ */
+dataDir: string, 
+/**
+ * Whether the owner said they stored the recovery key.
+ */
+recoveryKeySaved: boolean, 
+/**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
  */
 flightUrl: string | null, };
+
+/**
+ * `rename_node`: the data center's name.
+ */
+export type NodeName = { 
+/**
+ * 1 to 64 characters.
+ */
+name: string, };
+
+/**
+ * The node's recovery key, as 14 groups of 4 characters. Whoever has it
+ * can act as this node: show it only to the owner, never store it.
+ */
+export type RecoveryKey = { key: string, };
 
 /**
  * What a Space holds and which engine runs it.
@@ -54,7 +82,16 @@ format: string, readonly: boolean,
 /**
  * Contacts it is shared with now (active shares).
  */
-sharedWith: number, };
+sharedWith: number, 
+/**
+ * The registered storage it is kept on (`oikome storage add`); `None`
+ * for this computer's disk, and for a remote Space.
+ */
+storage: string | null, 
+/**
+ * One of the examples a new data center starts with (`add_examples`).
+ */
+example: boolean, };
 
 /**
  * `create_space`: a new local Space.
@@ -67,7 +104,112 @@ name: string,
 /**
  * `analytical` (default) or `transactional`.
  */
-kind?: SpaceKind, };
+kind?: SpaceKind, 
+/**
+ * A storage registered with `oikome storage add`; this computer's disk
+ * when left out.
+ */
+storage?: string, };
+
+/**
+ * Where a storage keeps its files.
+ */
+export type StorageType = "disk" | "webdav" | "folder" | "drive";
+
+/**
+ * A place Spaces can be kept: this computer, or a registered storage.
+ */
+export type StorageSummary = { 
+/**
+ * `None` for this computer; otherwise the name to create a Space with.
+ */
+name: string | null, 
+/**
+ * What the owner called it ("Documents", "Home NAS").
+ */
+label: string, 
+/**
+ * New collections go here unless another storage is chosen.
+ */
+isDefault: boolean, type: StorageType, 
+/**
+ * Where: the data directory, the folder, or the WebDAV address.
+ */
+place: string, 
+/**
+ * Files are encrypted before they reach the storage.
+ */
+encrypted: boolean, 
+/**
+ * Local Spaces kept there.
+ */
+spaces: number, 
+/**
+ * Free and total bytes of the disk it is on, for this computer and a
+ * folder; `None` for a NAS or a cloud drive, which don't say.
+ */
+freeBytes: number | null, totalBytes: number | null, };
+
+/**
+ * `add_storage`: a place to keep Spaces in, as the owner picked it.
+ */
+export type NewStorage = { 
+/**
+ * What to call it: "Documents", "Home NAS".
+ */
+label: string, 
+/**
+ * `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+ */
+type: StorageType, 
+/**
+ * The WebDAV address, or the folder picked: the files go in an
+ * `Oikome` folder inside it.
+ */
+address: string, username?: string, 
+/**
+ * Kept in the system keychain, never in the registry or a log.
+ */
+password?: string, 
+/**
+ * Encrypt files before they leave this computer; a cloud drive always is.
+ */
+encrypted?: boolean, 
+/**
+ * Keep new collections, and the examples, there.
+ */
+makeDefault?: boolean, };
+
+/**
+ * `set_default_storage`: where new collections go; `None` for this computer.
+ */
+export type DefaultStorage = { storage: string | null, };
+
+/**
+ * A place on this computer found to keep Spaces in: a cloud drive's
+ * folder, or a drive plugged in.
+ */
+export type FoundPlace = { 
+/**
+ * "iCloud Drive", "Dropbox", or a drive's name.
+ */
+label: string, type: StorageType, path: string, };
+
+/**
+ * `list_folders`: a folder on this computer; the home folder when left out.
+ */
+export type FolderRef = { path?: string, };
+
+/**
+ * The folders in one folder, hidden ones left out.
+ */
+export type FolderListing = { path: string, 
+/**
+ * The folder above; `None` at the top.
+ */
+parent: string | null, folders: Array<FolderEntry>, };
+
+export type FolderEntry = { name: string, path: string, };
 
 /**
  * Names one Space.
@@ -82,7 +224,12 @@ export type RelationKind = "table" | "view";
 /**
  * A relation of a Space.
  */
-export type TableSummary = { name: string, kind: RelationKind, };
+export type TableSummary = { name: string, kind: RelationKind, 
+/**
+ * How many rows it has; `None` for another node's Space, which is not
+ * asked just to count.
+ */
+rows: number | null, };
 
 /**
  * `read_rows`: a page of a table or view, as an Arrow IPC stream.

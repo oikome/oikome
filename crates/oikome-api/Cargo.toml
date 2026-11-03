@@ -18,10 +18,15 @@ arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 ts-rs = { workspace = true }
+
+# Free and total space of the disk a storage is on.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
 
 [dev-dependencies]
 iceberg = { workspace = true }

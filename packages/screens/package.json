@@ -1,0 +1,27 @@
+{
+  "name": "@oikome/screens",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "The Oikome screens, shared by the web app and, later, the desktop and phone apps",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./screens.css": "./src/screens.css"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@oikome/client": "0.0.0",
+    "@oikome/ui": "0.0.0",
+    "apache-arrow": "17.0.0"
+  },
+  "peerDependencies": {
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "react": "19.3.1"
+  }
+}

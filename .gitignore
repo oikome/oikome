@@ -8,6 +8,7 @@ tests/oikome-local/
 node_modules/
 packages/node/pkg/
 packages/client/dist/
+apps/web/dist/
 e2e/harness/dist/
 e2e/test-results/
 e2e/playwright-report/

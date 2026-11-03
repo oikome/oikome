@@ -18,6 +18,9 @@
 //! SHOW IDENTITY
 //! ISSUE UCAN ON SPACE <space> [, <space> ...] | * TO '<did>'
 //!     [CAN 'space/query' | 'space/read' | 'space/*'] [EXPIRES IN <duration>]
+//! ISSUE UCAN ON COMPUTE '<method>' [, ...] | * TO '<did>'
+//!     [LIMITS (time = '30s', input = '64MB', output = '64MB', memory = '512MB')]
+//!     [EXPIRES IN <duration>]
 //! REVOKE UCAN '<token id>'
 //! SHOW UCANS
 //! GRANT SELECT ON SPACE <space> TO <principal> [, <principal> ...]
@@ -48,6 +51,26 @@ pub struct IssueUcanRequest {
     /// DID of the recipient.
     pub audience: String,
     pub ability: String,
+    pub lifetime_secs: u64,
+}
+
+/// Limits of a compute grant; `None` leaves the default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ComputeLimits {
+    pub time_ms: Option<u64>,
+    pub input_bytes: Option<u64>,
+    pub output_bytes: Option<u64>,
+    pub memory_bytes: Option<u64>,
+}
+
+/// What `ISSUE UCAN ON COMPUTE` asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueComputeRequest {
+    /// Compute methods (`sql`), or `["*"]` for every method the node offers.
+    pub methods: Vec<String>,
+    /// DID of the recipient.
+    pub audience: String,
+    pub limits: ComputeLimits,
     pub lifetime_secs: u64,
 }
 
@@ -163,6 +186,149 @@ fn space_name(tok: &Tok, stmt: &str) -> Result<String, SemanticError> {
     } else {
         Err(err(stmt, format!("invalid space name '{name}'")))
     }
+}
+
+/// Parse a size: bytes, or a number followed by `KB`, `MB` or `GB` (powers
+/// of 1024).
+pub fn parse_size(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let (digits, unit) = match text.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
+        Some((i, _)) => (&text[..i], text[i..].trim()),
+        None => (text, "b"),
+    };
+    let n: u64 = digits.parse().ok()?;
+    let scale: u64 = match unit.to_ascii_lowercase().as_str() {
+        "b" => 1,
+        "kb" | "k" => 1 << 10,
+        "mb" | "m" => 1 << 20,
+        "gb" | "g" => 1 << 30,
+        _ => return None,
+    };
+    n.checked_mul(scale)
+}
+
+/// Whether an `ISSUE UCAN` statement grants compute (`ON COMPUTE`).
+pub(crate) fn is_compute_grant(sql: &str) -> bool {
+    sql.split_whitespace()
+        .nth(3)
+        .is_some_and(|w| w.eq_ignore_ascii_case("COMPUTE"))
+}
+
+/// `ISSUE UCAN ON COMPUTE ...`
+pub(crate) fn parse_issue_compute(sql: &str) -> Result<IssueComputeRequest, SemanticError> {
+    const STMT: &str = "ISSUE UCAN ON COMPUTE";
+    // Take `LIMITS ( ... )` out first: the tokenizer does not split on
+    // parentheses.
+    let mut rest = sql.trim().trim_end_matches(';').to_string();
+    let mut limits = ComputeLimits::default();
+    if let Some(at) = rest.to_ascii_uppercase().find(" LIMITS") {
+        let after = &rest[at + " LIMITS".len()..];
+        let open = after
+            .find('(')
+            .filter(|i| after[..*i].trim().is_empty())
+            .ok_or_else(|| err(STMT, "expected LIMITS (name = 'value', ...)"))?;
+        let close = after
+            .find(')')
+            .ok_or_else(|| err(STMT, "LIMITS ( without )"))?;
+        let inner = after[open + 1..close].to_string();
+        for part in inner.split(',').filter(|p| !p.trim().is_empty()) {
+            let (key, value) = part.split_once('=').ok_or_else(|| {
+                err(
+                    STMT,
+                    format!("expected name = 'value', found '{}'", part.trim()),
+                )
+            })?;
+            let value = value.trim().trim_matches(|c| c == '\'' || c == '"');
+            let size = || {
+                parse_size(value)
+                    .filter(|v| *v > 0)
+                    .ok_or_else(|| err(STMT, format!("invalid size '{value}'")))
+            };
+            match key.trim().to_ascii_lowercase().as_str() {
+                "time" => {
+                    let ms = match value.strip_suffix("ms") {
+                        Some(ms) => ms.trim().parse().ok(),
+                        None => parse_duration(value).and_then(|s| s.checked_mul(1000)),
+                    }
+                    .filter(|v| *v > 0)
+                    .ok_or_else(|| err(STMT, format!("invalid time '{value}'")))?;
+                    limits.time_ms = Some(ms);
+                }
+                "input" => limits.input_bytes = Some(size()?),
+                "output" => limits.output_bytes = Some(size()?),
+                "memory" => limits.memory_bytes = Some(size()?),
+                other => {
+                    return Err(err(
+                        STMT,
+                        format!("unknown limit '{other}' (time, input, output or memory)"),
+                    ))
+                }
+            }
+        }
+        rest = format!("{}{}", &rest[..at], &after[close + 1..]);
+    }
+    let toks = tokenize(&rest, STMT)?;
+    let mut i = 4; // ISSUE UCAN ON COMPUTE
+    let mut methods = Vec::new();
+    loop {
+        let name = toks
+            .get(i)
+            .and_then(Tok::value)
+            .ok_or_else(|| err(STMT, "expected a compute method"))?;
+        let ok = name == "*"
+            || (!name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'));
+        if !ok {
+            return Err(err(STMT, format!("invalid compute method '{name}'")));
+        }
+        methods.push(name.to_string());
+        i += 1;
+        if toks.get(i) == Some(&Tok::Comma) {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    if methods.len() > 1 && methods.iter().any(|m| m == "*") {
+        return Err(err(STMT, "'*' cannot be combined with method names"));
+    }
+    if !toks.get(i).is_some_and(|t| t.is_kw("TO")) {
+        return Err(err(STMT, "expected TO"));
+    }
+    let audience = match toks.get(i + 1) {
+        Some(Tok::Quoted(did)) => did.clone(),
+        _ => return Err(err(STMT, "expected TO '<did>' (quoted)")),
+    };
+    i += 2;
+    let mut lifetime = None;
+    if toks.get(i).is_some_and(|t| t.is_kw("EXPIRES")) {
+        if !toks.get(i + 1).is_some_and(|t| t.is_kw("IN")) {
+            return Err(err(STMT, "expected EXPIRES IN <duration>"));
+        }
+        let text = toks
+            .get(i + 2)
+            .and_then(Tok::value)
+            .ok_or_else(|| err(STMT, "expected a duration after EXPIRES IN"))?;
+        let secs = parse_duration(text)
+            .filter(|s| *s > 0 && *s <= MAX_UCAN_LIFETIME_SECS)
+            .ok_or_else(|| err(STMT, format!("invalid duration '{text}'")))?;
+        lifetime = Some(secs);
+        i += 3;
+    }
+    if let Some(extra) = toks.get(i) {
+        return Err(err(
+            STMT,
+            format!("unexpected '{}'", extra.value().unwrap_or(",")),
+        ));
+    }
+    Ok(IssueComputeRequest {
+        methods,
+        audience,
+        limits,
+        lifetime_secs: lifetime.unwrap_or(DEFAULT_UCAN_LIFETIME_SECS),
+    })
 }
 
 /// `ISSUE UCAN ...`
@@ -328,6 +494,40 @@ pub(crate) fn parse_revoke_ucan(sql: &str) -> Result<String, SemanticError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn compute_grants_parse_with_limits() {
+        let sql = "ISSUE UCAN ON COMPUTE 'sql' TO 'did:key:z6Mkabc' \
+                   LIMITS (time = '30s', input = '64MB', output = 1024, memory = '1GB') EXPIRES IN 7d";
+        assert!(is_compute_grant(sql));
+        let req = parse_issue_compute(sql).unwrap();
+        assert_eq!(req.methods, vec!["sql"]);
+        assert_eq!(req.audience, "did:key:z6Mkabc");
+        assert_eq!(
+            req.limits,
+            ComputeLimits {
+                time_ms: Some(30_000),
+                input_bytes: Some(64 << 20),
+                output_bytes: Some(1024),
+                memory_bytes: Some(1 << 30),
+            }
+        );
+        assert_eq!(req.lifetime_secs, 7 * 86_400);
+        let all = parse_issue_compute("issue ucan on compute * to 'did:key:z'").unwrap();
+        assert_eq!(all.methods, vec!["*"]);
+        assert_eq!(all.limits, ComputeLimits::default());
+        for bad in [
+            "ISSUE UCAN ON COMPUTE 'SQL' TO 'did:key:z'",
+            "ISSUE UCAN ON COMPUTE sql, * TO 'did:key:z'",
+            "ISSUE UCAN ON COMPUTE sql TO 'did:key:z' LIMITS (cpu = 2)",
+            "ISSUE UCAN ON COMPUTE sql TO 'did:key:z' LIMITS (time = 'soon')",
+            "ISSUE UCAN ON COMPUTE sql TO 'did:key:z' LIMITS (input = '0')",
+            "ISSUE UCAN ON COMPUTE sql TO did:key:z",
+        ] {
+            assert!(parse_issue_compute(bad).is_err(), "{bad}");
+        }
+        assert!(!is_compute_grant("ISSUE UCAN ON SPACE blog TO 'did:key:z'"));
+    }
+
     use super::*;
 
     #[test]

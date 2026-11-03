@@ -25,6 +25,7 @@ use oikome_identity::{load_node_identity, Did, NodeIdentity};
 use oikome_network::{FlightEngine, RemoteSpaceConfig};
 use zeroize::Zeroizing;
 
+use crate::compute::ComputeScheduler;
 use crate::error::SessionError;
 use crate::secrets::{default_backend, SecretBackend, SecretKind};
 use crate::snapshot::HashCache;
@@ -81,6 +82,8 @@ pub struct EngineRegistry {
     hashes: HashCache,
     storage_secrets: StorageSecrets,
     secret_backend: OnceLock<Arc<dyn SecretBackend>>,
+    /// Peers' compute tasks on this node (§12).
+    compute: ComputeScheduler,
 }
 
 impl std::fmt::Debug for EngineRegistry {
@@ -127,6 +130,7 @@ impl EngineRegistry {
                 .secret_backend
                 .map(OnceLock::from)
                 .unwrap_or_default(),
+            compute: ComputeScheduler::default(),
         })
     }
 
@@ -134,6 +138,11 @@ impl EngineRegistry {
     /// storages.
     pub fn hashes(&self) -> &HashCache {
         &self.hashes
+    }
+
+    /// Peers' compute tasks on this node.
+    pub fn compute(&self) -> &ComputeScheduler {
+        &self.compute
     }
 
     /// The node's secret store (§7.5).

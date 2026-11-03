@@ -22,8 +22,11 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use arrow_array::RecordBatch;
+use arrow_flight::encode::FlightDataEncoderBuilder;
 use arrow_flight::error::FlightError;
-use arrow_flight::{Action, FlightClient};
+use arrow_flight::{Action, FlightClient, FlightDescriptor};
+use arrow_schema::SchemaRef;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use futures::{StreamExt, TryStreamExt};
@@ -34,8 +37,9 @@ use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::Code;
 
 use crate::protocol::{
-    digest, FetchFileRequest, SnapshotRequest, SnapshotResponse, ACTION_FETCH_FILE,
-    ACTION_SNAPSHOT, HEADER_AUTH, HEADER_UCAN, METHOD_FETCH_FILE, METHOD_SNAPSHOT,
+    digest, ComputeMethod, ComputeRequest, FetchFileRequest, SnapshotRequest, SnapshotResponse,
+    ACTION_COMPUTE_METHODS, ACTION_FETCH_FILE, ACTION_SNAPSHOT, HEADER_AUTH, HEADER_UCAN,
+    METHOD_COMPUTE, METHOD_COMPUTE_METHODS, METHOD_FETCH_FILE, METHOD_SNAPSHOT,
 };
 use crate::tls::{install_crypto_provider, DidCertVerifier};
 
@@ -87,6 +91,7 @@ pub(crate) fn status_to_engine(status: &tonic::Status) -> EngineError {
             EngineError::PermissionDenied(status.message().to_string())
         }
         Code::NotFound => EngineError::TableNotFound(status.message().to_string()),
+        Code::ResourceExhausted => EngineError::LimitExceeded(status.message().to_string()),
         code => EngineError::Remote(format!("{code:?}: {}", status.message())),
     }
 }
@@ -200,6 +205,49 @@ impl PeerClient {
             .ok_or_else(|| EngineError::Remote("empty snapshot response".to_string()))?;
         serde_json::from_slice(&first)
             .map_err(|e| EngineError::Remote(format!("snapshot response: {e}")))
+    }
+
+    /// Run a compute task on the peer (§12): `request` over `batches` of
+    /// `schema`. Needs `compute/<method>`.
+    pub async fn compute(
+        &self,
+        request: &ComputeRequest,
+        schema: SchemaRef,
+        batches: Vec<RecordBatch>,
+    ) -> Result<(SchemaRef, Vec<RecordBatch>), EngineError> {
+        let cmd = serde_json::to_vec(request).map_err(|e| EngineError::Remote(e.to_string()))?;
+        let mut client = self.signed(METHOD_COMPUTE, &cmd).await?;
+        let input = FlightDataEncoderBuilder::new()
+            .with_schema(schema)
+            .with_flight_descriptor(Some(FlightDescriptor::new_cmd(cmd)))
+            .build(futures::stream::iter(batches.into_iter().map(Ok)));
+        let mut results = client.do_exchange(input).await.map_err(flight_to_engine)?;
+        let mut out = Vec::new();
+        while let Some(batch) = results.try_next().await.map_err(flight_to_engine)? {
+            out.push(batch);
+        }
+        let schema = results
+            .schema()
+            .cloned()
+            .ok_or_else(|| EngineError::Remote("a compute result without a schema".to_string()))?;
+        Ok((schema, out))
+    }
+
+    /// The compute methods the peer offers this node, with its limits.
+    pub async fn compute_methods(&self) -> Result<Vec<ComputeMethod>, EngineError> {
+        let mut results = self
+            .action(
+                METHOD_COMPUTE_METHODS,
+                ACTION_COMPUTE_METHODS,
+                b"{}".to_vec(),
+            )
+            .await?;
+        let first = results
+            .try_next()
+            .await?
+            .ok_or_else(|| EngineError::Remote("empty compute_methods response".to_string()))?;
+        serde_json::from_slice(&first)
+            .map_err(|e| EngineError::Remote(format!("compute_methods response: {e}")))
     }
 
     /// Stream one data file of a snapshot. The caller checks size and hash.

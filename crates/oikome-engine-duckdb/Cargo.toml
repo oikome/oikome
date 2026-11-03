@@ -13,6 +13,8 @@ default = []
 sqlite-scanner-tests = []
 
 [dependencies]
+# Isolated compute tasks: blocking work and their wall-time limit.
+tokio = { workspace = true, features = ["rt", "time"] }
 oikome-core = { path = "../oikome-core" }
 oikome-engine = { path = "../oikome-engine" }
 arrow-array = { workspace = true }

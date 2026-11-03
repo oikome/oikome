@@ -29,6 +29,7 @@ pub mod access_log;
 mod acl;
 mod bind;
 pub mod capability;
+pub mod compute;
 mod ddl;
 mod dml;
 pub mod error;

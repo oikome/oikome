@@ -250,6 +250,70 @@ fn parse_every(text: &str) -> Result<Duration, String> {
 }
 
 #[derive(Subcommand)]
+enum ComputeCommand {
+    /// Offer one of Oikome's compute methods (`sql`) to peers that hold a
+    /// `compute/<method>` grant (`ISSUE UCAN ON COMPUTE`).
+    Offer { method: String },
+    /// Stop offering a method; tasks still waiting are refused.
+    Withdraw { method: String },
+    /// Set how much of this node's compute a peer may use.
+    Quota {
+        /// The peer's DID.
+        peer: String,
+        /// Tasks it may have running at once.
+        #[arg(long, default_value_t = oikome_node::compute::DEFAULT_CONCURRENT)]
+        concurrent: u32,
+        /// Tasks it may start per hour.
+        #[arg(long, default_value_t = oikome_node::compute::DEFAULT_PER_HOUR)]
+        per_hour: u32,
+    },
+    /// The methods this node offers and the quotas set.
+    List,
+    /// The methods a peer offers this node, with the grant's limits. The
+    /// grant is read from standard input.
+    Methods {
+        /// The peer's DID.
+        #[arg(long)]
+        owner: String,
+        /// Its address, if discovery has not seen it.
+        #[arg(long)]
+        peer: Option<String>,
+    },
+    /// For development: run a task on a peer over the result of a local
+    /// query. The grant is read from standard input.
+    Run {
+        /// The peer's DID.
+        #[arg(long)]
+        owner: String,
+        /// Its address, if discovery has not seen it.
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long, default_value = oikome_node::compute::METHOD_SQL)]
+        method: String,
+        /// The local query whose result is the task's input.
+        #[arg(long)]
+        input: String,
+        /// The task: one query over the table `input`.
+        #[arg(long)]
+        sql: String,
+        /// Print tab-separated rows without a header.
+        #[arg(long)]
+        raw: bool,
+    },
+}
+
+/// A grant read from standard input, kept out of the process list.
+fn token_from_stdin() -> Result<Zeroizing<String>, BoxError> {
+    let mut line = Zeroizing::new(String::new());
+    std::io::stdin().read_line(&mut line)?;
+    let token = Zeroizing::new(line.trim().to_string());
+    if token.is_empty() {
+        return Err("give the grant (a UCAN) on standard input".into());
+    }
+    Ok(token)
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Manage DuckDB extensions.
     Extensions {
@@ -266,6 +330,11 @@ enum Command {
     Source {
         #[command(subcommand)]
         command: SourceCommand,
+    },
+    /// Share this node's compute with peers, or use theirs.
+    Compute {
+        #[command(subcommand)]
+        command: ComputeCommand,
     },
     /// Print this node's DID.
     Identity {
@@ -593,6 +662,68 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 SourceCommand::Remove { name } => {
                     session.remove_source(&name)?;
                     println!("OK");
+                }
+            }
+        }
+        Command::Compute { command } => {
+            let (catalog, engines) =
+                open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
+            let session = OikomeSession::new(catalog.clone(), engines, SessionConfig::default());
+            match command {
+                ComputeCommand::Offer { method } => {
+                    session.offer_compute(&method)?;
+                    println!("OK");
+                }
+                ComputeCommand::Withdraw { method } => {
+                    if !session.withdraw_compute(&method)? {
+                        return Err(format!("'{method}' is not offered").into());
+                    }
+                    println!("OK");
+                }
+                ComputeCommand::Quota {
+                    peer,
+                    concurrent,
+                    per_hour,
+                } => {
+                    session.set_compute_quota(&peer, concurrent, per_hour)?;
+                    println!("OK");
+                }
+                ComputeCommand::List => {
+                    for method in catalog.offered_compute() {
+                        println!("offered\t{method}");
+                    }
+                    for quota in catalog.compute_quotas() {
+                        println!(
+                            "quota\t{}\t{} at once\t{} per hour",
+                            quota.peer, quota.concurrent, quota.per_hour
+                        );
+                    }
+                }
+                ComputeCommand::Methods { owner, peer } => {
+                    let token = token_from_stdin()?;
+                    for m in session
+                        .compute_methods_on_peer(peer.as_deref(), &owner, &token)
+                        .await?
+                    {
+                        println!(
+                            "{}\t{} ms\tinput {} B\toutput {} B\tmemory {} B",
+                            m.method, m.time_ms, m.input_bytes, m.output_bytes, m.memory_bytes
+                        );
+                    }
+                }
+                ComputeCommand::Run {
+                    owner,
+                    peer,
+                    method,
+                    input,
+                    sql,
+                    raw,
+                } => {
+                    let token = token_from_stdin()?;
+                    let result = session
+                        .compute_on_peer(peer.as_deref(), &owner, &token, &method, &input, &sql)
+                        .await?;
+                    print_result(&result, raw)?;
                 }
             }
         }

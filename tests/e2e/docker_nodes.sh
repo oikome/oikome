@@ -18,8 +18,9 @@
 # query, subscription, revocation cutting access, Lance search on a Space
 # and on a subscribed copy of it, FTS5 / sqlite-vec search on a
 # transactional Space, a DuckPGQ graph query, and Spaces node-a writes to a
-# NAS (WebDAV) that node-b copies, one of them encrypted. Every step prints what was expected and
-# what happened; the first mismatch fails the run.
+# NAS (WebDAV) that node-b copies, one of them encrypted, and node-b running
+# a task on node-a's compute. Every step prints what was expected and what
+# happened; the first mismatch fails the run.
 #
 #   E2E_BUILD=1     build the image first (default)
 #   E2E_LOG_DIR=d   on failure, write the nodes' logs to d/compose.log
@@ -265,6 +266,36 @@ check "node-a keeps the password in a file only its user reads" "600" \
     "$("${COMPOSE[@]}" exec -T node-a stat -c %a /data/.oikome/identity/storage_access.json)"
 check "the storage registry holds no password" "0" \
     "$("${COMPOSE[@]}" exec -T node-a grep -cF "$E2E_NAS_PASSWORD" /data/.oikome/storages.json || true)"
+
+echo "== Compute sharing (3.6): node-b has node-a sum its orders; grants stay apart"
+compute() { "${COMPOSE[@]}" exec -T "$1" oikome compute "${@:2}"; }
+compute_err() {
+    local out
+    if out=$("${COMPOSE[@]}" exec -T "$1" oikome compute "${@:2}" 2>&1); then
+        fail "expected an error from $1: compute ${*:2} (got: $out)"
+    fi
+    printf '%s' "$out"
+}
+COMPUTE=$(sql node-a "ISSUE UCAN ON COMPUTE 'sql' TO '$DID_B' LIMITS (time = '10s', input = '1MB')")
+COMPUTE_TOKEN=$(cut -f4 <<<"$COMPUTE")
+SUM=(run --owner "$DID_A" --raw --input "SELECT customer, amount FROM orders.orders"
+    --sql "SELECT CAST(sum(amount) AS BIGINT) FROM input")
+check_contains "a method node-a has not offered" "permission denied" \
+    "$(printf '%s\n' "$COMPUTE_TOKEN" | compute_err node-b "${SUM[@]}")"
+compute node-a offer sql >/dev/null
+check "node-b sees what node-a offers it" "sql	10000 ms	input 1048576 B" \
+    "$(printf '%s\n' "$COMPUTE_TOKEN" | compute node-b methods --owner "$DID_A" | cut -f1-3)"
+check "node-a sums node-b's orders" "15" \
+    "$(printf '%s\n' "$COMPUTE_TOKEN" | compute node-b "${SUM[@]}")"
+check_contains "the task cannot read node-a's Spaces" "does not exist" \
+    "$(printf '%s\n' "$COMPUTE_TOKEN" | compute_err node-b run --owner "$DID_A" \
+        --input "SELECT 1 AS x" --sql "SELECT * FROM blog.posts")"
+check_contains "a compute grant queries no Space" "does not grant space/query" \
+    "$(sql_err node-b "CREATE SPACE theirs WITH TOKEN = '$COMPUTE_TOKEN', REMOTE = 'blog'")"
+DATA_TOKEN=$(sql node-a "ISSUE UCAN ON SPACE blog TO '$DID_B'" | cut -f4)
+check_contains "a data grant runs no task" "permission denied" \
+    "$(printf '%s\n' "$DATA_TOKEN" | compute_err node-b "${SUM[@]}")"
+unset COMPUTE_TOKEN DATA_TOKEN
 
 echo "== mDNS (node-c was given no address)"
 wait_for "node-c discovers node-a by mDNS" 60 knows_peer node-c "$DID_A"

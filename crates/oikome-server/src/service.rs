@@ -61,8 +61,9 @@ use oikome_network::protocol::webrtc::{encode_reply, Envelope, ReplyHeader};
 use oikome_network::protocol::{
     digest, encode_stream, is_file_hash, is_identifier, parse_schema_payload, schema_payload,
     FetchFileRequest, ListTablesRequest, ListTablesResponse, QueryTicket, SnapshotRequest,
-    SnapshotResponse, ACTION_FETCH_FILE, ACTION_LIST_TABLES, ACTION_SNAPSHOT, FILE_CHUNK_BYTES,
-    HEADER_AUTH, HEADER_UCAN, MAX_SQL_BYTES, METHOD_DO_GET, METHOD_FETCH_FILE, METHOD_GET_SCHEMA,
+    SnapshotResponse, ACTION_COMPUTE_METHODS, ACTION_FETCH_FILE, ACTION_LIST_TABLES,
+    ACTION_SNAPSHOT, FILE_CHUNK_BYTES, HEADER_AUTH, HEADER_UCAN, MAX_SQL_BYTES, METHOD_COMPUTE,
+    METHOD_COMPUTE_METHODS, METHOD_DO_GET, METHOD_FETCH_FILE, METHOD_GET_SCHEMA,
     METHOD_LIST_TABLES, METHOD_SNAPSHOT,
 };
 use oikome_node::access_log::entry_now;
@@ -77,6 +78,8 @@ use tokio::io::AsyncReadExt;
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::replay::{ReplayError, ReplayGuard};
+
+mod compute;
 
 const DENIED: &str = "permission denied";
 const MAX_ACTION_BODY_BYTES: usize = 4096;
@@ -840,11 +843,15 @@ impl FlightService for OikomeFlightService {
         Err(Status::unimplemented("peers are read-only"))
     }
 
+    /// A compute task from a peer (§12).
     async fn do_exchange(
         &self,
-        _request: Request<Streaming<FlightData>>,
+        request: Request<Streaming<FlightData>>,
     ) -> Result<Response<Self::DoExchangeStream>, Status> {
-        Err(Status::unimplemented("peers are read-only"))
+        let mut entry = entry_now(METHOD_COMPUTE);
+        let result = self.compute(&mut entry, request).await;
+        self.audit(entry, &result);
+        Ok(Response::new(result?))
     }
 
     async fn do_action(
@@ -861,6 +868,12 @@ impl FlightService for OikomeFlightService {
             ACTION_SNAPSHOT => {
                 let mut entry = entry_now(METHOD_SNAPSHOT);
                 let result = self.snapshot(&mut entry, request).await;
+                self.audit(entry, &result);
+                single_result(result?)
+            }
+            ACTION_COMPUTE_METHODS => {
+                let mut entry = entry_now(METHOD_COMPUTE_METHODS);
+                let result = self.compute_methods(&mut entry, request).await;
                 self.audit(entry, &result);
                 single_result(result?)
             }
@@ -901,6 +914,10 @@ impl FlightService for OikomeFlightService {
             action(
                 ACTION_FETCH_FILE,
                 "One data file of a snapshot, by hash (space/read)",
+            ),
+            action(
+                ACTION_COMPUTE_METHODS,
+                "Compute methods the caller may run here, with its limits (compute/*)",
             ),
         ];
         Ok(Response::new(Box::pin(stream::iter(actions))))

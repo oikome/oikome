@@ -21,6 +21,7 @@
 //! are pushed down as a single statement.
 
 mod engine;
+pub mod isolated;
 pub mod types;
 
 pub use engine::{DuckDbConfig, DuckDbEngine, Extension};

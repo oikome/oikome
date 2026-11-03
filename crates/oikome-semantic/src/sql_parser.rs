@@ -56,7 +56,8 @@ use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
 use crate::capability::{
-    parse_issue_ucan, parse_revoke_ucan, parse_space_grant, IssueUcanRequest, SpaceGrantRequest,
+    is_compute_grant, parse_issue_compute, parse_issue_ucan, parse_revoke_ucan, parse_space_grant,
+    IssueComputeRequest, IssueUcanRequest, SpaceGrantRequest,
 };
 use crate::error::SemanticError;
 use crate::graph::{
@@ -82,6 +83,8 @@ pub enum OikomeStatement {
     ShowIdentity,
     /// `ISSUE UCAN ...`: grant a peer a capability on Spaces of this node.
     IssueUcan(IssueUcanRequest),
+    /// `ISSUE UCAN ON COMPUTE ...`: let a peer run tasks on this node.
+    IssueComputeUcan(IssueComputeRequest),
     /// `REVOKE UCAN '<id>'`
     RevokeUcan(String),
     /// `SHOW UCANS`: issued and revoked tokens.
@@ -189,6 +192,9 @@ fn parse_one(stmt: &str) -> Result<OikomeStatement, SemanticError> {
             })
         }
         (Some("PUBLISH"), Some("SPACE")) => parse_publish(stmt),
+        (Some("ISSUE"), Some("UCAN")) if is_compute_grant(stmt) => Ok(
+            OikomeStatement::IssueComputeUcan(parse_issue_compute(stmt)?),
+        ),
         (Some("ISSUE"), Some("UCAN")) => Ok(OikomeStatement::IssueUcan(parse_issue_ucan(stmt)?)),
         (Some("REVOKE"), Some("UCAN")) => Ok(OikomeStatement::RevokeUcan(parse_revoke_ucan(stmt)?)),
         (Some(verb @ ("GRANT" | "REVOKE")), Some("SELECT"))

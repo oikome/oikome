@@ -377,7 +377,9 @@ fn statement_name(stmt: &OikomeStatement) -> &'static str {
     match stmt {
         OikomeStatement::PublishSpace(_) => "PUBLISH SPACE",
         OikomeStatement::RefreshSpace(_) => "REFRESH SPACE",
-        OikomeStatement::IssueUcan(_) => "ISSUE UCAN (the browser node serves no peers)",
+        OikomeStatement::IssueUcan(_) | OikomeStatement::IssueComputeUcan(_) => {
+            "ISSUE UCAN (the browser node serves no peers)"
+        }
         OikomeStatement::RevokeUcan(_) => "REVOKE UCAN",
         OikomeStatement::ShowUcans => "SHOW UCANS",
         OikomeStatement::GrantSpace(_) | OikomeStatement::RevokeSpace(_) => {

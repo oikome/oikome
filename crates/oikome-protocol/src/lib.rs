@@ -53,6 +53,8 @@ pub const ACTION_LIST_TABLES: &str = "oikome.list_tables";
 pub const ACTION_SNAPSHOT: &str = "oikome.snapshot";
 /// `DoAction` type streaming one data file of a snapshot.
 pub const ACTION_FETCH_FILE: &str = "oikome.fetch_file";
+/// `DoAction` type listing the compute methods a node offers the caller.
+pub const ACTION_COMPUTE_METHODS: &str = "oikome.compute_methods";
 
 /// Method names bound into the request digest.
 pub const METHOD_DO_GET: &str = "do_get";
@@ -60,6 +62,8 @@ pub const METHOD_GET_SCHEMA: &str = "get_schema";
 pub const METHOD_LIST_TABLES: &str = "do_action:oikome.list_tables";
 pub const METHOD_SNAPSHOT: &str = "do_action:oikome.snapshot";
 pub const METHOD_FETCH_FILE: &str = "do_action:oikome.fetch_file";
+pub const METHOD_COMPUTE: &str = "do_exchange:oikome.compute";
+pub const METHOD_COMPUTE_METHODS: &str = "do_action:oikome.compute_methods";
 
 /// Size of the chunks `oikome.fetch_file` streams a file in.
 pub const FILE_CHUNK_BYTES: usize = 1 << 20;
@@ -258,6 +262,27 @@ pub fn is_identifier(name: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         && !name.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// A compute task (`DoExchange`, §12): the command of the first message's
+/// descriptor; the input batches follow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComputeRequest {
+    /// The compute method (`sql`).
+    pub method: String,
+    /// The task: for `sql`, one query over the table `input`.
+    pub sql: String,
+}
+
+/// One compute method a node offers, as `oikome.compute_methods` lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComputeMethod {
+    pub method: String,
+    /// The caller's limits for it, from its grant and the node's defaults.
+    pub time_ms: u64,
+    pub input_bytes: u64,
+    pub output_bytes: u64,
+    pub memory_bytes: u64,
 }
 
 #[cfg(test)]

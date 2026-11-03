@@ -25,10 +25,11 @@ rustflags = ["-C", "symbol-mangling-version=v0", "--cfg", 'getrandom_backend="wa
 # `cargo sweep` is cargo-sweep's own subcommand, so an alias with that name
 # would call itself. `cargo sweep-old` removes artifacts unused for 30 days.
 sweep-old = "sweep --time 30"
-# Keep target/ under 60 GB by removing the oldest artifacts. Each new mix of
+# Keep target/ under 30 GB by removing the oldest artifacts. Each new mix of
 # packages and features (`-p a` vs `-p b`, tests vs binaries) builds and
 # keeps another copy of the dependencies and test binaries, so target/ only
-# grows; run this when it is large (needs `cargo install cargo-sweep`).
-trim = "sweep --maxsize 60GB"
+# grows, and every git worktree has a target/ of its own; run this when it is
+# large (needs `cargo install cargo-sweep`).
+trim = "sweep --maxsize 30GB"
 
 check-tests = "test --no-run"

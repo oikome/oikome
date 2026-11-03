@@ -1,0 +1,303 @@
+/* Copyright 2025 The Oikome Authors
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Design tokens of the Oikome apps, in two styles the owner picks under
+ * Settings > Appearance (html[data-theme]):
+ *
+ * - Ink (default): black ink on snow white, like a printed spec sheet.
+ *   Hairlines do the separating, no shadows, no gradients; data is set in
+ *   a mono face; states are ink glyphs; the one color is crimson, kept for
+ *   what needs the owner.
+ * - Bold: neubrutalist. Cream with a grid, 2px black outlines, hard offset
+ *   shadows, flat bright fills, a heavy display face.
+ *
+ * Components only use these names; a style is a set of values for them.
+ */
+
+/* The faces ship with the app (SIL Open Font License 1.1, ./fonts). */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-sans.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/space-grotesk.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/space-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/space-mono-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Archivo Black";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/archivo-black.woff2") format("woff2");
+}
+
+:root,
+[data-theme="ink"] {
+  /* Ground and surfaces */
+  --bg: #fcfcfb;
+  --raised: #ffffff;
+  --sunk: #f6f6f4;
+  --hover: rgba(20, 19, 16, 0.035);
+  --active: rgba(20, 19, 16, 0.06);
+  --scrim: rgba(20, 19, 16, 0.28);
+
+  /* Ink: text at three strengths, all readable (WCAG AA) on white */
+  --ink: #141310;
+  --ink2: rgba(20, 19, 16, 0.7);
+  --ink3: rgba(20, 19, 16, 0.6);
+  --ink4: rgba(20, 19, 16, 0.32);
+
+  /* Lines */
+  --line: rgba(20, 19, 16, 0.13);
+  --line2: rgba(20, 19, 16, 0.07);
+  --stroke: rgba(20, 19, 16, 0.22);
+  --stroke-hover: rgba(20, 19, 16, 0.4);
+
+  /* The one color, for what needs the owner; the primary action is ink */
+  --signal: #cc2b45;
+  --signal-wash: #fcf2f3;
+  --accent: #141310;
+  --accent-hover: #34322d;
+  --on-accent: #fcfcfb;
+  --top-bg: rgba(252, 252, 251, 0.88);
+  --link: #141310;
+  --ok: #141310;
+
+  /* Fills a tone stands for (Bold); Ink draws every tone as ink */
+  --t1: var(--raised);
+  --t2: var(--raised);
+  --t3: var(--raised);
+  --t4: var(--raised);
+  --t5: var(--raised);
+  --tone-ink: var(--ink);
+
+  /* Shape */
+  --bw: 1px;
+  --r-card: 8px;
+  --r-btn: 6px;
+  --r-field: 6px;
+  --r-pill: 4px;
+  --r-dialog: 10px;
+  --sh-s: none;
+  --sh-m: none;
+  --sh-l: none;
+  --sh-pop: 0 2px 6px rgba(20, 19, 16, 0.06), 0 16px 40px rgba(20, 19, 16, 0.12);
+
+  /* Type */
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --display: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --text: 400 14px/20px var(--font);
+  --text-small: 400 12px/16px var(--font);
+  --text-data: 400 13px/18px var(--mono);
+  --text-meta: 400 12px/16px var(--mono);
+  --text-button: 500 14px/1 var(--font);
+  --text-title: 600 15px/20px var(--font);
+  --text-heading: 600 17px/22px var(--display);
+  --text-display: 600 26px/32px var(--display);
+  --text-display-compact: 600 22px/28px var(--display);
+  --text-figure: 500 26px/30px var(--mono);
+  --label-font: 600 10.5px/14px var(--font);
+  --label-spacing: 0.08em;
+  --label-case: uppercase;
+  --label-color: var(--ink3);
+  --heading-case: none;
+  --tracking-display: -0.02em;
+
+  /* Spacing: one 4px scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+
+  /* Controls */
+  --control-height: 32px;
+  --control-height-lg: 40px;
+  --control-height-row: 30px;
+  --field-height: 36px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --focus-ring: 2px solid var(--ink);
+
+  color-scheme: light;
+}
+
+[data-theme="bold"] {
+  --bg: #fdf9f0;
+  --raised: #ffffff;
+  --sunk: #fff6e5;
+  --hover: #fff1d6;
+  --active: #ffe7b8;
+  --scrim: rgba(17, 17, 17, 0.35);
+
+  --ink: #111111;
+  --ink2: #333333;
+  --ink3: #5c5c5c;
+  --ink4: #9a9a9a;
+
+  --line: #111111;
+  --line2: #111111;
+  --stroke: #111111;
+  --stroke-hover: #111111;
+
+  --signal: #c2183f;
+  --signal-wash: #ffe1dd;
+  --accent: #ff3d81;
+  --accent-hover: #ff3d81;
+  --on-accent: #111111;
+  --top-bg: rgba(253, 249, 240, 0.92);
+  --link: #c2185b;
+  --ok: #111111;
+
+  --t1: #ff3d81;
+  --t2: #3ddc97;
+  --t3: #ffd23f;
+  --t4: #c8a2ff;
+  --t5: #ff6b5e;
+  --tone-ink: #111111;
+
+  --bw: 2px;
+  --r-card: 18px;
+  --r-btn: 8px;
+  --r-field: 10px;
+  --r-pill: 999px;
+  --r-dialog: 20px;
+  --sh-s: 4px 4px 0 0 #111111;
+  --sh-m: 6px 6px 0 0 #111111;
+  --sh-l: 9px 9px 0 0 #111111;
+  --sh-pop: 9px 9px 0 0 #111111;
+
+  --font: "Space Grotesk", system-ui, sans-serif;
+  --mono: "Space Mono", ui-monospace, monospace;
+  --display: "Archivo Black", "Space Grotesk", system-ui, sans-serif;
+  --text: 500 14px/20px var(--font);
+  --text-small: 500 12px/16px var(--font);
+  --text-data: 400 13px/18px var(--mono);
+  --text-meta: 400 12px/16px var(--mono);
+  --text-button: 700 14px/1 var(--font);
+  --text-title: 700 15px/20px var(--font);
+  --text-heading: 400 18px/22px var(--display);
+  --text-display: 400 34px/38px var(--display);
+  --text-display-compact: 400 26px/30px var(--display);
+  --text-figure: 400 30px/34px var(--display);
+  --label-font: 400 12px/16px var(--display);
+  --label-spacing: 0.02em;
+  --label-case: uppercase;
+  --label-color: var(--ink);
+  --heading-case: uppercase;
+  --tracking-display: -0.02em;
+
+  --control-height: 36px;
+  --control-height-lg: 44px;
+  --control-height-row: 32px;
+  --field-height: 40px;
+
+  --focus-ring: 3px solid #111111;
+}
+
+html {
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--text);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--ink);
+  scrollbar-color: var(--stroke) transparent;
+  scrollbar-width: thin;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+[data-theme="bold"] body {
+  background-image:
+    linear-gradient(rgba(17, 17, 17, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 17, 17, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+a,
+button,
+input,
+select,
+textarea,
+label {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+::selection {
+  background: rgba(20, 19, 16, 0.12);
+}
+[data-theme="bold"] ::selection {
+  background: #ffd23f;
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    transition: none !important;
+    animation: none !important;
+  }
+}

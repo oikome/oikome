@@ -27,13 +27,42 @@ pub struct Empty {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeInfo {
-    /// The node's DID; contacts add it to share with this node.
+    /// The node's DID ("Your ID" in the apps); contacts add it to share with
+    /// this node.
     pub did: String,
+    /// The name the owner gave the data center; empty until they do.
+    pub name: String,
     /// Oikome version.
     pub version: String,
+    /// The data directory on this computer.
+    pub data_dir: String,
+    /// Whether the owner said they stored the recovery key.
+    pub recovery_key_saved: bool,
     /// Where peers reach this node's Arrow Flight service (`https://ip:port`),
     /// when it is serving.
     pub flight_url: Option<String>,
+}
+
+/// `rename_node`: the data center's name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeName {
+    /// 1 to 64 characters.
+    pub name: String,
+}
+
+/// The node's recovery key, as 14 groups of 4 characters. Whoever has it
+/// can act as this node: show it only to the owner, never store it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryKey {
+    pub key: String,
+}
+
+impl std::fmt::Debug for RecoveryKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RecoveryKey(<redacted>)")
+    }
 }
 
 /// What a Space holds and which engine runs it.
@@ -57,6 +86,11 @@ pub struct SpaceSummary {
     pub readonly: bool,
     /// Contacts it is shared with now (active shares).
     pub shared_with: u32,
+    /// The registered storage it is kept on (`oikome storage add`); `None`
+    /// for this computer's disk, and for a remote Space.
+    pub storage: Option<String>,
+    /// One of the examples a new data center starts with (`add_examples`).
+    pub example: bool,
 }
 
 /// `create_space`: a new local Space.
@@ -69,6 +103,134 @@ pub struct NewSpace {
     #[serde(default)]
     #[ts(optional)]
     pub kind: Option<SpaceKind>,
+    /// A storage registered with `oikome storage add`; this computer's disk
+    /// when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub storage: Option<String>,
+}
+
+/// Where a storage keeps its files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageType {
+    /// This computer's disk, under the data directory.
+    Disk,
+    /// A WebDAV server, such as a NAS.
+    Webdav,
+    /// A mounted folder, such as a NAS share.
+    Folder,
+    /// A folder a cloud drive's desktop client syncs.
+    Drive,
+}
+
+/// A place Spaces can be kept: this computer, or a registered storage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSummary {
+    /// `None` for this computer; otherwise the name to create a Space with.
+    pub name: Option<String>,
+    /// What the owner called it ("Documents", "Home NAS").
+    pub label: String,
+    /// New collections go here unless another storage is chosen.
+    pub is_default: bool,
+    #[serde(rename = "type")]
+    pub kind: StorageType,
+    /// Where: the data directory, the folder, or the WebDAV address.
+    pub place: String,
+    /// Files are encrypted before they reach the storage.
+    pub encrypted: bool,
+    /// Local Spaces kept there.
+    pub spaces: u32,
+    /// Free and total bytes of the disk it is on, for this computer and a
+    /// folder; `None` for a NAS or a cloud drive, which don't say.
+    pub free_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+}
+
+/// `add_storage`: a place to keep Spaces in, as the owner picked it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct NewStorage {
+    /// What to call it: "Documents", "Home NAS".
+    pub label: String,
+    /// `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+    #[serde(rename = "type")]
+    pub kind: StorageType,
+    /// The WebDAV address, or the folder picked: the files go in an
+    /// `Oikome` folder inside it.
+    pub address: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Kept in the system keychain, never in the registry or a log.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// Encrypt files before they leave this computer; a cloud drive always is.
+    #[serde(default)]
+    pub encrypted: Option<bool>,
+    /// Keep new collections, and the examples, there.
+    #[serde(default)]
+    pub make_default: Option<bool>,
+}
+
+impl std::fmt::Debug for NewStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewStorage")
+            .field("label", &self.label)
+            .field("kind", &self.kind)
+            .field("address", &self.address)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("encrypted", &self.encrypted)
+            .field("make_default", &self.make_default)
+            .finish()
+    }
+}
+
+/// `set_default_storage`: where new collections go; `None` for this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultStorage {
+    pub storage: Option<String>,
+}
+
+/// A place on this computer found to keep Spaces in: a cloud drive's
+/// folder, or a drive plugged in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundPlace {
+    /// "iCloud Drive", "Dropbox", or a drive's name.
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: StorageType,
+    pub path: String,
+}
+
+/// `list_folders`: a folder on this computer; the home folder when left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct FolderRef {
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+/// The folders in one folder, hidden ones left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderListing {
+    pub path: String,
+    /// The folder above; `None` at the top.
+    pub parent: Option<String>,
+    pub folders: Vec<FolderEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderEntry {
+    pub name: String,
+    pub path: String,
 }
 
 /// Names one Space.
@@ -92,6 +254,9 @@ pub enum RelationKind {
 pub struct TableSummary {
     pub name: String,
     pub kind: RelationKind,
+    /// How many rows it has; `None` for another node's Space, which is not
+    /// asked just to count.
+    pub rows: Option<u64>,
 }
 
 /// `read_rows`: a page of a table or view, as an Arrow IPC stream.

@@ -16,6 +16,7 @@
 //!
 //! ```text
 //! oikome [--root DIR] identity          print this node's DID
+//! oikome [--root DIR] identity restore  restore it from a recovery key
 //! oikome [--root DIR] sql "<SQL>"       run statements as the node owner
 //! oikome [--root DIR] serve             serve this node's Spaces to peers
 //!                                       (--web: also the owner's web API)
@@ -164,6 +165,14 @@ fn path_text(path: PathBuf) -> Result<String, BoxError> {
         .to_str()
         .ok_or("the folder path must be valid UTF-8")?
         .to_string())
+}
+
+#[derive(Subcommand)]
+enum IdentityCommand {
+    /// Restore this node's identity from its recovery key, read from
+    /// standard input. Only a node that holds nothing yet can be restored;
+    /// restart a running node afterwards.
+    Restore,
 }
 
 #[derive(Subcommand)]
@@ -328,7 +337,10 @@ enum Command {
         command: ComputeCommand,
     },
     /// Print this node's DID.
-    Identity,
+    Identity {
+        #[command(subcommand)]
+        command: Option<IdentityCommand>,
+    },
     /// The owner's web app.
     Web {
         #[command(subcommand)]
@@ -386,6 +398,10 @@ enum Command {
         /// Loopback address of the web API; port 0 picks a free one.
         #[arg(long, env = "OIKOME_WEB_LISTEN", default_value = DEFAULT_WEB_LISTEN)]
         web_listen: SocketAddr,
+        /// The web app's files (the `apps/web` build, `apps/web/dist`);
+        /// without it the web API serves no pages.
+        #[arg(long, env = "OIKOME_WEB_ROOT", requires = "web")]
+        web_root: Option<PathBuf>,
     },
 }
 
@@ -711,9 +727,26 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 }
             }
         }
-        Command::Identity => {
+        Command::Identity { command: None } => {
             let (_, engines) = open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
             println!("{}", engines.identity()?.did());
+        }
+        Command::Identity {
+            command: Some(IdentityCommand::Restore),
+        } => {
+            std::fs::create_dir_all(&cli.root)?;
+            let root = cli.root.canonicalize()?;
+            let root = root
+                .to_str()
+                .ok_or("the data directory path must be valid UTF-8")?;
+            let catalog = OikomeCatalog::open(FileIO::new_with_fs(), root)?;
+            eprintln!("Type or paste the recovery key, then press Enter:");
+            let mut key = String::new();
+            std::io::stdin().read_line(&mut key)?;
+            let did = oikome_api::restore_identity(&catalog, &key);
+            // The key is the identity: do not keep it around.
+            key.replace_range(.., &"\0".repeat(key.len()));
+            println!("Restored {}. If this node is running, restart it.", did?);
         }
         Command::Web {
             command: WebCommand::Open,
@@ -763,6 +796,7 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             source_sync,
             web,
             web_listen,
+            web_root,
         } => {
             if plaintext && !cli.allow_http {
                 return Err("--plaintext needs --allow-http".into());
@@ -810,7 +844,10 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 let api = Api::new(catalog.clone(), engines.clone())
                     .with_access_log(access_log)
                     .with_flight_url(format!("{scheme}://{}", listener.local_addr()?));
-                let app = WebApp::new(api, addr, login_file(&catalog_dir))?;
+                let mut app = WebApp::new(api, addr, login_file(&catalog_dir))?;
+                if let Some(root) = &web_root {
+                    app = app.with_web_root(root)?;
+                }
                 tracing::info!(%addr, "serving the web API (`oikome web open` logs in)");
                 Some((app, web_listener))
             } else {

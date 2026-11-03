@@ -14,6 +14,7 @@ path = "src/main.rs"
 oikome-api = { path = "../oikome-api" }
 zeroize = { workspace = true }
 oikome-catalog = { path = "../oikome-catalog" }
+oikome-connect = { path = "../oikome-connect" }
 oikome-core = { path = "../oikome-core" }
 oikome-discovery = { path = "../oikome-discovery" }
 oikome-engine = { path = "../oikome-engine" }

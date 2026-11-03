@@ -1,0 +1,31 @@
+[package]
+name = "oikome-connect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Oikome connectors: bring an app's data into a transactional Space (CSV files, flomo)"
+
+[dependencies]
+oikome-engine = { path = "../oikome-engine" }
+arrow-array = { workspace = true }
+arrow-csv = "58"
+arrow-schema = { workspace = true }
+async-trait = { workspace = true }
+blake3 = { workspace = true }
+# Same version and TLS stack as opendal and oikome-vfs.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# flomo's HTML export, read with its tokenizer (no DOM, no CSS selectors,
+# which are MPL-2.0).
+html5ever = "0.40"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+zeroize = { workspace = true }
+# flomo_backup.zip; only reading deflated entries.
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }

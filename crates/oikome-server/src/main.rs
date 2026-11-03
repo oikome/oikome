@@ -54,11 +54,13 @@ use iceberg::io::FileIO;
 use oikome_api::Api;
 use oikome_catalog::registry::OIKOME_DIR;
 use oikome_catalog::{OikomeCatalog, StorageKind};
+use oikome_connect::csv::CsvSource;
+use oikome_connect::SourceConfig;
 use oikome_discovery::{Discovery, DiscoveryConfig, EndpointResponse};
 use oikome_engine_duckdb::{DuckDbConfig, DuckDbEngine, Extension};
 use oikome_node::{
-    spawn_storage_sync, AccessLog, EngineRegistry, NodeConfig, OikomeSession, QueryResult,
-    SessionConfig, StorageCredentials,
+    spawn_source_sync, spawn_storage_sync, AccessLog, EngineRegistry, NodeConfig, OikomeSession,
+    QueryResult, SessionConfig, StorageCredentials,
 };
 use oikome_server::web::{login_file, DEFAULT_WEB_LISTEN};
 use oikome_server::{serve, serve_webrtc, DtlsIdentity, OikomeFlightService, WebApp};
@@ -181,6 +183,73 @@ enum WebCommand {
 }
 
 #[derive(Subcommand)]
+enum SourceCommand {
+    /// Add a source and pull it once. Its data goes to a transactional
+    /// Space of the same name; a token is read from standard input and
+    /// kept in the OS keychain (or a private file where there is none).
+    Add {
+        /// Also the name of the Space: a letter or `_`, then letters,
+        /// digits or `_`.
+        name: String,
+        /// A CSV file with a header row.
+        #[arg(long, group = "kind", required_unless_present_any = ["flomo_export", "flomo_mcp"])]
+        csv: Option<PathBuf>,
+        /// The CSV column(s) that identify a row, comma-separated.
+        #[arg(long, requires = "csv", value_delimiter = ',')]
+        key: Vec<String>,
+        /// The table the CSV rows go to.
+        #[arg(long, requires = "csv", default_value = "rows")]
+        table: String,
+        /// flomo's HTML export: flomo_backup.zip, or its HTML file.
+        #[arg(long, group = "kind")]
+        flomo_export: Option<PathBuf>,
+        /// flomo through its MCP server (flomo MAX); needs --token-stdin
+        /// or OIKOME_SOURCE_<NAME>_TOKEN.
+        #[arg(long, group = "kind")]
+        flomo_mcp: bool,
+        /// The MCP server's address.
+        #[arg(long, requires = "flomo_mcp", default_value = oikome_connect::flomo_mcp::DEFAULT_ENDPOINT)]
+        endpoint: String,
+        /// The MCP tool that lists memos, if not the one found by name.
+        #[arg(long, requires = "flomo_mcp")]
+        mcp_tool: Option<String>,
+        /// Arguments for that tool, as a JSON object.
+        #[arg(long, requires = "flomo_mcp")]
+        mcp_arguments: Option<String>,
+        /// Read the source's token from standard input.
+        #[arg(long)]
+        token_stdin: bool,
+        /// Pull this often while the node serves, e.g. 30m, 1h, 90s.
+        #[arg(long, value_parser = parse_every)]
+        every: Option<Duration>,
+    },
+    /// Pull a source now.
+    Pull { name: String },
+    /// List the sources and their last pull.
+    List,
+    /// Remove a source and forget its token; its Space and data stay.
+    Remove { name: String },
+}
+
+/// `90s`, `30m`, `2h` or plain seconds.
+fn parse_every(text: &str) -> Result<Duration, String> {
+    let (digits, unit) = match text.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
+        Some((i, _)) => text.split_at(i),
+        None => (text, "s"),
+    };
+    let n: u64 = digits
+        .parse()
+        .map_err(|_| format!("'{text}' is not a duration like 30m"))?;
+    let secs = match unit {
+        "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        _ => return Err(format!("'{text}': use s, m or h")),
+    };
+    Ok(Duration::from_secs(secs))
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Manage DuckDB extensions.
     Extensions {
@@ -191,6 +260,12 @@ enum Command {
     Storage {
         #[command(subcommand)]
         command: StorageCommand,
+    },
+    /// Manage sources: apps whose data is brought into a Space (CSV files,
+    /// flomo).
+    Source {
+        #[command(subcommand)]
+        command: SourceCommand,
     },
     /// Print this node's DID.
     Identity {
@@ -243,6 +318,10 @@ enum Command {
         /// turns it off.
         #[arg(long, env = "OIKOME_STORAGE_SYNC", default_value_t = 60)]
         storage_sync: u64,
+        /// Seconds between checks for sources due to be pulled (each has its
+        /// own interval). 0 turns scheduled pulls off.
+        #[arg(long, env = "OIKOME_SOURCE_SYNC", default_value_t = 60)]
+        source_sync: u64,
         /// Also serve the owner's web API on --web-listen (loopback only);
         /// `oikome web open` logs in.
         #[arg(long, env = "OIKOME_WEB")]
@@ -440,6 +519,83 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 }
             }
         }
+        Command::Source { command } => {
+            let (catalog, engines) =
+                open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
+            let session = OikomeSession::new(catalog.clone(), engines, SessionConfig::default());
+            match command {
+                SourceCommand::Add {
+                    name,
+                    csv,
+                    key,
+                    table,
+                    flomo_export,
+                    flomo_mcp,
+                    endpoint,
+                    mcp_tool,
+                    mcp_arguments,
+                    token_stdin,
+                    every,
+                } => {
+                    let config = match (csv, flomo_export, flomo_mcp) {
+                        (Some(path), _, _) => SourceConfig::Csv {
+                            table: CsvSource::inspect(&path, &table, &key)?,
+                            path: path_text(path)?,
+                        },
+                        (None, Some(path), _) => SourceConfig::FlomoExport {
+                            path: path_text(path)?,
+                        },
+                        (None, None, true) => SourceConfig::FlomoMcp {
+                            endpoint,
+                            tool: mcp_tool,
+                            arguments: mcp_arguments
+                                .map(|a| serde_json::from_str(&a))
+                                .transpose()
+                                .map_err(|e| format!("--mcp-arguments: {e}"))?,
+                        },
+                        _ => return Err("give --csv, --flomo-export or --flomo-mcp".into()),
+                    };
+                    let token = if token_stdin {
+                        let mut line = String::new();
+                        std::io::stdin().read_line(&mut line)?;
+                        Some(Zeroizing::new(line.trim_end().to_string()))
+                    } else {
+                        None
+                    };
+                    let report = session.add_source(&name, config, every, token).await?;
+                    print_result(&report.into_result()?, false)?;
+                }
+                SourceCommand::Pull { name } => {
+                    let report = session.pull_source(&name).await?;
+                    print_result(&report.into_result()?, false)?;
+                }
+                SourceCommand::List => {
+                    for def in catalog.list_sources() {
+                        let kind = def
+                            .config
+                            .get("kind")
+                            .and_then(|k| k.as_str())
+                            .unwrap_or("");
+                        let every = def
+                            .every_secs
+                            .map(|s| format!("every {s}s"))
+                            .unwrap_or_else(|| "on demand".to_string());
+                        let last = match session.last_pull(&def.name).await {
+                            Ok(Some(p)) => format!(
+                                "pulled at {} ms (+{} -{})",
+                                p.pulled_at_ms, p.upserted, p.deleted
+                            ),
+                            _ => "never pulled".to_string(),
+                        };
+                        println!("{}\t{kind}\t{every}\t{last}", def.name);
+                    }
+                }
+                SourceCommand::Remove { name } => {
+                    session.remove_source(&name)?;
+                    println!("OK");
+                }
+            }
+        }
         Command::Identity { command: None } => {
             let (_, engines) = open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
             println!("{}", engines.identity()?.did());
@@ -506,6 +662,7 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             webrtc_listen,
             webrtc_advertise,
             storage_sync,
+            source_sync,
             web,
             web_listen,
             web_root,
@@ -533,6 +690,15 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 AbortOnDrop(spawn_storage_sync(
                     Arc::new(owner),
                     Duration::from_secs(storage_sync),
+                ))
+            });
+            // Sources are pulled on their schedule while the node serves (§11).
+            let _source_sync = (source_sync > 0).then(|| {
+                let owner =
+                    OikomeSession::new(catalog.clone(), engines.clone(), SessionConfig::default());
+                AbortOnDrop(spawn_source_sync(
+                    Arc::new(owner),
+                    Duration::from_secs(source_sync),
                 ))
             });
             let access_log = AccessLog::open(&catalog_dir)?;

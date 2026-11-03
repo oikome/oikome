@@ -25,6 +25,7 @@ pub mod peer;
 pub mod registry;
 pub mod replace;
 pub mod resolve;
+pub mod source;
 pub mod space;
 pub mod storage;
 pub mod ucan;
@@ -35,6 +36,7 @@ pub use contact::Contact;
 pub use graph::GraphDef;
 pub use peer::Peer;
 pub use resolve::ResolvedTable;
+pub use source::SourceDef;
 pub use space::{Location, LocationFormat, LocationId, Space};
 pub use storage::{StorageBinding, StorageDef, StorageKind};
 pub use ucan::{

@@ -14,6 +14,7 @@ engine-sqlite = ["dep:oikome-engine-sqlite"]
 [dependencies]
 oikome-core = { path = "../oikome-core" }
 oikome-catalog = { path = "../oikome-catalog" }
+oikome-connect = { path = "../oikome-connect" }
 oikome-engine = { path = "../oikome-engine" }
 oikome-engine-duckdb = { path = "../oikome-engine-duckdb", optional = true }
 oikome-engine-sqlite = { path = "../oikome-engine-sqlite", optional = true }
@@ -50,6 +51,8 @@ apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
 windows-native-keyring-store = { version = "=1.1.0", default-features = false }
 
 [dev-dependencies]
+async-trait = { workspace = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 base64 = { workspace = true }
 # A WebDAV server standing in for a NAS in tests/storage.rs.
 dav-server = "0.11"

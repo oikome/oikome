@@ -11,6 +11,7 @@ import {
   EmptyState,
   ErrorText,
   Icon,
+  Segmented,
   Select,
   TextField,
   collectionTones,
@@ -18,7 +19,8 @@ import {
 } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { StorageSummary } from "@oikome/client";
-import { forgetPreviews } from "../content";
+import { forgetPreviews, loadPreview } from "../content";
+import type { View } from "../content";
 import { Cover, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
@@ -51,8 +53,26 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
     if (startCreating) setCreating(true);
   }, [startCreating]);
 
+  const [show, setShow] = useState<"all" | View>("all");
+  const [kinds, setKinds] = useState<Map<string, View>>(new Map());
   const shared = sharedNames(shares.data);
   const list = spaces.data ?? [];
+  // What each holds, from the same first rows its cover reads.
+  useEffect(() => {
+    let current = true;
+    for (const space of spaces.data ?? []) {
+      if (space.kind === "remote") continue;
+      loadPreview(client, space)
+        .then((preview) => {
+          if (current) setKinds((m) => new Map(m).set(space.name, preview.shape.view));
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      current = false;
+    };
+  }, [client, spaces.data]);
+  const shown = (space: { name: string }) => show === "all" || kinds.get(space.name) === show;
   const mine = list.filter((space) => space.kind !== "remote");
   const fromOthers = list.filter((space) => space.kind === "remote");
   const toneOf = collectionTones(list.map((space) => space.name));
@@ -66,10 +86,18 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
 
   return (
     <>
-      <ScreenHeader title={s.title}>
+      <ScreenHeader title={s.title} lede={spaces.data && !empty ? s.lede(mine.length, fromOthers.length) : undefined}>
+        {!empty && mine.length > 1 && (
+          <Segmented
+            label={s.filter}
+            value={show}
+            onChange={(value) => setShow(value as "all" | View)}
+            options={(["all", "photos", "notes", "table"] as const).map((k) => ({ value: k, label: s.filters[k] }))}
+          />
+        )}
         {/* An empty page offers the same action once, in its empty state. */}
         {!empty && (
-          <Button icon="plus" onClick={() => setCreating(true)}>
+          <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
             {s.newCollection}
           </Button>
         )}
@@ -104,11 +132,11 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
 
       {mine.length > 0 && (
         <section className="screen-section" aria-labelledby="mine">
-          <h2 id="mine" className="screen-section__title">
-            {s.mine}
+          <h2 id="mine" className="oik-label screen-section__title">
+            {s.yours}
           </h2>
           <div className="screen-covers">
-            {mine.map((space) => (
+            {mine.filter(shown).map((space) => (
               <Cover
                 key={space.name}
                 space={space}
@@ -122,7 +150,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
       )}
       {fromOthers.length > 0 && (
         <section className="screen-section" aria-labelledby="from-others">
-          <h2 id="from-others" className="screen-section__title">
+          <h2 id="from-others" className="oik-label screen-section__title">
             {s.sharedWithYou}
           </h2>
           <div className="screen-covers">

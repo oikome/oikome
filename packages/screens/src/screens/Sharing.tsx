@@ -60,9 +60,9 @@ export function Sharing({
   const toneOf = collectionTones((spaces.data ?? []).map((space) => space.name));
 
   return (
-    <div className="screen-column">
-      <ScreenHeader title={s.title}>
-        <Button icon="plus" onClick={() => setComposing(true)}>
+    <>
+      <ScreenHeader title={s.title} lede={s.lede}>
+        <Button variant="primary" icon="plus" onClick={() => setComposing(true)}>
           {s.newShare}
         </Button>
       </ScreenHeader>
@@ -74,6 +74,8 @@ export function Sharing({
           <ErrorText key="error">{e}</ErrorText>
         ))}
 
+      <div className="screen-dash screen-dash--start">
+      <div className="screen-w7">
       <Group title={s.sharedByYou}>
         {!shares.data && !shares.error && <SkeletonRows count={2} />}
         {shares.data && active.length === 0 && <Row title={s.nothingShared} muted />}
@@ -127,6 +129,8 @@ export function Sharing({
         </Group>
       )}
 
+      </div>
+      <div className="screen-w5">
       <Contacts
         contacts={contacts.data ?? []}
         shares={active}
@@ -151,6 +155,8 @@ export function Sharing({
           }
         />
       </Group>
+      </div>
+      </div>
 
       {composing && spaces.data && contacts.data && shares.data && (
         <ShareDialog
@@ -162,7 +168,7 @@ export function Sharing({
           onChange={reload}
         />
       )}
-    </div>
+    </>
   );
 }
 

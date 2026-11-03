@@ -7,10 +7,12 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Button, Card, EmptyState, ErrorText, Icon, ToastProvider } from "@oikome/ui";
+import { Button, Card, EmptyState, ErrorText, Icon, Status, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
-import type { NodeClient, NodeInfo } from "@oikome/client";
+import type { NodeClient, NodeInfo, StorageSummary } from "@oikome/client";
 import { ClientProvider, useClient, useLoad } from "./data";
+import { bytes } from "./format";
+import { BackLink } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
 import { Collection } from "./screens/Collection";
@@ -126,10 +128,101 @@ function Root() {
     );
   }
 
+  const sub = path.startsWith("/collections/") ? decodeSafe(path.slice("/collections/".length)) : undefined;
   return (
-    <Shell info={info} current={section?.to}>
+    <Shell info={info} current={section?.to} path={path} sub={sub}>
       {screen}
     </Shell>
+  );
+}
+
+function decodeSafe(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+const PLACE_KEY = "oikome.place";
+
+/** The place the sidebar's card shows, as this browser last chose it. */
+function rememberedPlace(): string | null {
+  try {
+    return localStorage.getItem(PLACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function placeLabel(place: StorageSummary): string {
+  return place.name === null ? strings.storage.thisComputer : place.label;
+}
+
+/**
+ * Where collections are kept, at the foot of the sidebar: every place in a
+ * list, and the room on the one picked. Any place can be picked, so every
+ * place's room can be seen.
+ */
+function Places({ path }: { path: string }) {
+  const client = useClient();
+  const storages = useLoad(() => client.listStorages(), [path]);
+  const [picked, setPicked] = useState<string | null>(rememberedPlace);
+  const list = storages.data ?? [];
+  const current = list.find((x) => (x.name ?? "") === picked) ?? list.find((x) => x.isDefault) ?? list[0];
+  if (!current) return null;
+  const pick = (place: StorageSummary) => {
+    const key = place.name ?? "";
+    setPicked(key);
+    try {
+      localStorage.setItem(PLACE_KEY, key);
+    } catch {
+      // Not remembered in a private window: the card still switches.
+    }
+  };
+  const used =
+    current.totalBytes && current.freeBytes !== null && current.totalBytes > 0
+      ? (current.totalBytes - current.freeBytes) / current.totalBytes
+      : undefined;
+  return (
+    <>
+      <div className="screen-places">
+        <span className="oik-label screen-places__title">{strings.nav.places}</span>
+        <ul className="screen-places__list">
+          {list.map((place) => (
+            <li key={place.name ?? ""}>
+              <button
+                type="button"
+                className="screen-place"
+                aria-pressed={place === current}
+                onClick={() => pick(place)}
+              >
+                <Status kind={place.spaces > 0 ? "ok" : "idle"}>{placeLabel(place)}</Status>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="screen-room" aria-live="polite">
+        <div className="screen-room__head">
+          <span className="oik-label">{placeLabel(current)}</span>
+          {current.totalBytes && current.freeBytes !== null ? (
+            <span className="screen-room__figure">
+              {strings.storage.freeOf(bytes(current.freeBytes), bytes(current.totalBytes))}
+            </span>
+          ) : (
+            <span className="screen-room__figure">{strings.settings.storageCount(current.spaces)}</span>
+          )}
+        </div>
+        {used !== undefined ? (
+          <div className="screen-bar" role="img" aria-label={strings.storage.usedShare(Math.round(used * 100))}>
+            <i key={current.name ?? ""} style={{ width: `${Math.max(2, used * 100)}%` }} />
+          </div>
+        ) : (
+          <span className="screen-room__note">{current.encrypted ? strings.settings.encrypted : strings.storage.noRoom}</span>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -151,12 +244,19 @@ function NavList({ items, current }: { items: NavItem[]; current?: string }) {
 function Shell({
   info,
   current,
+  path,
+  sub,
   children,
 }: {
   info: NodeInfo;
   current?: string;
+  path: string;
+  /** A collection's name, when its page is open. */
+  sub?: string;
   children: ReactNode;
 }) {
+  const name = info.name || strings.defaultName;
+  const sectionLabel = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
   useEffect(() => {
     const label = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
     document.title = label ? `${label} · ${strings.brand}` : strings.brand;
@@ -173,29 +273,63 @@ function Shell({
             <span className="screen-brand__mark" aria-hidden="true">
               <Icon name="mark" />
             </span>
-            <span className="screen-brand__name">{strings.brand}</span>
+            <span className="screen-brand__text">
+              <span className="screen-brand__name">{strings.brand}</span>
+              <span className="screen-brand__sub">{name}</span>
+            </span>
           </div>
           <nav className="screen-sidebar__nav" aria-label={strings.nav.label}>
             <NavList items={NAV} current={current} />
-            <NavList items={FOOT} current={current} />
           </nav>
-          {/* The data center this page is served by: it runs here, on this computer. */}
-          <div className="screen-node">
-            <span className="screen-node__mark" aria-hidden="true">
-              {(info.name || strings.defaultName).trim().charAt(0).toUpperCase()}
-            </span>
-            <span className="screen-node__text">
-              <span className="screen-node__name">{info.name || strings.defaultName}</span>
-              <span className="screen-node__state">
-                <span className="screen-live__dot" aria-hidden="true" />
-                {strings.nav.running}
+          <Places path={path} />
+          <div className="screen-sidebar__foot">
+            <nav aria-label={strings.nav.more}>
+              <NavList items={FOOT} current={current} />
+            </nav>
+            {/* The data center this page is served by: it runs here, on this computer. */}
+            <div className="screen-node">
+              <span className="screen-node__mark" aria-hidden="true">
+                {name.trim().charAt(0).toUpperCase()}
               </span>
-            </span>
+              <span className="screen-node__text">
+                <span className="screen-node__name">{name}</span>
+                <Status kind="ok">{strings.nav.running}</Status>
+              </span>
+            </div>
           </div>
         </div>
       </aside>
       <main id="main" tabIndex={-1} className="screen-main">
-        {children}
+        <div className="screen-top">
+          <nav className="screen-crumb" aria-label={strings.nav.crumb}>
+            <span className="screen-crumb__root">{name}</span>
+            {sectionLabel && current !== "/" && (
+              <>
+                <span className="screen-crumb__sep" aria-hidden="true">/</span>
+                {sub ? (
+                  <BackLink bare parent={current ?? "/"} parentLabel={sectionLabel} />
+                ) : (
+                  <span className="screen-crumb__here" aria-current="page">{sectionLabel}</span>
+                )}
+              </>
+            )}
+            {current === "/" && (
+              <>
+                <span className="screen-crumb__sep" aria-hidden="true">/</span>
+                <span className="screen-crumb__here" aria-current="page">{strings.nav.home}</span>
+              </>
+            )}
+            {sub && (
+              <>
+                <span className="screen-crumb__sep" aria-hidden="true">/</span>
+                <span className="screen-crumb__here screen-crumb__here--mono" aria-current="page" translate="no">
+                  {sub}
+                </span>
+              </>
+            )}
+          </nav>
+        </div>
+        <div className="screen-page">{children}</div>
       </main>
     </div>
   );

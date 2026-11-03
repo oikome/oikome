@@ -15,12 +15,29 @@ import { calendarDate, cell, columnLabel, dateTime, decimal, wallTime } from "./
 import { navigate, plainClick, previousPage } from "./router";
 import { strings } from "./strings";
 
-/** A screen's title row, with its actions on the right. */
-export function ScreenHeader({ title, children }: { title: string; children?: ReactNode }) {
+/** A screen's title, a small label over it and a line under it, actions on the right. */
+export function ScreenHeader({
+  title,
+  label,
+  lede,
+  mono,
+  children,
+}: {
+  title: ReactNode;
+  label?: ReactNode;
+  lede?: ReactNode;
+  /** A collection's name: set in the data face. */
+  mono?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <header className="screen-header">
-      <h1 className="screen-title">{title}</h1>
-      {children}
+      <div className="screen-header__text">
+        {label && <span className="oik-label">{label}</span>}
+        <h1 className={mono ? "screen-title screen-title--mono" : "screen-title"}>{title}</h1>
+        {lede && <p className="screen-lede">{lede}</p>}
+      </div>
+      {children && <div className="screen-header__actions">{children}</div>}
     </header>
   );
 }
@@ -49,13 +66,22 @@ function pageTitle(url: string): string | undefined {
  * Back to the page this one was opened from, named after it. A page opened
  * directly (a bookmark, a reload of a fresh tab) goes up to `parent`.
  */
-export function BackLink({ parent, parentLabel }: { parent: string; parentLabel: string }) {
+export function BackLink({
+  parent,
+  parentLabel,
+  bare,
+}: {
+  parent: string;
+  parentLabel: string;
+  /** In a breadcrumb: the name alone, no arrow. */
+  bare?: boolean;
+}) {
   const from = previousPage();
   const title = from ? pageTitle(from) : undefined;
   return (
     <a
       href={title ? from : parent}
-      className="oik-link screen-back"
+      className={bare ? "screen-crumb__link screen-back" : "oik-link screen-back"}
       onClick={(e) => {
         if (!plainClick(e)) return;
         e.preventDefault();
@@ -63,7 +89,7 @@ export function BackLink({ parent, parentLabel }: { parent: string; parentLabel:
         else navigate(parent);
       }}
     >
-      <Icon name="back" />
+      {!bare && <Icon name="back" />}
       {title ?? parentLabel}
     </a>
   );

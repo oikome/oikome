@@ -142,6 +142,10 @@ pub struct StorageSummary {
     pub encrypted: bool,
     /// Local Spaces kept there.
     pub spaces: u32,
+    /// Free and total bytes of the disk it is on, for this computer and a
+    /// folder; `None` for a NAS or a cloud drive, which don't say.
+    pub free_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
 }
 
 /// `add_storage`: a place to keep Spaces in, as the owner picked it.

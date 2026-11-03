@@ -124,8 +124,8 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(
     page.getByRole("heading", { name: /^Good (morning|afternoon|evening)$/, level: 1 }),
   ).toBeVisible();
-  // The data center starts with the examples, once.
-  await expect(page.getByRole("link", { name: /^lisbon-photos/ })).toBeVisible();
+  // The data center starts with the examples, once: they show on Home.
+  await expect(page.getByText(/^lisbon-(photos|notes|spending) · /).first()).toBeVisible();
   await expect(page.getByText("Back up your recovery key")).toHaveCount(0);
   await expect(page.locator(".screen-node__name")).toHaveText("Home");
 });
@@ -133,7 +133,7 @@ test("first run: name the data center and save its recovery key", async () => {
 test("the examples open as photos, notes and a table; a collection of one's own", async () => {
   await page.getByRole("link", { name: "Collections" }).first().click();
   await expect(page.locator(".screen-cover")).toHaveCount(3);
-  await expect(page.locator(".screen-cover .screen-tag")).toHaveCount(3);
+  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(3);
 
   await page.getByRole("link", { name: /^lisbon-photos/ }).click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
@@ -166,7 +166,7 @@ test("the examples open as photos, notes and a table; a collection of one's own"
   await page.getByLabel("Name").fill("notes");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/\/collections\/notes$/);
-  await expect(page.getByText("No Data Yet")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No Data Yet" })).toBeVisible();
   await api("run_sql", {
     sql:
       "CREATE TABLE notes.memos (id BIGINT NOT NULL, body VARCHAR); " +
@@ -205,7 +205,12 @@ test("a place picked on this computer keeps new collections", async () => {
     expect(added).toMatchObject({ label: "Projects", isDefault: true, type: "folder" });
     expect(existsSync(join(picked, "Oikome"))).toBe(true);
     await page.reload();
-    await expect(page.getByText("Projects")).toBeVisible();
+    // It shows among the places in the sidebar, and its room can be picked there.
+    const place = page.locator(".screen-place", { hasText: "Projects" });
+    await expect(place).toBeVisible();
+    await place.click();
+    await expect(place).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".screen-room")).toContainText("Projects");
 
     await page.goto(`${base}/collections`);
     await page.getByRole("button", { name: "New Collection" }).first().click();
@@ -213,7 +218,7 @@ test("a place picked on this computer keeps new collections", async () => {
     await page.getByLabel("Name").fill("plans");
     await page.getByRole("button", { name: "Create" }).click();
     await expect(page).toHaveURL(/\/collections\/plans$/);
-    await expect(page.getByText("Stored on Projects")).toBeVisible();
+    await expect(page.locator(".screen-facts")).toContainText("Projects");
 
     // Back to this computer for what comes next.
     await page.goto(`${base}/settings`);
@@ -403,13 +408,14 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   await page.locator(".screen-back").click();
   await expect(page).toHaveURL(/\/collections$/);
   await page.getByRole("link", { name: "Home" }).click();
-  await page.getByRole("link", { name: /^lisbon-photos/ }).first().click();
+  await page.locator(".screen-memory").click();
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
   await expect(page.locator(".screen-back")).toHaveText("Home");
   await page.locator(".screen-back").click();
   await expect(page).toHaveURL(`${base}/`);
 });
 
-test("every screen fits desktop and phone widths, and its text is readable", async () => {
+test("every screen fits desktop and phone widths, and its text is readable, in both styles", async () => {
   const screens = [
     ["/onboarding", "Save Your Recovery Key"],
     ["/", /^Good (morning|afternoon|evening)$/],
@@ -421,19 +427,38 @@ test("every screen fits desktop and phone widths, and its text is readable", asy
     ["/activity", "Activity"],
     ["/settings", "Settings"],
   ];
-  for (const [width, height] of [
-    [1280, 800],
-    [390, 844],
-  ]) {
-    await page.setViewportSize({ width, height });
-    for (const [path, heading] of screens) {
-      await page.goto(`${base}${path}`);
-      await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - window.innerWidth,
-      );
-      expect(overflow, `${path} at ${width}px scrolls sideways`).toBeLessThanOrEqual(0);
-      expect(await page.evaluate(auditContrast), `${path} at ${width}px`).toEqual([]);
+  // Ink is the default; Bold is picked in Settings and kept by this browser.
+  for (const style of ["ink", "bold"]) {
+    await page.evaluate((t) => localStorage.setItem("oikome.theme", t), style);
+    for (const [width, height] of [
+      [1280, 800],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      for (const [path, heading] of screens) {
+        await page.goto(`${base}${path}`);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", style);
+        await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - window.innerWidth,
+        );
+        expect(overflow, `${path} at ${width}px (${style}) scrolls sideways`).toBeLessThanOrEqual(0);
+        expect(await page.evaluate(auditContrast), `${path} at ${width}px (${style})`).toEqual([]);
+      }
     }
   }
+  await page.evaluate(() => localStorage.removeItem("oikome.theme"));
+  await page.setViewportSize({ width: 1280, height: 800 });
+});
+
+test("the style picked in Settings applies at once and is kept", async () => {
+  await page.goto(`${base}/settings`);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "ink");
+  await page.getByRole("radio", { name: "Bold" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "bold");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "bold");
+  await expect(page.getByRole("radio", { name: "Bold" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("radio", { name: "Ink" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "ink");
 });

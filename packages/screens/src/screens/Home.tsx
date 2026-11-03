@@ -1,29 +1,30 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Home: what the data center holds at a glance, what came in last, who
-// opened what you shared, and the one thing that needs doing.
+// Home: the data center at a glance (what it holds, where, who reads it),
+// what came in last, a photo from what it keeps, and the one thing that
+// needs doing.
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Avatar, Button, EmptyState, Icon, Tile, collectionTones } from "@oikome/ui";
+import { Avatar, Button, Status, Tile, collectionTones } from "@oikome/ui";
 import type { IconName, TileTone } from "@oikome/ui";
-import type { AccessItem, NodeInfo, SpaceSummary } from "@oikome/client";
-import { loadPreview } from "../content";
+import type { AccessItem, NodeInfo, SpaceSummary, StorageSummary } from "@oikome/client";
+import { latest, loadPreview } from "../content";
 import type { Item, Preview } from "../content";
-import { Cover, itemDate, sharedNames } from "../covers";
+import { itemDate } from "../covers";
 import { useClient, useLoad } from "../data";
-import { ago } from "../format";
+import { ago, bytes, shortId } from "../format";
+import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
 import { sentence } from "./Activity";
 
 const s = strings.home;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-/** Items in Recently Added, and covers and log lines on Home. */
+/** Items in Recently Added, and lines of Activity, on Home. */
 const RECENT = 5;
-const COVERS = 3;
-const LOG = 4;
+const LOG = 5;
 
 const today = new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" });
 
@@ -33,17 +34,24 @@ interface Recent {
   item: Item;
 }
 
+const PLACE_ICONS: Record<StorageSummary["type"], IconName> = {
+  disk: "computer",
+  webdav: "nas",
+  folder: "folder",
+  drive: "drive",
+};
+
 export function Home({ info }: { info: NodeInfo }) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
+  const storages = useLoad(() => client.listStorages(), []);
   const log = useLoad(() => client.listAccess({ limit: 100 }), []);
   const [previews, setPreviews] = useState<Map<string, Preview>>();
 
   const list = spaces.data ?? [];
   const mine = list.filter((space) => space.kind !== "remote");
   const toneOf = collectionTones(list.map((space) => space.name));
-  const shared = sharedNames(shares.data);
 
   useEffect(() => {
     if (!spaces.data) return;
@@ -68,192 +76,255 @@ export function Home({ info }: { info: NodeInfo }) {
   const people = new Set((shares.data ?? []).filter((x) => x.status === "active").map((x) => x.did)).size;
   const now = Date.now();
   const reads = log.data?.filter((x) => x.outcome === "allowed" && now - x.atMs < WEEK_MS).length;
+  const places = storages.data ?? [];
+  const preferred = places.find((x) => x.isDefault);
 
   // The newest few things across collections, by their own dates.
-  const recent: Recent[] = previews
-    ? mine
-        .flatMap((space) => {
-          const preview = previews.get(space.name);
-          return (preview?.items ?? []).map((item) => ({ space, view: preview!.shape.view, item }));
-        })
-        .sort((a, b) => (b.item.when ?? 0) - (a.item.when ?? 0))
-        .slice(0, RECENT)
+  const all: Recent[] = previews
+    ? mine.flatMap((space) => {
+        const preview = previews.get(space.name);
+        return (preview?.items ?? []).map((item) => ({ space, view: preview!.shape.view, item }));
+      })
     : [];
+  const recent = [...all].sort((a, b) => (b.item.when ?? 0) - (a.item.when ?? 0)).slice(0, RECENT);
+  // One photo from what is kept: the latest one.
+  const photo = latest(all.filter((r) => r.item.image).map((r) => r.item));
+  const photoFrom = all.find((r) => r.item === photo)?.space;
 
   return (
     <>
-      <header className="screen-header screen-header--home">
-        <div>
-          <p className="screen-today">{today.format(new Date())}</p>
-          <h1 className="screen-title">{s.greeting(new Date().getHours())}</h1>
-          <p className="screen-muted">{s.lede(info.name || strings.defaultName)}</p>
-        </div>
-        <div className="screen-header__actions">
-          <span className="screen-live">
-            <span className="screen-live__dot" aria-hidden="true" />
-            {strings.nav.running}
-          </span>
-          <Button icon="plus" onClick={() => navigate("/collections?new=1")}>
-            {strings.collections.newCollection}
-          </Button>
-        </div>
-      </header>
+      <ScreenHeader
+        label={today.format(new Date())}
+        title={s.greeting(new Date().getHours())}
+        lede={s.lede(info.name || strings.defaultName)}
+      >
+        <Button variant="primary" icon="plus" onClick={() => navigate("/collections?new=1")}>
+          {strings.collections.newCollection}
+        </Button>
+      </ScreenHeader>
 
-      <div className="screen-stats">
-        <Stat icon="collection" tone="honey" label={s.statCollections} value={spaces.data ? mine.length : undefined} />
-        <Stat icon="table" tone="sage" label={s.statItems} value={items} />
-        <Stat icon="person-plus" tone="periwinkle" label={s.statPeople} value={shares.data ? people : undefined} />
-        <Stat icon="activity" tone="lavender" label={s.statReads} value={reads} />
+      <section className="oik-card screen-hero" aria-label={s.center}>
+        <div className="screen-hero__text">
+          <span className="oik-label">{s.center}</span>
+          <div className="screen-hero__title">
+            <Status kind="ok">{strings.nav.running}</Status>
+            <span className="screen-hero__id" translate="no">
+              {shortId(info.did).slice(0, 10)}…{shortId(info.did).slice(-6)}
+            </span>
+          </div>
+          <span className="screen-hero__meta">{s.centerMeta(mine.length, items, places.length)}</span>
+        </div>
+        <ol className="screen-pipe">
+          <Stage done label={s.statCollections} value={String(mine.length)} />
+          <Stage done label={s.stored} value={s.placesCount(places.length)} />
+          <Stage done={people > 0} half={people === 0} label={s.shared} value={s.peopleCount(people)} />
+          <Stage
+            done={info.recoveryKeySaved}
+            bad={!info.recoveryKeySaved}
+            label={s.backedUp}
+            value={info.recoveryKeySaved ? s.yes : s.notYet}
+          />
+        </ol>
+      </section>
+
+      {!info.recoveryKeySaved && (
+        <section className="oik-card screen-callout" aria-labelledby="backup">
+          <Tile icon="key" tone="apricot" />
+          <div className="screen-callout__text">
+            <h2 id="backup" className="screen-callout__title">
+              {strings.backup.bannerTitle}
+            </h2>
+            <p>{strings.backup.bannerBody}</p>
+          </div>
+          <Button variant="primary" onClick={() => navigate("/settings?backup=1")}>
+            {strings.backup.backUpNow}
+          </Button>
+        </section>
+      )}
+
+      <div className="screen-kpis">
+        <Figure
+          icon="collection"
+          tone="rose"
+          label={s.statItems}
+          value={items?.toLocaleString("en")}
+          note={s.inCollections(mine.length)}
+        />
+        <Figure
+          icon="person-plus"
+          tone="sage"
+          label={s.statReads}
+          value={reads?.toLocaleString("en")}
+          note={s.peopleCount(people)}
+        />
+        <Figure
+          icon={preferred ? PLACE_ICONS[preferred.type] : "computer"}
+          tone="lavender"
+          label={s.statFree(preferred ? placeLabel(preferred) : strings.storage.thisComputer)}
+          value={storages.data ? (preferred?.freeBytes != null ? bytes(preferred.freeBytes) : "—") : undefined}
+          note={preferred?.totalBytes != null ? s.ofTotal(bytes(preferred.totalBytes)) : undefined}
+        />
       </div>
 
-      <div className="screen-home">
-        <div className="screen-home__main">
-          <Panel title={s.recent} link={{ to: "/collections", label: s.seeAll }}>
-            {!previews ? (
-              <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
-            ) : recent.length === 0 ? (
-              <p className="screen-panel__empty">{s.nothingRecent}</p>
-            ) : (
-              <ul className="screen-recent">
-                {recent.map((r, i) => (
-                  <RecentRow key={i} recent={r} tone={toneOf(r.space.name)} />
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </div>
-
-        <aside className="screen-home__side">
-          {!info.recoveryKeySaved && (
-            <section className="screen-night" aria-labelledby="backup">
-              <Icon name="key" />
-              <h2 id="backup" className="screen-night__title">
-                {strings.backup.bannerTitle}
-              </h2>
-              <p className="screen-night__body">{strings.backup.bannerBody}</p>
-              <button type="button" className="screen-night__button" onClick={() => navigate("/settings?backup=1")}>
-                {strings.backup.backUpNow}
-              </button>
-            </section>
+      <div className="screen-dash">
+        <Panel className="screen-w8" title={s.recent} link={{ to: "/collections", label: s.allCollections }}>
+          {!previews ? (
+            <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
+          ) : recent.length === 0 ? (
+            <p className="screen-panel__empty">{s.nothingRecent}</p>
+          ) : (
+            <ul className="screen-list">
+              {recent.map((r, i) => (
+                <RecentRow key={i} recent={r} tone={toneOf(r.space.name)} />
+              ))}
+            </ul>
           )}
-          <Panel title={s.activity} footer={<Link to="/activity">{s.allActivity}</Link>}>
-            {!log.data ? (
-              <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
-            ) : log.data.length === 0 ? (
-              <p className="screen-panel__empty">{s.noActivity}</p>
-            ) : (
-              <ul className="screen-log">
-                {log.data.slice(0, LOG).map((item) => (
-                  <LogRow key={item.id} item={item} />
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </aside>
+        </Panel>
 
-        <div className="screen-home__wide">
-          <Panel title={s.collections} link={{ to: "/collections", label: s.seeAll }}>
-            {spaces.data && mine.length === 0 ? (
-              <EmptyState
-                icon="collection"
-                title={strings.collections.emptyTitle}
-                body={strings.collections.emptyBody}
-                action={
-                  <Button variant="primary" icon="plus" onClick={() => navigate("/collections?new=1")}>
-                    {strings.collections.newCollection}
-                  </Button>
-                }
-              />
-            ) : (
-              <div className="screen-covers screen-covers--compact">
-                {mine.slice(0, COVERS).map((space) => (
-                  <Cover
-                    key={space.name}
-                    space={space}
-                    tone={toneOf(space.name)}
-                    names={shared.get(space.name) ?? []}
-                  />
-                ))}
-              </div>
-            )}
+        {photo?.image && photoFrom ? (
+          <Link
+            to={`/collections/${encodeURIComponent(photoFrom.name)}`}
+            className="oik-card screen-memory screen-w4"
+          >
+            <img src={photo.image} alt="" decoding="async" />
+            <span className="screen-memory__cap">
+              <span className="oik-label">{s.fromPhotos(photoFrom.name)}</span>
+              <span className="screen-memory__title">{photo.text ?? photoFrom.name}</span>
+              {itemDate(photo) && <span className="screen-memory__meta">{itemDate(photo)}</span>}
+            </span>
+          </Link>
+        ) : (
+          <Panel className="screen-w4" title={s.backedUp}>
+            <p className="screen-panel__empty">
+              {info.recoveryKeySaved ? s.keySaved : strings.backup.bannerBody}
+            </p>
           </Panel>
-        </div>
+        )}
+
+        <Panel className="screen-w7" title={s.activity} link={{ to: "/activity", label: s.allActivity }}>
+          {!log.data ? (
+            <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
+          ) : log.data.length === 0 ? (
+            <p className="screen-panel__empty">{s.noActivity}</p>
+          ) : (
+            <ul className="screen-list">
+              {log.data.slice(0, LOG).map((item) => (
+                <LogRow key={item.id} item={item} />
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel className="screen-w5" title={strings.nav.places} link={{ to: "/settings", label: s.manage }}>
+          <ul className="screen-list">
+            {places.map((place) => (
+              <PlaceRow key={place.name ?? ""} place={place} />
+            ))}
+          </ul>
+        </Panel>
       </div>
     </>
   );
 }
 
-function Stat({
+function placeLabel(place: StorageSummary): string {
+  return place.name === null ? strings.storage.thisComputer : place.label;
+}
+
+function Stage({
+  label,
+  value,
+  done,
+  half,
+  bad,
+}: {
+  label: string;
+  value: string;
+  done?: boolean;
+  half?: boolean;
+  bad?: boolean;
+}) {
+  return (
+    <li className="screen-pipe__stage">
+      <i className={bad ? "is-bad" : half ? "is-half" : done ? "is-done" : ""} aria-hidden="true" />
+      <span className="screen-pipe__label">{label}</span>
+      <span className="screen-pipe__value">{value}</span>
+    </li>
+  );
+}
+
+function Figure({
   icon,
   tone,
   label,
   value,
+  note,
 }: {
   icon: IconName;
   tone: TileTone;
   label: string;
-  value: number | undefined;
+  value: string | undefined;
+  note?: string;
 }) {
   return (
-    <div className="screen-stat">
-      <Tile icon={icon} tone={tone} />
-      <span className="screen-stat__label">{label}</span>
+    <div className="oik-card screen-figure">
+      <div className="screen-figure__top">
+        <Tile icon={icon} tone={tone} />
+        {note && <span className="screen-figure__note">{note}</span>}
+      </div>
+      <span className="oik-label">{label}</span>
       {value === undefined ? (
-        <span className="screen-stat__value oik-skel" aria-hidden="true" />
+        <span className="screen-figure__value oik-skel" aria-hidden="true" />
       ) : (
-        <span className="screen-stat__value">{value.toLocaleString("en")}</span>
+        <span className="screen-figure__value">{value}</span>
       )}
     </div>
   );
 }
 
-/** A card with a title row: a link on the right, and an optional footer. */
+/** A card with a head: a label, a link on the right. */
 function Panel({
   title,
   link,
-  footer,
+  className,
   children,
 }: {
   title: string;
   link?: { to: string; label: string };
-  footer?: ReactNode;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="screen-panel" aria-label={title}>
+    <section className={`oik-card screen-panel ${className ?? ""}`} aria-label={title}>
       <header className="screen-panel__head">
-        <h2 className="screen-panel__title">{title}</h2>
+        <h2 className="oik-label">{title}</h2>
         {link && (
-          <Link to={link.to} className="screen-panel__link">
+          <Link to={link.to} className="oik-link">
             {link.label}
           </Link>
         )}
       </header>
-      <div className="screen-panel__body">{children}</div>
-      {footer && <footer className="screen-panel__foot">{footer}</footer>}
+      {children}
     </section>
   );
 }
 
 function RecentRow({ recent, tone }: { recent: Recent; tone: TileTone }) {
   const { space, view, item } = recent;
-  const title = item.text ?? space.name;
   const meta = [space.name, itemDate(item)].filter(Boolean).join(" · ");
   return (
     <li>
-      <Link to={`/collections/${encodeURIComponent(space.name)}`} className="screen-recent__row">
+      <Link to={`/collections/${encodeURIComponent(space.name)}`} className="screen-list__row">
         {item.image ? (
-          <img className="screen-recent__thumb" src={item.image} alt="" decoding="async" />
+          <img className="screen-list__thumb" src={item.image} alt="" decoding="async" />
         ) : (
           <Tile icon={view === "notes" ? "note" : "table"} tone={tone} />
         )}
-        <span className="screen-recent__text">
-          <span className={`screen-recent__title${view === "notes" ? " screen-recent__title--note" : ""}`}>
-            {title}
-          </span>
-          <span className="screen-recent__meta">{meta}</span>
+        <span className="screen-list__text">
+          <span className="screen-list__title">{item.text ?? space.name}</span>
+          <span className="screen-list__meta">{meta}</span>
         </span>
-        {view === "table" && item.detail && <span className="screen-recent__value">{item.detail}</span>}
+        {view === "table" && item.detail && <span className="screen-list__value">{item.detail}</span>}
       </Link>
     </li>
   );
@@ -261,16 +332,46 @@ function RecentRow({ recent, tone }: { recent: Recent; tone: TileTone }) {
 
 function LogRow({ item }: { item: AccessItem }) {
   return (
-    <li className="screen-log__row">
+    <li className="screen-list__row">
       <Avatar name={item.contactName ?? "?"} small />
-      <span className="screen-log__text">
-        <span>{sentence(item)}</span>
-        <span className="screen-log__meta">{ago(item.atMs)}</span>
+      <span className="screen-list__text">
+        <span className="screen-list__title">{sentence(item)}</span>
+        <span className="screen-list__meta">{ago(item.atMs)}</span>
       </span>
-      <span
-        className={`screen-badge screen-badge--${item.outcome === "allowed" ? "ok" : "bad"}`}
-      >
+      <Status kind={item.outcome === "allowed" ? "ok" : "bad"}>
         {item.outcome === "allowed" ? strings.activity.allowed : strings.activity.refused}
+      </Status>
+    </li>
+  );
+}
+
+function PlaceRow({ place }: { place: StorageSummary }) {
+  const used =
+    place.totalBytes && place.freeBytes != null
+      ? (place.totalBytes - place.freeBytes) / place.totalBytes
+      : undefined;
+  const meta = [strings.settings.storageCount(place.spaces), place.encrypted ? strings.settings.encrypted : null]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <li className="screen-list__row">
+      <Tile icon={PLACE_ICONS[place.type]} tone="stone" />
+      <span className="screen-list__text">
+        <span className="screen-list__title">
+          {placeLabel(place)}
+          {place.isDefault && <span className="oik-tag screen-tag-inline">{strings.storage.isDefault}</span>}
+        </span>
+        <span className="screen-list__meta">{meta}</span>
+      </span>
+      <span className="screen-room-mini">
+        <span className="screen-room-mini__figure">
+          {place.freeBytes != null ? s.freeShort(bytes(place.freeBytes)) : "—"}
+        </span>
+        {used !== undefined && (
+          <span className="screen-bar">
+            <i style={{ width: `${Math.max(2, used * 100)}%` }} />
+          </span>
+        )}
       </span>
     </li>
   );

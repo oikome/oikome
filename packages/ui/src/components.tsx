@@ -75,22 +75,83 @@ export function InsetWell({ children }: { children: ReactNode }) {
  */
 export function Group({
   title,
+  action,
   footnote,
   variant,
   children,
 }: {
   title?: string;
+  /** Beside the title in the card's head, such as an Add button. */
+  action?: ReactNode;
   footnote?: ReactNode;
   variant?: "list";
   children: ReactNode;
 }) {
   return (
-    <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
-      {title && <h2 className="oik-group__title">{title}</h2>}
-      <ul className="oik-group__body">{children}</ul>
+    <>
+      <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
+        {(title || action) && (
+          <header className="oik-group__head">
+            {title && <h2 className="oik-group__title">{title}</h2>}
+            {action}
+          </header>
+        )}
+        <ul className="oik-group__body">{children}</ul>
+      </section>
       {footnote && <p className="oik-group__footnote">{footnote}</p>}
-    </section>
+    </>
   );
+}
+
+export type StatusKind = "ok" | "run" | "idle" | "off" | "bad";
+
+/**
+ * A state in a word and a glyph: a filled dot (fine), a turning half ring
+ * (working), an empty ring (waiting), a dashed ring (ended), crimson
+ * (needs the owner). Bold draws them as colored pills.
+ */
+export function Status({ kind, children }: { kind: StatusKind; children: ReactNode }) {
+  return (
+    <span className={`oik-status oik-status--${kind}`}>
+      <i aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
+/** A few options side by side, one of them on. */
+export function Segmented({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <span className="oik-seg" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={option.value === value}
+          className="oik-seg__option"
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/** A short tag beside a name: "Example", "Default". */
+export function Tag({ children }: { children: ReactNode }) {
+  return <span className="oik-tag">{children}</span>;
 }
 
 /** Free content inside a group: a form, a key, a value to copy. */

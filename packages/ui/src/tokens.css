@@ -1,112 +1,151 @@
 /* Copyright 2025 The Oikome Authors
  * SPDX-License-Identifier: Apache-2.0
  *
- * Design tokens of the Oikome apps: snow white, neither grey nor yellow;
- * white cards edged by a 1px border instead of heavy shadows; crimson for
- * the one primary action, the current choice and progress. Crimson marks the one primary action of a view, the current
- * choice and progress; blue is for links, focus and selection only (a field
- * shows focus by darkening its border instead); errors are text with an
- * icon, never a fill. Light mode only for now.
+ * Design tokens of the Oikome apps, in two styles the owner picks under
+ * Settings > Appearance (html[data-theme]):
  *
- * Scale follows consumer products people already know (Apple, Airbnb,
- * Pinterest, Uber): 16px reading text, 40px controls, dark section headings
- * with room between sections, tight spacing inside a group.
+ * - Ink (default): black ink on snow white, like a printed spec sheet.
+ *   Hairlines do the separating, no shadows, no gradients; data is set in
+ *   a mono face; states are ink glyphs; the one color is crimson, kept for
+ *   what needs the owner.
+ * - Bold: neubrutalist. Cream with a grid, 2px black outlines, hard offset
+ *   shadows, flat bright fills, a heavy display face.
+ *
+ * Components only use these names; a style is a set of values for them.
  */
 
-:root {
-  /* Accents */
-  --color-primary: #cc2b45;
-  --color-primary-deep: #b11e39;
-  --color-primary-tint: #fcf2f2;
-  --color-link: #376992;
-  --color-link-deep: #235277;
-  --color-selection: #cce1f4;
+/* The faces ship with the app (SIL Open Font License 1.1, ./fonts). */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-sans.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/space-grotesk.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/space-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/space-mono-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Archivo Black";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/archivo-black.woff2") format("woff2");
+}
 
-  /* Health */
-  --color-sage: #4f8a68;
-  --color-sage-dot: #5e9b78;
-  --color-sage-text: #3b6b50;
-  --color-sage-bar: #afcfbd;
+:root,
+[data-theme="ink"] {
+  /* Ground and surfaces */
+  --bg: #fcfcfb;
+  --raised: #ffffff;
+  --sunk: #f6f6f4;
+  --hover: rgba(20, 19, 16, 0.035);
+  --active: rgba(20, 19, 16, 0.06);
+  --scrim: rgba(20, 19, 16, 0.28);
 
-  /* Status */
-  --color-error: #a01e35;
-  --color-error-dot: #c93a50;
-  --color-warning: #8a572a;
-  --color-warning-wash: #fcf2e2;
+  /* Ink: text at three strengths, all readable (WCAG AA) on white */
+  --ink: #141310;
+  --ink2: rgba(20, 19, 16, 0.7);
+  --ink3: rgba(20, 19, 16, 0.6);
+  --ink4: rgba(20, 19, 16, 0.32);
 
-  /* Neutrals */
-  --color-ground: #fdfdfc;
-  --color-surface: #ffffff;
-  --color-sidebar: #ffffff;
-  --color-white: #ffffff;
-  --color-wash: #f8f8f7;
-  --color-nav-hover: #f8f8f7;
-  --color-fill: #f4f4f2;
-  --color-fill-hover: #ebebe8;
-  --color-selected: #f4f4f2;
-  /* A card's edge, and the rules between rows inside it */
-  --color-border: #eaeae7;
-  --color-hairline: #f0f0ee;
-  --color-sidebar-rule: #eaeae7;
-  --color-stroke: #d9d9d6;
-  --color-stroke-hover: #c2c2be;
-  --color-stroke-focus: #86868b;
-  --color-chevron: #aeaeb2;
-  /* Live status: a soft green badge with a pulsing dot */
-  --color-live-wash: #f0fdf4;
-  --color-live-edge: #dcfce7;
-  --color-live-text: #15803d;
-  --color-live-dot: #22c55e;
-  /* A dark card for the one thing that needs attention */
-  --color-night: #1d1d1f;
-  --color-night-text: #a1a1a6;
-  /* Notes keep a sheet of paper's warmth */
-  --color-paper: #fbf9f4;
+  /* Lines */
+  --line: rgba(20, 19, 16, 0.13);
+  --line2: rgba(20, 19, 16, 0.07);
+  --stroke: rgba(20, 19, 16, 0.22);
+  --stroke-hover: rgba(20, 19, 16, 0.4);
 
-  /* Ink */
-  --color-ink: #1d1d1f;
-  --color-ink-secondary: #6e6e73;
-  --color-disc: #ebebe8;
-  --color-disc-glyph: #3a3a3c;
+  /* The one color, for what needs the owner; the primary action is ink */
+  --signal: #cc2b45;
+  --signal-wash: #fcf2f3;
+  --accent: #141310;
+  --accent-hover: #34322d;
+  --on-accent: #fcfcfb;
+  --top-bg: rgba(252, 252, 251, 0.88);
+  --link: #141310;
+  --ok: #141310;
 
-  /* Tiles: a pale fill with a glyph of the same hue */
-  --tile-honey-fill: #f2dfb0;
-  --tile-honey-glyph: #7e5b22;
-  --tile-rose-fill: #f1d2e3;
-  --tile-rose-glyph: #874d6f;
-  --tile-sage-fill: #cfe6d8;
-  --tile-sage-glyph: #376a50;
-  --tile-periwinkle-fill: #d8dffa;
-  --tile-periwinkle-glyph: #4e5a8b;
-  --tile-mist-fill: #d2e3ec;
-  --tile-mist-glyph: #32647f;
-  --tile-oat-fill: #eadfcc;
-  --tile-oat-glyph: #6e5946;
-  --tile-lavender-fill: #e3d9f5;
-  --tile-lavender-glyph: #655384;
-  --tile-stone-fill: #e1dcd2;
-  --tile-stone-glyph: #4b4742;
-  --tile-apricot-fill: #fcdcc2;
-  --tile-apricot-glyph: #8f522b;
+  /* Fills a tone stands for (Bold); Ink draws every tone as ink */
+  --t1: var(--raised);
+  --t2: var(--raised);
+  --t3: var(--raised);
+  --t4: var(--raised);
+  --t5: var(--raised);
+  --tone-ink: var(--ink);
 
-  /* Avatars: you in the neutral disc, contacts in orchid or periwinkle */
-  --avatar-orchid-fill: #f0cde0;
-  --avatar-orchid-glyph: #7f4767;
-  --avatar-periwinkle-fill: #d6ddf8;
-  --avatar-periwinkle-glyph: #4e5a8b;
+  /* Shape */
+  --bw: 1px;
+  --r-card: 8px;
+  --r-btn: 6px;
+  --r-field: 6px;
+  --r-pill: 4px;
+  --r-dialog: 10px;
+  --sh-s: none;
+  --sh-m: none;
+  --sh-l: none;
+  --sh-pop: 0 2px 6px rgba(20, 19, 16, 0.06), 0 16px 40px rgba(20, 19, 16, 0.12);
 
-  /* Radii */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-control: 12px;
-  --radius-button: 12px;
-  --radius-group: 16px;
-  --radius-card: 16px;
-  --radius-dialog: 20px;
-  --radius-pill: 999px;
+  /* Type */
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --display: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --text: 400 14px/20px var(--font);
+  --text-small: 400 12px/16px var(--font);
+  --text-data: 400 13px/18px var(--mono);
+  --text-meta: 400 12px/16px var(--mono);
+  --text-button: 500 14px/1 var(--font);
+  --text-title: 600 15px/20px var(--font);
+  --text-heading: 600 17px/22px var(--display);
+  --text-display: 600 26px/32px var(--display);
+  --text-display-compact: 600 22px/28px var(--display);
+  --text-figure: 500 26px/30px var(--mono);
+  --label-font: 600 10.5px/14px var(--font);
+  --label-spacing: 0.08em;
+  --label-case: uppercase;
+  --label-color: var(--ink3);
+  --heading-case: none;
+  --tracking-display: -0.02em;
 
-  /* Spacing: one 4px scale, nothing in between */
+  /* Spacing: one 4px scale */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -116,67 +155,113 @@
   --space-7: 32px;
   --space-8: 40px;
   --space-9: 48px;
-  --space-page-top: 40px;
-  /* A group's title line and the space under it, so a surface beside a
-     titled group can line up with the group's surface. */
-  --group-title-height: 24px;
-  --space-page-x: 48px;
-  /* Between one section of a page and the next */
-  --space-section: 40px;
+
   /* Controls */
-  --control-height: 40px;
-  --control-height-lg: 48px;
-  --control-height-row: 36px;
-  --field-height: 48px;
+  --control-height: 32px;
+  --control-height-lg: 40px;
+  --control-height-row: 30px;
+  --field-height: 36px;
 
-  /* Type: the system stack, tabular numerals everywhere */
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --text-display: 700 34px/40px var(--font-sans);
-  --text-display-compact: 700 28px/34px var(--font-sans);
-  --text-headline: 700 24px/30px var(--font-sans);
-  --text-section: 600 19px/24px var(--font-sans);
-  --text-subhead: 700 19px/24px var(--font-sans);
-  --text-title: 600 17px/22px var(--font-sans);
-  --text-row: 500 16px/22px var(--font-sans);
-  --text-lede: 400 17px/26px var(--font-sans);
-  --text-body: 400 16px/24px var(--font-sans);
-  --text-cell: 400 15px/22px var(--font-sans);
-  --text-button: 600 15px/1 var(--font-sans);
-  --text-label: 600 14px/20px var(--font-sans);
-  --text-meta: 400 14px/20px var(--font-sans);
-  --text-caption: 400 13px/18px var(--font-sans);
-  /* Motion: hover and state changes ease in and out */
+  /* Motion */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
-  /* Large type is set a little tighter, as Apple does */
-  --tracking-display: -0.02em;
-  --tracking-heading: -0.01em;
-
-  /* Shadows */
-  /* Cards are drawn by their 1px border, not by a shadow */
-  --shadow-whisper: 0 0 0 1px var(--color-border);
-  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.14);
-  --shadow-menu: 0 0 0 1px var(--color-border), 0 2px 6px rgba(29, 29, 31, 0.06), 0 12px 32px rgba(29, 29, 31, 0.1);
-  /* Buttons, links and option cards; fields darken their border instead. */
-  --focus-ring: 3px solid rgba(55, 105, 146, 0.45);
+  --focus-ring: 2px solid var(--ink);
 
   color-scheme: light;
 }
 
+[data-theme="bold"] {
+  --bg: #fdf9f0;
+  --raised: #ffffff;
+  --sunk: #fff6e5;
+  --hover: #fff1d6;
+  --active: #ffe7b8;
+  --scrim: rgba(17, 17, 17, 0.35);
+
+  --ink: #111111;
+  --ink2: #333333;
+  --ink3: #5c5c5c;
+  --ink4: #9a9a9a;
+
+  --line: #111111;
+  --line2: #111111;
+  --stroke: #111111;
+  --stroke-hover: #111111;
+
+  --signal: #c2183f;
+  --signal-wash: #ffe1dd;
+  --accent: #ff3d81;
+  --accent-hover: #ff3d81;
+  --on-accent: #111111;
+  --top-bg: rgba(253, 249, 240, 0.92);
+  --link: #c2185b;
+  --ok: #111111;
+
+  --t1: #ff3d81;
+  --t2: #3ddc97;
+  --t3: #ffd23f;
+  --t4: #c8a2ff;
+  --t5: #ff6b5e;
+  --tone-ink: #111111;
+
+  --bw: 2px;
+  --r-card: 18px;
+  --r-btn: 8px;
+  --r-field: 10px;
+  --r-pill: 999px;
+  --r-dialog: 20px;
+  --sh-s: 4px 4px 0 0 #111111;
+  --sh-m: 6px 6px 0 0 #111111;
+  --sh-l: 9px 9px 0 0 #111111;
+  --sh-pop: 9px 9px 0 0 #111111;
+
+  --font: "Space Grotesk", system-ui, sans-serif;
+  --mono: "Space Mono", ui-monospace, monospace;
+  --display: "Archivo Black", "Space Grotesk", system-ui, sans-serif;
+  --text: 500 14px/20px var(--font);
+  --text-small: 500 12px/16px var(--font);
+  --text-data: 400 13px/18px var(--mono);
+  --text-meta: 400 12px/16px var(--mono);
+  --text-button: 700 14px/1 var(--font);
+  --text-title: 700 15px/20px var(--font);
+  --text-heading: 400 18px/22px var(--display);
+  --text-display: 400 34px/38px var(--display);
+  --text-display-compact: 400 26px/30px var(--display);
+  --text-figure: 400 30px/34px var(--display);
+  --label-font: 400 12px/16px var(--display);
+  --label-spacing: 0.02em;
+  --label-case: uppercase;
+  --label-color: var(--ink);
+  --heading-case: uppercase;
+  --tracking-display: -0.02em;
+
+  --control-height: 36px;
+  --control-height-lg: 44px;
+  --control-height-row: 32px;
+  --field-height: 40px;
+
+  --focus-ring: 3px solid #111111;
+}
+
 html {
-  background: var(--color-ground);
-  color: var(--color-ink);
-  font: var(--text-body);
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--text);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
-  caret-color: var(--color-ink);
-  scrollbar-color: var(--color-stroke) transparent;
+  caret-color: var(--ink);
+  scrollbar-color: var(--stroke) transparent;
   scrollbar-width: thin;
 }
 
 body {
   margin: 0;
-  background: var(--color-ground);
+  background: var(--bg);
+}
+[data-theme="bold"] body {
+  background-image:
+    linear-gradient(rgba(17, 17, 17, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 17, 17, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 a,
@@ -196,7 +281,10 @@ h3 {
 }
 
 ::selection {
-  background: var(--color-selection);
+  background: rgba(20, 19, 16, 0.12);
+}
+[data-theme="bold"] ::selection {
+  background: #ffd23f;
 }
 
 :focus-visible {
@@ -206,6 +294,8 @@ h3 {
 
 @media (prefers-reduced-motion: reduce) {
   *,
+  ::before,
+  ::after,
   ::backdrop {
     transition: none !important;
     animation: none !important;

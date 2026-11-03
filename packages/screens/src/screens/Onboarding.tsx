@@ -17,7 +17,7 @@ const STEPS = 3;
 /** The large line glyph that opens each step. */
 function Hero({ icon }: { icon: IconName }) {
   return (
-    <span className="screen-hero" aria-hidden="true">
+    <span className="screen-glyph" aria-hidden="true">
       <Icon name={icon} />
     </span>
   );

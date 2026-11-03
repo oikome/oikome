@@ -186,3 +186,16 @@ center starts with), from Wikimedia Commons, resized
     https://commons.wikimedia.org/wiki/File:Azulejos_in_Lisboa_(42772429292).jpg
   "Sunset in Lisbon"  -  CC0 1.0
     https://commons.wikimedia.org/wiki/File:Sunset_in_Lisbon_(36542861635).jpg
+
+Fonts of the web app (packages/ui/src/fonts; the OFL text of each is beside it)
+  IBM Plex Sans and IBM Plex Mono  -  SIL Open Font License 1.1
+  Copyright 2017 IBM Corp. with Reserved Font Name "Plex"
+  Space Grotesk  -  SIL Open Font License 1.1
+  Copyright 2020 The Space Grotesk Project Authors
+  Space Mono  -  SIL Open Font License 1.1
+  Copyright 2016 The Space Mono Project Authors
+  Archivo Black  -  SIL Open Font License 1.1
+  Copyright 2017 The Archivo Black Project Authors
+
+rustix (free and total space of a storage's disk; already used through tempfile)
+  https://github.com/bytecodealliance/rustix  -  Apache License 2.0 with LLVM exception, or MIT

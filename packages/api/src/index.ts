@@ -143,7 +143,12 @@ encrypted: boolean,
 /**
  * Local Spaces kept there.
  */
-spaces: number, };
+spaces: number, 
+/**
+ * Free and total bytes of the disk it is on, for this computer and a
+ * folder; `None` for a NAS or a cloud drive, which don't say.
+ */
+freeBytes: number | null, totalBytes: number | null, };
 
 /**
  * `add_storage`: a place to keep Spaces in, as the owner picked it.

@@ -4,7 +4,7 @@
 // A collection's cover: what is in it, not what it is made of. Photos show
 // a collage, notes their first lines, anything else its first rows.
 
-import { AvatarStack, Tile } from "@oikome/ui";
+import { AvatarStack, Icon, Tag, Tile } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
 import type { Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
@@ -17,6 +17,7 @@ import { Link } from "./router";
 import { strings } from "./strings";
 
 const s = strings.collections;
+const KIND_ICONS = { photos: "photo", notes: "note", table: "table" } as const;
 
 /** Contact names each collection is shared with now. */
 export function sharedNames(shares: Share[] | undefined): Map<string, string[]> {
@@ -140,11 +141,17 @@ export function Cover({
     .join(" · ");
   return (
     <Link to={`/collections/${encodeURIComponent(space.name)}`} className="screen-cover">
-      <Art space={space} tone={tone} preview={preview.data} />
+      <span className="screen-cover__frame">
+        <Art space={space} tone={tone} preview={preview.data} />
+        <span className="screen-cover__chip" aria-hidden="true">
+          <Icon name={space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]} />
+          {space.kind === "remote" ? strings.collections.sharedChip : s.kinds[preview.data?.shape.view ?? "table"]}
+        </span>
+      </span>
       <span className="screen-cover__caption">
         <span className="screen-cover__line">
           <span className="screen-cover__name">{space.name}</span>
-          {space.example && <span className="screen-tag">{s.example}</span>}
+          {space.example && <Tag>{s.example}</Tag>}
           {space.kind !== "remote" && (
             <span className="screen-cover__who" aria-hidden="true">
               <AvatarStack names={names} label={s.whoSentence(names)} />

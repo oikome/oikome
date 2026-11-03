@@ -58,6 +58,20 @@ export function decimal(unscaled: string, scale: number): string {
   return negative ? `-${digits}` : digits;
 }
 
+const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
+
+/** A size as the system's file browser writes it, in powers of 1000: "412 GB". */
+export function bytes(n: number): string {
+  let value = n;
+  let unit = 0;
+  while (value >= 1000 && unit < SIZE_UNITS.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  const digits = value >= 100 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(digits).replace(/\.0$/, "")} ${SIZE_UNITS[unit]}`;
+}
+
 /** A path under a home folder as ~/…, the way people know it. */
 export function homeRelative(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");

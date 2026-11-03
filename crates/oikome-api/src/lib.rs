@@ -548,20 +548,30 @@ impl Api {
         let default = settings
             .default_storage
             .filter(|name| self.catalog.get_storage(name).is_ok());
+        let root = self.catalog.root_path().to_string();
+        let room = places::space(std::path::Path::new(&root));
         let mut out = vec![StorageSummary {
             name: None,
             label: String::new(),
             is_default: default.is_none(),
             kind: StorageType::Disk,
-            place: self.catalog.root_path().to_string(),
+            place: root,
             encrypted: false,
             spaces: counts.get(&None).copied().unwrap_or(0),
+            free_bytes: room.map(|r| r.0),
+            total_bytes: room.map(|r| r.1),
         }];
         for def in self.catalog.list_storages() {
             let (kind, place) = match &def.kind {
                 StorageKind::Webdav { endpoint, .. } => (StorageType::Webdav, endpoint.clone()),
                 StorageKind::Folder { path } => (StorageType::Folder, path.clone()),
                 StorageKind::Drive { path } => (StorageType::Drive, path.clone()),
+            };
+            // A cloud drive's folder sits on this disk, but its room is the
+            // drive's quota, which the folder doesn't tell.
+            let room = match kind {
+                StorageType::Folder => places::space(std::path::Path::new(&place)),
+                _ => None,
             };
             out.push(StorageSummary {
                 spaces: counts.get(&Some(def.name.clone())).copied().unwrap_or(0),
@@ -575,6 +585,8 @@ impl Api {
                 kind,
                 place,
                 encrypted: def.encrypted,
+                free_bytes: room.map(|r| r.0),
+                total_bytes: room.map(|r| r.1),
             });
         }
         Ok(out)

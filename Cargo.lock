@@ -5230,6 +5230,7 @@ dependencies = [
  "oikome-identity",
  "oikome-node",
  "oikome-semantic",
+ "rustix 1.1.5",
  "serde",
  "serde_json",
  "tempfile",

@@ -590,6 +590,9 @@ async fn a_new_data_center_gets_examples_once() {
     assert_eq!(storages[0].name, None);
     assert_eq!(storages[0].kind, StorageType::Disk);
     assert_eq!(storages[0].spaces, 2);
+    if cfg!(unix) {
+        assert!(storages[0].total_bytes.is_some_and(|t| t > 0));
+    }
 
     // Its files stay, and keep the name.
     let err = n

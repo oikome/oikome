@@ -6,3 +6,5 @@
 
 export { App } from "./App";
 export { strings } from "./strings";
+export { applyTheme, savedTheme } from "./theme";
+export type { Theme } from "./theme";

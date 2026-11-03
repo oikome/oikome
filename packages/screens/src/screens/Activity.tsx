@@ -4,17 +4,7 @@
 // Activity: who asked for your data, and whether they got it.
 
 import { useEffect, useState } from "react";
-import {
-  Avatar,
-  Button,
-  Card,
-  EmptyState,
-  ErrorText,
-  Group,
-  Row,
-  Select,
-  SkeletonRows,
-} from "@oikome/ui";
+import { Avatar, Button, Card, EmptyState, ErrorText, Select, Status } from "@oikome/ui";
 import type { AccessItem } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { ago } from "../format";
@@ -60,8 +50,8 @@ export function Activity() {
   }, [client, did]);
 
   return (
-    <div className="screen-column">
-      <ScreenHeader title={s.title}>
+    <div className="screen-column screen-column--wide">
+      <ScreenHeader title={s.title} lede={s.lede}>
         {/* Filtering an empty log is pointless, unless a filter emptied it. */}
         {(contacts.data?.length ?? 0) > 0 && (items.length > 0 || did !== "") && (
           <Select
@@ -84,29 +74,54 @@ export function Activity() {
           <EmptyState icon="activity" title={s.emptyTitle} body={s.emptyBody} />
         </Card>
       ) : (
-        <Group title={s.recent} footnote={s.footnote}>
-          {items.length === 0 && load.busy ? (
-            <SkeletonRows />
-          ) : items.length === 0 ? (
-            <Row title={s.empty} muted />
-          ) : (
-            items.map((item) => (
-              <Row
-                key={item.id}
-                leading={<Avatar name={item.contactName ?? "?"} />}
-                title={sentence(item)}
-                meta={item.count > 1 ? `${ago(item.atMs)} · ${s.times(item.count)}` : ago(item.atMs)}
-                trailing={
-                  <span
-                    className={`screen-dot screen-dot--${item.outcome === "allowed" ? "ok" : "bad"}`}
-                    role="img"
-                    aria-label={item.outcome === "allowed" ? s.allowed : s.refused}
-                  />
-                }
-              />
-            ))
-          )}
-        </Group>
+        <>
+          <div className="oik-table-wrap">
+            <table className="oik-table screen-log-table" aria-label={s.recent}>
+              <thead>
+                <tr>
+                  <th scope="col">{s.colWhen}</th>
+                  <th scope="col">{s.colWhat}</th>
+                  <th scope="col">{s.colResult}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 && load.busy ? (
+                  <tr>
+                    <td colSpan={3}>
+                      <span className="oik-skel oik-skel--line" aria-hidden="true" />
+                    </td>
+                  </tr>
+                ) : items.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="screen-log-table__empty">
+                      {s.empty}
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => (
+                    <tr key={item.id}>
+                      <td className="oik-num screen-log-table__when">
+                        {item.count > 1 ? `${ago(item.atMs)} · ${s.times(item.count)}` : ago(item.atMs)}
+                      </td>
+                      <td>
+                        <span className="screen-log-table__who">
+                          <Avatar name={item.contactName ?? "?"} small />
+                          {sentence(item)}
+                        </span>
+                      </td>
+                      <td>
+                        <Status kind={item.outcome === "allowed" ? "ok" : "bad"}>
+                          {item.outcome === "allowed" ? s.allowed : s.refused}
+                        </Status>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="screen-footnote">{s.footnote}</p>
+        </>
       )}
       {more && (
         <Button

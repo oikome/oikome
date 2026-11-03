@@ -29,6 +29,24 @@ pub(crate) const DATA_FOLDER: &str = "Oikome";
 /// Most folders one listing shows.
 const MAX_FOLDERS: usize = 1000;
 
+/// Free and total bytes of the disk holding `path`, where the system says.
+pub(crate) fn space(path: &Path) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        let stat = rustix::fs::statvfs(path).ok()?;
+        let unit = stat.f_frsize;
+        Some((
+            stat.f_bavail.saturating_mul(unit),
+            stat.f_blocks.saturating_mul(unit),
+        ))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 /// The home directory of the user running the node.
 pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -278,6 +296,16 @@ mod tests {
         );
         assert!(data_folder("relative/path", None).is_err());
         assert!(data_folder("/nowhere/../etc", None).is_err());
+    }
+
+    #[test]
+    fn a_disk_says_how_much_room_it_has() {
+        let dir = tempfile::tempdir().unwrap();
+        if cfg!(unix) {
+            let (free, total) = space(dir.path()).unwrap();
+            assert!(total > 0 && free <= total);
+        }
+        assert_eq!(space(Path::new("/no/such/folder")), None);
     }
 
     #[test]

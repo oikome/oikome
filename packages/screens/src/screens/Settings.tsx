@@ -15,6 +15,8 @@ import {
   GroupPanel,
   Menu,
   Row,
+  Segmented,
+  Status,
   TextField,
   Tile,
   useToast,
@@ -25,6 +27,8 @@ import { useAction, useClient, useLoad } from "../data";
 import { RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { homeRelative, shortId } from "../format";
 import { addPlanned, useStoragePicker } from "../storage";
+import { applyTheme, savedTheme } from "../theme";
+import type { Theme } from "../theme";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
@@ -45,7 +49,15 @@ function Storage() {
   const [adding, setAdding] = useState(false);
   const change = useAction();
   return (
-    <Group title={s.storageTitle} footnote={s.storageFootnote}>
+    <Group
+      title={s.storageTitle}
+      footnote={s.storageFootnote}
+      action={
+        <Button variant="quiet" icon="plus" onClick={() => setAdding(true)}>
+          {strings.storage.add}
+        </Button>
+      }
+    >
       {storages.error && <Row title={storages.error} muted />}
       {(storages.data ?? []).map((x) => {
         const [icon, tone] = STORAGE_LOOK[x.type];
@@ -64,7 +76,7 @@ function Storage() {
             title={
               <>
                 {label}
-                {x.isDefault && <span className="screen-tag screen-tag--inline">{strings.storage.isDefault}</span>}
+                {x.isDefault && <span className="oik-tag screen-tag-inline">{strings.storage.isDefault}</span>}
               </>
             }
             meta={
@@ -100,12 +112,6 @@ function Storage() {
           />
         );
       })}
-      <Row
-        add
-        leading={<Tile icon="plus" tone="stone" />}
-        title={strings.storage.add}
-        onClick={() => setAdding(true)}
-      />
       {adding && (
         <AddStorage
           onClose={() => setAdding(false)}
@@ -116,6 +122,39 @@ function Storage() {
           }}
         />
       )}
+    </Group>
+  );
+}
+
+/** How the app looks here: its style and its language. */
+function Appearance() {
+  const [theme, setTheme] = useState<Theme>(savedTheme);
+  return (
+    <Group title={s.appearanceTitle}>
+      <Row
+        title={s.styleTitle}
+        meta={theme === "ink" ? s.styleInk : s.styleBold}
+        trailing={
+          <Segmented
+            label={s.styleTitle}
+            value={theme}
+            onChange={(value) => {
+              const next = value as Theme;
+              applyTheme(next);
+              setTheme(next);
+            }}
+            options={[
+              { value: "ink", label: s.ink },
+              { value: "bold", label: s.bold },
+            ]}
+          />
+        }
+      />
+      <Row
+        title={s.languageTitle}
+        meta={s.languageMore}
+        trailing={<span className="oik-row__value">{s.language}</span>}
+      />
     </Group>
   );
 }
@@ -187,18 +226,20 @@ export function Settings({
   };
 
   return (
-    <div className="screen-column">
-      <ScreenHeader title={s.title} />
-
+    <>
+      <ScreenHeader title={s.title} lede={s.lede} />
+      <div className="screen-dash screen-dash--start">
+      <div className="screen-w7">
+      <Storage />
       <Group title={s.recoveryTitle}>
         <Row
           alignStart
           leading={<Tile icon="key" tone="apricot" />}
           title={
             info.recoveryKeySaved ? (
-              <span className="screen-status-ok">{s.backedUp}</span>
+              <Status kind="ok">{s.backedUp}</Status>
             ) : (
-              <span className="screen-status-warn">{s.notBackedUp}</span>
+              <Status kind="bad">{s.notBackedUp}</Status>
             )
           }
           meta={s.recoveryBody}
@@ -229,6 +270,9 @@ export function Settings({
         )}
       </Group>
 
+      </div>
+      <div className="screen-w5">
+      <Appearance />
       <Group title={s.centerTitle} footnote={s.idFootnote}>
         {editing ? (
           <GroupPanel>
@@ -302,16 +346,10 @@ export function Settings({
         <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
       </Group>
 
-      <Storage />
 
-      <Group title={s.preferencesTitle}>
-        <Row
-          title={s.languageTitle}
-          meta={s.languageMore}
-          trailing={<span className="oik-row__value">{s.language}</span>}
-        />
-      </Group>
 
-    </div>
+      </div>
+      </div>
+    </>
   );
 }

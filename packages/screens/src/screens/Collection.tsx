@@ -14,17 +14,16 @@ import {
   ErrorText,
   Menu,
   Select,
-  Tile,
   collectionTones,
   useToast,
 } from "@oikome/ui";
 import type { SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
-import { chronological, forgetPreviews, itemsOf, shapeOf } from "../content";
+import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf } from "../content";
 import type { Item, Shape } from "../content";
-import { itemDate, sharedNames } from "../covers";
+import { countOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
-import { BackLink, RowsTable } from "../parts";
+import { RowsTable, ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
@@ -47,6 +46,11 @@ export function Collection({ name }: { name: string }) {
 
   const list = spaces.data ?? [];
   const space = list.find((x) => x.name === name);
+  // What it holds, from the same first rows its cover reads.
+  const preview = useLoad(
+    async () => (space && space.kind !== "remote" ? loadPreview(client, space) : undefined),
+    [space?.name, space?.kind],
+  );
   const mine = list.filter((x) => x.kind !== "remote");
   const toneOf = collectionTones(list.map((x) => x.name));
   const names = sharedNames(shares.data).get(name) ?? [];
@@ -68,48 +72,54 @@ export function Collection({ name }: { name: string }) {
     );
   }
   const local = space.kind !== "remote";
+  const kind = preview.data?.shape.view;
+  const place = storages.data?.find((x) => x.name === space.storage);
+  const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
 
   return (
     <>
-      <BackLink parent="/collections" parentLabel={s.back} />
-      <header className="screen-header screen-header--collection">
-        <Tile icon="collection" tone={toneOf(space.name)} large />
-        <div className="screen-collection__name">
-          <h1 className="screen-title">{space.name}</h1>
-          {space.example && <span className="screen-tag">{s.example}</span>}
-        </div>
-        <div className="screen-header__actions">
-          {local && (
-            <Button variant="primary" onClick={() => setSharing(true)}>
-              {s.share}
-            </Button>
-          )}
-          <Menu
-            label={strings.common.moreActions(space.name)}
-            items={[{ label: s.remove, destructive: true, onSelect: () => setConfirming(true) }]}
-          />
-        </div>
-      </header>
-
-      <p className="screen-who">
-        {local ? (
-          <>
-            <AvatarStack names={names} label={s.whoSentence(names)} />
-            <span>{s.whoSentence(names)}</span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {s.storedOn(
-                space.storage === null
-                  ? null
-                  : (storages.data?.find((x) => x.name === space.storage)?.label ?? space.storage),
-              )}
-            </span>
-            <Link to="/sharing">{s.manage}</Link>
-          </>
-        ) : (
-          <span>{s.fromElsewhere}</span>
+      <ScreenHeader
+        mono
+        label={local ? [kind ? s.kinds[kind] : null, space.example ? s.example : null].filter(Boolean).join(" · ") : s.fromElsewhere}
+        title={space.name}
+      >
+        {local && (
+          <Button variant="primary" onClick={() => setSharing(true)}>
+            {s.share}
+          </Button>
         )}
-      </p>
+        <Menu
+          label={strings.common.moreActions(space.name)}
+          items={[{ label: s.remove, destructive: true, onSelect: () => setConfirming(true) }]}
+        />
+      </ScreenHeader>
+
+      {local ? (
+        <dl className="oik-card screen-facts">
+          <div>
+            <dt className="oik-label">{s.factHolds}</dt>
+            <dd>{countOf(preview.data) ?? s.noData}</dd>
+          </div>
+          <div>
+            <dt className="oik-label">{s.factStored}</dt>
+            <dd>{place?.encrypted ? `${where} · ${strings.settings.encrypted}` : where}</dd>
+          </div>
+          <div>
+            <dt className="oik-label">{s.factWho}</dt>
+            <dd className="screen-facts__who">
+              <AvatarStack names={names} label={s.whoSentence(names)} />
+              <span>{[strings.common.you, ...names].join(", ")}</span>
+              <Link to="/sharing">{s.manage}</Link>
+            </dd>
+          </div>
+          <div>
+            <dt className="oik-label">{s.factKind}</dt>
+            <dd>{space.kind === "transactional" ? s.kindEditable : s.kindAnalytical}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="screen-lede">{s.fromElsewhere}</p>
+      )}
 
       {sharing && (
         <ShareDialog

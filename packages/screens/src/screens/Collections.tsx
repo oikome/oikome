@@ -72,7 +72,11 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
       current = false;
     };
   }, [client, spaces.data]);
-  const shown = (space: { name: string }) => show === "all" || kinds.get(space.name) === show;
+  // Readings are a table over time: Tables shows them too.
+  const shown = (space: { name: string }) => {
+    const kind = kinds.get(space.name);
+    return show === "all" || kind === show || (show === "table" && kind === "series");
+  };
   const mine = list.filter((space) => space.kind !== "remote");
   const fromOthers = list.filter((space) => space.kind === "remote");
   const toneOf = collectionTones(list.map((space) => space.name));

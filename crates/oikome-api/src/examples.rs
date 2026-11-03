@@ -14,8 +14,9 @@
 
 //! The examples a new data center starts with, so there is something to
 //! look at, open and share on the first day: one weekend in Lisbon, kept
-//! three ways. Photos (images), notes (text) and what the trip cost (a
-//! table). The owner removes them like any other Space.
+//! three ways (photos, notes and what the trip cost), a short guide to
+//! Oikome itself, a reading list, and two weeks of a home's temperatures,
+//! hour by hour. The owner removes them like any other Space.
 //!
 //! Every value here is a constant of this file; the statements quote them
 //! like any literal and take nothing from a request.
@@ -144,6 +145,143 @@ const SPENDING: &[(&str, &str, &str, &str)] = &[
     ("2025-11-09", "Metro to the airport", "Transport", "1.85"),
 ];
 
+/// What Oikome is and how to use it, a note at a time, in reading order.
+/// The UI's own words: collection, contact, share, Activity, recovery key.
+const GUIDE: &[&str] = &[
+    "Welcome to Oikome. It keeps your photos, notes and tables on your own computer, in \
+     collections, and nowhere else unless you share them.",
+    "Everything you see now is an example. Open a collection to see it as photos, notes, \
+     a table or readings over time; remove an example from its More menu when you are done \
+     with it.",
+    "New Collection makes one of your own. Choose where it is stored: this computer, a \
+     folder, a NAS or a cloud drive. Settings \u{2192} Storage picks where new ones go.",
+    "To share a collection, add the person as a contact with their ID, then press Share. \
+     You choose whether they view it live or keep a copy, and until when; they get an invite \
+     code to open it.",
+    "Stop Sharing takes effect at once: their next read is turned away. Activity shows every \
+     read and every refusal, and it is kept only on this computer.",
+    "Back up your recovery key. It is your identity: with it, this data center can be brought \
+     back on a new computer, and no one else has a copy.",
+    "Press \u{2318}K (Ctrl+K on Windows and Linux) to jump to a collection, a person or a page, \
+     or to switch between the Ink and Bold styles.",
+];
+
+/// Title, author, status, pages, finished (when read).
+const READING: &[(&str, &str, &str, u32, Option<&str>)] = &[
+    (
+        "The Book of Disquiet",
+        "Fernando Pessoa",
+        "Reading",
+        544,
+        None,
+    ),
+    (
+        "Journey to Portugal",
+        "José Saramago",
+        "Read",
+        464,
+        Some("2025-11-05"),
+    ),
+    (
+        "Pereira Maintains",
+        "Antonio Tabucchi",
+        "Read",
+        192,
+        Some("2025-10-18"),
+    ),
+    (
+        "Blindness",
+        "José Saramago",
+        "Read",
+        326,
+        Some("2025-09-27"),
+    ),
+    (
+        "Night Train to Lisbon",
+        "Pascal Mercier",
+        "Read",
+        438,
+        Some("2025-08-30"),
+    ),
+    (
+        "The Return",
+        "Dulce Maria Cardoso",
+        "Read",
+        256,
+        Some("2025-07-14"),
+    ),
+    (
+        "The Year of the Death of Ricardo Reis",
+        "José Saramago",
+        "Next",
+        358,
+        None,
+    ),
+    (
+        "Requiem: A Hallucination",
+        "Antonio Tabucchi",
+        "Next",
+        112,
+        None,
+    ),
+    ("The Maias", "Eça de Queirós", "Next", 720, None),
+    ("The Lusiads", "Luís Vaz de Camões", "Next", 288, None),
+];
+
+/// Hours of temperature and humidity readings: two weeks.
+const CLIMATE_HOURS: u32 = 14 * 24;
+
+/// A steady wobble in -1..1 that changes over `period` hours: noise that
+/// looks measured, the same on every computer.
+fn wobble(hour: f64, period: f64, seed: u64) -> f64 {
+    let at = |k: u64| {
+        let mut x = (k ^ seed).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        x ^= x >> 31;
+        x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        x ^= x >> 29;
+        (x >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+    };
+    let t = hour / period;
+    let k = t.floor();
+    let f = t - k;
+    let f = f * f * (3.0 - 2.0 * f);
+    at(k as u64) * (1.0 - f) + at(k as u64 + 1) * f
+}
+
+/// A bump around `center` o'clock, `width` hours wide.
+fn around(hour_of_day: f64, center: f64, width: f64) -> f64 {
+    let d = (hour_of_day - center + 12.0).rem_euclid(24.0) - 12.0;
+    (-d * d / (2.0 * width * width)).exp()
+}
+
+/// One hour's readings at home, made up but shaped like the real thing: the
+/// heating comes on in the morning and the evening, the weekend keeps the
+/// living room warm at midday, the bedroom stays cooler, and outside follows
+/// the sun and a week's weather. Starts on a Monday.
+fn climate(hour: u32) -> (f64, f64, f64, i64) {
+    use std::f64::consts::TAU;
+    let i = f64::from(hour);
+    let h = i % 24.0;
+    let weekend = matches!((hour / 24) % 7, 5 | 6);
+    let outside = 10.5
+        + 3.8 * (TAU * (h - 9.0) / 24.0).sin()
+        + 3.0 * (TAU * i / (24.0 * 7.0)).sin()
+        + 1.2 * wobble(i, 5.0, 1);
+    let living = 19.4
+        + 1.1 * around(h, 7.5, 1.1)
+        + 2.4 * around(h, 19.5, 2.2)
+        + if weekend { around(h, 13.0, 3.0) } else { 0.0 }
+        + 0.08 * (outside - 10.5)
+        + 0.3 * wobble(i, 3.0, 2);
+    let bedroom = 18.3
+        + 0.6 * around(h, 21.0, 2.0)
+        + 0.5 * around(h, 3.0, 3.0)
+        + 0.06 * (outside - 10.5)
+        + 0.25 * wobble(i, 4.0, 3);
+    let humidity = (54.0 - 1.3 * (outside - 10.5) + 3.0 * wobble(i, 6.0, 4)).clamp(35.0, 75.0);
+    (living, bedroom, outside, humidity.round() as i64)
+}
+
 /// A SQL string literal of a constant above.
 fn text(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
@@ -189,7 +327,48 @@ pub(crate) fn examples() -> Vec<Example> {
         })
         .collect();
 
+    let guide = table("oikome-guide", "guide");
+    let guide_rows: Vec<String> = GUIDE
+        .iter()
+        .map(|note| format!("({})", text(note)))
+        .collect();
+
+    let reading = table("reading-list", "books");
+    let reading_rows: Vec<String> = READING
+        .iter()
+        .map(|(title, author, status, pages, finished)| {
+            let finished = finished.map_or("NULL".to_string(), |day| format!("DATE {}", text(day)));
+            format!(
+                "({}, {}, {}, {pages}, {finished})",
+                text(title),
+                text(author),
+                text(status)
+            )
+        })
+        .collect();
+
+    let readings = table("home-climate", "readings");
+    let climate_rows: Vec<String> = (0..CLIMATE_HOURS)
+        .map(|hour| {
+            let (living, bedroom, outside, humidity) = climate(hour);
+            // From midnight on Monday, October 27, 2025, to the trip's last evening.
+            let day = 27 + hour / 24;
+            let (month, day) = if day > 31 { (11, day - 31) } else { (10, day) };
+            format!(
+                "(TIMESTAMP '2025-{month:02}-{day:02} {:02}:00:00', {living:.1}, {bedroom:.1}, {outside:.1}, {humidity})",
+                hour % 24
+            )
+        })
+        .collect();
+
     vec![
+        Example {
+            name: "oikome-guide",
+            statements: vec![
+                format!("CREATE TABLE {guide} (note VARCHAR)"),
+                format!("INSERT INTO {guide} VALUES {}", guide_rows.join(", ")),
+            ],
+        },
         Example {
             name: "lisbon-photos",
             statements: photo_statements,
@@ -208,6 +387,24 @@ pub(crate) fn examples() -> Vec<Example> {
                     "CREATE TABLE {spending} (day DATE, what VARCHAR, category VARCHAR, euros DECIMAL(8, 2))"
                 ),
                 format!("INSERT INTO {spending} VALUES {}", spending_rows.join(", ")),
+            ],
+        },
+        Example {
+            name: "reading-list",
+            statements: vec![
+                format!(
+                    "CREATE TABLE {reading} (title VARCHAR, author VARCHAR, status VARCHAR, pages INTEGER, finished DATE)"
+                ),
+                format!("INSERT INTO {reading} VALUES {}", reading_rows.join(", ")),
+            ],
+        },
+        Example {
+            name: "home-climate",
+            statements: vec![
+                format!(
+                    "CREATE TABLE {readings} (at TIMESTAMP, living_room_celsius DECIMAL(4, 1), bedroom_celsius DECIMAL(4, 1), outside_celsius DECIMAL(4, 1), humidity_pct INTEGER)"
+                ),
+                format!("INSERT INTO {readings} VALUES {}", climate_rows.join(", ")),
             ],
         },
     ]

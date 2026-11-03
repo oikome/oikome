@@ -8,6 +8,7 @@ import { useState } from "react";
 import {
   Button,
   Checkbox,
+  ConfirmDialog,
   CopyButton,
   Dialog,
   ErrorText,
@@ -25,7 +26,7 @@ import type { IconName, TileTone } from "@oikome/ui";
 import type { NodeInfo, StorageSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { RecoveryKeyPanel, ScreenHeader } from "../parts";
-import { homeRelative, shortId } from "../format";
+import { bytes, dateFromMs, homeRelative, middle, shortId } from "../format";
 import { addPlanned, useStoragePicker } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
@@ -41,17 +42,37 @@ const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
   drive: ["drive", "periwinkle"],
 };
 
+/** Free space and a bar, where the place says. */
+function Room({ place }: { place: StorageSummary }) {
+  if (place.freeBytes == null || place.totalBytes == null || place.totalBytes === 0) return null;
+  const used = (place.totalBytes - place.freeBytes) / place.totalBytes;
+  return (
+    <span className="screen-room-mini">
+      <span className="screen-room-mini__figure">{strings.home.freeShort(bytes(place.freeBytes))}</span>
+      <span className="screen-bar">
+        <i style={{ width: `${Math.max(2, used * 100)}%` }} />
+      </span>
+    </span>
+  );
+}
+
 /** Where collections can be kept, with how many are on each, and which one new ones go to. */
 function Storage() {
   const client = useClient();
   const toast = useToast();
   const storages = useLoad(() => client.listStorages(), []);
+  const spaces = useLoad(() => client.listSpaces(), []);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<StorageSummary>();
   const change = useAction();
+  const remove = useAction();
+  const stopRemoving = () => {
+    setRemoving(undefined);
+    remove.clear();
+  };
   return (
     <Group
       title={s.storageTitle}
-      footnote={s.storageFootnote}
       action={
         <Button variant="quiet" icon="plus" onClick={() => setAdding(true)}>
           {strings.storage.add}
@@ -80,38 +101,86 @@ function Storage() {
               </>
             }
             meta={
-              <>
-                {meta}
-                <br />
-                <span className="oik-mono" translate="no">
-                  {homeRelative(x.place)}
-                </span>
-              </>
+              <span className="screen-ellipsis" translate="no" title={x.place}>
+                {homeRelative(x.place)} · {meta}
+              </span>
             }
             trailing={
-              x.isDefault ? undefined : (
-                <Menu
-                  label={strings.common.moreActions(label)}
-                  items={[
-                    {
-                      label: strings.storage.useForNew,
-                      onSelect: async () => {
-                        const updated = await change.run(() =>
-                          client.setDefaultStorage({ storage: x.name }),
-                        );
-                        if (updated) {
-                          toast(strings.toast.defaultStorage(label));
-                          storages.reload();
-                        }
-                      },
-                    },
-                  ]}
-                />
-              )
+              <>
+                <Room place={x} />
+                {/* Local is always there; places added later can be removed. */}
+                {(!x.isDefault || x.name !== null) && (
+                  <Menu
+                    label={strings.common.moreActions(label)}
+                    items={[
+                      ...(x.isDefault
+                        ? []
+                        : [
+                            {
+                              label: strings.storage.useForNew,
+                              onSelect: async () => {
+                                const updated = await change.run(() =>
+                                  client.setDefaultStorage({ storage: x.name }),
+                                );
+                                if (updated) {
+                                  toast(strings.toast.defaultStorage(label));
+                                  storages.reload();
+                                }
+                              },
+                            },
+                          ]),
+                      ...(x.name === null
+                        ? []
+                        : [{ label: strings.storage.remove, destructive: true, onSelect: () => setRemoving(x) }]),
+                    ]}
+                  />
+                )}
+              </>
             }
           />
         );
       })}
+      {change.error && <Row title={change.error} muted />}
+      {removing && removing.spaces > 0 && (
+        <Dialog
+          title={strings.storage.stillHoldsTitle(removing.label)}
+          closeLabel={strings.common.close}
+          onClose={stopRemoving}
+          footer={
+            <Button variant="primary" onClick={stopRemoving}>
+              {strings.common.done}
+            </Button>
+          }
+        >
+          <p className="oik-dialog__text">
+            {strings.storage.stillHoldsBody(
+              (spaces.data ?? []).filter((space) => space.storage === removing.name).map((space) => space.name),
+              removing.spaces,
+            )}
+          </p>
+        </Dialog>
+      )}
+      {removing && removing.spaces === 0 && removing.name !== null && (
+        <ConfirmDialog
+          title={strings.storage.removeTitle(removing.label)}
+          body={removing.encrypted ? strings.storage.removeBodyEncrypted : strings.storage.removeBody}
+          confirmLabel={strings.storage.removeYes}
+          cancelLabel={strings.common.cancel}
+          busy={remove.busy}
+          error={remove.error}
+          onConfirm={async () => {
+            const name = removing.name;
+            if (name === null) return;
+            const done = await remove.run(() => client.removeStorage({ storage: name }));
+            if (done) {
+              toast(strings.toast.storageRemoved(removing.label));
+              stopRemoving();
+              storages.reload();
+            }
+          }}
+          onCancel={stopRemoving}
+        />
+      )}
       {adding && (
         <AddStorage
           onClose={() => setAdding(false)}
@@ -133,7 +202,6 @@ function Appearance() {
     <Group title={s.appearanceTitle}>
       <Row
         title={s.styleTitle}
-        meta={theme === "ink" ? s.styleInk : s.styleBold}
         trailing={
           <Segmented
             label={s.styleTitle}
@@ -152,7 +220,6 @@ function Appearance() {
       />
       <Row
         title={s.languageTitle}
-        meta={s.languageMore}
         trailing={<span className="oik-row__value">{s.language}</span>}
       />
     </Group>
@@ -228,127 +295,137 @@ export function Settings({
   return (
     <>
       <ScreenHeader title={s.title} lede={s.lede} />
-      <div className="screen-dash screen-dash--start">
-      <div className="screen-w7">
-      <Storage />
-      <Group title={s.recoveryTitle}>
-        <Row
-          alignStart
-          leading={<Tile icon="key" tone="apricot" />}
-          title={
-            info.recoveryKeySaved ? (
-              <Status kind="ok">{s.backedUp}</Status>
-            ) : (
-              <Status kind="bad">{s.notBackedUp}</Status>
-            )
-          }
-          meta={s.recoveryBody}
-          trailing={
-            !showKey && (
-              <Button
-                variant={info.recoveryKeySaved ? "secondary" : "primary"}
-                onClick={() => setShowKey(true)}
-              >
-                {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
-              </Button>
-            )
-          }
-        />
-        {showKey && (
-          <GroupPanel>
-            <RecoveryKeyPanel
-              doneLabel={strings.common.done}
-              onDone={(updated) => {
-                toast(strings.toast.keySaved);
-                onInfo(updated);
-                close();
-              }}
-              onLater={close}
-              laterLabel={info.recoveryKeySaved ? strings.common.close : undefined}
-            />
-          </GroupPanel>
-        )}
-      </Group>
-
-      </div>
-      <div className="screen-w5">
-      <Appearance />
-      <Group title={s.centerTitle} footnote={s.idFootnote}>
-        {editing ? (
-          <GroupPanel>
-            <form
-              className="screen-inline-form"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const updated = await rename.run(() =>
-                  client.renameNode({ name: name.trim() || strings.defaultName }),
-                );
-                if (updated) {
-                  toast(strings.toast.renamed(updated.name));
-                  onInfo(updated);
-                  setEditing(false);
-                }
-              }}
-            >
-              <TextField
-                label={s.nameLabel}
-                name="node-name"
-                value={name}
-                onChange={setName}
-                placeholder={strings.defaultName}
-                autoFocus
-              />
-              <Button
-                onClick={() => {
-                  setEditing(false);
-                  setName(info.name);
-                  rename.clear();
-                }}
-              >
-                {strings.common.cancel}
-              </Button>
-              <Button type="submit" disabled={rename.busy}>
-                {strings.common.save}
-              </Button>
-            </form>
-            {rename.error && <ErrorText>{rename.error}</ErrorText>}
-          </GroupPanel>
-        ) : (
-          <Row
-            title={s.nameLabel}
-            trailing={
-              <>
-                <span className="oik-row__value">{info.name || strings.defaultName}</span>
-                <Button
-                onClick={() => {
-                  setName(info.name);
-                  setEditing(true);
-                }}
-              >
-                  {s.rename}
-                </Button>
-              </>
+      <div className="screen-dash screen-dash--start screen-dash--split">
+        <div>
+          <Storage />
+          <Group
+            title={s.recoveryTitle}
+            action={
+              info.recoveryKeySaved ? (
+                <Status kind="ok">
+                  {info.recoveryKeySavedAtMs ? s.backedUpOn(dateFromMs(info.recoveryKeySavedAtMs)) : s.backedUp}
+                </Status>
+              ) : (
+                <Status kind="bad">{s.notBackedUp}</Status>
+              )
             }
-          />
-        )}
-        <Row
-          title={strings.sharing.yourId}
-          meta={<span className="oik-mono" translate="no">{shortId(info.did)}</span>}
-          trailing={
-            <CopyButton
-              value={shortId(info.did)}
-              copyLabel={strings.common.copy}
-              copiedLabel={strings.common.copied}
+          >
+            <Row
+              leading={<Tile icon="key" tone="apricot" />}
+              title={<span className="screen-row-prose">{s.recoveryBody}</span>}
+              trailing={
+                !showKey && (
+                  <Button
+                    variant={info.recoveryKeySaved ? "secondary" : "primary"}
+                    onClick={() => setShowKey(true)}
+                  >
+                    {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
+                  </Button>
+                )
+              }
             />
-          }
-        />
-        <Row title={s.dataFolder} meta={<span className="oik-mono" translate="no">{info.dataDir}</span>} />
-        <Row title={s.version} trailing={<span className="oik-row__value">{info.version}</span>} />
-      </Group>
-
-
-
-      </div>
+            {showKey && (
+              <GroupPanel>
+                <RecoveryKeyPanel
+                  doneLabel={strings.common.done}
+                  onDone={(updated) => {
+                    toast(strings.toast.keySaved);
+                    onInfo(updated);
+                    close();
+                  }}
+                  onLater={close}
+                  laterLabel={info.recoveryKeySaved ? strings.common.close : undefined}
+                />
+              </GroupPanel>
+            )}
+          </Group>
+        </div>
+        <div>
+          <Appearance />
+          <Group title={s.centerTitle}>
+            {editing ? (
+              <GroupPanel>
+                <form
+                  className="screen-inline-form"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const updated = await rename.run(() =>
+                      client.renameNode({ name: name.trim() || strings.defaultName }),
+                    );
+                    if (updated) {
+                      toast(strings.toast.renamed(updated.name));
+                      onInfo(updated);
+                      setEditing(false);
+                    }
+                  }}
+                >
+                  <TextField
+                    label={s.nameLabel}
+                    name="node-name"
+                    value={name}
+                    onChange={setName}
+                    placeholder={strings.defaultName}
+                    autoFocus
+                  />
+                  <Button
+                    onClick={() => {
+                      setEditing(false);
+                      setName(info.name);
+                      rename.clear();
+                    }}
+                  >
+                    {strings.common.cancel}
+                  </Button>
+                  <Button type="submit" disabled={rename.busy}>
+                    {strings.common.save}
+                  </Button>
+                </form>
+                {rename.error && <ErrorText>{rename.error}</ErrorText>}
+              </GroupPanel>
+            ) : (
+              <Row
+                overline={s.nameLabel}
+                title={info.name || strings.defaultName}
+                trailing={
+                  <Button
+                    variant="quiet"
+                    onClick={() => {
+                      setName(info.name);
+                      setEditing(true);
+                    }}
+                  >
+                    {s.rename}
+                  </Button>
+                }
+              />
+            )}
+            <Row
+              overline={strings.sharing.yourId}
+              title={
+                <span className="oik-mono" translate="no" title={shortId(info.did)}>
+                  {middle(shortId(info.did))}
+                </span>
+              }
+              trailing={
+                <CopyButton
+                  value={shortId(info.did)}
+                  copyLabel={strings.common.copyId}
+                  copiedLabel={strings.common.copied}
+                  iconOnly
+                />
+              }
+            />
+            <Row
+              overline={s.dataFolder}
+              title={
+                <span className="oik-mono screen-ellipsis" translate="no" title={info.dataDir}>
+                  {homeRelative(info.dataDir)}
+                </span>
+              }
+            />
+            <Row overline={s.version} title={<span className="oik-mono">{info.version}</span>} />
+          </Group>
+        </div>
       </div>
     </>
   );

@@ -19,6 +19,14 @@ const moment = new Intl.DateTimeFormat("en", {
   minute: "2-digit",
 });
 
+const monthDay = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
+const monthDayAsWritten = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" });
+
+/** Just the day, "Nov 7", for a caption; `asWritten` for a date or time stored without a zone. */
+export function monthAndDay(ms: number, asWritten = false): string {
+  return (asWritten ? monthDayAsWritten : monthDay).format(new Date(ms));
+}
+
 /** A DATE cell: "Oct 28, 2026". */
 export function calendarDate(ms: number): string {
   return calendarDay.format(new Date(ms));
@@ -80,14 +88,44 @@ export function homeRelative(path: string): string {
 const ACRONYMS = new Set(["id", "url", "uuid", "ip", "api"]);
 
 /** A column name as a header: "created_at" reads "Created at", "user_id" "User ID". */
-export function columnLabel(name: string): string {
-  const words = name
+// Suffixes that name a unit and little else.
+const UNITS: Record<string, string> = {
+  celsius: "°C",
+  fahrenheit: "°F",
+  pct: "%",
+  percent: "%",
+  kwh: "kWh",
+  km: "km",
+  kg: "kg",
+};
+
+/** A column name and the unit its suffix names: living_room_celsius is "living_room", "°C". */
+export function splitUnit(name: string): { base: string; unit?: string } {
+  const m = /^(.+?)[_-](celsius|fahrenheit|pct|percent|kwh|km|kg)$/i.exec(name);
+  return m ? { base: m[1]!, unit: UNITS[m[2]!.toLowerCase()] } : { base: name };
+}
+
+/** A column name as words: "living_room" reads "Living room". */
+function words(name: string): string {
+  const text = name
     .replace(/[_-]+/g, " ")
     .trim()
     .split(/\s+/)
-    .map((word) => (ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word));
-  const text = words.join(" ");
+    .map((word) => (ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word))
+    .join(" ");
   return text ? text[0]!.toUpperCase() + text.slice(1) : name;
+}
+
+/** A column's header: "Living room (°C)", "Day". */
+export function columnLabel(name: string): string {
+  const { base, unit } = splitUnit(name);
+  return unit ? `${words(base)} (${unit})` : words(name);
+}
+
+/** A measure's name and unit apart: "Living room", "°C". */
+export function measureLabel(name: string): { label: string; unit?: string } {
+  const { base, unit } = splitUnit(name);
+  return { label: words(base), unit };
 }
 const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" });
 
@@ -132,6 +170,11 @@ const KEY_PREFIX = "did:key:";
 /** An ID as people see and pass it on: the key, without the `did:key:` scheme. */
 export function shortId(id: string): string {
   return id.startsWith(KEY_PREFIX) ? id.slice(KEY_PREFIX.length) : id;
+}
+
+/** A long ID cut in the middle, "z6MkrYLgFi4cuz…TTsM5U6Ui", for a row; the whole one is copied. */
+export function middle(id: string, head = 14, tail = 9): string {
+  return id.length <= head + tail + 1 ? id : `${id.slice(0, head)}…${id.slice(-tail)}`;
 }
 
 /** An ID someone pasted, in either form, as the node expects it. */

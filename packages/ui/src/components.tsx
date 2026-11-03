@@ -165,6 +165,8 @@ export function GroupPanel({ children }: { children: ReactNode }) {
 
 export interface RowProps {
   leading?: ReactNode;
+  /** A small label above the title: "Name" over the name. */
+  overline?: ReactNode;
   title: ReactNode;
   meta?: ReactNode;
   trailing?: ReactNode;
@@ -184,6 +186,7 @@ export interface RowProps {
 
 export function Row({
   leading,
+  overline,
   title,
   meta,
   trailing,
@@ -200,6 +203,7 @@ export function Row({
     <>
       {leading}
       <span className="oik-row__text">
+        {overline && <span className="oik-row__overline">{overline}</span>}
         <span className={cx("oik-row__title", muted && "oik-row__title--muted")}>{title}</span>
         {meta && <span className="oik-row__meta">{meta}</span>}
       </span>
@@ -675,29 +679,35 @@ export function CopyButton({
   value,
   copyLabel,
   copiedLabel,
+  iconOnly = false,
 }: {
   value: string;
   copyLabel: string;
   copiedLabel: string;
+  /** Just the icon, for a row whose overline already says what is copied. */
+  iconOnly?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  return copied ? (
-    <span className="oik-copy__done" role="status">
-      <Icon name="check" />
-      {copiedLabel}
-    </span>
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      // The value stays on screen to copy by hand.
+    }
+  };
+  if (copied) {
+    return (
+      <span className="oik-copy__done" role="status">
+        <Icon name="check" />
+        {iconOnly ? <span className="oik-visually-hidden">{copiedLabel}</span> : copiedLabel}
+      </span>
+    );
+  }
+  return iconOnly ? (
+    <IconButton icon="copy" label={copyLabel} onClick={copy} />
   ) : (
-    <Button
-      icon="copy"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(value);
-          setCopied(true);
-        } catch {
-          // The value stays on screen to copy by hand.
-        }
-      }}
-    >
+    <Button icon="copy" onClick={copy}>
       {copyLabel}
     </Button>
   );

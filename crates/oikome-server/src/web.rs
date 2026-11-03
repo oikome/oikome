@@ -48,7 +48,7 @@ use base64::Engine;
 use oikome_api::{
     Api, ApiError, Caller, ContactInput, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef,
     ListAccess, ListShares, NewSpace, NewStorage, NodeName, ReadRows, Rows, RunSql, ShareRef,
-    ShareSpace, SpaceRef, SqlResult,
+    ShareSpace, SpaceRef, SqlResult, StorageRef,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -391,6 +391,7 @@ impl WebState {
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),
             "set_default_storage" => json_op!(set_default_storage, DefaultStorage),
+            "remove_storage" => json_op!(remove_storage, StorageRef),
             "find_places" => json_op!(find_places, Empty),
             "list_folders" => json_op!(list_folders, FolderRef),
             "read_rows" => match parse::<ReadRows>(&body) {

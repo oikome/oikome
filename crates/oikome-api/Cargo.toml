@@ -24,9 +24,9 @@ tokio = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 ts-rs = { workspace = true }
 
-# Free and total space of the disk a storage is on.
+# Free and total space of the disk a storage is on; this computer's name.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1", default-features = false, features = ["fs", "std"] }
+rustix = { version = "1.1", default-features = false, features = ["fs", "std", "system"] }
 
 [dev-dependencies]
 iceberg = { workspace = true }

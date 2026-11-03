@@ -511,7 +511,17 @@ async fn a_new_data_center_gets_examples_once() {
     let n = node();
     let added = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
     let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["lisbon-notes", "lisbon-photos", "lisbon-spending"]);
+    assert_eq!(
+        names,
+        [
+            "home-climate",
+            "lisbon-notes",
+            "lisbon-photos",
+            "lisbon-spending",
+            "oikome-guide",
+            "reading-list"
+        ]
+    );
     assert!(added.iter().all(|s| s.example && s.storage.is_none()));
 
     // Photos are images, kept whole.
@@ -556,6 +566,9 @@ async fn a_new_data_center_gets_examples_once() {
     for (space, table, count) in [
         ("lisbon-notes", "notes", 7),
         ("lisbon-spending", "spending", 10),
+        ("oikome-guide", "guide", 7),
+        ("reading-list", "books", 10),
+        ("home-climate", "readings", 14 * 24),
     ] {
         let rows = n
             .api
@@ -564,7 +577,7 @@ async fn a_new_data_center_gets_examples_once() {
                 ReadRows {
                     space: space.into(),
                     table: table.into(),
-                    limit: None,
+                    limit: Some(1000),
                     offset: None,
                 },
             )
@@ -584,12 +597,12 @@ async fn a_new_data_center_gets_examples_once() {
         .await
         .unwrap();
     let again = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(again.len(), 2);
+    assert_eq!(again.len(), 5);
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages.len(), 1);
     assert_eq!(storages[0].name, None);
     assert_eq!(storages[0].kind, StorageType::Disk);
-    assert_eq!(storages[0].spaces, 2);
+    assert_eq!(storages[0].spaces, 5);
     if cfg!(unix) {
         assert!(storages[0].total_bytes.is_some_and(|t| t > 0));
     }
@@ -659,7 +672,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages[0].spaces, 0);
     assert!(!storages[0].is_default);
-    assert_eq!(storages[1].spaces, 3);
+    assert_eq!(storages[1].spaces, 6);
 
     // Back to this computer.
     let storages = n
@@ -668,6 +681,84 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
         .await
         .unwrap();
     assert!(storages[0].is_default && !storages[1].is_default);
+
+    // A place stays while collections are on it.
+    let err = n
+        .api
+        .remove_storage(
+            &OWNER,
+            StorageRef {
+                storage: "documents".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err}");
+    assert!(err.message.contains("6 collections"), "{err}");
+
+    // An empty one goes, files and all left where they are, and Local is
+    // the default again when it was the default.
+    let spare = tempfile::tempdir().unwrap();
+    n.api
+        .add_storage(
+            &OWNER,
+            NewStorage {
+                label: "Spare".into(),
+                kind: StorageType::Folder,
+                address: spare.path().to_str().unwrap().into(),
+                username: None,
+                password: None,
+                encrypted: None,
+                make_default: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+    // A collection made there and removed leaves its files, not the place.
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "scratch".into(),
+                kind: None,
+                storage: Some("spare".into()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .drop_space(
+            &OWNER,
+            SpaceRef {
+                space: "scratch".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let storages = n
+        .api
+        .remove_storage(
+            &OWNER,
+            StorageRef {
+                storage: "spare".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(storages.len(), 2);
+    assert!(storages[0].is_default);
+    assert!(spare.path().join("Oikome").is_dir());
+    let err = n
+        .api
+        .remove_storage(
+            &OWNER,
+            StorageRef {
+                storage: "spare".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
 
     // A folder that is not there, or not a path, is refused.
     let err = n

@@ -34,6 +34,7 @@ import type {
   StorageSummary,
   NewStorage,
   DefaultStorage,
+  StorageRef,
   FoundPlace,
   FolderRef,
   FolderListing,
@@ -68,6 +69,7 @@ export interface NodeClient {
   listStorages(): Promise<StorageSummary[]>;
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
+  removeStorage(request: StorageRef): Promise<StorageSummary[]>;
   findPlaces(): Promise<FoundPlace[]>;
   listFolders(request?: FolderRef): Promise<FolderListing>;
   readRows(request: ReadRows): Promise<RowsResult>;
@@ -201,6 +203,10 @@ export class HttpClient implements NodeClient {
 
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]> {
     return this.#json("set_default_storage", request);
+  }
+
+  removeStorage(request: StorageRef): Promise<StorageSummary[]> {
+    return this.#json("remove_storage", request);
   }
 
   findPlaces(): Promise<FoundPlace[]> {

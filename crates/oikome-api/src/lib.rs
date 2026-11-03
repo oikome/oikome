@@ -315,6 +315,12 @@ impl Api {
                 String::new()
             },
             recovery_key_saved: settings.recovery_key_saved_at_ms.is_some(),
+            recovery_key_saved_at_ms: settings.recovery_key_saved_at_ms,
+            host: if owner {
+                places::host_name()
+            } else {
+                String::new()
+            },
             flight_url: self.flight_url.clone(),
         })
     }
@@ -476,8 +482,9 @@ impl Api {
     }
 
     /// Add the examples a new data center starts with (one weekend in
-    /// Lisbon: photos, notes and spending), once. A name already taken is
-    /// left alone. Returns the examples there now.
+    /// Lisbon as photos, notes and spending; a guide; a reading list; a
+    /// home's temperatures), once. A name already taken is left alone.
+    /// Returns the examples there now.
     pub async fn add_examples(
         &self,
         caller: &Caller,
@@ -683,6 +690,43 @@ impl Api {
         }
         let mut settings = self.settings()?;
         settings.default_storage = req.storage;
+        self.save_settings(&settings)?;
+        self.list_storages(caller, Empty {}).await
+    }
+
+    /// Stop keeping collections on a place added before. Refused while a
+    /// collection is on it; the files there stay where they are. New
+    /// collections go to Local when it was the default.
+    pub async fn remove_storage(
+        &self,
+        caller: &Caller,
+        req: StorageRef,
+    ) -> Result<Vec<StorageSummary>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let storages = self.list_storages(caller, Empty {}).await?;
+        let place = storages
+            .iter()
+            .find(|s| s.name.as_deref() == Some(req.storage.as_str()))
+            .ok_or_else(|| ApiError::not_found("there is no such storage"))?;
+        if place.spaces > 0 {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "{} still holds {} collection{}; remove {} first",
+                    place.label,
+                    place.spaces,
+                    if place.spaces == 1 { "" } else { "s" },
+                    if place.spaces == 1 { "it" } else { "them" },
+                ),
+            ));
+        }
+        self.session(None).remove_storage(&req.storage)?;
+        let mut settings = self.settings()?;
+        settings.storage_labels.remove(&req.storage);
+        if settings.default_storage.as_deref() == Some(req.storage.as_str()) {
+            settings.default_storage = None;
+        }
         self.save_settings(&settings)?;
         self.list_storages(caller, Empty {}).await
     }

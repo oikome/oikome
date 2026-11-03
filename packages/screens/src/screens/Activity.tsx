@@ -14,6 +14,39 @@ import { strings } from "../strings";
 const s = strings.activity;
 const PAGE = 50;
 
+/** Who it was, in the words the owner uses. */
+export function who(item: AccessItem): string {
+  return item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
+}
+
+/** What happened, without who: "read lisbon-photos". */
+function deed(item: AccessItem): string {
+  const line = sentence(item);
+  const name = who(item);
+  return line.startsWith(`${name} `) ? line.slice(name.length + 1) : line;
+}
+
+/** What happened, with the collections it touched set apart. */
+function Deed({ item }: { item: AccessItem }) {
+  const line = deed(item);
+  const what = item.spaces.join(", ");
+  const at = what ? line.indexOf(what) : -1;
+  if (at < 0) return <>{line}</>;
+  return (
+    <>
+      {line.slice(0, at)}
+      <strong translate="no">{what}</strong>
+      {line.slice(at + what.length)}
+    </>
+  );
+}
+
+/** How it reached the data center. */
+function through(item: AccessItem): string {
+  if (item.shareId) return s.viaShare;
+  return item.did ? s.viaContact : s.viaNetwork;
+}
+
 /** One line of the log, in words: "Sam read lisbon-photos". */
 export function sentence(item: AccessItem): string {
   const who = item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
@@ -80,35 +113,47 @@ export function Activity() {
               <thead>
                 <tr>
                   <th scope="col">{s.colWhen}</th>
+                  <th scope="col">{s.colWho}</th>
                   <th scope="col">{s.colWhat}</th>
+                  <th scope="col">{s.colThrough}</th>
                   <th scope="col">{s.colResult}</th>
                 </tr>
               </thead>
               <tbody>
                 {items.length === 0 && load.busy ? (
                   <tr>
-                    <td colSpan={3}>
+                    <td colSpan={5}>
                       <span className="oik-skel oik-skel--line" aria-hidden="true" />
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="screen-log-table__empty">
+                    <td colSpan={5} className="screen-log-table__empty">
                       {s.empty}
                     </td>
                   </tr>
                 ) : (
                   items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="oik-num screen-log-table__when">
-                        {item.count > 1 ? `${ago(item.atMs)} · ${s.times(item.count)}` : ago(item.atMs)}
-                      </td>
+                    <tr
+                      key={item.id}
+                      className={item.outcome === "allowed" ? undefined : "screen-log-table__refused"}
+                    >
+                      <td className="oik-num screen-log-table__when">{ago(item.atMs)}</td>
                       <td>
                         <span className="screen-log-table__who">
-                          <Avatar name={item.contactName ?? "?"} small />
-                          {sentence(item)}
+                          <Avatar name={who(item)} small />
+                          {who(item)}
                         </span>
                       </td>
+                      <td>
+                        <Deed item={item} />
+                        {item.count > 1 && (
+                          <span className="screen-log-table__times" title={s.times(item.count)}>
+                            {" "}×{item.count}
+                          </span>
+                        )}
+                      </td>
+                      <td className="screen-log-table__via">{through(item)}</td>
                       <td>
                         <Status kind={item.outcome === "allowed" ? "ok" : "bad"}>
                           {item.outcome === "allowed" ? s.allowed : s.refused}

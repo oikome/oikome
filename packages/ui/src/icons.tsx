@@ -26,6 +26,7 @@ export type IconName =
   | "note"
   | "person-plus"
   | "photo"
+  | "search"
   | "plus"
   | "sliders"
   | "table"
@@ -49,6 +50,12 @@ const PATHS: Record<IconName, ReactElement> = {
     <>
       <path d="M6.5 4h11A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5v-13A1.5 1.5 0 0 1 6.5 4z" />
       <path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m20 20-4-4" />
     </>
   ),
   photo: (

@@ -46,6 +46,15 @@ dataDir: string,
  */
 recoveryKeySaved: boolean, 
 /**
+ * When they said so.
+ */
+recoveryKeySavedAtMs: number | null, 
+/**
+ * This computer's name on its network ("rosh-mbp"); empty for a
+ * principal and where the system doesn't say.
+ */
+host: string, 
+/**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
  */
@@ -184,6 +193,12 @@ makeDefault?: boolean, };
  * `set_default_storage`: where new collections go; `None` for this computer.
  */
 export type DefaultStorage = { storage: string | null, };
+
+/**
+ * `remove_storage`: a place added before; Local (this computer) is never
+ * removed.
+ */
+export type StorageRef = { storage: string, };
 
 /**
  * A place on this computer found to keep Spaces in: a cloud drive's

@@ -104,8 +104,8 @@ test("first run: name the data center and save its recovery key", async () => {
   // The storage choices also mention a user name: the field is "Name" exactly.
   const name = page.getByLabel("Name", { exact: true });
   await expect(name).toHaveValue("My data center");
-  // Where collections are kept is chosen already: this computer.
-  await expect(page.getByRole("radio", { name: /^This computer/ })).toBeChecked();
+  // Where collections are kept is chosen already: Local, on this computer.
+  await expect(page.getByRole("radio", { name: /^Local/ })).toBeChecked();
   await name.fill("Home");
   await page.getByRole("button", { name: "Continue" }).click();
 
@@ -130,10 +130,10 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(page.locator(".screen-node__name")).toHaveText("Home");
 });
 
-test("the examples open as photos, notes and a table; a collection of one's own", async () => {
+test("the examples open as photos, notes, tables and readings; a collection of one's own", async () => {
   await page.getByRole("link", { name: "Collections" }).first().click();
-  await expect(page.locator(".screen-cover")).toHaveCount(3);
-  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(3);
+  await expect(page.locator(".screen-cover")).toHaveCount(6);
+  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(6);
 
   await page.getByRole("link", { name: /^lisbon-photos/ }).click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
@@ -159,10 +159,29 @@ test("the examples open as photos, notes and a table; a collection of one's own"
   await expect(spending.getByRole("cell", { name: "Metro to the airport" })).toBeVisible();
   await expect(spending.getByRole("cell", { name: "1.85", exact: true })).toBeVisible();
 
+  // The guide reads in order, without dates.
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^oikome-guide/ }).click();
+  await expect(page.locator(".screen-note")).toHaveCount(7);
+  await expect(page.locator(".screen-note").first()).toHaveText(/^Welcome to Oikome\./);
+
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^reading-list/ }).click();
+  await expect(page.getByRole("table", { name: "books" }).getByRole("cell", { name: "The Book of Disquiet" })).toBeVisible();
+
+  // Readings open at the latest ones, as a line with the rows below it.
+  await page.locator(".screen-back").click();
+  await page.getByRole("link", { name: /^home-climate/ }).click();
+  await expect(page.getByRole("img", { name: /^Living room from .+ °C to .+ °C, / })).toBeVisible();
+  await expect(page.getByText("Rows 237–336")).toBeVisible();
+  await page.getByRole("radio", { name: "Humidity" }).click();
+  await expect(page.getByRole("img", { name: /^Humidity from \d+ % to \d+ %, / })).toBeVisible();
+  await expect(page.getByRole("table", { name: "readings" })).toBeVisible();
+
   // One's own: made here, kept on this computer, filled through the node.
   await page.locator(".screen-back").click();
   await page.getByRole("button", { name: "New Collection" }).first().click();
-  await expect(page.getByRole("dialog").getByText("This computer", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("Local", { exact: true })).toBeVisible();
   await page.getByLabel("Name").fill("notes");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/\/collections\/notes$/);
@@ -222,10 +241,24 @@ test("a place picked on this computer keeps new collections", async () => {
 
     // Back to this computer for what comes next.
     await page.goto(`${base}/settings`);
-    await page.getByRole("button", { name: "More actions for This computer" }).click();
+    await page.getByRole("button", { name: "More actions for Local" }).click();
     await page.getByRole("menuitem", { name: "Use for New Collections" }).click();
-    await expect(page.locator(".oik-toasts")).toContainText("New collections go to This computer.");
+    await expect(page.locator(".oik-toasts")).toContainText("New collections go to Local.");
+
+    // A place stays while a collection is on it, and goes once none is.
+    await page.getByRole("button", { name: "More actions for Projects" }).click();
+    await page.getByRole("menuitem", { name: "Remove Place" }).click();
+    await expect(page.getByRole("dialog")).toContainText("Remove the collection on it first: plans.");
+    await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
     await api("drop_space", { space: "plans" });
+    await page.reload();
+    await page.getByRole("button", { name: "More actions for Projects" }).click();
+    await page.getByRole("menuitem", { name: "Remove Place" }).click();
+    await page.getByRole("dialog", { name: "Remove Projects?" }).getByRole("button", { name: "Remove" }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Removed Projects.");
+    await expect(page.getByRole("button", { name: "More actions for Projects" })).toHaveCount(0);
+    // Local has nothing to remove: it is always there.
+    await page.getByRole("button", { name: "More actions for Local" }).waitFor({ state: "detached" });
   } finally {
     rmSync(picked, { recursive: true, force: true });
   }
@@ -254,7 +287,9 @@ test("a contact reads a shared collection until the share is stopped", async () 
   await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
   const token = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByText("Bob can view live")).toBeVisible();
+  const shareRow = page.locator(".screen-table-in-card tr", { hasText: "Bob" });
+  await expect(shareRow).toContainText("notes");
+  await expect(shareRow).toContainText("View live");
 
   const { flightUrl } = await api("node_info");
   nodeSql(contact, `CREATE SPACE pub WITH PEER = '${flightUrl}', REMOTE = 'notes', TOKEN = '${token}'`);
@@ -264,7 +299,8 @@ test("a contact reads a shared collection until the share is stopped", async () 
   ]);
 
   await page.getByRole("button", { name: "Stop Sharing: notes, Bob" }).click();
-  await expect(page.getByText("Stopped for Bob.")).toBeVisible();
+  await expect(page.locator(".oik-toasts")).toContainText("Stopped sharing notes with Bob.");
+  await expect(shareRow).toContainText("Ended");
   let refused;
   try {
     nodeSql(contact, "SELECT body FROM pub.memos");
@@ -278,8 +314,9 @@ test("Activity shows the contact's reads and the refusal", async () => {
   await page.getByRole("link", { name: "Activity" }).click();
   await expect(async () => {
     await page.reload();
-    await expect(page.getByText("Bob read notes").first()).toBeVisible({ timeout: 1000 });
-    await expect(page.getByText("Bob was turned away from notes").first()).toBeVisible({
+    const bob = page.locator("tbody tr", { hasText: "Bob" });
+    await expect(bob.filter({ hasText: "read notes" }).first()).toBeVisible({ timeout: 1000 });
+    await expect(bob.filter({ hasText: "was turned away from notes" }).first()).toBeVisible({
       timeout: 1000,
     });
   }).toPass({ timeout: 20_000 });
@@ -316,6 +353,8 @@ test("screens use words for people, also when something fails", async () => {
     "/collections",
     "/collections/notes",
     "/collections/lisbon-photos",
+    "/collections/oikome-guide",
+    "/collections/home-climate",
     "/sharing",
     "/activity",
     "/settings",
@@ -422,6 +461,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/collections", "Collections"],
     ["/collections/lisbon-photos", "lisbon-photos"],
     ["/collections/lisbon-notes", "lisbon-notes"],
+    ["/collections/home-climate", "home-climate"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
     ["/activity", "Activity"],

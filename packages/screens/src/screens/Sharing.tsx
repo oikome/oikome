@@ -16,8 +16,8 @@ import {
   Menu,
   Row,
   SkeletonRows,
+  Status,
   TextField,
-  Tile,
   collectionTones,
   useToast,
 } from "@oikome/ui";
@@ -34,16 +34,26 @@ const s = strings.sharing;
 export function Sharing({
   info,
   startAdding = false,
+  startSharing = false,
 }: {
   info: NodeInfo;
   /** Opened to add a contact (?add=1), from a share that needs one first. */
   startAdding?: boolean;
+  /** Opened to share something (?share=1), from the ⌘K palette. */
+  startSharing?: boolean;
 }) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const contacts = useLoad(() => client.listContacts(), []);
-  const [composing, setComposing] = useState(false);
+  const [composing, setComposing] = useState(startSharing);
+  useEffect(() => {
+    if (startSharing) {
+      setComposing(true);
+      // Drop ?share=1, so a reload does not open the dialog again.
+      navigate("/sharing", { replace: true });
+    }
+  }, [startSharing]);
   const stop = useAction();
   const toast = useToast();
 
@@ -74,88 +84,116 @@ export function Sharing({
           <ErrorText key="error">{e}</ErrorText>
         ))}
 
-      <div className="screen-dash screen-dash--start">
-      <div className="screen-w7">
-      <Group title={s.sharedByYou}>
-        {!shares.data && !shares.error && <SkeletonRows count={2} />}
-        {shares.data && active.length === 0 && <Row title={s.nothingShared} muted />}
-        {active.map((share) => {
-          const name = share.contactName ?? strings.common.unknown;
-          return (
+      <div className="screen-dash screen-dash--start screen-dash--split">
+        <section className="oik-group" aria-labelledby="shared-by-you">
+          <header className="oik-group__head">
+            <h2 id="shared-by-you" className="oik-group__title">
+              {s.sharedByYou}
+            </h2>
+            {shares.data && (
+              <span className="screen-group-count">{s.counts(active.length, ended.length)}</span>
+            )}
+          </header>
+          {!shares.data && !shares.error ? (
+            <ul className="oik-group__body">
+              <SkeletonRows count={2} />
+            </ul>
+          ) : active.length + ended.length === 0 ? (
+            <p className="screen-panel__empty">{s.nothingShared}</p>
+          ) : (
+            <div className="screen-table-in-card">
+              <table className="oik-table" aria-label={s.sharedByYou}>
+                <thead>
+                  <tr>
+                    <th scope="col">{s.colCollection}</th>
+                    <th scope="col">{s.colWith}</th>
+                    <th scope="col">{s.colAccess}</th>
+                    <th scope="col">{s.colUntil}</th>
+                    <th scope="col">
+                      <span className="oik-visually-hidden">{s.stop}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...active, ...ended].map((share) => {
+                    const name = share.contactName ?? strings.common.unknown;
+                    const on = share.status === "active";
+                    return (
+                      <tr key={share.id} className={on ? undefined : "screen-row-ended"}>
+                        <td className="screen-cell-mono" translate="no">
+                          {share.space}
+                        </td>
+                        <td>
+                          <span className="screen-cell-person">
+                            <Avatar name={name} small />
+                            {name}
+                          </span>
+                        </td>
+                        <td>
+                          {on ? (
+                            <Status kind={share.access === "copy" ? "run" : "ok"}>
+                              {share.access === "copy" ? s.accessCopyShort : s.accessViewShort}
+                            </Status>
+                          ) : (
+                            <Status kind="off">
+                              {share.status === "expired" ? s.expired : s.endedShort}
+                            </Status>
+                          )}
+                        </td>
+                        <td className="screen-cell-mono">{dateFromSeconds(share.expiresAt)}</td>
+                        <td className="screen-cell-action">
+                          {on && (
+                            <Button
+                              variant="quiet"
+                              disabled={stop.busy}
+                              aria-label={`${s.stop}: ${share.space}, ${name}`}
+                              onClick={async () => {
+                                const done = await stop.run(() => client.revokeShare({ id: share.id }));
+                                if (done) {
+                                  toast(strings.toast.stopped(share.space, name));
+                                  reload();
+                                }
+                              }}
+                            >
+                              {s.stopShort}
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <div>
+          <Contacts
+            contacts={contacts.data ?? []}
+            shares={active}
+            me={info.did}
+            startAdding={startAdding}
+            onChange={reload}
+          />
+
+          <Group title={s.yourId} footnote={s.yourIdBody}>
             <Row
-              key={share.id}
-              leading={<Tile icon="collection" tone={toneOf(share.space)} />}
-              title={share.space}
-              meta={s.shareSentence(name, share.access === "copy", dateFromSeconds(share.expiresAt))}
+              title={
+                <span className="oik-mono" translate="no">
+                  {shortId(info.did)}
+                </span>
+              }
               trailing={
-                <Button
-                  variant="quiet"
-                  disabled={stop.busy}
-                  aria-label={`${s.stop}: ${share.space}, ${name}`}
-                  onClick={async () => {
-                    const done = await stop.run(() => client.revokeShare({ id: share.id }));
-                    if (done) {
-                      toast(strings.toast.stopped(share.space, name));
-                      reload();
-                    }
-                  }}
-                >
-                  {s.stop}
-                </Button>
+                <CopyButton
+                  value={shortId(info.did)}
+                  copyLabel={strings.common.copy}
+                  copiedLabel={strings.common.copied}
+                />
               }
             />
-          );
-        })}
-      </Group>
-
-      {ended.length > 0 && (
-        <Group title={s.ended}>
-          {ended.map((share) => {
-            const name = share.contactName ?? strings.common.unknown;
-            return (
-              <Row
-                key={share.id}
-                muted
-                leading={<Tile icon="collection" tone="stone" />}
-                title={share.space}
-                meta={
-                  share.status === "expired"
-                    ? s.expiredFor(name, dateFromSeconds(share.expiresAt))
-                    : s.stoppedFor(name)
-                }
-              />
-            );
-          })}
-        </Group>
-      )}
-
-      </div>
-      <div className="screen-w5">
-      <Contacts
-        contacts={contacts.data ?? []}
-        shares={active}
-        me={info.did}
-        startAdding={startAdding}
-        onChange={reload}
-      />
-
-      <Group title={s.yourId} footnote={s.yourIdBody}>
-        <Row
-          title={
-            <span className="oik-mono" translate="no">
-              {shortId(info.did)}
-            </span>
-          }
-          trailing={
-            <CopyButton
-              value={shortId(info.did)}
-              copyLabel={strings.common.copy}
-              copiedLabel={strings.common.copied}
-            />
-          }
-        />
-      </Group>
-      </div>
+          </Group>
+        </div>
       </div>
 
       {composing && spaces.data && contacts.data && shares.data && (
@@ -214,7 +252,18 @@ function Contacts({
 
   return (
     <>
-      <Group title={s.contacts} footnote={s.contactsFootnote}>
+      <Group
+        title={s.contacts}
+        footnote={s.contactsFootnote}
+        action={
+          !adding && (
+            <Button variant="quiet" icon="plus" aria-label={s.addContact} onClick={() => setAdding(true)}>
+              {s.add}
+            </Button>
+          )
+        }
+      >
+        {contacts.length === 0 && !adding && <Row title={s.noContacts} muted />}
         {contacts.map((contact) => {
           const count = shares.filter((share) => share.did === contact.did).length;
           if (editing === contact.did) {
@@ -358,14 +407,7 @@ function Contacts({
               </div>
             </form>
           </GroupPanel>
-        ) : (
-          <Row
-            add
-            leading={<Tile icon="plus" tone="mist" />}
-            title={s.addContact}
-            onClick={() => setAdding(true)}
-          />
-        )}
+        ) : null}
       </Group>
       {removing && (
         <ConfirmDialog

@@ -11,13 +11,14 @@ import type { Table } from "apache-arrow";
 import { loadPreview } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
-import { calendarDate, columnLabel, dateTime, wallTime } from "./format";
+import { calendarDate, dateTime, wallTime } from "./format";
+import { SeriesCover } from "./series";
 import { numeric, show } from "./parts";
 import { Link } from "./router";
 import { strings } from "./strings";
 
 const s = strings.collections;
-const KIND_ICONS = { photos: "photo", notes: "note", table: "table" } as const;
+const KIND_ICONS = { photos: "photo", notes: "note", table: "table", series: "activity" } as const;
 
 /** Contact names each collection is shared with now. */
 export function sharedNames(shares: Share[] | undefined): Map<string, string[]> {
@@ -51,15 +52,6 @@ function MiniTable({ table }: { table: Table }) {
   const rows = Math.min(table.numRows, 4);
   return (
     <table className="screen-cover__table" aria-hidden="true">
-      <thead>
-        <tr>
-          {fields.map((f) => (
-            <th key={f.name} className={numeric(f) ? "oik-num" : undefined}>
-              {columnLabel(f.name)}
-            </th>
-          ))}
-        </tr>
-      </thead>
       <tbody>
         {Array.from({ length: rows }, (_, r) => (
           <tr key={r}>
@@ -114,6 +106,7 @@ function Art({ space, tone, preview }: { space: SpaceSummary; tone: TileTone; pr
       </div>
     );
   }
+  if (shape.view === "series" && preview.rows) return <SeriesCover table={preview.rows} shape={shape} />;
   return (
     <div aria-hidden="true" className="screen-cover__art screen-cover__art--table">
       {preview.rows && <MiniTable table={preview.rows} />}
@@ -145,7 +138,11 @@ export function Cover({
         <Art space={space} tone={tone} preview={preview.data} />
         <span className="screen-cover__chip" aria-hidden="true">
           <Icon name={space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]} />
-          {space.kind === "remote" ? strings.collections.sharedChip : s.kinds[preview.data?.shape.view ?? "table"]}
+          {space.kind === "remote"
+            ? strings.collections.sharedChip
+            : space.example
+              ? s.example
+              : s.kinds[preview.data?.shape.view ?? "table"]}
         </span>
       </span>
       <span className="screen-cover__caption">

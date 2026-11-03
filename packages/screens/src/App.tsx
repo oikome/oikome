@@ -12,6 +12,7 @@ import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo, StorageSummary } from "@oikome/client";
 import { ClientProvider, useClient, useLoad } from "./data";
 import { bytes } from "./format";
+import { Palette } from "./palette";
 import { BackLink } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
@@ -112,7 +113,9 @@ function Root() {
     }
     screen = <Collection key={name} name={name} />;
   } else if (path === "/sharing") {
-    screen = <Sharing info={info} startAdding={query.get("add") === "1"} />;
+    screen = (
+      <Sharing info={info} startAdding={query.get("add") === "1"} startSharing={query.get("share") === "1"} />
+    );
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {
@@ -159,74 +162,81 @@ function placeLabel(place: StorageSummary): string {
   return place.name === null ? strings.storage.thisComputer : place.label;
 }
 
-/**
- * Where collections are kept, at the foot of the sidebar: every place in a
- * list, and the room on the one picked. Any place can be picked, so every
- * place's room can be seen.
- */
-function Places({ path }: { path: string }) {
-  const client = useClient();
-  const storages = useLoad(() => client.listStorages(), [path]);
-  const [picked, setPicked] = useState<string | null>(rememberedPlace);
-  const list = storages.data ?? [];
-  const current = list.find((x) => (x.name ?? "") === picked) ?? list.find((x) => x.isDefault) ?? list[0];
-  if (!current) return null;
-  const pick = (place: StorageSummary) => {
-    const key = place.name ?? "";
-    setPicked(key);
-    try {
-      localStorage.setItem(PLACE_KEY, key);
-    } catch {
-      // Not remembered in a private window: the card still switches.
-    }
-  };
-  const used =
-    current.totalBytes && current.freeBytes !== null && current.totalBytes > 0
-      ? (current.totalBytes - current.freeBytes) / current.totalBytes
-      : undefined;
+/** How full a place is, 0 to 1, where it says. */
+function usedShare(place: StorageSummary): number | undefined {
+  return place.totalBytes && place.freeBytes !== null && place.totalBytes > 0
+    ? (place.totalBytes - place.freeBytes) / place.totalBytes
+    : undefined;
+}
+
+/** Where collections are kept, under the pages; picking one shows its room below. */
+function PlaceList({
+  places,
+  current,
+  onPick,
+}: {
+  places: StorageSummary[];
+  current?: StorageSummary;
+  onPick: (place: StorageSummary) => void;
+}) {
+  if (places.length === 0) return null;
   return (
-    <>
-      <div className="screen-places">
-        <span className="oik-label screen-places__title">{strings.nav.places}</span>
-        <ul className="screen-places__list">
-          {list.map((place) => (
-            <li key={place.name ?? ""}>
-              <button
-                type="button"
-                className="screen-place"
-                aria-pressed={place === current}
-                onClick={() => pick(place)}
-              >
-                <Status kind={place.spaces > 0 ? "ok" : "idle"}>{placeLabel(place)}</Status>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="screen-room" aria-live="polite">
-        <div className="screen-room__head">
-          <span className="oik-label">{placeLabel(current)}</span>
-          {current.totalBytes && current.freeBytes !== null ? (
-            <span className="screen-room__figure">
-              {strings.storage.freeOf(bytes(current.freeBytes), bytes(current.totalBytes))}
-            </span>
-          ) : (
-            <span className="screen-room__figure">{strings.settings.storageCount(current.spaces)}</span>
-          )}
-        </div>
-        {used !== undefined ? (
-          <div className="screen-bar" role="img" aria-label={strings.storage.usedShare(Math.round(used * 100))}>
-            <i key={current.name ?? ""} style={{ width: `${Math.max(2, used * 100)}%` }} />
-          </div>
-        ) : (
-          <span className="screen-room__note">{current.encrypted ? strings.settings.encrypted : strings.storage.noRoom}</span>
-        )}
-      </div>
-    </>
+    <div className="screen-places">
+      <span className="oik-label screen-places__title">{strings.nav.places}</span>
+      <ul className="screen-places__list">
+        {places.map((place) => (
+          <li key={place.name ?? ""}>
+            <button
+              type="button"
+              className="screen-place"
+              aria-pressed={place === current}
+              onClick={() => onPick(place)}
+            >
+              <Status kind={place.spaces > 0 ? "ok" : "idle"}>{placeLabel(place)}</Status>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
-function NavList({ items, current }: { items: NavItem[]; current?: string }) {
+/** The room on the place picked: used of total, and a bar. */
+function RoomCard({ place }: { place?: StorageSummary }) {
+  if (!place) return null;
+  const used = usedShare(place);
+  return (
+    <div className="screen-room" aria-live="polite">
+      <div className="screen-room__head">
+        <span className="oik-label">{placeLabel(place)}</span>
+        <span className="screen-room__figure">
+          {place.totalBytes != null && place.freeBytes != null
+            ? strings.storage.usedOf(bytes(place.totalBytes - place.freeBytes), bytes(place.totalBytes))
+            : strings.settings.storageCount(place.spaces)}
+        </span>
+      </div>
+      {used !== undefined ? (
+        <div className="screen-bar" role="img" aria-label={strings.storage.usedShare(Math.round(used * 100))}>
+          <i key={place.name ?? ""} style={{ width: `${Math.max(2, used * 100)}%` }} />
+        </div>
+      ) : (
+        <span className="screen-room__note">
+          {place.encrypted ? strings.settings.encrypted : strings.storage.noRoom}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function NavList({
+  items,
+  current,
+  counts = {},
+}: {
+  items: NavItem[];
+  current?: string;
+  counts?: Record<string, number | undefined>;
+}) {
   return (
     <ul className="screen-nav">
       {items.map((item) => (
@@ -234,6 +244,7 @@ function NavList({ items, current }: { items: NavItem[]; current?: string }) {
           <Link to={item.to} className="screen-nav__item" current={item.to === current}>
             <Icon name={item.icon} />
             {item.label}
+            {counts[item.to] !== undefined && <span className="screen-nav__count">{counts[item.to]}</span>}
           </Link>
         </li>
       ))}
@@ -255,8 +266,36 @@ function Shell({
   sub?: string;
   children: ReactNode;
 }) {
+  const client = useClient();
   const name = info.name || strings.defaultName;
+  const host = info.host || name;
   const sectionLabel = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
+  const spaces = useLoad(() => client.listSpaces(), [path]);
+  const storages = useLoad(() => client.listStorages(), [path]);
+  const [picked, setPicked] = useState<string | null>(rememberedPlace);
+  const [searching, setSearching] = useState(false);
+  const places = storages.data ?? [];
+  const place = places.find((x) => (x.name ?? "") === picked) ?? places.find((x) => x.isDefault) ?? places[0];
+  const pick = (next: StorageSummary) => {
+    const key = next.name ?? "";
+    setPicked(key);
+    try {
+      localStorage.setItem(PLACE_KEY, key);
+    } catch {
+      // Not remembered in a private window: the card still switches.
+    }
+  };
+  // ⌘K (Ctrl+K) opens the palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearching(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   useEffect(() => {
     const label = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
     document.title = label ? `${label} · ${strings.brand}` : strings.brand;
@@ -275,17 +314,29 @@ function Shell({
             </span>
             <span className="screen-brand__text">
               <span className="screen-brand__name">{strings.brand}</span>
-              <span className="screen-brand__sub">{name}</span>
+              <span className="screen-brand__sub" translate="no">
+                {host}
+              </span>
             </span>
           </div>
+          <button type="button" className="screen-search" onClick={() => setSearching(true)}>
+            <Icon name="search" />
+            <span>{strings.palette.open_}</span>
+            <kbd>⌘K</kbd>
+          </button>
           <nav className="screen-sidebar__nav" aria-label={strings.nav.label}>
-            <NavList items={NAV} current={current} />
+            <NavList
+              items={NAV}
+              current={current}
+              counts={{ "/collections": spaces.data?.length }}
+            />
           </nav>
-          <Places path={path} />
+          <PlaceList places={places} current={place} onPick={pick} />
           <div className="screen-sidebar__foot">
             <nav aria-label={strings.nav.more}>
               <NavList items={FOOT} current={current} />
             </nav>
+            <RoomCard place={place} />
             {/* The data center this page is served by: it runs here, on this computer. */}
             <div className="screen-node">
               <span className="screen-node__mark" aria-hidden="true">
@@ -293,7 +344,7 @@ function Shell({
               </span>
               <span className="screen-node__text">
                 <span className="screen-node__name">{name}</span>
-                <Status kind="ok">{strings.nav.running}</Status>
+                <Status kind="ok">{strings.nav.runningShort}</Status>
               </span>
             </div>
           </div>
@@ -302,7 +353,9 @@ function Shell({
       <main id="main" tabIndex={-1} className="screen-main">
         <div className="screen-top">
           <nav className="screen-crumb" aria-label={strings.nav.crumb}>
-            <span className="screen-crumb__root">{name}</span>
+            <span className="screen-crumb__root" translate="no">
+              {host}
+            </span>
             {sectionLabel && current !== "/" && (
               <>
                 <span className="screen-crumb__sep" aria-hidden="true">/</span>
@@ -328,9 +381,19 @@ function Shell({
               </>
             )}
           </nav>
+          <button
+            type="button"
+            className="oik-icon-button screen-top__search"
+            aria-label={strings.palette.title}
+            title={strings.palette.title}
+            onClick={() => setSearching(true)}
+          >
+            <Icon name="search" />
+          </button>
         </div>
         <div className="screen-page">{children}</div>
       </main>
+      {searching && <Palette onClose={() => setSearching(false)} />}
     </div>
   );
 }

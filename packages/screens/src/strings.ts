@@ -14,6 +14,7 @@ export const strings = {
   nav: {
     label: "Main",
     running: "Running on this computer",
+    runningShort: "Running here",
     home: "Home",
     places: "Places",
     more: "More",
@@ -33,6 +34,7 @@ export const strings = {
     save: "Save",
     done: "Done",
     copy: "Copy",
+    copyId: "Copy Your ID",
     copied: "Copied",
     loading: "Loading…",
     retry: "Try Again",
@@ -50,6 +52,7 @@ export const strings = {
     renamed: (name: string) => `Your data center is now called ${name}.`,
     keySaved: "Recovery key backed up.",
     storageAdded: (label: string) => `Added ${label}.`,
+    storageRemoved: (label: string) => `Removed ${label}.`,
     defaultStorage: (label: string) => `New collections go to ${label}.`,
   },
 
@@ -91,7 +94,6 @@ export const strings = {
     welcomeTitle: "Welcome to Oikome",
     welcomeLede: "Your own data center, running on your own computer. Give it a name to start.",
     nameLabel: "Name",
-    keptHere: "Stored on this computer",
     restoreLink: "Restore from a recovery key",
     restoreHelp:
       "To restore a data center you had before, stop Oikome, run `oikome identity restore` with a new, empty data folder, and start Oikome again.",
@@ -113,6 +115,13 @@ export const strings = {
     statPeople: "People you share with",
     statReads: "Reads by others · 7 days",
     statFree: (place: string) => `Free on ${place}`,
+    statStored: (place: string) => (place === "Local" ? "Stored locally" : `Stored on ${place}`),
+    activeShares: (n: number) => (n === 0 ? "none active" : `${n} active`),
+    allWell: "Everything is in place.",
+    allWellBut: "Everything is in place, except your recovery key.",
+    running: "Running",
+    backedUpOn: (date: string) => `backed up ${date}`,
+    notBackedUp: "not backed up yet",
     ofTotal: (total: string) => `of ${total}`,
     inCollections: (n: number) => (n === 1 ? "in 1 collection" : `in ${n} collections`),
     center: "This data center",
@@ -163,11 +172,16 @@ export const strings = {
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
     example: "Example",
     sharedChip: "Shared",
-    kinds: { photos: "Photos", notes: "Notes", table: "Table" },
+    kinds: { photos: "Photos", notes: "Notes", table: "Table", series: "Readings" },
     yours: "Yours",
     factHolds: "Holds",
     factStored: "Stored on",
     factWho: "Who can see it",
+    factFrom: "Comes from",
+    fromExample: "An example from Oikome",
+    fromYou: "Added by you",
+    fromExampleShort: "example",
+    fromYouShort: "added by you",
     factKind: "Kept as",
     kindAnalytical: "Read-mostly · can be copied",
     kindEditable: "Editable records",
@@ -178,19 +192,28 @@ export const strings = {
     filter: "Show",
     filters: { all: "All", photos: "Photos", notes: "Notes", table: "Tables" },
     examplesNote: "Collections marked Example show what Oikome can keep. Remove them whenever you like.",
-    /** "6 photos", "1 note", "10 rows". */
-    count: (n: number, kind: "photos" | "notes" | "table") => {
+    /** "6 photos", "1 note", "10 rows", "336 readings". */
+    count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const [one, many] =
-        kind === "photos" ? ["photo", "photos"] : kind === "notes" ? ["note", "notes"] : ["row", "rows"];
-      return `${n} ${n === 1 ? one : many}`;
+        kind === "photos"
+          ? ["photo", "photos"]
+          : kind === "notes"
+            ? ["note", "notes"]
+            : kind === "series"
+              ? ["reading", "readings"]
+              : ["row", "rows"];
+      return `${n.toLocaleString("en")} ${n === 1 ? one : many}`;
     },
-    moreNotes: (n: number) => (n === 1 ? "1 more note" : `${n} more notes`),
+    seriesPick: "Show",
+    seriesRange: (low: string, high: string) => `${low} to ${high}`,
+    seriesSummary: (what: string, low: string, high: string, from: string, to: string) =>
+      `${what} from ${low} to ${high}, ${from} to ${to}`,
+    moreNotes: (n: number) => `+ ${n.toLocaleString("en")} ${n === 1 ? "note" : "notes"}`,
     noData: "No data yet",
     back: "Collections",
     storeOn: "Store on",
-    thisComputer: "This computer",
+    thisComputer: "Local",
     storeHint: "Collections are kept on this computer. Places you add in Settings, under Storage, show up here too.",
-    storedOn: (storage: string | null) => (storage ? `Stored on ${storage}` : "Stored on this computer"),
     notShared: "Only you",
     sharedWith: (names: string[]) => `Shared with ${names.join(", ")}`,
     fromElsewhere: "From another data center",
@@ -218,9 +241,34 @@ export const strings = {
     next: "Next",
   },
 
+  palette: {
+    title: "Search",
+    open_: "Search everything",
+    placeholder: "Go to a collection, a page or a person",
+    collections: "Collections",
+    people: "People",
+    actions: "Do",
+    pages: "Pages",
+    contact: "Contact",
+    useInk: "Use the Ink style",
+    useBold: "Use the Bold style",
+    open: "↵ open",
+    nothing: (q: string) => `Nothing named "${q}". Searching inside collections comes later.`,
+  },
+
   storage: {
     keepOn: "Keep your data on",
-    thisComputer: "This computer",
+    thisComputer: "Local",
+    localIn: (path: string) => `On this computer, in ${path}`,
+    remove: "Remove Place",
+    removeTitle: (label: string) => `Remove ${label}?`,
+    removeBody: "New collections can no longer go there. The files already in it stay where they are.",
+    removeBodyEncrypted:
+      "New collections can no longer go there. The files already in it stay where they are, but this computer forgets the key that opens them.",
+    removeYes: "Remove",
+    stillHoldsTitle: (label: string) => `${label} Still Holds Collections`,
+    stillHoldsBody: (names: string[], count: number) =>
+      `Remove ${count === 1 ? "the collection" : `the ${count} collections`} on it first${names.length ? `: ${names.join(", ")}` : ""}. Then the place can go.`,
     change: "Change…",
     keptIn: (path: string) => `In ${path}`,
     found: "Found on this computer",
@@ -251,27 +299,38 @@ export const strings = {
     unreachable: "Couldn't reach it. Check the address, user name and password, then try again.",
     pickFolder: "Choose a folder first.",
     addressRequired: "Enter your NAS's address.",
-    freeOf: (free: string, total: string) => `${free} free of ${total}`,
     usedShare: (percent: number) => `${percent}% used`,
+    /** "1.8 / 4 TB", the unit once when both share it. */
+    usedOf: (used: string, total: string) => {
+      const [u, uUnit] = used.split(" ");
+      const [t, tUnit] = total.split(" ");
+      return uUnit === tUnit ? `${u} / ${t} ${tUnit}` : `${used} / ${total}`;
+    },
     noRoom: "Its room isn't known here.",
   },
 
   sharing: {
     lede: "Who can see what, and the people you share with.",
+    counts: (active: number, ended: number) =>
+      [`${active} active`, ended > 0 ? `${ended} ended` : null].filter(Boolean).join(" · "),
+    colCollection: "Collection",
+    colWith: "With",
+    colAccess: "What they get",
+    colUntil: "Until",
+    accessViewShort: "View live",
+    accessCopyShort: "Keep a copy",
+    endedShort: "Ended",
+    expired: "Expired",
+    stopShort: "Stop",
     title: "Sharing",
     newShare: "New Share",
     sharedByYou: "Shared by You",
     nothingShared: "You haven't shared anything yet.",
     ended: "Ended",
     stop: "Stop Sharing",
-    /** A share as a sentence, on the Sharing page: "Sam can view live until Dec 2, 2026." */
-    shareSentence: (name: string, copy: boolean, date: string) =>
-      copy ? `${name} keeps a copy until ${date}.` : `${name} can view live until ${date}.`,
     /** The same share inside the dialog, under the person's name. */
     accessUntil: (copy: boolean, date: string) =>
       copy ? `Keeps a copy until ${date}` : `Can view live until ${date}`,
-    stoppedFor: (name: string) => `Stopped for ${name}.`,
-    expiredFor: (name: string, date: string) => `Ended for ${name} on ${date}.`,
     shareTitle: (name: string) => `Share \u201c${name}\u201d`,
     collectionLabel: "Collection",
     withLabel: "With",
@@ -302,6 +361,7 @@ export const strings = {
     idIsYours: "That's your own ID. Add the ID of the person you want to share with.",
     idTaken: (name: string) => `${name} already has this ID.`,
     add: "Add",
+    noContacts: "No contacts yet. Add the people you share with.",
     rename: "Rename",
     remove: "Remove",
     removeTitle: (name: string) => `Remove ${name}?`,
@@ -318,7 +378,12 @@ export const strings = {
   activity: {
     lede: "Every time someone or something read your data. Kept only on this computer.",
     colWhen: "When",
-    colWhat: "What happened",
+    colWhat: "What",
+    colWho: "Who",
+    colThrough: "Through",
+    viaShare: "Share",
+    viaContact: "Contact",
+    viaNetwork: "Network",
     colResult: "Result",
     title: "Activity",
     recent: "Recent",
@@ -345,15 +410,15 @@ export const strings = {
   settings: {
     title: "Settings",
     recoveryTitle: "Recovery Key",
+    backedUpOn: (date: string) => `Backed up ${date}`,
     backedUp: "Backed up",
     notBackedUp: "Not backed up yet",
     recoveryBody:
-      "Your recovery key is your identity. If this computer is lost, it's the only way to get your data center back, and no one else has a copy.",
+      "It is your identity. With it, this data center can be brought back on a new computer.",
     showAgain: "Show Again",
     centerTitle: "This Data Center",
     nameLabel: "Name",
     rename: "Rename",
-    idFootnote: "Give your ID to people who want to share with you.",
     version: "Version",
     dataFolder: "Data folder",
     preferencesTitle: "Preferences",
@@ -362,17 +427,12 @@ export const strings = {
     styleTitle: "Style",
     ink: "Ink",
     bold: "Bold",
-    styleInk: "Black ink on white, quiet and exact.",
-    styleBold: "Thick outlines and bright colors.",
     languageTitle: "Language",
     language: "English",
-    languageMore: "More languages are on the way.",
     storageTitle: "Storage",
-    thisComputer: "This computer",
+    thisComputer: "Local",
     storageCount: (n: number) => (n === 1 ? "1 collection" : `${n} collections`),
-    storageKind: { disk: "This computer", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
+    storageKind: { disk: "Local", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
     encrypted: "Encrypted",
-    storageFootnote:
-      "New collections go to the default unless you choose another place when you create one. A place stays until no collection is on it.",
   },
 };

@@ -13,10 +13,10 @@
 // limitations under the License.
 
 //! The examples a new data center starts with, so there is something to
-//! look at, open and share on the first day: one weekend in Lisbon, kept
-//! three ways (photos, notes and what the trip cost), a short guide to
-//! Oikome itself, a reading list, and two weeks of a home's temperatures,
-//! hour by hour.
+//! look at, open and share on the first day, one of each kind: photos of a
+//! weekend in Lisbon, a short guide to Oikome itself (notes), three weeks of
+//! spending that end with that weekend (a table, as a bank exports it), and
+//! two weeks of a home's temperatures, hour by hour (readings).
 //!
 //! They are files, written once into the `Examples` folder of where the
 //! owner keeps their data, like a notes app's vault: photos with a
@@ -109,43 +109,37 @@ const PHOTOS: &[Photo] = &[
     },
 ];
 
-const NOTES: &[(&str, &str)] = &[
-    (
-        "2025-11-07 08:15:00",
-        "Pastéis de Belém opens at 8. There was already a line at 8:15, but it moves fast. \
-         Eat them warm, with cinnamon and sugar on top.",
-    ),
-    (
-        "2025-11-07 12:50:00",
-        "The Belém Tower queue is shorter after lunch. The walk along the river from the \
-         monastery takes ten minutes.",
-    ),
-    (
-        "2025-11-07 19:30:00",
-        "Dinner at the counter in Rua das Flores. No bookings: put your name down and wait \
-         with a glass of wine across the street.",
-    ),
-    (
-        "2025-11-08 09:45:00",
-        "Tram 28 is full by ten. Walk up to Graça instead and ride it down through Alfama.",
-    ),
-    (
-        "2025-11-08 13:10:00",
-        "Time Out Market: skip the lobster, get a bifana at the counter by the door.",
-    ),
-    (
-        "2025-11-08 16:40:00",
-        "Ler Devagar, in LX Factory, has a bicycle flying over the shelves. Bought a small \
-         book of Pessoa's poems.",
-    ),
-    (
-        "2025-11-09 20:30:00",
-        "Fado in Alfama: book Tasca do Chico ahead, or come before nine.",
-    ),
-];
-
 /// Day, what, category, euros.
 const SPENDING: &[(&str, &str, &str, &str)] = &[
+    ("2025-10-20", "Groceries for the week", "Food", "46.20"),
+    ("2025-10-20", "Monthly transit pass", "Transport", "40.00"),
+    ("2025-10-21", "Coffee with Ana", "Food", "6.40"),
+    ("2025-10-22", "Haircut", "Personal", "18.00"),
+    ("2025-10-23", "Lunch near the office", "Food", "11.50"),
+    ("2025-10-24", "Cinema tickets", "Going out", "19.00"),
+    ("2025-10-25", "Farmers' market", "Food", "23.80"),
+    (
+        "2025-10-26",
+        "Train to see my parents",
+        "Transport",
+        "24.60",
+    ),
+    ("2025-10-27", "Phone bill", "Bills", "15.00"),
+    ("2025-10-28", "Groceries after work", "Food", "31.75"),
+    ("2025-10-29", "A present for Mum", "Shopping", "35.00"),
+    ("2025-10-30", "A guidebook to Lisbon", "Shopping", "16.90"),
+    ("2025-10-31", "Dinner with friends", "Going out", "42.00"),
+    ("2025-11-01", "Electricity bill", "Bills", "58.30"),
+    ("2025-11-02", "Sunday brunch", "Food", "21.40"),
+    (
+        "2025-11-03",
+        "Groceries for the week ahead",
+        "Food",
+        "52.10",
+    ),
+    ("2025-11-04", "Bike repair", "Transport", "28.00"),
+    ("2025-11-05", "Flight to Lisbon", "Transport", "89.00"),
+    ("2025-11-06", "Travel adapter", "Shopping", "12.99"),
     ("2025-11-07", "Pastéis de Belém and coffee", "Food", "7.80"),
     ("2025-11-07", "24-hour transport pass", "Transport", "6.80"),
     ("2025-11-07", "Belém Tower tickets", "Sights", "16.00"),
@@ -187,68 +181,6 @@ const GUIDE: &[&str] = &[
      back on a new computer, and no one else has a copy.",
     "Press \u{2318}K (Ctrl+K on Windows and Linux) to jump to a collection, a person or a page, \
      or to switch between the Ink and Bold styles.",
-];
-
-/// Title, author, status, pages, finished (when read).
-const READING: &[(&str, &str, &str, u32, Option<&str>)] = &[
-    (
-        "The Book of Disquiet",
-        "Fernando Pessoa",
-        "Reading",
-        544,
-        None,
-    ),
-    (
-        "Journey to Portugal",
-        "José Saramago",
-        "Read",
-        464,
-        Some("2025-11-05"),
-    ),
-    (
-        "Pereira Maintains",
-        "Antonio Tabucchi",
-        "Read",
-        192,
-        Some("2025-10-18"),
-    ),
-    (
-        "Blindness",
-        "José Saramago",
-        "Read",
-        326,
-        Some("2025-09-27"),
-    ),
-    (
-        "Night Train to Lisbon",
-        "Pascal Mercier",
-        "Read",
-        438,
-        Some("2025-08-30"),
-    ),
-    (
-        "The Return",
-        "Dulce Maria Cardoso",
-        "Read",
-        256,
-        Some("2025-07-14"),
-    ),
-    (
-        "The Year of the Death of Ricardo Reis",
-        "José Saramago",
-        "Next",
-        358,
-        None,
-    ),
-    (
-        "Requiem: A Hallucination",
-        "Antonio Tabucchi",
-        "Next",
-        112,
-        None,
-    ),
-    ("The Maias", "Eça de Queirós", "Next", 720, None),
-    ("The Lusiads", "Luís Vaz de Camões", "Next", 288, None),
 ];
 
 /// Hours of temperature and humidity readings: two weeks.
@@ -329,12 +261,6 @@ fn csv(header: &[&str], rows: impl IntoIterator<Item = Vec<String>>) -> Vec<u8> 
     out.into_bytes()
 }
 
-/// A note as Markdown, with the time it was written in its front matter.
-fn note(written: &str, text: &str) -> Vec<u8> {
-    let written = &written[..16];
-    format!("---\ndate: {written}\n---\n\n{text}\n").into_bytes()
-}
-
 /// The examples, in the order they are created.
 pub(crate) fn examples() -> Vec<Example> {
     let guide_titles = [
@@ -378,20 +304,6 @@ pub(crate) fn examples() -> Vec<Example> {
         ),
     ));
 
-    let notes = NOTES
-        .iter()
-        .map(|(written, text)| {
-            (
-                format!(
-                    "{} {}.md",
-                    &written[..10],
-                    written[11..16].replace(':', ".")
-                ),
-                note(written, text),
-            )
-        })
-        .collect();
-
     let spending = vec![(
         "spending.csv".to_string(),
         csv(
@@ -404,24 +316,6 @@ pub(crate) fn examples() -> Vec<Example> {
                     euros.to_string(),
                 ]
             }),
-        ),
-    )];
-
-    let reading = vec![(
-        "books.csv".to_string(),
-        csv(
-            &["title", "author", "status", "pages", "finished"],
-            READING
-                .iter()
-                .map(|(title, author, status, pages, finished)| {
-                    vec![
-                        title.to_string(),
-                        author.to_string(),
-                        status.to_string(),
-                        pages.to_string(),
-                        finished.unwrap_or_default().to_string(),
-                    ]
-                }),
         ),
     )];
 
@@ -465,26 +359,11 @@ pub(crate) fn examples() -> Vec<Example> {
             modified: None,
         },
         Example {
-            name: "lisbon-notes",
-            files: notes,
-            feed: Feed::Notes,
-            modified: None,
-        },
-        Example {
-            name: "lisbon-spending",
+            name: "spending",
             files: spending,
             feed: Feed::Csv {
                 file: "spending.csv",
                 table: "spending",
-            },
-            modified: None,
-        },
-        Example {
-            name: "reading-list",
-            files: reading,
-            feed: Feed::Csv {
-                file: "books.csv",
-                table: "books",
             },
             modified: None,
         },

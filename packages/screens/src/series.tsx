@@ -202,7 +202,7 @@ export function SeriesView({ table, shape }: { table: Table; shape: Shape }) {
               <span className="screen-series__cross" style={{ left: `${x(at)}%` }} />
               <span className="screen-series__dot" style={{ left: `${x(at)}%`, top: `${y(line.values[at]!)}%` }} />
               <span
-                className={x(at) > 70 ? "screen-series__tip is-left" : "screen-series__tip"}
+                className={x(at) > 50 ? "screen-series__tip is-left" : "screen-series__tip"}
                 style={{ left: `${x(at)}%` }}
               >
                 <strong>{text(line.values[at])}</strong>

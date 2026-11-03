@@ -467,6 +467,32 @@ async fn naming_the_node_and_backing_up_its_recovery_key() {
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::Invalid);
 
+    // Home's cards, as the owner arranged them; ids are checked, not read.
+    assert_eq!(info.home_cards, None);
+    let cards = vec!["recent".to_string(), "totals:spending".to_string()];
+    let info = n
+        .api
+        .set_home_cards(
+            &OWNER,
+            HomeCards {
+                cards: cards.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(info.home_cards, Some(cards));
+    let e = n
+        .api
+        .set_home_cards(
+            &OWNER,
+            HomeCards {
+                cards: vec!["<script>".into()],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
     // The key decodes to this node's identity.
     let key = n.api.recovery_key(&OWNER, Empty {}).await.unwrap();
     assert_eq!(key.key.split('-').count(), 14);
@@ -513,14 +539,7 @@ async fn a_new_data_center_gets_examples_once() {
     let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        [
-            "home-climate",
-            "lisbon-notes",
-            "lisbon-photos",
-            "lisbon-spending",
-            "oikome-guide",
-            "reading-list"
-        ]
+        ["home-climate", "lisbon-photos", "oikome-guide", "spending"]
     );
     assert!(added.iter().all(|s| s.example && s.storage.is_none()));
 
@@ -564,10 +583,8 @@ async fn a_new_data_center_gets_examples_once() {
     assert_eq!(tables.len(), 1);
     assert_eq!(tables[0].rows, Some(6));
     for (space, table, count) in [
-        ("lisbon-notes", "notes", 7),
-        ("lisbon-spending", "spending", 10),
+        ("spending", "spending", 29),
         ("oikome-guide", "notes", 7),
-        ("reading-list", "books", 10),
         ("home-climate", "readings", 14 * 24),
     ] {
         let rows = n
@@ -588,22 +605,22 @@ async fn a_new_data_center_gets_examples_once() {
 
     // They are files, read by sources: edit one and read it again.
     let root = std::path::PathBuf::from(n.catalog.root_path());
-    let books = root.join("Examples/reading-list/books.csv");
+    let spending = root.join("Examples/spending/spending.csv");
     assert!(root.join("Examples/lisbon-photos/captions.csv").is_file());
     assert!(root.join("Examples/oikome-guide/1 Welcome.md").is_file());
     let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(sources.len(), 6);
+    assert_eq!(sources.len(), 4);
     let photos = sources.iter().find(|s| s.name == "lisbon-photos").unwrap();
     assert_eq!(photos.kind, SourceKind::Photos);
     assert!(photos.pulled_at_ms.is_some() && photos.failure.is_none());
-    let mut text = std::fs::read_to_string(&books).unwrap();
-    text.push_str("The Elephant's Journey,José Saramago,Next,208,\n");
-    std::fs::write(&books, text).unwrap();
+    let mut text = std::fs::read_to_string(&spending).unwrap();
+    text.push_str("Coffee at the airport,2025-11-09,Food,2.50\n");
+    std::fs::write(&spending, text).unwrap();
     n.api
         .pull_source(
             &OWNER,
             SourceRef {
-                source: "reading-list".into(),
+                source: "spending".into(),
             },
         )
         .await
@@ -613,33 +630,33 @@ async fn a_new_data_center_gets_examples_once() {
         .list_tables(
             &OWNER,
             SpaceRef {
-                space: "reading-list".into(),
+                space: "spending".into(),
             },
         )
         .await
         .unwrap();
     assert_eq!(tables.len(), 1, "{tables:?}");
-    assert_eq!(tables[0].rows, Some(11));
+    assert_eq!(tables[0].rows, Some(30));
     // A file that no longer reads keeps its rows and says why.
-    std::fs::write(&books, "title,author\nonly,two\n").unwrap();
+    std::fs::write(&spending, "what,day\nonly,two\n").unwrap();
     assert!(n
         .api
         .pull_source(
             &OWNER,
             SourceRef {
-                source: "reading-list".into(),
+                source: "spending".into(),
             },
         )
         .await
         .is_err());
     let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
-    let reading = sources.iter().find(|s| s.name == "reading-list").unwrap();
+    let failed = sources.iter().find(|s| s.name == "spending").unwrap();
     assert!(
-        reading
+        failed
             .failure
             .as_deref()
             .is_some_and(|f| f.contains("columns")),
-        "{reading:?}"
+        "{failed:?}"
     );
 
     // Removing one is for good, and the rest stay examples.
@@ -647,18 +664,18 @@ async fn a_new_data_center_gets_examples_once() {
         .drop_space(
             &OWNER,
             SpaceRef {
-                space: "lisbon-notes".into(),
+                space: "oikome-guide".into(),
             },
         )
         .await
         .unwrap();
     let again = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(again.len(), 5);
+    assert_eq!(again.len(), 3);
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages.len(), 1);
     assert_eq!(storages[0].name, None);
     assert_eq!(storages[0].kind, StorageType::Disk);
-    assert_eq!(storages[0].spaces, 5);
+    assert_eq!(storages[0].spaces, 3);
     if cfg!(unix) {
         assert!(storages[0].total_bytes.is_some_and(|t| t > 0));
     }
@@ -669,7 +686,7 @@ async fn a_new_data_center_gets_examples_once() {
         .create_space(
             &OWNER,
             NewSpace {
-                name: "lisbon-notes".into(),
+                name: "oikome-guide".into(),
                 kind: None,
                 storage: None,
             },
@@ -723,8 +740,8 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
     // The examples' files go into the picked folder; their collections,
     // read from them, are kept with the data center.
     let examples = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(examples.len(), 6);
-    assert!(picked.path().join("Oikome/Examples/lisbon-notes").is_dir());
+    assert_eq!(examples.len(), 4);
+    assert!(picked.path().join("Oikome/Examples/oikome-guide").is_dir());
     n.api
         .create_space(
             &OWNER,

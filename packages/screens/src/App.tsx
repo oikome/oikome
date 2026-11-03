@@ -103,7 +103,7 @@ function Root() {
   const section = sectionOf(path);
   let screen: ReactNode;
   if (path === "/") {
-    screen = <Home info={info} />;
+    screen = <Home info={info} onInfo={setInfo} />;
   } else if (path === "/collections") {
     screen = <Collections startCreating={query.get("new") === "1"} />;
   } else if (path.startsWith("/collections/")) {

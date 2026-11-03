@@ -5,14 +5,17 @@
 // what came in last, a photo from what it keeps, and the one thing that
 // needs doing.
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Avatar, Button, Status, Tile, collectionTones } from "@oikome/ui";
+import { Avatar, Button, Status, Tile, collectionTones, useToast } from "@oikome/ui";
 import type { IconName, TileTone } from "@oikome/ui";
 import type { AccessItem, NodeInfo, SpaceSummary, StorageSummary } from "@oikome/client";
 import { latest, loadPreview } from "../content";
 import type { Item, Preview } from "../content";
 import { itemDate } from "../covers";
+import { ArrangeDialog, LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
+import type { CardChoice } from "../cards";
+import { useAction } from "../data";
 import { useClient, useLoad } from "../data";
 import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
@@ -43,7 +46,7 @@ const PLACE_ICONS: Record<StorageSummary["type"], IconName> = {
   drive: "drive",
 };
 
-export function Home({ info }: { info: NodeInfo }) {
+export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo) => void }) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
@@ -51,6 +54,9 @@ export function Home({ info }: { info: NodeInfo }) {
   const sources = useLoad(() => client.listSources(), []);
   const log = useLoad(() => client.listAccess({ limit: 100 }), []);
   const [previews, setPreviews] = useState<Map<string, Preview>>();
+  const [arranging, setArranging] = useState(false);
+  const arrange = useAction();
+  const toast = useToast();
 
   const list = spaces.data ?? [];
   const mine = list.filter((space) => space.kind !== "remote");
@@ -101,6 +107,105 @@ export function Home({ info }: { info: NodeInfo }) {
   const photo = latest(all.filter((r) => r.item.image).map((r) => r.item));
   const photoFrom = all.find((r) => r.item === photo)?.space;
 
+
+  // Home's cards: the owner's arrangement, or a first one made from what is kept.
+  const totals = mine.filter((space) => hasTotals(previews?.get(space.name)));
+  const readings = mine.filter((space) => hasLatest(previews?.get(space.name)));
+  const available: CardChoice[] = [
+    { id: "recent", label: s.cardRecent },
+    { id: "photo", label: s.cardPhoto },
+    ...totals.map((space) => ({ id: `totals:${space.name}`, label: s.cardTotals(space.name) })),
+    ...readings.map((space) => ({ id: `latest:${space.name}`, label: s.cardLatest(space.name) })),
+    { id: "activity", label: s.cardActivity },
+    { id: "places", label: s.cardPlaces },
+  ];
+  const first = [
+    "recent",
+    "photo",
+    ...(totals[0] ? [`totals:${totals[0].name}`] : []),
+    ...(readings[0] ? [`latest:${readings[0].name}`] : []),
+    "activity",
+    "places",
+  ];
+  const order = info.homeCards ?? first;
+  const shown = order.filter((id) => available.some((card) => card.id === id));
+  const spaceOf = (id: string) => mine.find((space) => space.name === id.slice(id.indexOf(":") + 1));
+  const renderCard = (id: string): ReactNode => {
+    if (id === "recent") {
+      return (
+        <Panel className="screen-w8" title={s.recent} link={{ to: "/collections", label: s.allCollections }}>
+                {!previews ? (
+                  <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
+                ) : recent.length === 0 ? (
+                  <p className="screen-panel__empty">{s.nothingRecent}</p>
+                ) : (
+                  <ul className="screen-list">
+                    {recent.map((r, i) => (
+                      <RecentRow key={i} recent={r} tone={toneOf(r.space.name)} />
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+      );
+    }
+    if (id === "photo") {
+      return photo?.image && photoFrom ? (
+              <Link
+                to={`/collections/${encodeURIComponent(photoFrom.name)}`}
+                className="oik-card screen-memory screen-w4"
+              >
+                <img src={photo.image} alt="" decoding="async" />
+                <span className="screen-memory__cap">
+                  <span className="oik-label">{s.fromPhotos(photoFrom.name)}</span>
+                  <span className="screen-memory__title">{photo.text ?? photoFrom.name}</span>
+                  {itemDate(photo) && <span className="screen-memory__meta">{itemDate(photo)}</span>}
+                </span>
+              </Link>
+            ) : (
+              <Panel className="screen-w4" title={s.backedUp}>
+                <p className="screen-panel__empty">
+                  {info.recoveryKeySaved ? s.keySaved : strings.backup.bannerBody}
+                </p>
+              </Panel>
+            );
+    }
+    if (id === "activity") {
+      return (
+        <Panel className="screen-w7" title={s.activity} link={{ to: "/activity", label: s.allActivity }}>
+                {!log.data ? (
+                  <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
+                ) : log.data.length === 0 ? (
+                  <p className="screen-panel__empty">{s.noActivity}</p>
+                ) : (
+                  <ul className="screen-list">
+                    {log.data.slice(0, LOG).map((item) => (
+                      <LogRow key={item.id} item={item} />
+                    ))}
+                  </ul>
+                )}
+              </Panel>
+      );
+    }
+    if (id === "places") {
+      return (
+        <Panel className="screen-w5" title={strings.nav.places} link={{ to: "/settings", label: s.manage }}>
+                <ul className="screen-list">
+                  {places.map((place) => (
+                    <PlaceRow key={place.name ?? ""} place={place} />
+                  ))}
+                </ul>
+              </Panel>
+      );
+    }
+    const space = spaceOf(id);
+    if (!space) return null;
+    if (id.startsWith("totals:")) return <TotalsCard space={space} className="screen-w7" />;
+    if (id.startsWith("latest:")) {
+      return <LatestCard space={space} preview={previews?.get(space.name)} className="screen-w5" />;
+    }
+    return null;
+  };
+
   return (
     <>
       <ScreenHeader
@@ -108,6 +213,9 @@ export function Home({ info }: { info: NodeInfo }) {
         title={s.greeting(new Date().getHours())}
         lede={info.recoveryKeySaved ? s.allWell : s.allWellBut}
       >
+        <Button icon="sliders" onClick={() => setArranging(true)}>
+          {s.arrange}
+        </Button>
         <Button variant="primary" icon="plus" onClick={() => navigate("/collections?new=1")}>
           {strings.collections.newCollection}
         </Button>
@@ -196,63 +304,31 @@ export function Home({ info }: { info: NodeInfo }) {
         />
       </div>
 
-      <div className="screen-dash">
-        <Panel className="screen-w8" title={s.recent} link={{ to: "/collections", label: s.allCollections }}>
-          {!previews ? (
-            <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
-          ) : recent.length === 0 ? (
-            <p className="screen-panel__empty">{s.nothingRecent}</p>
-          ) : (
-            <ul className="screen-list">
-              {recent.map((r, i) => (
-                <RecentRow key={i} recent={r} tone={toneOf(r.space.name)} />
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        {photo?.image && photoFrom ? (
-          <Link
-            to={`/collections/${encodeURIComponent(photoFrom.name)}`}
-            className="oik-card screen-memory screen-w4"
-          >
-            <img src={photo.image} alt="" decoding="async" />
-            <span className="screen-memory__cap">
-              <span className="oik-label">{s.fromPhotos(photoFrom.name)}</span>
-              <span className="screen-memory__title">{photo.text ?? photoFrom.name}</span>
-              {itemDate(photo) && <span className="screen-memory__meta">{itemDate(photo)}</span>}
-            </span>
-          </Link>
-        ) : (
-          <Panel className="screen-w4" title={s.backedUp}>
-            <p className="screen-panel__empty">
-              {info.recoveryKeySaved ? s.keySaved : strings.backup.bannerBody}
-            </p>
-          </Panel>
-        )}
-
-        <Panel className="screen-w7" title={s.activity} link={{ to: "/activity", label: s.allActivity }}>
-          {!log.data ? (
-            <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
-          ) : log.data.length === 0 ? (
-            <p className="screen-panel__empty">{s.noActivity}</p>
-          ) : (
-            <ul className="screen-list">
-              {log.data.slice(0, LOG).map((item) => (
-                <LogRow key={item.id} item={item} />
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel className="screen-w5" title={strings.nav.places} link={{ to: "/settings", label: s.manage }}>
-          <ul className="screen-list">
-            {places.map((place) => (
-              <PlaceRow key={place.name ?? ""} place={place} />
-            ))}
-          </ul>
-        </Panel>
+      <div className="screen-dash screen-dash--cards">
+        {shown.map((id) => (
+          <Fragment key={id}>{renderCard(id)}</Fragment>
+        ))}
       </div>
+      {arranging && (
+        <ArrangeDialog
+          available={available}
+          order={shown}
+          busy={arrange.busy}
+          error={arrange.error}
+          onClose={() => {
+            setArranging(false);
+            arrange.clear();
+          }}
+          onSave={async (cards) => {
+            const updated = await arrange.run(() => client.setHomeCards({ cards }));
+            if (updated) {
+              onInfo(updated);
+              setArranging(false);
+              toast(s.arranged);
+            }
+          }}
+        />
+      )}
     </>
   );
 }

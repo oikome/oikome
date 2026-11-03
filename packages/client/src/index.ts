@@ -35,6 +35,7 @@ import type {
   NewStorage,
   DefaultStorage,
   StorageRef,
+  HomeCards,
   SourceSummary,
   NewSource,
   SourceRef,
@@ -73,6 +74,7 @@ export interface NodeClient {
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
   removeStorage(request: StorageRef): Promise<StorageSummary[]>;
+  setHomeCards(request: HomeCards): Promise<NodeInfo>;
   listSources(): Promise<SourceSummary[]>;
   addSource(request: NewSource): Promise<SourceSummary>;
   pullSource(request: SourceRef): Promise<SourceSummary>;
@@ -215,6 +217,10 @@ export class HttpClient implements NodeClient {
 
   removeStorage(request: StorageRef): Promise<StorageSummary[]> {
     return this.#json("remove_storage", request);
+  }
+
+  setHomeCards(request: HomeCards): Promise<NodeInfo> {
+    return this.#json("set_home_cards", request);
   }
 
   listSources(): Promise<SourceSummary[]> {

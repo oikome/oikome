@@ -1653,6 +1653,118 @@ a.screen-list__row:hover .screen-list__thumb {
   white-space: normal;
 }
 
+/* ----- Home cards: totals by day, latest readings, Arrange ----- */
+
+.screen-dash--cards {
+  grid-auto-flow: row dense;
+}
+.screen-totals__body {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-4);
+}
+.screen-totals__bars {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 140px;
+  border-bottom: 1px solid var(--line2);
+  touch-action: pan-y;
+}
+[data-theme="bold"] .screen-totals__bars {
+  border-bottom: 2px solid #111;
+}
+.screen-totals__bar {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  height: 100%;
+  align-items: flex-end;
+}
+.screen-totals__bar > i {
+  display: block;
+  width: min(100%, 10px);
+  border-radius: 3px 3px 0 0;
+  background: var(--ink);
+  transition: opacity 120ms var(--ease);
+}
+[data-theme="bold"] .screen-totals__bar > i {
+  width: 100%;
+  border: 2px solid #111;
+  border-bottom: 0;
+  background: #ff3d81;
+}
+.screen-totals__bars:hover .screen-totals__bar > i {
+  opacity: 0.35;
+}
+.screen-totals__bars:hover .screen-totals__bar.is-hover > i {
+  opacity: 1;
+}
+.screen-totals__axis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font: 400 11px/14px var(--mono);
+  color: var(--ink3);
+}
+.screen-latest__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  margin: 0;
+}
+.screen-latest__grid > div {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  border-left: 1px solid var(--line2);
+}
+.screen-latest__grid > div:first-child {
+  border-left: 0;
+}
+[data-theme="bold"] .screen-latest__grid > div {
+  border-left-width: 2px;
+  border-left-color: #111;
+}
+.screen-latest__grid dd {
+  margin: 0;
+  font: 500 24px/1.15 var(--mono);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+[data-theme="bold"] .screen-latest__grid dd {
+  font: 400 26px/1.15 var(--display);
+  letter-spacing: 0;
+}
+[data-theme="bold"] .screen-totals__bars {
+  gap: 8px;
+}
+.screen-latest__grid dd small {
+  margin-left: 3px;
+  font: 400 12px/1 var(--mono);
+  letter-spacing: 0;
+  color: var(--ink3);
+}
+.screen-arrange {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-arrange__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.screen-arrange__row:last-child {
+  border-bottom: 0;
+}
+
 /* ----- Sources ----- */
 
 .screen-source__what {
@@ -2004,34 +2116,52 @@ a.screen-list__row:hover .screen-list__thumb {
   box-sizing: border-box;
   padding: 64px var(--space-4) var(--space-6);
 }
+/* The prototype's first run: one card, read from the left, the step said
+   in words at its foot. */
 .screen-onboarding__card {
   box-sizing: border-box;
   width: 100%;
-  max-width: 500px;
+  max-width: 520px;
   padding: var(--space-7);
-  text-align: center;
+  text-align: left;
   animation: oik-lift 300ms var(--ease) both;
 }
 .screen-onboarding__card .screen-title {
-  margin: var(--space-4) 0 var(--space-2);
+  margin: var(--space-5) 0 var(--space-2);
 }
 .screen-onboarding__card .screen-lede {
-  margin: 0 auto var(--space-5);
+  margin: 0 0 var(--space-5);
+}
+.screen-onboarding__step {
+  margin: var(--space-4) 0 0;
+  font: var(--text-small, 400 12px/16px var(--font));
+  color: var(--ink3);
+  text-align: center;
+}
+.screen-onboarding__restore {
+  display: block;
+  margin: var(--space-2) auto 0;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink3);
+  font: 400 12px/16px var(--font);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.screen-onboarding__restore:hover {
+  color: var(--ink);
 }
 .screen-form {
   text-align: left;
 }
-.screen-form .screen-title,
-.screen-form .screen-lede,
-.screen-form .screen-glyph {
-  text-align: center;
-}
 .screen-glyph {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: 0 auto;
+  width: 40px;
+  height: 40px;
+  margin: 0;
   border-radius: var(--r-btn);
   background: var(--ink);
   color: var(--raised);
@@ -2043,11 +2173,11 @@ a.screen-list__row:hover .screen-list__thumb {
   box-shadow: var(--sh-s);
 }
 .screen-glyph .oik-icon {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 }
 .screen-onboarding__card .screen-actions {
-  justify-content: center;
+  justify-content: flex-start;
 }
 .screen-form .screen-actions {
   flex-direction: column;

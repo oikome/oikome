@@ -47,8 +47,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
     Api, ApiError, Caller, ContactInput, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef,
-    ListAccess, ListShares, NewSource, NewSpace, NewStorage, NodeName, ReadRows, Rows, RunSql,
-    ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef,
+    HomeCards, ListAccess, ListShares, NewSource, NewSpace, NewStorage, NodeName, ReadRows, Rows,
+    RunSql, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -381,6 +381,7 @@ impl WebState {
         match op {
             "node_info" => json_op!(node_info, Empty),
             "rename_node" => json_op!(rename_node, NodeName),
+            "set_home_cards" => json_op!(set_home_cards, HomeCards),
             "recovery_key" => json_op!(recovery_key, Empty),
             "confirm_recovery_key" => json_op!(confirm_recovery_key, Empty),
             "list_spaces" => json_op!(list_spaces, Empty),

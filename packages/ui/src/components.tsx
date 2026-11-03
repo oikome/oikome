@@ -599,7 +599,7 @@ export function ChoiceList({
                 checked={on}
                 onChange={() => onChange(choice.value)}
               />
-              {choice.leading}
+              {choice.leading && <span className="oik-tile oik-choice__tile">{choice.leading}</span>}
               <span className="oik-choice__text">
                 <span className="oik-choice__title">{choice.title}</span>
                 {choice.meta && <span className="oik-choice__meta">{choice.meta}</span>}

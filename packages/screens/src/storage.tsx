@@ -52,7 +52,7 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
     choices.push({
       value: "here",
       title: s.thisComputer,
-      meta: s.localIn(homeRelative(hereFolder ? keptIn(hereFolder) : (info.data?.dataDir ?? "…"))),
+      meta: homeRelative(hereFolder ? keptIn(hereFolder) : (info.data?.dataDir ?? "…")),
       leading: <Icon name="computer" />,
       aside: (
         <Button

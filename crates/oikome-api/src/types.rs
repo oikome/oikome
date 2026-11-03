@@ -43,9 +43,23 @@ pub struct NodeInfo {
     /// This computer's name on its network ("rosh-mbp"); empty for a
     /// principal and where the system doesn't say.
     pub host: String,
+    /// The full name of this computer's account, to suggest a name from;
+    /// empty for a principal and where the system doesn't say.
+    pub owner_name: String,
+    /// The cards the owner arranged on Home, in order; `None` until they
+    /// do (the apps choose), and for a principal.
+    pub home_cards: Option<Vec<String>>,
     /// Where peers reach this node's Arrow Flight service (`https://ip:port`),
     /// when it is serving.
     pub flight_url: Option<String>,
+}
+
+/// `set_home_cards`: the cards on Home, in order, by the apps' own ids
+/// (such as `recent` or `totals:spending`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeCards {
+    pub cards: Vec<String>,
 }
 
 /// `rename_node`: the data center's name.

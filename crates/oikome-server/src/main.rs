@@ -79,13 +79,9 @@ const WEBRTC_RECORD_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
     about = "A decentralized, local-first federated query layer"
 )]
 struct Cli {
-    /// Data directory of this node.
-    #[arg(
-        long,
-        env = "OIKOME_ROOT",
-        default_value = "./oikome-data",
-        global = true
-    )]
+    /// Data directory of this node; by default an `Oikome` folder in your
+    /// home folder.
+    #[arg(long, env = "OIKOME_ROOT", default_value_os_t = default_root(), global = true)]
     root: PathBuf,
 
     /// Accept plaintext (http://) peers. By default peers are reached over
@@ -417,6 +413,21 @@ impl Drop for AbortOnDrop {
 }
 
 /// The DuckDB configuration of the node at `root`.
+/// Where a node keeps its data unless told otherwise: an `Oikome` folder in
+/// the user's home (`~/Oikome`; `C:\Users\<name>\Oikome` on Windows).
+/// It is the owner's, in plain sight, like a notes app's vault, and not in
+/// Documents, which iCloud and OneDrive often sync: syncing a live database
+/// breaks it. Cloud drives are added as encrypted places instead. Without a
+/// home folder, `./oikome-data`.
+fn default_root() -> PathBuf {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .filter(|home| !home.is_empty());
+    match home {
+        Some(home) => PathBuf::from(home).join("Oikome"),
+        None => PathBuf::from("oikome-data"),
+    }
+}
+
 fn duckdb_config(root: &Path, extension_dir: Option<&Path>) -> DuckDbConfig {
     DuckDbConfig {
         extension_dir: Some(

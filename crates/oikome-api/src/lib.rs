@@ -97,7 +97,14 @@ struct NodeSettings {
     /// What the owner called each storage, by its name.
     #[serde(default)]
     storage_labels: BTreeMap<String, String>,
+    /// The cards on Home, in order, once the owner arranged them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    home_cards: Option<Vec<String>>,
 }
+
+/// At most this many cards on Home, each id this long.
+const MAX_HOME_CARDS: usize = 32;
+const MAX_CARD_ID: usize = 80;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -323,6 +330,16 @@ impl Api {
             } else {
                 String::new()
             },
+            owner_name: if owner {
+                places::owner_name()
+            } else {
+                String::new()
+            },
+            home_cards: if owner {
+                settings.home_cards.clone()
+            } else {
+                None
+            },
             flight_url: self.flight_url.clone(),
         })
     }
@@ -341,6 +358,33 @@ impl Api {
         }
         let mut settings = self.settings()?;
         settings.name = name.to_string();
+        self.save_settings(&settings)?;
+        self.node_info(caller, Empty {}).await
+    }
+
+    /// Keep the cards the owner arranged on Home. The ids are the apps'
+    /// own; the node only checks their size and characters.
+    pub async fn set_home_cards(
+        &self,
+        caller: &Caller,
+        req: HomeCards,
+    ) -> Result<NodeInfo, ApiError> {
+        caller.require_owner()?;
+        let ok = req.cards.len() <= MAX_HOME_CARDS
+            && req.cards.iter().all(|id| {
+                !id.is_empty()
+                    && id.len() <= MAX_CARD_ID
+                    && id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_'))
+            });
+        if !ok {
+            return Err(ApiError::invalid(format!(
+                "up to {MAX_HOME_CARDS} cards, each named with letters, digits, ':', '-' or '_'"
+            )));
+        }
+        let mut settings = self.settings()?;
+        settings.home_cards = Some(req.cards);
         self.save_settings(&settings)?;
         self.node_info(caller, Empty {}).await
     }

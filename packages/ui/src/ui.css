@@ -772,6 +772,10 @@
   margin-bottom: 6px;
   padding: 0;
 }
+/* A choice's icon sits in a tile, as in the prototype. */
+.oik-choice__tile {
+  flex: none;
+}
 .oik-choice {
   display: flex;
   flex-wrap: wrap;

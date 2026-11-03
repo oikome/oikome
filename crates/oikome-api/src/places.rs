@@ -63,6 +63,47 @@ pub(crate) fn host_name() -> String {
     }
 }
 
+/// The full name of the account running the node ("Rosh Jin"), for a
+/// first name to suggest; empty where the system doesn't say. It is shown
+/// to the owner only and never logged.
+pub(crate) fn owner_name() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // `id -F`: the account's full name, as System Settings shows it.
+        std::process::Command::new("id")
+            .arg("-F")
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // The comment field of this account's line in /etc/passwd.
+        let user = std::env::var("USER").unwrap_or_default();
+        std::fs::read_to_string("/etc/passwd")
+            .ok()
+            .and_then(|text| {
+                text.lines()
+                    .map(|line| line.split(':').collect::<Vec<_>>())
+                    .find(|f| f.len() > 4 && !user.is_empty() && f[0] == user)
+                    .map(|f| {
+                        f[4].split(',')
+                            .next()
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string()
+                    })
+            })
+            .unwrap_or_default()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var("USERNAME").unwrap_or_default()
+    }
+}
+
 /// The home directory of the user running the node.
 pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME")

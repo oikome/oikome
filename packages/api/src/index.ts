@@ -55,6 +55,16 @@ recoveryKeySavedAtMs: number | null,
  */
 host: string, 
 /**
+ * The full name of this computer's account, to suggest a name from;
+ * empty for a principal and where the system doesn't say.
+ */
+ownerName: string, 
+/**
+ * The cards the owner arranged on Home, in order; `None` until they
+ * do (the apps choose), and for a principal.
+ */
+homeCards: Array<string> | null, 
+/**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
  */
@@ -68,6 +78,12 @@ export type NodeName = {
  * 1 to 64 characters.
  */
 name: string, };
+
+/**
+ * `set_home_cards`: the cards on Home, in order, by the apps' own ids
+ * (such as `recent` or `totals:spending`).
+ */
+export type HomeCards = { cards: Array<string>, };
 
 /**
  * The node's recovery key, as 14 groups of 4 characters. Whoever has it

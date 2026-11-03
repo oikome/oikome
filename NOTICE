@@ -160,6 +160,42 @@ DuckDB-Wasm (@duckdb/duckdb-wasm, JavaScript, loaded by packages/node)
   https://github.com/duckdb/duckdb-wasm  -  MIT License
   Copyright 2018-2025 Stichting DuckDB Foundation
 
-TypeScript (type checking of packages/client; development only)
+React and React DOM (react, react-dom; the web app)
+  https://react.dev/  -  MIT License
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Vite and Rollup (building the web app; development only)
+  https://vite.dev/  -  MIT License
+  https://rollupjs.org/  -  MIT License
+
+TypeScript (type checking of the TypeScript packages; development only)
   https://github.com/microsoft/TypeScript  -  Apache License 2.0
   Copyright (c) Microsoft Corporation
+
+Example photos (crates/oikome-api/assets/lisbon; the examples a new data
+center starts with), from Wikimedia Commons, resized
+  "Lisbon rooftops" by Naval S from Berlin  -  CC BY 2.0
+    https://commons.wikimedia.org/wiki/File:Lisbon_rooftops_(26533054108).jpg
+  "Pasteis de Belem" by Heather Cowper from Bristol, UK  -  CC BY 2.0
+    https://commons.wikimedia.org/wiki/File:Pasteis_de_Belem_(4128575449).jpg
+  "Belem Tower" by Neil  -  CC BY 2.0
+    https://commons.wikimedia.org/wiki/File:Belem_Tower_(46384128782).jpg
+  "Tram of line 28E on Rua Augusto Rosa in Lisbon" by Jakub Hałun  -  CC BY 4.0
+    https://commons.wikimedia.org/wiki/File:Tram_of_line_28E_on_Rua_Augusto_Rosa_in_Lisbon,_20250603_2011_9033.jpg
+  "Azulejos in Lisboa" by Nan Palmero from San Antonio, TX, USA  -  CC BY 2.0
+    https://commons.wikimedia.org/wiki/File:Azulejos_in_Lisboa_(42772429292).jpg
+  "Sunset in Lisbon"  -  CC0 1.0
+    https://commons.wikimedia.org/wiki/File:Sunset_in_Lisbon_(36542861635).jpg
+
+Fonts of the web app (packages/ui/src/fonts; the OFL text of each is beside it)
+  IBM Plex Sans and IBM Plex Mono  -  SIL Open Font License 1.1
+  Copyright 2017 IBM Corp. with Reserved Font Name "Plex"
+  Space Grotesk  -  SIL Open Font License 1.1
+  Copyright 2020 The Space Grotesk Project Authors
+  Space Mono  -  SIL Open Font License 1.1
+  Copyright 2016 The Space Mono Project Authors
+  Archivo Black  -  SIL Open Font License 1.1
+  Copyright 2017 The Archivo Black Project Authors
+
+rustix (free and total space of a storage's disk; already used through tempfile)
+  https://github.com/bytecodealliance/rustix  -  Apache License 2.0 with LLVM exception, or MIT

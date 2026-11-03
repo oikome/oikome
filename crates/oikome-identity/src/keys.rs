@@ -125,6 +125,28 @@ impl NodeIdentity {
         }
     }
 
+    /// Write `seed` as the key at `path`, replacing any key there, and return
+    /// its identity. The file is written privately (mode 0600) beside `path`
+    /// and renamed over it, so a reader sees the old key or the new one.
+    /// Used to restore an identity from its recovery key.
+    #[cfg(feature = "fs")]
+    pub fn write_key_file(path: &Path, seed: &[u8; 32]) -> Result<Self, IdentityError> {
+        let identity = Self::from_seed(seed);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let encoded = Zeroizing::new(URL_SAFE_NO_PAD.encode(seed));
+        let tmp = path.with_extension(format!("restore-{}", std::process::id()));
+        let _ = std::fs::remove_file(&tmp);
+        {
+            let mut file = create_private(&tmp)?;
+            file.write_all(encoded.as_bytes())?;
+            file.sync_all()?;
+        }
+        std::fs::rename(&tmp, path)?;
+        Ok(identity)
+    }
+
     #[cfg(feature = "fs")]
     fn load(path: &Path) -> Result<Self, IdentityError> {
         check_private(path)?;

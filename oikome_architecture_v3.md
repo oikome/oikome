@@ -806,13 +806,13 @@ oikome/
 ├── package.json      npm workspaces: packages/*, e2e; apps/* and plugins/* join when created        [M1a ✅]
 ├── crates/           Rust core; adds oikome-api [M1b] and oikome-mcp [M3]
 ├── apps/             one thin shell per client: entry, platform glue, packaging; no screens
-│   ├── web/          served by `oikome serve --web`; in a phone browser it runs the browser node    [M1c]
+│   ├── web/          the web app, served by `oikome serve --web --web-root apps/web/dist`          [M1c ✅]
 │   ├── desktop/      Tauri; runs a Full Node in process                                             [later]
 │   │   └── src-tauri/
 │   └── mobile/       Tauri 2 mobile; reaches the owner's node over WebRTC, as a phone browser does  [later]
 ├── packages/         TypeScript shared by every client
-│   ├── screens/      every screen and feature, desktop and phone layouts, UI strings                [M1c]
-│   ├── ui/           design system: tokens and components                                           [M1c]
+│   ├── screens/      every screen and feature, desktop and phone layouts, UI strings                [M1c ✅]
+│   ├── ui/           design system: tokens and components                                           [M1c ✅]
 │   ├── client/       NodeClient interface, data hooks, HTTP and browser-node implementations        [M1b]
 │   ├── node/         browser-node runtime: host, store, transport, wasm build                       [M1a ✅]
 │   ├── api/          TypeScript types generated from oikome-api                                     [M1b]
@@ -888,17 +888,40 @@ How each client reaches data (screens depend only on `NodeClient`):
 | Client | Runs in | Reaches data through | Layout |
 |--------|---------|----------------------|--------|
 | Web, desktop browser | Page served by the Full Node | HTTP on loopback, owner session | Desktop |
-| Web, phone browser | The same page, loading the browser node (§10; 32.7 MB, loaded on first use) | WebRTC with a UCAN issued at pairing | Phone |
 | Desktop app (later) | Tauri window | In-process calls to `oikome-api` | Desktop |
-| Phone app (later) | Tauri 2 mobile | WebRTC with a UCAN, as the phone browser | Phone |
+| Phone app (later) | Tauri 2 mobile, paired with the owner's node | WebRTC with a UCAN issued at pairing | Phone |
 
-Which Owner operations a paired device may perform is decided with phone pairing, which is designed separately before M1c, together with the recovery key: a phone browser needs the page over HTTPS, and where that page comes from is not decided.
+**Phones.** Pairing a phone comes with the phone app. A phone browser would need the browser node's page over HTTPS, which the owner's loopback server cannot give it, and a page from a public origin or a self-signed certificate on the local network was turned down. The screens have a phone layout already, which the phone app reuses. Which Owner operations a paired phone may perform is decided with it.
+
+**The web app (M1c).**
+- **Stack:** React 19 and Vite 7, built into `apps/web/dist`. Vite 8 was not used: it requires lightningcss, which is MPL-2.0.
+  - `packages/ui` holds the design tokens and components.
+  - `packages/screens` holds the screens and all UI strings (English, ready for i18n), a small History-API router, and data loading through `NodeClient`.
+  - `apps/web` renders them with `HttpClient`.
+- **Serving:** `oikome serve --web --web-root apps/web/dist` (`OIKOME_WEB_ROOT`).
+  - GET serves the app's files under `Content-Security-Policy: default-src 'self'` (no inline scripts or styles, `frame-ancestors 'none'`) with `X-Frame-Options: DENY`.
+  - Paths are checked segment by segment (no escapes, dots or hidden names) and must resolve inside the root. A path without an extension gets `index.html`.
+  - Hashed assets are cached for a year; everything else is `no-store`.
+  - Embedding the build in the binary waits for packaging.
+- **Words for people:** Collection (a Space), Contact, Share, Stop sharing, Activity (the access log), Your ID (the DID), invite code (the token). The web app runs no SQL of the owner's: `run_sql` stays in the API for the command line and tests, and data comes in through importing (later).
+- **Screens:** Home (what the data center holds, where and who reads it, what came in last, recent Activity, the room on every place, and the recovery key until it is stored), Collections (a cover per collection), a page per collection, Sharing, Activity, Settings. The sidebar lists the places collections are kept in; the card under it shows the room on the one picked (`list_storages` reports free and total space for this computer and a folder).
+- **Two styles,** picked under Settings › Appearance and kept by the browser: Ink (the default: black ink on white, hairlines and no shadows, data in IBM Plex Mono, states as ink glyphs, crimson only for what needs the owner) and Bold (neubrutalist: 2px outlines, hard shadows, bright fills, Archivo Black). Both are sets of values for the same tokens; the faces ship with the app under the SIL Open Font License.
+  - A collection shows what its first table holds, read from the columns rather than from names: a column of images is photos, a few columns with long text are notes, anything else is a table. Images reach the page as `data:` URLs, which the CSP already allows.
+  - Times written without a zone (`TIMESTAMP`) show as written; `DECIMAL` values with their scale.
+- **First run:** the data center's name is filled in, so Continue alone goes through. `add_examples` then makes three example Spaces about one weekend in Lisbon (photos, notes, spending), once: a removed example stays removed, and a name already taken is skipped. The six photos are from Wikimedia Commons (CC0 and CC BY), credited in each row and in `NOTICE`.
+- **Where a collection is kept:** `create_space` takes a `storage`, this computer when left out; `list_storages` lists this computer and each storage, with the number of Spaces on it and the default for new collections (`set_default_storage`; `add_examples` puts the examples there). A removed Space leaves its files, and the name stays taken (`conflict`).
+  - The owner picks a place instead of typing one: Welcome and Settings offer this computer (its data folder, or another folder), the cloud drives and drives found on it (`find_places`), a NAS, or another folder. A web page cannot ask the system for a folder, so the node lists folders (`list_folders`, owner only, hidden ones left out) and the page browses them, as NAS and media server apps do.
+  - `add_storage` takes what was picked and calls the node's own `add_storage`: files go in an `Oikome` folder inside a picked folder, a folder inside a cloud drive is a drive (always encrypted), a password goes to the system keychain, and the storage is checked before it is kept. The data center's own folder (identity, catalog, Activity) stays where the node runs.
+- **Recovery key:** the identity seed, shown to the owner as 56 Crockford Base32 characters in 14 groups. It is made of a version byte, the 32-byte seed and two BLAKE3 check bytes (`oikome-identity::recovery`).
+  - Reading it forgives case, spaces and look-alike characters, and rejects typos.
+  - `recovery_key` returns it (owner only, never logged); `confirm_recovery_key` records that it was stored. The node's name and that record live in `.oikome/node.json`.
+  - `oikome identity restore` reads a key from standard input and writes it as the node key. It only does this on a node that holds nothing yet: no Spaces, contacts or issued tokens. A running node keeps its identity until it is restarted, so the web app only explains this step; the desktop app can do it in process later.
 
 **Scope of the apps.**
 - They serve the owner's personal data center: onboarding, Spaces, sources, sharing, AI assistants, plugins and settings. Node operations (engines, logs, peers' internals) stay in the CLI. Members and family roles come later.
 - The UI is English; other languages arrive through i18n later.
-- Visual design: Apple-style minimal on a low-chroma cream palette. One crimson primary action per view; blue only for links and focus. Its tokens and rules move into `design/` with DESIGN.md.
-- **Storage.** Onboarding offers local folders and a NAS (§7.5, phase 3.4a). Cloud drives come through their sync folders (3.4b, always encrypted) and later over their API (3.4c); the apps offer each as it arrives. Credentials and keys are entered in the apps and kept by the node (§7.5). Browsing files already on a drive (as AList does) and serving Oikome over WebDAV are planned but not scheduled.
+- Visual design: Apple-style minimal on a low-chroma cream palette. One crimson primary action per view; blue only for links and focus. Settings and lists are grouped inset rows; a task beside a list (a new share) opens as a side panel, not a modal; removing something sits behind a More (…) menu and is confirmed inline; a field in focus only darkens its border. Its tokens and rules move into `design/` with DESIGN.md.
+- **Storage.** The web app's onboarding shows where the data is kept; choosing a NAS (§7.5, phase 3.4a) moves into the apps with a storage screen. Cloud drives come through their sync folders (3.4b, always encrypted) and later over their API (3.4c); the apps offer each as it arrives. Credentials and keys are entered in the apps and kept by the node (§7.5). Browsing files already on a drive (as AList does) and serving Oikome over WebDAV are planned but not scheduled.
 
 ---
 
@@ -929,7 +952,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 |-----------|------|------|----------------|
 | **M1a Layout** ✅ | `web/` split into `packages/node` and `e2e/`; root `package.json` with npm workspaces | 3.2 ✅ | `browser-e2e` passes from the new paths with no change to the tests' assertions |
 | **M1b API** ✅ | `oikome-api` with the Owner operations of §13.4 (Spaces, rows, SQL, contacts, sharing and revoking, access log); whole-Space grants; the access log; `oikome serve --web` and `oikome web open`; `packages/api`; `packages/client` with its HTTP implementation. The recovery key and phone pairing are designed separately before M1c | 3.0–3.2 ✅, M1a | e2e starts `oikome serve --web` on an empty temporary data directory and, through `packages/client`, creates a Space, writes and reads rows, shares the Space with a contact and revokes it, after which the contact's query fails. A request without the session cookie or with a foreign `Origin` is refused |
-| **M1c Usable** | `packages/ui`, `packages/screens` and `apps/web`: the M1 screens (onboarding and the recovery key, Spaces, sharing and contacts, phone pairing, access log, advanced SQL, settings), desktop and phone layouts | M1b | In e2e on CI, against a local node started from an empty data directory: onboarding; a Space browsed; the Space shared with a contact and revoked; a phone browser paired that then queries over WebRTC. Each M1 screen renders at desktop and phone widths; no text pair fails its WCAG contrast ratio |
+| **M1c Usable** ✅ | `packages/ui`, `packages/screens` and `apps/web`: the M1 screens (onboarding with the examples and the recovery key, Home, Collections and a page per collection, sharing and contacts, Activity, settings with storage), desktop and phone layouts; `--web-root`; `oikome identity restore`. Phone pairing moves to the phone app | M1b | In e2e on CI (`web-app.spec.mjs`), in Chromium against a local node started from an empty data directory: onboarding and the recovery key; the examples opened as photos, notes and a table; a collection of one's own filled through the node and browsed; the collection shared with a contact (a second node) and stopped, after which the contact's query fails; both in Activity. Each M1 screen renders at 1280 and 390 px without sideways scrolling, and no text fails WCAG AA |
 | **M2 Connect** | Sources screen and sync status, Home dashboard, built-in cards, dashboard plugins v1 (`plugin-sdk`, data contract, plugin grants), reference plugins | 3.5, M1c | A connector's data appears on Home; a plugin reads only what its grant allows and cannot reach the network |
 | **M3 Find** | Full-text and semantic search, photo and note views, AI Assistants screen, `oikome-mcp` | 3.3 ✅, M2 | An MCP client lists and searches only the Spaces granted to it; revoking the grant in the app cuts it off; Owner commands are not offered over MCP |
 | **M4 Extend** | Borrowed compute, third-party connector plugins, plugin directory; cloud-drive storage as 3.4b and 3.4c bring it (§7.5, §13.4) | 3.4b, 3.6, M3 | Set when M4 starts |
@@ -1028,6 +1051,10 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-01 | The access log is SQLite under `.oikome/`, written by a thread behind a bounded channel; failed authentications merged per method and minute | Requests never wait for logging; the owner can page and filter it; unauthenticated callers cannot push real entries out |
 | 2026-11-01 | The web API's login link is written to an owner-only file and opened with `oikome web open`, never printed | A token in terminal output stays in scrollback and logs; whoever can read the data directory is the owner anyway |
 | 2026-11-01 | Registry writes take a file lock and re-read the files first; `refresh` reads under a shared lock | With the web API, `serve` writes the registry too; a `REVOKE UCAN` from `oikome sql` must not be undone by its next write |
+| 2026-11-02 | Phone pairing comes with the phone app, not the web app | A phone browser needs the browser node's page over HTTPS; the loopback server cannot serve it, and a public origin or a self-signed local certificate was turned down. The screens already have a phone layout for the app |
+| 2026-11-02 | Recovery key: Crockford Base32 groups with two check bytes; restored only into an empty node, with `oikome identity restore` | No dependency (unlike a word list); a typo is caught instead of restoring another identity; a running node cannot swap identities, so restore happens while it is stopped |
+| 2026-11-02 | The web app starts with examples (one weekend in Lisbon: photos, notes, spending) and shows each collection as what it holds; no SQL workbench in the apps | A first screen with something in it shows what Oikome is for and gives every test the same data; owners are not database users, and their data arrives by importing |
+| 2026-11-02 | Web app on React 19 and Vite 7, served from a directory (`--web-root`) under a strict CSP | React's ecosystem and Tauri templates for the later apps; Vite 8 requires lightningcss (MPL-2.0); embedding the build waits for packaging |
 | 2026-11-01 | Visual design: Apple-style minimal, low-chroma cream palette, one crimson primary action per view, blue only for links and focus | Calm and familiar for ordinary users; color marks the one thing to do instead of decorating; every text pair is checked against WCAG contrast |
 
 ---

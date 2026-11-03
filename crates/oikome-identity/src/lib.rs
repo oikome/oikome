@@ -26,6 +26,7 @@ pub mod auth;
 pub mod did;
 pub mod error;
 pub mod keys;
+pub mod recovery;
 pub mod ucan;
 
 pub use auth::{request_digest, AuthRequest};
@@ -34,6 +35,7 @@ pub use error::IdentityError;
 #[cfg(feature = "fs")]
 pub use keys::load_node_identity;
 pub use keys::{NodeIdentity, TlsIdentity, ENV_NODE_KEY};
+pub use recovery::{decode_recovery_key, encode_recovery_key};
 pub use ucan::{Capability, Ucan, UcanBuilder, UcanError, Verified, VerifyOptions};
 
 /// Seconds since the Unix epoch.

@@ -25,9 +25,11 @@
 //!
 //! The API never builds SQL from request fields: names are checked against
 //! the catalog and the operations call the node directly. Only `run_sql`
-//! runs SQL, the owner's own.
+//! runs SQL, the owner's own; `add_examples` runs this crate's constants.
 
 pub mod error;
+mod examples;
+mod places;
 pub mod types;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,15 +38,20 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
-use oikome_catalog::{LocationFormat, OikomeCatalog};
+use oikome_catalog::{LocationFormat, OikomeCatalog, StorageKind};
 use oikome_core::{validate_space_name, AccessMode, CreateSpaceRequest};
+use oikome_identity::keys::NODE_KEY_FILE;
 use oikome_identity::ucan::{ABILITY_QUERY, ABILITY_READ};
-use oikome_identity::{unix_now, Did};
+use oikome_identity::{
+    decode_recovery_key, encode_recovery_key, unix_now, Did, NodeIdentity, ENV_NODE_KEY,
+};
 use oikome_node::{
     AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult, SessionConfig,
+    StorageCredentials,
 };
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
+use serde::{Deserialize, Serialize};
 
 pub use error::{ApiError, ErrorCode};
 pub use types::*;
@@ -61,6 +68,41 @@ const DEFAULT_PAGE_ROWS: u32 = 100;
 const DEFAULT_ACCESS_ROWS: u32 = 100;
 const DEFAULT_SHARE_DAYS: u32 = 365;
 const MAX_SHARE_DAYS: u32 = 366;
+/// The data center's name and whether its recovery key was stored, under
+/// `.oikome/`.
+const NODE_SETTINGS_FILE: &str = "node.json";
+/// Longest data center name, in characters.
+const MAX_NODE_NAME_CHARS: usize = 64;
+
+/// What the owner set about the data center itself.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct NodeSettings {
+    #[serde(default)]
+    name: String,
+    /// When the owner said they stored the recovery key.
+    #[serde(default)]
+    recovery_key_saved_at_ms: Option<u64>,
+    /// When the examples were added; they are added once, so removing them
+    /// is for good.
+    #[serde(default)]
+    examples_added_at_ms: Option<u64>,
+    /// The examples still there.
+    #[serde(default)]
+    examples: Vec<String>,
+    /// Where new collections go; this computer when `None`.
+    #[serde(default)]
+    default_storage: Option<String>,
+    /// What the owner called each storage, by its name.
+    #[serde(default)]
+    storage_labels: BTreeMap<String, String>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Who is calling.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,6 +193,19 @@ fn encode_rows(
     Ok(Rows { ipc, truncated })
 }
 
+/// The single number a `count(*)` returned.
+fn first_count(batches: &[RecordBatch]) -> Option<u64> {
+    let batch = batches.iter().find(|b| b.num_rows() > 0)?;
+    let column = batch.column(0);
+    if let Some(a) = column.as_any().downcast_ref::<arrow_array::Int64Array>() {
+        return u64::try_from(a.value(0)).ok();
+    }
+    column
+        .as_any()
+        .downcast_ref::<arrow_array::UInt64Array>()
+        .map(|a| a.value(0))
+}
+
 fn parse_did(text: &str) -> Result<String, ApiError> {
     Did::parse(text)
         .map(|d| d.to_string())
@@ -217,15 +272,92 @@ impl Api {
         Ok(self.engines.identity()?.did().to_string())
     }
 
+    fn settings_path(&self) -> std::path::PathBuf {
+        self.catalog.oikome_dir().join(NODE_SETTINGS_FILE)
+    }
+
+    fn settings(&self) -> Result<NodeSettings, ApiError> {
+        match std::fs::read(self.settings_path()) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(ApiError::internal),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(NodeSettings::default()),
+            Err(e) => Err(ApiError::internal(e)),
+        }
+    }
+
+    /// Replace the settings file at once (temporary file, then rename).
+    fn save_settings(&self, settings: &NodeSettings) -> Result<(), ApiError> {
+        let path = self.settings_path();
+        let bytes = serde_json::to_vec_pretty(settings).map_err(ApiError::internal)?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::create_dir_all(self.catalog.oikome_dir()).map_err(ApiError::internal)?;
+        std::fs::write(&tmp, bytes).map_err(ApiError::internal)?;
+        std::fs::rename(&tmp, &path).map_err(ApiError::internal)
+    }
+
     // ----- Node -----
 
-    /// This node: its DID, version and Flight address.
-    pub async fn node_info(&self, _caller: &Caller, _: Empty) -> Result<NodeInfo, ApiError> {
+    /// This node: its DID, name, version, data directory and Flight address.
+    pub async fn node_info(&self, caller: &Caller, _: Empty) -> Result<NodeInfo, ApiError> {
+        let owner = caller.require_owner().is_ok();
+        let settings = if owner {
+            self.settings()?
+        } else {
+            NodeSettings::default()
+        };
         Ok(NodeInfo {
             did: self.node_did()?,
+            name: settings.name,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            // Only the owner learns where the data lives.
+            data_dir: if owner {
+                self.catalog.root_path().to_string()
+            } else {
+                String::new()
+            },
+            recovery_key_saved: settings.recovery_key_saved_at_ms.is_some(),
             flight_url: self.flight_url.clone(),
         })
+    }
+
+    /// Give the data center a name.
+    pub async fn rename_node(&self, caller: &Caller, req: NodeName) -> Result<NodeInfo, ApiError> {
+        caller.require_owner()?;
+        let name = req.name.trim();
+        if name.is_empty()
+            || name.chars().count() > MAX_NODE_NAME_CHARS
+            || name.chars().any(char::is_control)
+        {
+            return Err(ApiError::invalid(format!(
+                "a name has 1 to {MAX_NODE_NAME_CHARS} characters"
+            )));
+        }
+        let mut settings = self.settings()?;
+        settings.name = name.to_string();
+        self.save_settings(&settings)?;
+        self.node_info(caller, Empty {}).await
+    }
+
+    /// The node's recovery key, for the owner to store. It is never logged.
+    pub async fn recovery_key(&self, caller: &Caller, _: Empty) -> Result<RecoveryKey, ApiError> {
+        caller.require_owner()?;
+        let identity = self.engines.identity()?;
+        let key = identity.with_seed(encode_recovery_key);
+        Ok(RecoveryKey {
+            key: key.to_string(),
+        })
+    }
+
+    /// Record that the owner stored the recovery key.
+    pub async fn confirm_recovery_key(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<NodeInfo, ApiError> {
+        caller.require_owner()?;
+        let mut settings = self.settings()?;
+        settings.recovery_key_saved_at_ms = Some(now_ms());
+        self.save_settings(&settings)?;
+        self.node_info(caller, Empty {}).await
     }
 
     // ----- Spaces -----
@@ -238,6 +370,7 @@ impl Api {
     ) -> Result<Vec<SpaceSummary>, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        let examples = self.settings()?.examples;
         let mut shared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for share in self.shares()? {
             if share.status == ShareStatus::Active {
@@ -249,11 +382,12 @@ impl Api {
             .list_spaces()
             .into_iter()
             .map(|space| {
-                let format = self
-                    .catalog
-                    .get_location(&space.location)
+                let location = self.catalog.get_location(&space.location).ok();
+                let format = location
+                    .as_ref()
                     .map(|l| format_name(&l.format))
                     .unwrap_or("unknown");
+                let storage = location.and_then(|l| l.storage).map(|b| b.storage);
                 SpaceSummary {
                     kind: match space.kind {
                         oikome_core::SpaceKind::Analytical => SpaceKind::Analytical,
@@ -264,6 +398,8 @@ impl Api {
                     readonly: space.access == AccessMode::ReadOnly
                         || space.kind == oikome_core::SpaceKind::Remote,
                     shared_with: shared.get(&space.name).map_or(0, |d| d.len() as u32),
+                    storage,
+                    example: examples.contains(&space.name),
                     name: space.name,
                 }
             })
@@ -288,10 +424,26 @@ impl Api {
             }
         };
         self.refresh()?;
+        if let Some(storage) = &req.storage {
+            self.catalog.get_storage(storage)?;
+        }
+        // A removed Space leaves its files, and the name with them.
+        if self.catalog.get_space(&req.name).is_err()
+            && self.catalog.get_location(&req.name).is_ok()
+        {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "the files of a removed space named '{}' are still in the data directory",
+                    req.name
+                ),
+            ));
+        }
         self.session(None)
             .create_space(CreateSpaceRequest {
                 name: req.name.clone(),
                 kind: Some(kind),
+                storage: req.storage.clone(),
                 ..Default::default()
             })
             .await?;
@@ -315,7 +467,259 @@ impl Api {
             }
         }
         session.drop_space(&req.space).await?;
+        let mut settings = self.settings()?;
+        if settings.examples.contains(&req.space) {
+            settings.examples.retain(|name| name != &req.space);
+            self.save_settings(&settings)?;
+        }
         Ok(Empty {})
+    }
+
+    /// Add the examples a new data center starts with (one weekend in
+    /// Lisbon: photos, notes and spending), once. A name already taken is
+    /// left alone. Returns the examples there now.
+    pub async fn add_examples(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<SpaceSummary>, ApiError> {
+        caller.require_owner()?;
+        let mut settings = self.settings()?;
+        if settings.examples_added_at_ms.is_none() {
+            self.refresh()?;
+            let session = self.session(None);
+            for example in examples::examples() {
+                if self.catalog.get_space(example.name).is_ok()
+                    || self.catalog.get_location(example.name).is_ok()
+                {
+                    continue;
+                }
+                session
+                    .create_space(CreateSpaceRequest {
+                        name: example.name.to_string(),
+                        kind: Some(oikome_core::SpaceKind::Analytical),
+                        storage: settings.default_storage.clone(),
+                        ..Default::default()
+                    })
+                    .await?;
+                for statement in &example.statements {
+                    if let Err(e) = session.sql(statement).await {
+                        // Leave no half-filled example behind.
+                        let _ = session.drop_space(example.name).await;
+                        return Err(e.into());
+                    }
+                }
+                settings.examples.push(example.name.to_string());
+            }
+            settings.examples_added_at_ms = Some(now_ms());
+            self.save_settings(&settings)?;
+        }
+        Ok(self
+            .list_spaces(caller, Empty {})
+            .await?
+            .into_iter()
+            .filter(|space| space.example)
+            .collect())
+    }
+
+    /// Where Spaces can be kept: this computer first, then each registered
+    /// storage, with the number of local Spaces on it.
+    pub async fn list_storages(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<StorageSummary>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let mut counts: BTreeMap<Option<String>, u32> = BTreeMap::new();
+        for space in self.catalog.list_spaces() {
+            if space.kind == oikome_core::SpaceKind::Remote {
+                continue;
+            }
+            let storage = self
+                .catalog
+                .get_location(&space.location)
+                .ok()
+                .and_then(|l| l.storage)
+                .map(|b| b.storage);
+            *counts.entry(storage).or_default() += 1;
+        }
+        let settings = self.settings()?;
+        let default = settings
+            .default_storage
+            .filter(|name| self.catalog.get_storage(name).is_ok());
+        let root = self.catalog.root_path().to_string();
+        let room = places::space(std::path::Path::new(&root));
+        let mut out = vec![StorageSummary {
+            name: None,
+            label: String::new(),
+            is_default: default.is_none(),
+            kind: StorageType::Disk,
+            place: root,
+            encrypted: false,
+            spaces: counts.get(&None).copied().unwrap_or(0),
+            free_bytes: room.map(|r| r.0),
+            total_bytes: room.map(|r| r.1),
+        }];
+        for def in self.catalog.list_storages() {
+            let (kind, place) = match &def.kind {
+                StorageKind::Webdav { endpoint, .. } => (StorageType::Webdav, endpoint.clone()),
+                StorageKind::Folder { path } => (StorageType::Folder, path.clone()),
+                StorageKind::Drive { path } => (StorageType::Drive, path.clone()),
+            };
+            // A cloud drive's folder sits on this disk, but its room is the
+            // drive's quota, which the folder doesn't tell.
+            let room = match kind {
+                StorageType::Folder => places::space(std::path::Path::new(&place)),
+                _ => None,
+            };
+            out.push(StorageSummary {
+                spaces: counts.get(&Some(def.name.clone())).copied().unwrap_or(0),
+                label: settings
+                    .storage_labels
+                    .get(&def.name)
+                    .cloned()
+                    .unwrap_or_else(|| def.name.clone()),
+                is_default: default.as_deref() == Some(def.name.as_str()),
+                name: Some(def.name),
+                kind,
+                place,
+                encrypted: def.encrypted,
+                free_bytes: room.map(|r| r.0),
+                total_bytes: room.map(|r| r.1),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Add a place to keep Spaces in, as the owner picked it: a folder (an
+    /// `Oikome` folder is made inside), a cloud drive's folder (always
+    /// encrypted) or a WebDAV server. The password goes to the system
+    /// keychain, and the storage is checked before it is kept.
+    pub async fn add_storage(
+        &self,
+        caller: &Caller,
+        req: NewStorage,
+    ) -> Result<StorageSummary, ApiError> {
+        caller.require_owner()?;
+        let label = req.label.trim();
+        if label.is_empty()
+            || label.chars().count() > MAX_NODE_NAME_CHARS
+            || label.chars().any(char::is_control)
+        {
+            return Err(ApiError::invalid(format!(
+                "a storage's name has 1 to {MAX_NODE_NAME_CHARS} characters"
+            )));
+        }
+        self.refresh()?;
+        let home = places::home();
+        let (kind, encrypted) = match req.kind {
+            StorageType::Disk => {
+                return Err(ApiError::invalid("this computer is already a storage"));
+            }
+            StorageType::Webdav => (
+                StorageKind::Webdav {
+                    endpoint: req.address.trim().to_string(),
+                    username: req.username.clone().filter(|u| !u.is_empty()),
+                },
+                req.encrypted.unwrap_or(false),
+            ),
+            StorageType::Folder | StorageType::Drive => {
+                let (path, on_drive) = places::data_folder(req.address.trim(), home.as_deref())?;
+                if on_drive || req.kind == StorageType::Drive {
+                    (StorageKind::Drive { path }, true)
+                } else {
+                    (StorageKind::Folder { path }, req.encrypted.unwrap_or(false))
+                }
+            }
+        };
+        let taken: Vec<String> = self
+            .catalog
+            .list_storages()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        let name = places::storage_name(label, &taken);
+        let credentials = StorageCredentials {
+            password: req.password.filter(|p| !p.is_empty()).map(Into::into),
+            token: None,
+            key: None,
+        };
+        self.session(None)
+            .add_storage(&name, kind, encrypted, credentials)
+            .await
+            .map_err(|e| match e {
+                // It did not answer, or refused the credentials: the owner
+                // can fix what they entered.
+                oikome_node::SessionError::Store { .. } => ApiError::invalid(e.to_string()),
+                other => other.into(),
+            })?;
+        let mut settings = self.settings()?;
+        settings
+            .storage_labels
+            .insert(name.clone(), label.to_string());
+        if req.make_default.unwrap_or(false) {
+            settings.default_storage = Some(name.clone());
+        }
+        self.save_settings(&settings)?;
+        self.list_storages(caller, Empty {})
+            .await?
+            .into_iter()
+            .find(|s| s.name.as_deref() == Some(name.as_str()))
+            .ok_or_else(|| ApiError::internal("the added storage is missing"))
+    }
+
+    /// Choose where new collections go: a registered storage, or this
+    /// computer (`None`).
+    pub async fn set_default_storage(
+        &self,
+        caller: &Caller,
+        req: DefaultStorage,
+    ) -> Result<Vec<StorageSummary>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        if let Some(name) = &req.storage {
+            self.catalog.get_storage(name)?;
+        }
+        let mut settings = self.settings()?;
+        settings.default_storage = req.storage;
+        self.save_settings(&settings)?;
+        self.list_storages(caller, Empty {}).await
+    }
+
+    /// Cloud drives synced on this computer and drives plugged into it,
+    /// not yet added.
+    pub async fn find_places(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<FoundPlace>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let added: Vec<String> = self
+            .catalog
+            .list_storages()
+            .into_iter()
+            .filter_map(|d| match d.kind {
+                StorageKind::Folder { path } | StorageKind::Drive { path } => Some(path),
+                StorageKind::Webdav { .. } => None,
+            })
+            .collect();
+        let home = places::home();
+        Ok(places::find_places(home.as_deref(), &places::volumes())
+            .into_iter()
+            .filter(|p| !added.iter().any(|a| a.starts_with(&p.path)))
+            .collect())
+    }
+
+    /// The folders in a folder of this computer, to pick one.
+    pub async fn list_folders(
+        &self,
+        caller: &Caller,
+        req: FolderRef,
+    ) -> Result<FolderListing, ApiError> {
+        caller.require_owner()?;
+        places::list_folders(req.path.as_deref())
     }
 
     /// Tables and views of a Space.
@@ -332,18 +736,36 @@ impl Api {
             .into_iter()
             .map(|v| v.name)
             .collect();
-        let names = self.session(None).readable_relations(&req.space).await?;
-        Ok(names
-            .into_iter()
-            .map(|name| TableSummary {
+        let local = self.catalog.get_space(&req.space)?.kind != oikome_core::SpaceKind::Remote;
+        let session = self.session(None);
+        let names = session.readable_relations(&req.space).await?;
+        let mut out = Vec::with_capacity(names.len());
+        for name in names {
+            let rows = if local {
+                // Both names were found in the catalog, and are quoted on top.
+                let sql = format!(
+                    "SELECT count(*) FROM {}.{}",
+                    quote_ident(&req.space),
+                    quote_ident(&name)
+                );
+                match session.sql(&sql).await {
+                    Ok(QueryResult::Batches { batches, .. }) => first_count(&batches),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            out.push(TableSummary {
                 kind: if views.contains(&name) {
                     RelationKind::View
                 } else {
                     RelationKind::Table
                 },
                 name,
-            })
-            .collect())
+                rows,
+            });
+        }
+        Ok(out)
     }
 
     /// A page of a table or view.
@@ -719,6 +1141,33 @@ impl Api {
             })
             .collect())
     }
+}
+
+/// Restore a node's identity from its recovery key (`oikome identity
+/// restore`): write the seed as the node key of `catalog`'s data directory.
+/// Only a node that holds nothing yet (no Spaces, contacts or issued tokens)
+/// can take another identity; a running node keeps its old one until it is
+/// restarted. Returns the restored DID.
+pub fn restore_identity(catalog: &OikomeCatalog, recovery_key: &str) -> Result<String, ApiError> {
+    if std::env::var_os(ENV_NODE_KEY).is_some_and(|v| !v.is_empty()) {
+        return Err(ApiError::invalid(format!(
+            "{ENV_NODE_KEY} is set and overrides the key file; unset it to restore"
+        )));
+    }
+    let seed = decode_recovery_key(recovery_key).map_err(|e| ApiError::invalid(e.to_string()))?;
+    catalog.refresh()?;
+    let busy = !catalog.list_spaces().is_empty()
+        || !catalog.list_contacts().is_empty()
+        || !catalog.list_issued_ucans().is_empty();
+    if busy {
+        return Err(ApiError::new(
+            ErrorCode::Conflict,
+            "this node already holds data; restore into a new, empty data directory",
+        ));
+    }
+    let path = catalog.oikome_dir().join("identity").join(NODE_KEY_FILE);
+    let identity = NodeIdentity::write_key_file(&path, &seed).map_err(ApiError::internal)?;
+    Ok(identity.did().to_string())
 }
 
 #[cfg(test)]

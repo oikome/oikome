@@ -19,7 +19,9 @@ import type {
   NewShare,
   NewSpace,
   NodeInfo,
+  NodeName,
   ReadRows,
+  RecoveryKey,
   RemovedContact,
   RevokedShare,
   RunSql,
@@ -29,6 +31,12 @@ import type {
   SpaceRef,
   SpaceSummary,
   SqlDone,
+  StorageSummary,
+  NewStorage,
+  DefaultStorage,
+  FoundPlace,
+  FolderRef,
+  FolderListing,
   TableSummary,
 } from "@oikome/api";
 import { tableFromIPC } from "apache-arrow";
@@ -49,10 +57,19 @@ export type SqlResult = ({ kind: "rows" } & RowsResult) | ({ kind: "done" } & Sq
 /** Everything a screen can ask a node for. */
 export interface NodeClient {
   nodeInfo(): Promise<NodeInfo>;
+  renameNode(request: NodeName): Promise<NodeInfo>;
+  recoveryKey(): Promise<RecoveryKey>;
+  confirmRecoveryKey(): Promise<NodeInfo>;
   listSpaces(): Promise<SpaceSummary[]>;
   createSpace(request: NewSpace): Promise<SpaceSummary>;
   dropSpace(request: SpaceRef): Promise<Empty>;
   listTables(request: SpaceRef): Promise<TableSummary[]>;
+  addExamples(): Promise<SpaceSummary[]>;
+  listStorages(): Promise<StorageSummary[]>;
+  addStorage(request: NewStorage): Promise<StorageSummary>;
+  setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
+  findPlaces(): Promise<FoundPlace[]>;
+  listFolders(request?: FolderRef): Promise<FolderListing>;
   readRows(request: ReadRows): Promise<RowsResult>;
   runSql(request: RunSql): Promise<SqlResult>;
   listContacts(): Promise<Contact[]>;
@@ -142,6 +159,18 @@ export class HttpClient implements NodeClient {
     return this.#json("node_info", {});
   }
 
+  renameNode(request: NodeName): Promise<NodeInfo> {
+    return this.#json("rename_node", request);
+  }
+
+  recoveryKey(): Promise<RecoveryKey> {
+    return this.#json("recovery_key", {});
+  }
+
+  confirmRecoveryKey(): Promise<NodeInfo> {
+    return this.#json("confirm_recovery_key", {});
+  }
+
   listSpaces(): Promise<SpaceSummary[]> {
     return this.#json("list_spaces", {});
   }
@@ -156,6 +185,30 @@ export class HttpClient implements NodeClient {
 
   listTables(request: SpaceRef): Promise<TableSummary[]> {
     return this.#json("list_tables", request);
+  }
+
+  addExamples(): Promise<SpaceSummary[]> {
+    return this.#json("add_examples", {});
+  }
+
+  listStorages(): Promise<StorageSummary[]> {
+    return this.#json("list_storages", {});
+  }
+
+  addStorage(request: NewStorage): Promise<StorageSummary> {
+    return this.#json("add_storage", request);
+  }
+
+  setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]> {
+    return this.#json("set_default_storage", request);
+  }
+
+  findPlaces(): Promise<FoundPlace[]> {
+    return this.#json("find_places", {});
+  }
+
+  listFolders(request: FolderRef = {}): Promise<FolderListing> {
+    return this.#json("list_folders", request);
   }
 
   async readRows(request: ReadRows): Promise<RowsResult> {

@@ -38,6 +38,11 @@ pub struct NodeInfo {
     pub data_dir: String,
     /// Whether the owner said they stored the recovery key.
     pub recovery_key_saved: bool,
+    /// When they said so.
+    pub recovery_key_saved_at_ms: Option<u64>,
+    /// This computer's name on its network ("rosh-mbp"); empty for a
+    /// principal and where the system doesn't say.
+    pub host: String,
     /// Where peers reach this node's Arrow Flight service (`https://ip:port`),
     /// when it is serving.
     pub flight_url: Option<String>,

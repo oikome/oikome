@@ -315,6 +315,12 @@ impl Api {
                 String::new()
             },
             recovery_key_saved: settings.recovery_key_saved_at_ms.is_some(),
+            recovery_key_saved_at_ms: settings.recovery_key_saved_at_ms,
+            host: if owner {
+                places::host_name()
+            } else {
+                String::new()
+            },
             flight_url: self.flight_url.clone(),
         })
     }

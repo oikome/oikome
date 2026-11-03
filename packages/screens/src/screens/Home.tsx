@@ -27,6 +27,8 @@ const RECENT = 5;
 const LOG = 5;
 
 const today = new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" });
+const short = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
+const dateShort = (ms: number) => short.format(new Date(ms));
 
 interface Recent {
   space: SpaceSummary;
@@ -73,7 +75,9 @@ export function Home({ info }: { info: NodeInfo }) {
   const items = previews
     ? [...previews.values()].reduce((n, p) => n + Number(p.table?.rows ?? 0), 0)
     : undefined;
-  const people = new Set((shares.data ?? []).filter((x) => x.status === "active").map((x) => x.did)).size;
+  const active = (shares.data ?? []).filter((x) => x.status === "active");
+  const people = new Set(active.map((x) => x.did)).size;
+  const activeShares = active.length;
   const now = Date.now();
   const reads = log.data?.filter((x) => x.outcome === "allowed" && now - x.atMs < WEEK_MS).length;
   const places = storages.data ?? [];
@@ -96,7 +100,7 @@ export function Home({ info }: { info: NodeInfo }) {
       <ScreenHeader
         label={today.format(new Date())}
         title={s.greeting(new Date().getHours())}
-        lede={s.lede(info.name || strings.defaultName)}
+        lede={info.recoveryKeySaved ? s.allWell : s.allWellBut}
       >
         <Button variant="primary" icon="plus" onClick={() => navigate("/collections?new=1")}>
           {strings.collections.newCollection}
@@ -107,12 +111,17 @@ export function Home({ info }: { info: NodeInfo }) {
         <div className="screen-hero__text">
           <span className="oik-label">{s.center}</span>
           <div className="screen-hero__title">
-            <Status kind="ok">{strings.nav.running}</Status>
+            <Status kind="ok">{s.running}</Status>
             <span className="screen-hero__id" translate="no">
-              {shortId(info.did).slice(0, 10)}…{shortId(info.did).slice(-6)}
+              {[info.host, `${shortId(info.did).slice(0, 4)}…${shortId(info.did).slice(-4)}`].filter(Boolean).join(" · ")}
             </span>
           </div>
-          <span className="screen-hero__meta">{s.centerMeta(mine.length, items, places.length)}</span>
+          <span className="screen-hero__meta">
+            {[
+              s.centerMeta(mine.length, items, places.length),
+              info.recoveryKeySavedAtMs ? s.backedUpOn(dateShort(info.recoveryKeySavedAtMs)) : s.notBackedUp,
+            ].join(" · ")}
+          </span>
         </div>
         <ol className="screen-pipe">
           <Stage done label={s.statCollections} value={String(mine.length)} />
@@ -122,7 +131,7 @@ export function Home({ info }: { info: NodeInfo }) {
             done={info.recoveryKeySaved}
             bad={!info.recoveryKeySaved}
             label={s.backedUp}
-            value={info.recoveryKeySaved ? s.yes : s.notYet}
+            value={info.recoveryKeySavedAtMs ? dateShort(info.recoveryKeySavedAtMs) : s.notYet}
           />
         </ol>
       </section>
@@ -155,14 +164,20 @@ export function Home({ info }: { info: NodeInfo }) {
           tone="sage"
           label={s.statReads}
           value={reads?.toLocaleString("en")}
-          note={s.peopleCount(people)}
+          note={shares.data ? s.activeShares(activeShares) : undefined}
         />
         <Figure
           icon={preferred ? PLACE_ICONS[preferred.type] : "computer"}
           tone="lavender"
-          label={s.statFree(preferred ? placeLabel(preferred) : strings.storage.thisComputer)}
-          value={storages.data ? (preferred?.freeBytes != null ? bytes(preferred.freeBytes) : "—") : undefined}
-          note={preferred?.totalBytes != null ? s.ofTotal(bytes(preferred.totalBytes)) : undefined}
+          label={s.statStored(preferred ? placeLabel(preferred) : strings.storage.thisComputer)}
+          value={
+            storages.data
+              ? preferred?.freeBytes != null && preferred.totalBytes != null
+                ? bytes(preferred.totalBytes - preferred.freeBytes)
+                : strings.settings.storageCount(preferred?.spaces ?? 0)
+              : undefined
+          }
+          note={preferred?.freeBytes != null ? s.freeShort(bytes(preferred.freeBytes)) : undefined}
         />
       </div>
 

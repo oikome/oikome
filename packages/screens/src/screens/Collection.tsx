@@ -23,6 +23,7 @@ import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf } from "..
 import type { Item, Shape } from "../content";
 import { countOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
+import { monthAndDay } from "../format";
 import { RowsTable, ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
@@ -80,7 +81,11 @@ export function Collection({ name }: { name: string }) {
     <>
       <ScreenHeader
         mono
-        label={local ? [kind ? s.kinds[kind] : null, space.example ? s.example : null].filter(Boolean).join(" · ") : s.fromElsewhere}
+        label={
+          local
+            ? [kind ? s.kinds[kind] : null, space.example ? s.fromExampleShort : s.fromYouShort].filter(Boolean).join(" · ")
+            : s.fromElsewhere
+        }
         title={space.name}
       >
         {local && (
@@ -101,6 +106,10 @@ export function Collection({ name }: { name: string }) {
             <dd>{countOf(preview.data) ?? s.noData}</dd>
           </div>
           <div>
+            <dt className="oik-label">{s.factFrom}</dt>
+            <dd>{space.example ? s.fromExample : s.fromYou}</dd>
+          </div>
+          <div>
             <dt className="oik-label">{s.factStored}</dt>
             <dd>{place?.encrypted ? `${where} · ${strings.settings.encrypted}` : where}</dd>
           </div>
@@ -111,10 +120,6 @@ export function Collection({ name }: { name: string }) {
               <span>{[strings.common.you, ...names].join(", ")}</span>
               <Link to="/sharing">{s.manage}</Link>
             </dd>
-          </div>
-          <div>
-            <dt className="oik-label">{s.factKind}</dt>
-            <dd>{space.kind === "transactional" ? s.kindEditable : s.kindAnalytical}</dd>
           </div>
         </dl>
       ) : (
@@ -274,7 +279,8 @@ function View({ table, shape, label }: { table: Table; shape: Shape; label: stri
 }
 
 function Photo({ item }: { item: Item }) {
-  const meta = [itemDate(item), item.detail].filter(Boolean).join(" · ");
+  const day = item.when === undefined ? undefined : monthAndDay(item.when, item.whenKind !== "moment");
+  const meta = [item.detail, day].filter(Boolean).join(" · ");
   return (
     <figure className="screen-photo">
       {item.image ? (
@@ -283,8 +289,14 @@ function Photo({ item }: { item: Item }) {
         <div className="screen-photo__missing" />
       )}
       <figcaption>
-        {item.text && <span className="screen-photo__title">{item.text}</span>}
-        {meta && <span className="screen-photo__meta">{meta}</span>}
+        <span className="screen-photo__line">
+          {item.text && <span className="screen-photo__title">{item.text}</span>}
+          {meta && (
+            <span className="screen-photo__meta" title={itemDate(item)}>
+              {meta}
+            </span>
+          )}
+        </span>
         {item.credit && <span className="screen-photo__credit">{item.credit}</span>}
       </figcaption>
     </figure>

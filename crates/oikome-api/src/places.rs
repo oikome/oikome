@@ -47,6 +47,22 @@ pub(crate) fn space(path: &Path) -> Option<(u64, u64)> {
     }
 }
 
+/// This computer's name on its network, without a `.local` suffix.
+pub(crate) fn host_name() -> String {
+    #[cfg(unix)]
+    {
+        let name = rustix::system::uname()
+            .nodename()
+            .to_string_lossy()
+            .into_owned();
+        name.trim_end_matches(".local").to_string()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var("COMPUTERNAME").unwrap_or_default()
+    }
+}
+
 /// The home directory of the user running the node.
 pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME")

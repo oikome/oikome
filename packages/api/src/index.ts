@@ -46,6 +46,15 @@ dataDir: string,
  */
 recoveryKeySaved: boolean, 
 /**
+ * When they said so.
+ */
+recoveryKeySavedAtMs: number | null, 
+/**
+ * This computer's name on its network ("rosh-mbp"); empty for a
+ * principal and where the system doesn't say.
+ */
+host: string, 
+/**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
  */

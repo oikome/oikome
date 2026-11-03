@@ -254,7 +254,9 @@ test("a contact reads a shared collection until the share is stopped", async () 
   await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
   const token = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByText("Bob can view live")).toBeVisible();
+  const shareRow = page.locator(".screen-table-in-card tr", { hasText: "Bob" });
+  await expect(shareRow).toContainText("notes");
+  await expect(shareRow).toContainText("View live");
 
   const { flightUrl } = await api("node_info");
   nodeSql(contact, `CREATE SPACE pub WITH PEER = '${flightUrl}', REMOTE = 'notes', TOKEN = '${token}'`);
@@ -264,7 +266,8 @@ test("a contact reads a shared collection until the share is stopped", async () 
   ]);
 
   await page.getByRole("button", { name: "Stop Sharing: notes, Bob" }).click();
-  await expect(page.getByText("Stopped for Bob.")).toBeVisible();
+  await expect(page.locator(".oik-toasts")).toContainText("Stopped sharing notes with Bob.");
+  await expect(shareRow).toContainText("Ended");
   let refused;
   try {
     nodeSql(contact, "SELECT body FROM pub.memos");
@@ -278,8 +281,9 @@ test("Activity shows the contact's reads and the refusal", async () => {
   await page.getByRole("link", { name: "Activity" }).click();
   await expect(async () => {
     await page.reload();
-    await expect(page.getByText("Bob read notes").first()).toBeVisible({ timeout: 1000 });
-    await expect(page.getByText("Bob was turned away from notes").first()).toBeVisible({
+    const bob = page.locator("tbody tr", { hasText: "Bob" });
+    await expect(bob.filter({ hasText: "read notes" }).first()).toBeVisible({ timeout: 1000 });
+    await expect(bob.filter({ hasText: "was turned away from notes" }).first()).toBeVisible({
       timeout: 1000,
     });
   }).toPass({ timeout: 20_000 });

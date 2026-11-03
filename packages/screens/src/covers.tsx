@@ -11,7 +11,7 @@ import type { Table } from "apache-arrow";
 import { loadPreview } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
-import { calendarDate, columnLabel, dateTime, wallTime } from "./format";
+import { calendarDate, dateTime, wallTime } from "./format";
 import { numeric, show } from "./parts";
 import { Link } from "./router";
 import { strings } from "./strings";
@@ -51,15 +51,6 @@ function MiniTable({ table }: { table: Table }) {
   const rows = Math.min(table.numRows, 4);
   return (
     <table className="screen-cover__table" aria-hidden="true">
-      <thead>
-        <tr>
-          {fields.map((f) => (
-            <th key={f.name} className={numeric(f) ? "oik-num" : undefined}>
-              {columnLabel(f.name)}
-            </th>
-          ))}
-        </tr>
-      </thead>
       <tbody>
         {Array.from({ length: rows }, (_, r) => (
           <tr key={r}>
@@ -145,7 +136,11 @@ export function Cover({
         <Art space={space} tone={tone} preview={preview.data} />
         <span className="screen-cover__chip" aria-hidden="true">
           <Icon name={space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]} />
-          {space.kind === "remote" ? strings.collections.sharedChip : s.kinds[preview.data?.shape.view ?? "table"]}
+          {space.kind === "remote"
+            ? strings.collections.sharedChip
+            : space.example
+              ? s.example
+              : s.kinds[preview.data?.shape.view ?? "table"]}
         </span>
       </span>
       <span className="screen-cover__caption">

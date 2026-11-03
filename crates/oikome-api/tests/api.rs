@@ -682,6 +682,84 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
         .unwrap();
     assert!(storages[0].is_default && !storages[1].is_default);
 
+    // A place stays while collections are on it.
+    let err = n
+        .api
+        .remove_storage(
+            &OWNER,
+            StorageRef {
+                storage: "documents".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err}");
+    assert!(err.message.contains("6 collections"), "{err}");
+
+    // An empty one goes, files and all left where they are, and Local is
+    // the default again when it was the default.
+    let spare = tempfile::tempdir().unwrap();
+    n.api
+        .add_storage(
+            &OWNER,
+            NewStorage {
+                label: "Spare".into(),
+                kind: StorageType::Folder,
+                address: spare.path().to_str().unwrap().into(),
+                username: None,
+                password: None,
+                encrypted: None,
+                make_default: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+    // A collection made there and removed leaves its files, not the place.
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "scratch".into(),
+                kind: None,
+                storage: Some("spare".into()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .drop_space(
+            &OWNER,
+            SpaceRef {
+                space: "scratch".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let storages = n
+        .api
+        .remove_storage(
+            &OWNER,
+            StorageRef {
+                storage: "spare".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(storages.len(), 2);
+    assert!(storages[0].is_default);
+    assert!(spare.path().join("Oikome").is_dir());
+    let err = n
+        .api
+        .remove_storage(
+            &OWNER,
+            StorageRef {
+                storage: "spare".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound);
+
     // A folder that is not there, or not a path, is refused.
     let err = n
         .api

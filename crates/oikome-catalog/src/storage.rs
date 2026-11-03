@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::OikomeCatalog;
 use crate::registry::now_ms;
-use crate::space::STORAGE_DISK;
+use crate::space::{Location, STORAGE_DISK};
 
 /// Longest storage name; it also names environment variables.
 const MAX_STORAGE_NAME: usize = 32;
@@ -274,24 +274,27 @@ impl OikomeCatalog {
         self.with_registry(|reg| reg.storages.values().cloned().collect())
     }
 
-    /// Unregister the storage `name`; refused while a Location is on it.
-    /// Nothing on the storage is touched.
+    /// Unregister the storage `name`, with the Locations that dropped
+    /// Spaces left on it; refused while a Space is on it. Nothing on the
+    /// storage is touched: the files of those Locations stay where they are.
     pub fn remove_storage(&self, name: &str) -> Result<(), CatalogError> {
         self.mutate_registry(|reg| {
-            if let Some(location) = reg
-                .locations
+            let on_it = |l: &Location| l.storage.as_ref().is_some_and(|b| b.storage == name);
+            if let Some(space) = reg
+                .spaces
                 .values()
-                .find(|l| l.storage.as_ref().is_some_and(|b| b.storage == name))
+                .find(|s| reg.locations.get(&s.location).is_some_and(on_it))
             {
                 return Err(CatalogError::InvalidProperty(format!(
-                    "storage '{name}' holds location '{}'; drop its spaces first",
-                    location.id
+                    "storage '{name}' holds space '{}'; drop it first",
+                    space.name
                 )));
             }
             reg.storages
                 .remove(name)
-                .map(|_| ())
-                .ok_or_else(|| CatalogError::StorageNotFound(name.to_string()))
+                .ok_or_else(|| CatalogError::StorageNotFound(name.to_string()))?;
+            reg.locations.retain(|_, l| !on_it(l));
+            Ok(())
         })
     }
 }

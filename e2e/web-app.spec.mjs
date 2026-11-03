@@ -104,8 +104,8 @@ test("first run: name the data center and save its recovery key", async () => {
   // The storage choices also mention a user name: the field is "Name" exactly.
   const name = page.getByLabel("Name", { exact: true });
   await expect(name).toHaveValue("My data center");
-  // Where collections are kept is chosen already: this computer.
-  await expect(page.getByRole("radio", { name: /^This computer/ })).toBeChecked();
+  // Where collections are kept is chosen already: Local, on this computer.
+  await expect(page.getByRole("radio", { name: /^Local/ })).toBeChecked();
   await name.fill("Home");
   await page.getByRole("button", { name: "Continue" }).click();
 
@@ -181,7 +181,7 @@ test("the examples open as photos, notes, tables and readings; a collection of o
   // One's own: made here, kept on this computer, filled through the node.
   await page.locator(".screen-back").click();
   await page.getByRole("button", { name: "New Collection" }).first().click();
-  await expect(page.getByRole("dialog").getByText("This computer", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("Local", { exact: true })).toBeVisible();
   await page.getByLabel("Name").fill("notes");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/\/collections\/notes$/);
@@ -241,10 +241,24 @@ test("a place picked on this computer keeps new collections", async () => {
 
     // Back to this computer for what comes next.
     await page.goto(`${base}/settings`);
-    await page.getByRole("button", { name: "More actions for This computer" }).click();
+    await page.getByRole("button", { name: "More actions for Local" }).click();
     await page.getByRole("menuitem", { name: "Use for New Collections" }).click();
-    await expect(page.locator(".oik-toasts")).toContainText("New collections go to This computer.");
+    await expect(page.locator(".oik-toasts")).toContainText("New collections go to Local.");
+
+    // A place stays while a collection is on it, and goes once none is.
+    await page.getByRole("button", { name: "More actions for Projects" }).click();
+    await page.getByRole("menuitem", { name: "Remove Place" }).click();
+    await expect(page.getByRole("dialog")).toContainText("Remove the collection on it first: plans.");
+    await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
     await api("drop_space", { space: "plans" });
+    await page.reload();
+    await page.getByRole("button", { name: "More actions for Projects" }).click();
+    await page.getByRole("menuitem", { name: "Remove Place" }).click();
+    await page.getByRole("dialog", { name: "Remove Projects?" }).getByRole("button", { name: "Remove" }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Removed Projects.");
+    await expect(page.getByRole("button", { name: "More actions for Projects" })).toHaveCount(0);
+    // Local has nothing to remove: it is always there.
+    await page.getByRole("button", { name: "More actions for Local" }).waitFor({ state: "detached" });
   } finally {
     rmSync(picked, { recursive: true, force: true });
   }

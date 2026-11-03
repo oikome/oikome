@@ -195,6 +195,12 @@ makeDefault?: boolean, };
 export type DefaultStorage = { storage: string | null, };
 
 /**
+ * `remove_storage`: a place added before; Local (this computer) is never
+ * removed.
+ */
+export type StorageRef = { storage: string, };
+
+/**
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */

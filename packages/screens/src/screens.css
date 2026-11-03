@@ -735,7 +735,7 @@
   background: var(--line);
 }
 [data-theme="bold"] .screen-pipe::before {
-  top: 6px;
+  top: 5px;
   height: 3px;
   background: #111;
 }
@@ -746,7 +746,9 @@
   gap: 3px;
   text-align: center;
 }
+/* The prototype's sizes: an 11px dot in Ink, 14px in Bold, borders inside. */
 .screen-pipe__stage > i {
+  box-sizing: border-box;
   width: 11px;
   height: 11px;
   border: 1.5px solid var(--ink);
@@ -757,8 +759,9 @@
 .screen-pipe__stage > i.is-half { background: linear-gradient(90deg, var(--raised) 50%, var(--ink) 50%); }
 .screen-pipe__stage > i.is-bad { border-color: var(--signal); background: var(--signal); }
 [data-theme="bold"] .screen-pipe__stage > i {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
+  margin-top: -1px;
   border: 2px solid #111;
   background: #fff;
 }
@@ -771,8 +774,11 @@
   letter-spacing: var(--label-spacing);
   text-transform: var(--label-case);
 }
+[data-theme="bold"] .screen-pipe__label {
+  font: 400 11px/14px var(--display);
+}
 .screen-pipe__value {
-  font: var(--text-meta);
+  font: 400 11px/14px var(--mono);
   color: var(--ink3);
 }
 

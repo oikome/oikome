@@ -8,6 +8,7 @@ import { useState } from "react";
 import {
   Button,
   Checkbox,
+  ConfirmDialog,
   CopyButton,
   Dialog,
   ErrorText,
@@ -60,8 +61,15 @@ function Storage() {
   const client = useClient();
   const toast = useToast();
   const storages = useLoad(() => client.listStorages(), []);
+  const spaces = useLoad(() => client.listSpaces(), []);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<StorageSummary>();
   const change = useAction();
+  const remove = useAction();
+  const stopRemoving = () => {
+    setRemoving(undefined);
+    remove.clear();
+  };
   return (
     <Group
       title={s.storageTitle}
@@ -100,22 +108,30 @@ function Storage() {
             trailing={
               <>
                 <Room place={x} />
-                {!x.isDefault && (
+                {/* Local is always there; places added later can be removed. */}
+                {(!x.isDefault || x.name !== null) && (
                   <Menu
                     label={strings.common.moreActions(label)}
                     items={[
-                      {
-                        label: strings.storage.useForNew,
-                        onSelect: async () => {
-                          const updated = await change.run(() =>
-                            client.setDefaultStorage({ storage: x.name }),
-                          );
-                          if (updated) {
-                            toast(strings.toast.defaultStorage(label));
-                            storages.reload();
-                          }
-                        },
-                      },
+                      ...(x.isDefault
+                        ? []
+                        : [
+                            {
+                              label: strings.storage.useForNew,
+                              onSelect: async () => {
+                                const updated = await change.run(() =>
+                                  client.setDefaultStorage({ storage: x.name }),
+                                );
+                                if (updated) {
+                                  toast(strings.toast.defaultStorage(label));
+                                  storages.reload();
+                                }
+                              },
+                            },
+                          ]),
+                      ...(x.name === null
+                        ? []
+                        : [{ label: strings.storage.remove, destructive: true, onSelect: () => setRemoving(x) }]),
                     ]}
                   />
                 )}
@@ -124,6 +140,47 @@ function Storage() {
           />
         );
       })}
+      {change.error && <Row title={change.error} muted />}
+      {removing && removing.spaces > 0 && (
+        <Dialog
+          title={strings.storage.stillHoldsTitle(removing.label)}
+          closeLabel={strings.common.close}
+          onClose={stopRemoving}
+          footer={
+            <Button variant="primary" onClick={stopRemoving}>
+              {strings.common.done}
+            </Button>
+          }
+        >
+          <p className="oik-dialog__text">
+            {strings.storage.stillHoldsBody(
+              (spaces.data ?? []).filter((space) => space.storage === removing.name).map((space) => space.name),
+              removing.spaces,
+            )}
+          </p>
+        </Dialog>
+      )}
+      {removing && removing.spaces === 0 && removing.name !== null && (
+        <ConfirmDialog
+          title={strings.storage.removeTitle(removing.label)}
+          body={removing.encrypted ? strings.storage.removeBodyEncrypted : strings.storage.removeBody}
+          confirmLabel={strings.storage.removeYes}
+          cancelLabel={strings.common.cancel}
+          busy={remove.busy}
+          error={remove.error}
+          onConfirm={async () => {
+            const name = removing.name;
+            if (name === null) return;
+            const done = await remove.run(() => client.removeStorage({ storage: name }));
+            if (done) {
+              toast(strings.toast.storageRemoved(removing.label));
+              stopRemoving();
+              storages.reload();
+            }
+          }}
+          onCancel={stopRemoving}
+        />
+      )}
       {adding && (
         <AddStorage
           onClose={() => setAdding(false)}

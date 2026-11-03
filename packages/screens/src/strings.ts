@@ -52,6 +52,7 @@ export const strings = {
     renamed: (name: string) => `Your data center is now called ${name}.`,
     keySaved: "Recovery key backed up.",
     storageAdded: (label: string) => `Added ${label}.`,
+    storageRemoved: (label: string) => `Removed ${label}.`,
     defaultStorage: (label: string) => `New collections go to ${label}.`,
   },
 
@@ -93,7 +94,6 @@ export const strings = {
     welcomeTitle: "Welcome to Oikome",
     welcomeLede: "Your own data center, running on your own computer. Give it a name to start.",
     nameLabel: "Name",
-    keptHere: "Stored on this computer",
     restoreLink: "Restore from a recovery key",
     restoreHelp:
       "To restore a data center you had before, stop Oikome, run `oikome identity restore` with a new, empty data folder, and start Oikome again.",
@@ -115,7 +115,7 @@ export const strings = {
     statPeople: "People you share with",
     statReads: "Reads by others · 7 days",
     statFree: (place: string) => `Free on ${place}`,
-    statStored: (place: string) => (place === "This computer" ? "Stored on this computer" : `Stored on ${place}`),
+    statStored: (place: string) => (place === "Local" ? "Stored locally" : `Stored on ${place}`),
     activeShares: (n: number) => (n === 0 ? "none active" : `${n} active`),
     allWell: "Everything is in place.",
     allWellBut: "Everything is in place, except your recovery key.",
@@ -212,9 +212,8 @@ export const strings = {
     noData: "No data yet",
     back: "Collections",
     storeOn: "Store on",
-    thisComputer: "This computer",
+    thisComputer: "Local",
     storeHint: "Collections are kept on this computer. Places you add in Settings, under Storage, show up here too.",
-    storedOn: (storage: string | null) => (storage ? `Stored on ${storage}` : "Stored on this computer"),
     notShared: "Only you",
     sharedWith: (names: string[]) => `Shared with ${names.join(", ")}`,
     fromElsewhere: "From another data center",
@@ -259,7 +258,17 @@ export const strings = {
 
   storage: {
     keepOn: "Keep your data on",
-    thisComputer: "This computer",
+    thisComputer: "Local",
+    localIn: (path: string) => `On this computer, in ${path}`,
+    remove: "Remove Place",
+    removeTitle: (label: string) => `Remove ${label}?`,
+    removeBody: "New collections can no longer go there. The files already in it stay where they are.",
+    removeBodyEncrypted:
+      "New collections can no longer go there. The files already in it stay where they are, but this computer forgets the key that opens them.",
+    removeYes: "Remove",
+    stillHoldsTitle: (label: string) => `${label} Still Holds Collections`,
+    stillHoldsBody: (names: string[], count: number) =>
+      `Remove ${count === 1 ? "the collection" : `the ${count} collections`} on it first${names.length ? `: ${names.join(", ")}` : ""}. Then the place can go.`,
     change: "Change…",
     keptIn: (path: string) => `In ${path}`,
     found: "Found on this computer",
@@ -421,9 +430,9 @@ export const strings = {
     languageTitle: "Language",
     language: "English",
     storageTitle: "Storage",
-    thisComputer: "This computer",
+    thisComputer: "Local",
     storageCount: (n: number) => (n === 1 ? "1 collection" : `${n} collections`),
-    storageKind: { disk: "This computer", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
+    storageKind: { disk: "Local", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
     encrypted: "Encrypted",
   },
 };

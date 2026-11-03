@@ -694,6 +694,43 @@ impl Api {
         self.list_storages(caller, Empty {}).await
     }
 
+    /// Stop keeping collections on a place added before. Refused while a
+    /// collection is on it; the files there stay where they are. New
+    /// collections go to Local when it was the default.
+    pub async fn remove_storage(
+        &self,
+        caller: &Caller,
+        req: StorageRef,
+    ) -> Result<Vec<StorageSummary>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let storages = self.list_storages(caller, Empty {}).await?;
+        let place = storages
+            .iter()
+            .find(|s| s.name.as_deref() == Some(req.storage.as_str()))
+            .ok_or_else(|| ApiError::not_found("there is no such storage"))?;
+        if place.spaces > 0 {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "{} still holds {} collection{}; remove {} first",
+                    place.label,
+                    place.spaces,
+                    if place.spaces == 1 { "" } else { "s" },
+                    if place.spaces == 1 { "it" } else { "them" },
+                ),
+            ));
+        }
+        self.session(None).remove_storage(&req.storage)?;
+        let mut settings = self.settings()?;
+        settings.storage_labels.remove(&req.storage);
+        if settings.default_storage.as_deref() == Some(req.storage.as_str()) {
+            settings.default_storage = None;
+        }
+        self.save_settings(&settings)?;
+        self.list_storages(caller, Empty {}).await
+    }
+
     /// Cloud drives synced on this computer and drives plugged into it,
     /// not yet added.
     pub async fn find_places(

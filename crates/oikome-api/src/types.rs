@@ -200,6 +200,14 @@ pub struct DefaultStorage {
     pub storage: Option<String>,
 }
 
+/// `remove_storage`: a place added before; Local (this computer) is never
+/// removed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageRef {
+    pub storage: String,
+}
+
 /// A place on this computer found to keep Spaces in: a cloud drive's
 /// folder, or a drive plugged in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

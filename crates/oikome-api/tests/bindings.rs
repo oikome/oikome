@@ -60,6 +60,7 @@ fn bindings() -> String {
         StorageSummary,
         NewStorage,
         DefaultStorage,
+        StorageRef,
         FoundPlace,
         FolderRef,
         FolderListing,

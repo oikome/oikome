@@ -7,9 +7,10 @@
 // a folder browser picks one, as NAS and media server apps do.
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, TextField } from "@oikome/ui";
 import type { Choice, IconName } from "@oikome/ui";
-import type { NewStorage, StorageSummary } from "@oikome/client";
+import type { FolderListing, NewStorage, StorageSummary } from "@oikome/client";
 import { useClient, useLoad } from "./data";
 import { homeRelative } from "./format";
 import { strings } from "./strings";
@@ -51,7 +52,7 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
     choices.push({
       value: "here",
       title: s.thisComputer,
-      meta: s.localIn(homeRelative(hereFolder ? keptIn(hereFolder) : (info.data?.dataDir ?? "…"))),
+      meta: homeRelative(hereFolder ? keptIn(hereFolder) : (info.data?.dataDir ?? "…")),
       leading: <Icon name="computer" />,
       aside: (
         <Button
@@ -175,22 +176,42 @@ export async function addPlanned(
 }
 
 /** Folders of this computer, one level at a time, to pick one. */
-function FolderBrowser({ onClose, onChoose }: { onClose: () => void; onChoose: (path: string) => void }) {
+/**
+ * Browse this computer's folders, as the node lists them (a web page can't
+ * open the system's folder picker), and choose one; with `csv`, choose one
+ * of the CSV files in a folder instead.
+ */
+export function FolderBrowser({
+  onClose,
+  onChoose,
+  title = s.browseTitle,
+  hint,
+  csv = false,
+}: {
+  onClose: () => void;
+  onChoose: (path: string) => void;
+  title?: string;
+  /** Under the list: what choosing this folder would do. */
+  hint?: (here: FolderListing) => ReactNode;
+  csv?: boolean;
+}) {
   const client = useClient();
   const [path, setPath] = useState<string>();
   const listing = useLoad(() => client.listFolders(path ? { path } : {}), [path]);
   const here = listing.data;
   return (
     <Dialog
-      title={s.browseTitle}
+      title={title}
       closeLabel={strings.common.close}
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button variant="primary" disabled={!here} onClick={() => here && onChoose(here.path)}>
-            {s.choose}
-          </Button>
+          {!csv && (
+            <Button variant="primary" disabled={!here} onClick={() => here && onChoose(here.path)}>
+              {s.choose}
+            </Button>
+          )}
         </>
       }
     >
@@ -207,9 +228,20 @@ function FolderBrowser({ onClose, onChoose }: { onClose: () => void; onChoose: (
           </span>
         </div>
         {listing.error && <ErrorText>{listing.error}</ErrorText>}
-        <ul className="screen-browser__list" aria-label={s.browseTitle}>
+        <ul className="screen-browser__list" aria-label={title}>
           {!here && !listing.error && <li className="screen-browser__empty oik-skel" aria-hidden="true" />}
-          {here && here.folders.length === 0 && <li className="screen-browser__empty">{s.noFolders}</li>}
+          {here && here.folders.length === 0 && (!csv || here.csvFiles.length === 0) && (
+            <li className="screen-browser__empty">{csv ? s.noCsv : s.noFolders}</li>
+          )}
+          {csv &&
+            here?.csvFiles.map((file) => (
+              <li key={file.path}>
+                <button type="button" className="screen-browser__folder" onClick={() => onChoose(file.path)}>
+                  <Icon name="table" />
+                  <span translate="no">{file.name}</span>
+                </button>
+              </li>
+            ))}
           {here?.folders.map((folder) => (
             <li key={folder.path}>
               <button type="button" className="screen-browser__folder" onClick={() => setPath(folder.path)}>
@@ -220,7 +252,7 @@ function FolderBrowser({ onClose, onChoose }: { onClose: () => void; onChoose: (
             </li>
           ))}
         </ul>
-        {here && <p className="screen-help">{s.willKeep(homeRelative(keptIn(here.path)))}</p>}
+        {here && <p className="screen-help">{hint ? hint(here) : s.willKeep(homeRelative(keptIn(here.path)))}</p>}
       </div>
     </Dialog>
   );

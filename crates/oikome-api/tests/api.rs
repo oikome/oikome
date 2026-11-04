@@ -436,9 +436,191 @@ async fn principals_cannot_use_owner_operations() {
         .await
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n
+        .api
+        .add_invite(
+            &principal,
+            InviteCode {
+                invite: "x.y.z".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
     // Who the node is, anyone may ask.
     let info = n.api.node_info(&principal, Empty {}).await.unwrap();
     assert!(info.did.starts_with("did:key:z"));
+}
+
+async fn share_for(n: &Api, did: &str, days: u32) -> NewShare {
+    n.share_space(
+        &OWNER,
+        ShareSpace {
+            space: "notes".into(),
+            did: did.to_string(),
+            allow_copy: None,
+            expires_in_days: Some(days),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+async fn add(n: &Node, invite: &str) -> Result<Invite, ApiError> {
+    n.api
+        .add_invite(
+            &OWNER,
+            InviteCode {
+                invite: invite.to_string(),
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+async fn an_invite_is_added_then_accepted_renewed_or_declined() {
+    // Rosh's data center, reached at an address of its own, shares notes with Sam.
+    let rosh = node();
+    let rosh_api = rosh.api.clone().with_flight_url("https://127.0.0.1:9");
+    rosh_api
+        .rename_node(
+            &OWNER,
+            NodeName {
+                name: "Rosh's data center".into(),
+            },
+        )
+        .await
+        .unwrap();
+    notes(&rosh).await;
+    let sam = node();
+    let sam_did = sam.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    rosh_api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: sam_did.clone(),
+                name: "Sam".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let made = share_for(&rosh_api, &sam_did, 30).await;
+    assert!(made.invite.starts_with("oik1-"));
+
+    // It is not for the one who made it, nor for anyone but Sam, and it
+    // has to be whole.
+    let e = add(&rosh, &made.invite).await.unwrap_err();
+    assert!(e.message.contains("one you made"), "{e}");
+    let other = node();
+    let e = add(&other, &made.invite).await.unwrap_err();
+    assert!(e.message.contains("another data center"), "{e}");
+    let e = add(&sam, &made.invite[..60]).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Sam adds it as a message wrapped it; the same code twice is one invite.
+    let wrapped = format!("{}\n  {}", &made.invite[..40], &made.invite[40..]);
+    let invite = add(&sam, &wrapped).await.unwrap();
+    assert_eq!(invite.from_name, "Rosh's data center");
+    assert!(!invite.from_contact);
+    assert_eq!(invite.space, "notes");
+    assert_eq!(invite.access, ShareAccess::Query);
+    assert_eq!(invite.expires_at, made.expires_at);
+    assert_eq!(invite.name, "notes");
+    assert!(!invite.renews && !invite.ended);
+    add(&sam, &made.invite).await.unwrap();
+    assert_eq!(
+        sam.api.list_invites(&OWNER, Empty {}).await.unwrap().len(),
+        1
+    );
+
+    // Accepted: notes is here, from Rosh, who is a contact now.
+    let added = sam
+        .api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: invite.id.clone(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(added.kind, InviteKind::Collection);
+    assert_eq!(added.name, "notes");
+    let space_of = |name: &str, spaces: Vec<SpaceSummary>| {
+        spaces.into_iter().find(|s| s.name == name).unwrap()
+    };
+    let notes = space_of(
+        "notes",
+        sam.api.list_spaces(&OWNER, Empty {}).await.unwrap(),
+    );
+    assert_eq!(notes.kind, SpaceKind::Remote);
+    assert_eq!(notes.from_did.as_deref(), Some(invite.from_did.as_str()));
+    assert_eq!(notes.from_name.as_deref(), Some("Rosh's data center"));
+    assert_eq!(notes.expires_at, Some(made.expires_at));
+    assert!(sam
+        .api
+        .list_invites(&OWNER, Empty {})
+        .await
+        .unwrap()
+        .is_empty());
+    let e = add(&sam, &made.invite).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+
+    // A new share of it renews the one here instead of adding another.
+    let again = share_for(&rosh_api, &sam_did, 60).await;
+    let renewal = add(&sam, &again.invite).await.unwrap();
+    assert!(renewal.renews && renewal.from_contact);
+    assert_eq!(renewal.name, "notes");
+    let renewed = sam
+        .api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: renewal.id,
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(renewed.name, "notes");
+    let notes = space_of(
+        "notes",
+        sam.api.list_spaces(&OWNER, Empty {}).await.unwrap(),
+    );
+    assert_eq!(notes.expires_at, Some(again.expires_at));
+    let remote: Vec<_> = sam
+        .api
+        .list_spaces(&OWNER, Empty {})
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|s| s.kind == SpaceKind::Remote)
+        .collect();
+    assert_eq!(remote.len(), 1);
+
+    // Declined: forgotten here.
+    let third = share_for(&rosh_api, &sam_did, 7).await;
+    let waiting = add(&sam, &third.invite).await.unwrap();
+    let left = sam
+        .api
+        .decline_invite(&OWNER, InviteRef { id: waiting.id })
+        .await
+        .unwrap();
+    assert!(left.is_empty());
+
+    // Invites hold tokens: only the owner may read the file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = sam
+            .catalog
+            .oikome_dir()
+            .join("identity")
+            .join("invites.json");
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 }
 
 #[tokio::test]
@@ -466,6 +648,64 @@ async fn naming_the_node_and_backing_up_its_recovery_key() {
         .await
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Home's cards, as the owner arranged them; ids are checked, not read.
+    assert_eq!(info.home_cards, None);
+    let card = |id: &str, width| HomeCard {
+        id: id.into(),
+        width: Some(width),
+    };
+    let cards = vec![card("recent", 8), card("totals:spending", 4)];
+    let info = n
+        .api
+        .set_home_cards(
+            &OWNER,
+            HomeCards {
+                cards: cards.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(info.home_cards, Some(cards));
+    let e = n
+        .api
+        .set_home_cards(
+            &OWNER,
+            HomeCards {
+                cards: vec![card("<script>", 4)],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    let e = n
+        .api
+        .set_home_cards(
+            &OWNER,
+            HomeCards {
+                cards: vec![card("recent", 13)],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Home kept before cards had widths still reads: each card takes the
+    // app's own width.
+    let path = n.catalog.oikome_dir().join("node.json");
+    let mut kept: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    kept["home_cards"] = serde_json::json!(["photo", "recent"]);
+    std::fs::write(&path, serde_json::to_vec(&kept).unwrap()).unwrap();
+    let info = n.api.node_info(&OWNER, Empty {}).await.unwrap();
+    let unsized_card = |id: &str| HomeCard {
+        id: id.into(),
+        width: None,
+    };
+    assert_eq!(
+        info.home_cards,
+        Some(vec![unsized_card("photo"), unsized_card("recent")])
+    );
 
     // The key decodes to this node's identity.
     let key = n.api.recovery_key(&OWNER, Empty {}).await.unwrap();
@@ -513,14 +753,7 @@ async fn a_new_data_center_gets_examples_once() {
     let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        [
-            "home-climate",
-            "lisbon-notes",
-            "lisbon-photos",
-            "lisbon-spending",
-            "oikome-guide",
-            "reading-list"
-        ]
+        ["home-climate", "lisbon-photos", "oikome-guide", "spending"]
     );
     assert!(added.iter().all(|s| s.example && s.storage.is_none()));
 
@@ -564,10 +797,8 @@ async fn a_new_data_center_gets_examples_once() {
     assert_eq!(tables.len(), 1);
     assert_eq!(tables[0].rows, Some(6));
     for (space, table, count) in [
-        ("lisbon-notes", "notes", 7),
-        ("lisbon-spending", "spending", 10),
-        ("oikome-guide", "guide", 7),
-        ("reading-list", "books", 10),
+        ("spending", "spending", 29),
+        ("oikome-guide", "notes", 7),
         ("home-climate", "readings", 14 * 24),
     ] {
         let rows = n
@@ -586,23 +817,79 @@ async fn a_new_data_center_gets_examples_once() {
         assert_eq!(row_count(&rows), count, "{space}");
     }
 
+    // They are files, read by sources: edit one and read it again.
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let spending = root.join("Examples/spending/spending.csv");
+    assert!(root.join("Examples/lisbon-photos/captions.csv").is_file());
+    assert!(root.join("Examples/oikome-guide/1 Welcome.md").is_file());
+    let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(sources.len(), 4);
+    let photos = sources.iter().find(|s| s.name == "lisbon-photos").unwrap();
+    assert_eq!(photos.kind, SourceKind::Photos);
+    assert!(photos.pulled_at_ms.is_some() && photos.failure.is_none());
+    let mut text = std::fs::read_to_string(&spending).unwrap();
+    text.push_str("Coffee at the airport,2025-11-09,Food,2.50\n");
+    std::fs::write(&spending, text).unwrap();
+    n.api
+        .pull_source(
+            &OWNER,
+            SourceRef {
+                source: "spending".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "spending".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(tables.len(), 1, "{tables:?}");
+    assert_eq!(tables[0].rows, Some(30));
+    // A file that no longer reads keeps its rows and says why.
+    std::fs::write(&spending, "what,day\nonly,two\n").unwrap();
+    assert!(n
+        .api
+        .pull_source(
+            &OWNER,
+            SourceRef {
+                source: "spending".into(),
+            },
+        )
+        .await
+        .is_err());
+    let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    let failed = sources.iter().find(|s| s.name == "spending").unwrap();
+    assert!(
+        failed
+            .failure
+            .as_deref()
+            .is_some_and(|f| f.contains("columns")),
+        "{failed:?}"
+    );
+
     // Removing one is for good, and the rest stay examples.
     n.api
         .drop_space(
             &OWNER,
             SpaceRef {
-                space: "lisbon-notes".into(),
+                space: "oikome-guide".into(),
             },
         )
         .await
         .unwrap();
     let again = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(again.len(), 5);
+    assert_eq!(again.len(), 3);
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages.len(), 1);
     assert_eq!(storages[0].name, None);
     assert_eq!(storages[0].kind, StorageType::Disk);
-    assert_eq!(storages[0].spaces, 5);
+    assert_eq!(storages[0].spaces, 3);
     if cfg!(unix) {
         assert!(storages[0].total_bytes.is_some_and(|t| t > 0));
     }
@@ -613,7 +900,7 @@ async fn a_new_data_center_gets_examples_once() {
         .create_space(
             &OWNER,
             NewSpace {
-                name: "lisbon-notes".into(),
+                name: "oikome-guide".into(),
                 kind: None,
                 storage: None,
             },
@@ -664,15 +951,25 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
     assert!(added.place.ends_with("/Oikome"));
     assert!(picked.path().join("Oikome").is_dir());
 
-    // The examples go where new collections go.
+    // The examples' files go into the picked folder; their collections,
+    // read from them, are kept with the data center.
     let examples = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    assert!(examples
-        .iter()
-        .all(|s| s.storage.as_deref() == Some("documents")));
+    assert_eq!(examples.len(), 4);
+    assert!(picked.path().join("Oikome/Examples/oikome-guide").is_dir());
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "plans".into(),
+                kind: None,
+                storage: Some("documents".into()),
+            },
+        )
+        .await
+        .unwrap();
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(storages[0].spaces, 0);
     assert!(!storages[0].is_default);
-    assert_eq!(storages[1].spaces, 6);
+    assert_eq!(storages[1].spaces, 1);
 
     // Back to this computer.
     let storages = n
@@ -694,7 +991,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
         .await
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::Conflict, "{err}");
-    assert!(err.message.contains("6 collections"), "{err}");
+    assert!(err.message.contains("1 collection;"), "{err}");
 
     // An empty one goes, files and all left where they are, and Local is
     // the default again when it was the default.
@@ -793,4 +1090,559 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
         .unwrap();
     let names: Vec<&str> = listing.folders.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["Oikome", "Photos"]);
+}
+
+#[tokio::test]
+async fn lending_this_computer_to_contacts_then_pausing_and_stopping() {
+    let rosh = node();
+    let rosh_api = rosh.api.clone().with_flight_url("https://127.0.0.1:9");
+    rosh_api
+        .rename_node(
+            &OWNER,
+            NodeName {
+                name: "Rosh's data center".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let sam = node();
+    let sam_did = sam.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    let lend = |on: bool, people: Vec<String>, concurrent: u32, per_hour: u32| SetLending {
+        on,
+        people,
+        concurrent,
+        per_hour,
+    };
+
+    // Not lent yet; lending is to contacts, within limits.
+    let lending = rosh_api.lending(&OWNER, Empty {}).await.unwrap();
+    assert!(!lending.on && lending.people.is_empty());
+    assert_eq!((lending.concurrent, lending.per_hour), (1, 30));
+    let e = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 2, 20))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+    rosh_api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: sam_did.clone(),
+                name: "Sam".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let e = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 0, 20))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Lent to Sam: a code for Sam, with the limits in it.
+    let saved = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 2, 20))
+        .await
+        .unwrap();
+    assert!(saved.lending.on);
+    assert_eq!((saved.lending.concurrent, saved.lending.per_hour), (2, 20));
+    assert_eq!(saved.lending.people.len(), 1);
+    assert_eq!(saved.lending.people[0].name.as_deref(), Some("Sam"));
+    assert_eq!(saved.invites.len(), 1);
+    let code = saved.invites[0].invite.clone();
+
+    // Sam adds it: Rosh's computer, 2 tasks at once, 20 an hour.
+    let invite = add(&sam, &code).await.unwrap();
+    assert_eq!(invite.kind, InviteKind::Compute);
+    assert_eq!(invite.from_name, "Rosh's data center");
+    assert_eq!((invite.concurrent, invite.per_hour), (Some(2), Some(20)));
+    let accepted = sam
+        .api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: invite.id,
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.kind, InviteKind::Compute);
+    assert_eq!(accepted.name, "Rosh's data center");
+    let e = add(&sam, &code).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    // Rosh's data center isn't running here, so it can't be reached.
+    let borrowed = sam.api.list_borrowed(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(borrowed.len(), 1);
+    assert_eq!(borrowed[0].from_name, "Rosh's data center");
+    assert_eq!(borrowed[0].task_ms, Some(30_000));
+    assert_eq!(borrowed[0].status, BorrowStatus::Unreachable);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = sam
+            .catalog
+            .oikome_dir()
+            .join("identity")
+            .join("borrowed.json");
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    // Paused and resumed without new codes; new limits for everyone.
+    let paused = rosh_api
+        .set_lending(&OWNER, lend(false, vec![sam_did.clone()], 4, 100))
+        .await
+        .unwrap();
+    assert!(!paused.lending.on);
+    assert_eq!(paused.lending.people.len(), 1);
+    assert_eq!(
+        (paused.lending.concurrent, paused.lending.per_hour),
+        (4, 100)
+    );
+    assert!(paused.invites.is_empty());
+    let resumed = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 4, 100))
+        .await
+        .unwrap();
+    assert!(resumed.lending.on && resumed.invites.is_empty());
+
+    // Removing Sam as a contact stops lending to Sam.
+    rosh_api
+        .remove_contact(
+            &OWNER,
+            DidRef {
+                did: sam_did.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let lending = rosh_api.lending(&OWNER, Empty {}).await.unwrap();
+    assert!(!lending.on && lending.people.is_empty());
+
+    // Sam stops using it.
+    let left = sam
+        .api
+        .stop_borrowing(
+            &OWNER,
+            BorrowedRef {
+                id: borrowed[0].id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(left.is_empty());
+}
+
+#[tokio::test]
+async fn a_plugin_reads_only_what_its_owner_let_it() {
+    let n = node();
+    notes(&n).await;
+    sql(
+        &n,
+        "CREATE SPACE diary; CREATE TABLE diary.days (id BIGINT NOT NULL, entry VARCHAR); \
+         INSERT INTO diary.days VALUES (1, 'private')",
+    )
+    .await;
+    let read = |plugin: &str, space: &str| PluginRead {
+        plugin: plugin.into(),
+        space: space.into(),
+        limit: None,
+    };
+
+    // Oikome's own are offered; one is added, to read notes only.
+    let offered = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(offered
+        .iter()
+        .any(|p| p.id == "spending-by-category" && p.built_in && !p.installed));
+    let spending = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("spending-by-category".into()),
+                path: None,
+                collections: vec!["notes".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(spending.installed);
+    assert_eq!(spending.collections, vec!["notes".to_string()]);
+    let rows = n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "notes"))
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 3);
+    let e = n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+
+    // Its record claiming more changes nothing: the node's grants decide.
+    let record = n.catalog.oikome_dir().join("plugins.json");
+    let mut kept: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    kept[0]["collections"] = serde_json::json!(["notes", "diary"]);
+    std::fs::write(&record, serde_json::to_vec(&kept).unwrap()).unwrap();
+    let e = n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .unwrap_err();
+    // Without a grant there, the collection doesn't exist for the plugin.
+    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+    kept[0]["collections"] = serde_json::json!(["notes"]);
+    std::fs::write(&record, serde_json::to_vec(&kept).unwrap()).unwrap();
+
+    // Its page loads the bridge first; nothing outside its folder is served.
+    let page = String::from_utf8(n.api.plugin_file(&spending.id, "index.html").unwrap()).unwrap();
+    assert!(page.find("/plugins/sdk.js").unwrap() < page.find("main.js").unwrap());
+    assert!(n.api.plugin_file(&spending.id, "../plugins.json").is_none());
+    assert!(n.api.plugin_file(&spending.id, "main.js").is_some());
+    assert!(n.api.plugin_file("photo-memories", "index.html").is_none());
+
+    // One from a folder: looked at, then added.
+    let folder = tempfile::tempdir().unwrap();
+    let manifest = r#"{"id": "my-card", "name": "My card", "by": "Sam", "version": "0.1.0",
+        "reads": {"what": "Anything", "shape": "any"}, "card": {"width": 6, "height": 200}}"#;
+    std::fs::write(folder.path().join("oikome-plugin.json"), manifest).unwrap();
+    std::fs::write(
+        folder.path().join("index.html"),
+        "<html><head></head><body></body></html>",
+    )
+    .unwrap();
+    std::fs::create_dir(folder.path().join("img")).unwrap();
+    std::fs::write(folder.path().join("img").join("a.png"), [0u8; 4]).unwrap();
+    let path = folder.path().to_string_lossy().into_owned();
+    let seen = n
+        .api
+        .inspect_plugin(&OWNER, PluginFolder { path: path.clone() })
+        .await
+        .unwrap();
+    assert_eq!(
+        (seen.id.as_str(), seen.width, seen.installed),
+        ("my-card", 6, false)
+    );
+    let mine = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(path.clone()),
+                collections: vec!["diary".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        row_count(
+            &n.api
+                .plugin_read(&OWNER, read(&mine.id, "diary"))
+                .await
+                .unwrap()
+        ),
+        1
+    );
+    assert!(n.api.plugin_file("my-card", "img/a.png").is_some());
+
+    // Folders that aren't plugins, or hold what a plugin may not, are refused.
+    let bad = tempfile::tempdir().unwrap();
+    let bad_path = bad.path().to_string_lossy().into_owned();
+    let inspect = |path: String| n.api.inspect_plugin(&OWNER, PluginFolder { path });
+    assert_eq!(
+        inspect(bad_path.clone()).await.unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    std::fs::write(
+        bad.path().join("oikome-plugin.json"),
+        manifest.replace("my-card", "My Card"),
+    )
+    .unwrap();
+    std::fs::write(bad.path().join("index.html"), "").unwrap();
+    assert_eq!(
+        inspect(bad_path.clone()).await.unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    std::fs::write(bad.path().join("oikome-plugin.json"), manifest).unwrap();
+    std::fs::write(bad.path().join("run.exe"), "").unwrap();
+    assert_eq!(
+        inspect(bad_path.clone()).await.unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    std::fs::remove_file(bad.path().join("run.exe")).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("/etc/hosts", bad.path().join("hosts.txt")).unwrap();
+        assert_eq!(
+            inspect(bad_path).await.unwrap_err().code,
+            ErrorCode::Invalid
+        );
+    }
+
+    // What it may read changes, and its reads follow.
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: spending.id.clone(),
+                collections: vec!["diary".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "notes"))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .is_ok());
+
+    // Removed: it reads nothing, its files go.
+    let left = n
+        .api
+        .remove_plugin(
+            &OWNER,
+            PluginRef {
+                id: spending.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(left
+        .iter()
+        .any(|p| p.id == "spending-by-category" && !p.installed));
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .is_err());
+    assert!(n.api.plugin_file(&spending.id, "index.html").is_none());
+    assert!(!n
+        .catalog
+        .oikome_dir()
+        .join("plugins")
+        .join(&spending.id)
+        .exists());
+
+    // A principal can't add plugins.
+    let e = n
+        .api
+        .list_plugins(&Caller::Principal { did: did(9) }, Empty {})
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+}
+
+/// Activity names who each line was: you, a person, a plugin (by the name
+/// it had, once removed), or a computer it has no name for.
+#[tokio::test]
+async fn activity_names_who_it_was() {
+    use oikome_node::{AccessEntry, AccessLog, Outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let log = AccessLog::open(&catalog.oikome_dir()).unwrap();
+    let api = Api::new(catalog.clone(), engines).with_access_log(log.clone());
+    let n = Node {
+        _dir: dir,
+        catalog,
+        api,
+    };
+    notes(&n).await;
+    let own = n.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    let (bob, stranger) = (did(2), did(3));
+    n.api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: bob.clone(),
+                name: "Bob".into(),
+            },
+        )
+        .await
+        .unwrap();
+    // Bob, a stranger and someone unauthenticated ask; so does the owner,
+    // from this computer.
+    for caller in [Some(bob.clone()), Some(stranger.clone()), None, Some(own)] {
+        log.record(AccessEntry {
+            at_ms: 1,
+            caller,
+            method: "do_get".into(),
+            spaces: vec!["notes".into()],
+            token_id: None,
+            outcome: Outcome::Denied,
+            reason: None,
+        });
+    }
+    // A plugin reads, then it and Bob are removed.
+    let plugin = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("spending-by-category".into()),
+                path: None,
+                collections: vec!["notes".into()],
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .plugin_read(
+            &OWNER,
+            PluginRead {
+                plugin: plugin.id.clone(),
+                space: "notes".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .remove_plugin(&OWNER, PluginRef { id: plugin.id })
+        .await
+        .unwrap();
+    n.api
+        .remove_contact(&OWNER, DidRef { did: bob.clone() })
+        .await
+        .unwrap();
+
+    let mut items = Vec::new();
+    for _ in 0..100 {
+        items = n
+            .api
+            .list_access(&OWNER, ListAccess::default())
+            .await
+            .unwrap();
+        if items.len() >= 5 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let of = |did: Option<&str>, method: &str| {
+        let item = items
+            .iter()
+            .find(|i| i.did.as_deref() == did && i.method == method)
+            .unwrap_or_else(|| panic!("no {method} line by {did:?}"));
+        (item.who, item.name.clone())
+    };
+    assert_eq!(
+        of(Some(&bob), "do_get"),
+        (AccessWho::Person, Some("Bob".into()))
+    );
+    assert_eq!(of(Some(&stranger), "do_get"), (AccessWho::Unknown, None));
+    assert_eq!(of(None, "do_get"), (AccessWho::Unknown, None));
+    let read = items.iter().find(|i| i.method == "plugin_read").unwrap();
+    assert_eq!(
+        (read.who, read.name.as_deref()),
+        (AccessWho::Plugin, Some("Spending by category"))
+    );
+    assert_eq!(items.iter().filter(|i| i.who == AccessWho::You).count(), 1);
+}
+
+/// A source can be paused and resumed; removed, its collection stays, and
+/// adding the same folder again puts it back into that collection.
+#[tokio::test]
+async fn a_source_pauses_and_comes_back_into_its_collection() {
+    let n = node();
+    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let guide =
+        |sources: &[SourceSummary]| sources.iter().find(|s| s.name == "oikome-guide").cloned();
+    let pause = |paused| PauseSource {
+        source: "oikome-guide".into(),
+        paused,
+    };
+    let paused = n.api.pause_source(&OWNER, pause(true)).await.unwrap();
+    assert!(paused.paused);
+    let listed = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    assert!(guide(&listed).unwrap().paused);
+    assert!(
+        !n.api
+            .pause_source(&OWNER, pause(false))
+            .await
+            .unwrap()
+            .paused
+    );
+
+    let place = guide(&listed).unwrap().place;
+    let left = n
+        .api
+        .remove_source(
+            &OWNER,
+            SourceRef {
+                source: "oikome-guide".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(guide(&left).is_none());
+    assert!(n.catalog.get_space("oikome-guide").is_ok());
+    let back = n
+        .api
+        .add_source(
+            &OWNER,
+            NewSource {
+                kind: SourceKind::Notes,
+                path: place,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(back.name, "oikome-guide");
+    assert!(n.catalog.get_space("oikome-guide-2").is_err());
+
+    // How often it is read: one of the choices, or only when asked.
+    let every = |every_secs| SetSourceEvery {
+        source: "oikome-guide".into(),
+        every_secs,
+    };
+    let set = n
+        .api
+        .set_source_every(&OWNER, every(Some(300)))
+        .await
+        .unwrap();
+    assert_eq!(set.every_secs, Some(300));
+    assert!(n
+        .api
+        .set_source_every(&OWNER, every(Some(42)))
+        .await
+        .is_err());
+    let set = n.api.set_source_every(&OWNER, every(None)).await.unwrap();
+    assert_eq!(set.every_secs, None);
+
+    // Its recent syncs: what came in, then nothing new again and again as
+    // one line, then a failure.
+    let guide = || SourceRef {
+        source: "oikome-guide".into(),
+    };
+    n.api.pull_source(&OWNER, guide()).await.unwrap();
+    n.api.pull_source(&OWNER, guide()).await.unwrap();
+    let runs = n.api.list_source_runs(&OWNER, guide()).await.unwrap();
+    assert_eq!(runs[0].upserted + runs[0].deleted, 0, "{runs:?}");
+    // Added back, then read twice: three times nothing new.
+    assert_eq!(runs[0].count, 3, "{runs:?}");
+    assert!(runs[0].first_ms < runs[0].at_ms, "{runs:?}");
+    assert!(runs.iter().any(|r| r.upserted == 7), "{runs:?}");
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    std::fs::write(
+        root.join("Examples/spending/spending.csv"),
+        "what,day\nonly,two\n",
+    )
+    .unwrap();
+    let spending = || SourceRef {
+        source: "spending".into(),
+    };
+    assert!(n.api.pull_source(&OWNER, spending()).await.is_err());
+    let runs = n.api.list_source_runs(&OWNER, spending()).await.unwrap();
+    assert!(runs[0].failure.is_some(), "{runs:?}");
 }

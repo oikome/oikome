@@ -55,6 +55,15 @@ export function errorMessage(e: unknown, describe?: Describe): string {
 /** The node's own message: for the SQL workbench, whose people know SQL. */
 export const rawMessage: Describe = (e) => e.message;
 
+/**
+ * The node's message as a sentence, for calls whose messages are written
+ * for people (invites): "this invite has ended" reads "This invite has ended."
+ */
+export const asSentence: Describe = (e) => {
+  const m = e.message.trim();
+  return m ? m.charAt(0).toUpperCase() + m.slice(1) + (/[.!?]$/.test(m) ? "" : ".") : undefined;
+};
+
 export interface Loaded<T> {
   data: T | undefined;
   error: string | undefined;

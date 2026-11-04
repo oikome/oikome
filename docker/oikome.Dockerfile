@@ -26,6 +26,9 @@ COPY crates ./crates
 # Vendored crates patched in through [patch.crates-io] (third_party/README.md).
 COPY third_party ./third_party
 COPY tests ./tests
+# Oikome's own dashboard plugins and the plugin bridge, built into the node.
+COPY plugins ./plugins
+COPY packages/plugin-sdk/sdk.js ./packages/plugin-sdk/sdk.js
 
 RUN cargo build --release --locked -p oikome-server --bin oikome \
     && mkdir -p /out \

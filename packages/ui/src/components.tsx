@@ -3,7 +3,7 @@
 //
 // Components of the Oikome apps (styles in ui.css).
 
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
@@ -19,12 +19,15 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   large?: boolean;
   icon?: IconName;
+  /** Turns its icon while the work it started runs, such as a sync. */
+  spinning?: boolean;
 }
 
 export function Button({
   variant = "secondary",
   large,
   icon,
+  spinning,
   className,
   children,
   type = "button",
@@ -33,7 +36,14 @@ export function Button({
   return (
     <button
       type={type}
-      className={cx("oik-button", `oik-button--${variant}`, large && "oik-button--lg", className)}
+      className={cx(
+        "oik-button",
+        `oik-button--${variant}`,
+        large && "oik-button--lg",
+        spinning && "oik-is-spinning",
+        className,
+      )}
+      aria-busy={spinning || undefined}
       {...rest}
     >
       {icon && <Icon name={icon} />}
@@ -46,12 +56,21 @@ export function IconButton({
   icon,
   label,
   filled,
+  spinning,
+  className,
   ...rest
-}: { icon: IconName; label: string; filled?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+}: {
+  icon: IconName;
+  label: string;
+  filled?: boolean;
+  /** Turns its glyph while the work it started runs, such as a sync. */
+  spinning?: boolean;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
-      className={cx("oik-icon-button", filled && "oik-icon-button--filled")}
+      className={cx("oik-icon-button", filled && "oik-icon-button--filled", spinning && "oik-is-spinning", className)}
+      aria-busy={spinning || undefined}
       aria-label={label}
       title={label}
       {...rest}
@@ -88,18 +107,16 @@ export function Group({
   children: ReactNode;
 }) {
   return (
-    <>
-      <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
-        {(title || action) && (
-          <header className="oik-group__head">
-            {title && <h2 className="oik-group__title">{title}</h2>}
-            {action}
-          </header>
-        )}
-        <ul className="oik-group__body">{children}</ul>
-      </section>
+    <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
+      {(title || action) && (
+        <header className="oik-group__head">
+          {title && <h2 className="oik-group__title">{title}</h2>}
+          {action}
+        </header>
+      )}
+      <ul className="oik-group__body">{children}</ul>
       {footnote && <p className="oik-group__footnote">{footnote}</p>}
-    </>
+    </section>
   );
 }
 
@@ -146,6 +163,35 @@ export function Segmented({
         </button>
       ))}
     </span>
+  );
+}
+
+/**
+ * An on/off switch for something that takes effect at once (lending this
+ * computer); its knob slides as it changes.
+ */
+export function Switch({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      className={cx("oik-switch", checked && "oik-switch--on")}
+      onClick={() => onChange(!checked)}
+    />
   );
 }
 
@@ -470,12 +516,20 @@ export function TextField({
 
 export function TextArea({
   label,
+  name = "text",
+  hint,
+  error,
   value,
   onChange,
-}: {
-  label: string;
+  mono,
+  autoFocus,
+}: FieldProps & {
+  name?: string;
   value: string;
   onChange: (value: string) => void;
+  /** Codes and other text read by machines: monospace, no spellcheck. */
+  mono?: boolean;
+  autoFocus?: boolean;
 }) {
   const id = useId();
   return (
@@ -485,13 +539,17 @@ export function TextArea({
       </label>
       <textarea
         id={id}
-        name="statements"
+        name={name}
         autoComplete="off"
-        className="oik-textarea"
+        className={cx("oik-textarea", mono && "oik-input--mono")}
         value={value}
         spellCheck={false}
+        autoFocus={autoFocus}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => onChange(e.target.value)}
       />
+      {hint && <span className="oik-field__hint">{hint}</span>}
+      {error && <ErrorText>{error}</ErrorText>}
     </div>
   );
 }
@@ -599,7 +657,7 @@ export function ChoiceList({
                 checked={on}
                 onChange={() => onChange(choice.value)}
               />
-              {choice.leading}
+              {choice.leading && <span className="oik-tile oik-choice__tile">{choice.leading}</span>}
               <span className="oik-choice__text">
                 <span className="oik-choice__title">{choice.title}</span>
                 {choice.meta && <span className="oik-choice__meta">{choice.meta}</span>}
@@ -743,12 +801,37 @@ export interface MenuItem {
 /**
  * A More (…) button and the actions behind it. Opens from the button,
  * moves with the arrow keys, closes on Escape, Tab or a click elsewhere.
+ * The list is a popover above the page, so a table or card that scrolls
+ * never cuts it off; it opens upward when there is no room below.
  */
 export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const listId = useId();
+
+  useLayoutEffect(() => {
+    const ul = list.current;
+    const button = trigger.current;
+    if (!open || !ul || !button) return;
+    ul.showPopover?.();
+    const place = () => {
+      const at = button.getBoundingClientRect();
+      const height = ul.offsetHeight;
+      const below = at.bottom + 6 + height <= window.innerHeight - 8 || at.top - 6 - height < 8;
+      ul.style.top = `${below ? at.bottom + 6 : at.top - 6 - height}px`;
+      ul.style.left = `${Math.max(8, at.right - ul.offsetWidth)}px`;
+      ul.dataset.side = below ? "below" : "above";
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -804,7 +887,15 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
         <Icon name="more" />
       </button>
       {open && (
-        <ul id={listId} role="menu" aria-label={label} className="oik-menu__list" onKeyDown={move}>
+        <ul
+          ref={list}
+          id={listId}
+          role="menu"
+          aria-label={label}
+          className="oik-menu__list"
+          popover="manual"
+          onKeyDown={move}
+        >
           {items.map((item) => (
             <li key={item.label} role="none">
               <button

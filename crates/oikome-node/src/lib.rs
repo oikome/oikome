@@ -45,7 +45,7 @@ pub mod sources;
 pub mod storage;
 pub mod subscribe;
 
-pub use access_log::{AccessEntry, AccessLog, AccessQuery, AccessRecord, Outcome};
+pub use access_log::{AccessEntry, AccessLog, AccessLogError, AccessQuery, AccessRecord, Outcome};
 pub use acl::principal_access;
 pub use capability::{query_spaces, IssuedToken};
 pub use error::SessionError;
@@ -55,7 +55,7 @@ pub use result::QueryResult;
 pub use secrets::{FileSecrets, MemorySecrets, SecretBackend, SecretKind};
 pub use session::{OikomeSession, SessionConfig};
 pub use snapshot::HashCache;
-pub use sources::{spawn_source_sync, LastPull, PullReport, PulledTable};
+pub use sources::{spawn_source_sync, LastPull, PullReport, PulledTable, SourceRun};
 pub use storage::{
     spawn_storage_sync, PushReport, PushedTable, StorageCredentials, StorageSecrets,
 };

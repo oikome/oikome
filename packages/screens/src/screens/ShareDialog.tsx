@@ -78,9 +78,9 @@ export function ShareDialog({
         }
       >
         <InsetWell>
-          <CopyField value={made.token} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+          <CopyField value={made.invite} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
         </InsetWell>
-        <p className="screen-help">{s.inviteBody(name)}</p>
+        <p className="screen-help">{s.inviteBody(name, made.space)}</p>
       </Dialog>
     );
   }

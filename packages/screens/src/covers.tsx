@@ -8,7 +8,7 @@ import { AvatarStack, Icon, Tag, Tile } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
 import type { Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
-import { loadPreview } from "./content";
+import { PREVIEW_ROWS, loadPreview } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
 import { calendarDate, dateTime, wallTime } from "./format";
@@ -42,7 +42,10 @@ export function itemDate(item: Item): string | undefined {
 
 /** "6 photos", "7 notes", "10 rows": what a collection holds, when known. */
 export function countOf(preview: Preview | undefined): string | undefined {
-  const rows = preview?.table?.rows;
+  // Another data center's tables are not counted just to list them; when
+  // the first read held all of a table's rows, that is its count.
+  const read = preview?.rows?.numRows;
+  const rows = preview?.table?.rows ?? (read !== undefined && read < PREVIEW_ROWS ? read : undefined);
   if (rows === null || rows === undefined || rows === 0) return undefined;
   return s.count(Number(rows), preview!.shape.view);
 }
@@ -67,8 +70,17 @@ function MiniTable({ table }: { table: Table }) {
   );
 }
 
-function Art({ space, tone, preview }: { space: SpaceSummary; tone: TileTone; preview?: Preview }) {
-  if (space.kind === "remote") {
+function Art({
+  tone,
+  preview,
+  failed,
+}: {
+  tone: TileTone;
+  preview?: Preview;
+  /** It could not be read: shared from a data center that is off, or no longer shared. */
+  failed?: boolean;
+}) {
+  if (failed) {
     return (
       <div aria-hidden="true" className={`screen-cover__art screen-cover__art--plain screen-cover__art--${tone}`}>
         <Tile icon="collection" tone={tone} large />
@@ -114,6 +126,11 @@ function Art({ space, tone, preview }: { space: SpaceSummary; tone: TileTone; pr
   );
 }
 
+/** Whom a collection shared with you is from: their contact name, else words for it. */
+export function fromOf(space: SpaceSummary): string {
+  return space.fromName ?? s.fromElsewhere;
+}
+
 /** A collection as a cover; the whole card opens it. */
 export function Cover({
   space,
@@ -126,20 +143,23 @@ export function Cover({
 }) {
   const client = useClient();
   const preview = useLoad(() => loadPreview(client, space), [space.name]);
+  const from = fromOf(space);
   const meta = [
     countOf(preview.data),
-    space.kind === "remote" ? s.fromElsewhere : names.length > 0 ? s.sharedWith(names) : s.notShared,
+    ...(space.kind === "remote"
+      ? [s.fromPerson(from), s.viewLive]
+      : [names.length > 0 ? s.sharedWith(names) : s.notShared]),
   ]
     .filter(Boolean)
     .join(" · ");
   return (
     <Link to={`/collections/${encodeURIComponent(space.name)}`} className="screen-cover">
       <span className="screen-cover__frame">
-        <Art space={space} tone={tone} preview={preview.data} />
+        <Art tone={tone} preview={preview.data} failed={preview.error !== undefined} />
         <span className="screen-cover__chip" aria-hidden="true">
           <Icon name={space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]} />
           {space.kind === "remote"
-            ? strings.collections.sharedChip
+            ? from
             : space.example
               ? s.example
               : s.kinds[preview.data?.shape.view ?? "table"]}

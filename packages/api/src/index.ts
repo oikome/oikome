@@ -55,6 +55,16 @@ recoveryKeySavedAtMs: number | null,
  */
 host: string, 
 /**
+ * The full name of this computer's account, to suggest a name from;
+ * empty for a principal and where the system doesn't say.
+ */
+ownerName: string, 
+/**
+ * The cards the owner arranged on Home, in order; `None` until they
+ * do (the apps choose), and for a principal.
+ */
+homeCards: Array<HomeCard> | null, 
+/**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
  */
@@ -68,6 +78,18 @@ export type NodeName = {
  * 1 to 64 characters.
  */
 name: string, };
+
+/**
+ * A card on Home: the apps' own id for it (such as `recent` or
+ * `totals:spending`) and how many of Home's twelve columns it spans;
+ * without a width, the app gives the card its own.
+ */
+export type HomeCard = { id: string, width: number | null, };
+
+/**
+ * `set_home_cards`: the cards on Home, in order.
+ */
+export type HomeCards = { cards: Array<HomeCard>, };
 
 /**
  * The node's recovery key, as 14 groups of 4 characters. Whoever has it
@@ -100,7 +122,20 @@ storage: string | null,
 /**
  * One of the examples a new data center starts with (`add_examples`).
  */
-example: boolean, };
+example: boolean, 
+/**
+ * For a remote Space: the data center it is on (its DID)…
+ */
+fromDid: string | null, 
+/**
+ * …and what to call it: the contact's name, if it is a contact.
+ */
+fromName: string | null, 
+/**
+ * For a remote Space: when the share it was added with ends, in seconds
+ * since the Unix epoch.
+ */
+expiresAt: number | null, };
 
 /**
  * `create_space`: a new local Space.
@@ -201,6 +236,79 @@ export type DefaultStorage = { storage: string | null, };
 export type StorageRef = { storage: string, };
 
 /**
+ * What a source reads: a folder of photos, a folder of notes (Markdown
+ * or text, such as a notes vault), a CSV file, or flomo.
+ */
+export type SourceKind = "photos" | "notes" | "csv" | "flomo-export" | "flomo-mcp";
+
+/**
+ * A source: where a collection's data comes from, and how its last pull
+ * went. A source writes the collection of its own name.
+ */
+export type SourceSummary = { name: string, kind: SourceKind, 
+/**
+ * The folder or file it reads, or the service it asks.
+ */
+place: string, 
+/**
+ * Read again every this many seconds while the node runs; `None` only
+ * when asked.
+ */
+everySecs: number | null, 
+/**
+ * Paused by the owner: not read on its schedule.
+ */
+paused: boolean, 
+/**
+ * When it was last read.
+ */
+pulledAtMs: number | null, 
+/**
+ * The last read failed: when, and why.
+ */
+failedAtMs: number | null, failure: string | null, };
+
+/**
+ * `add_source`: a folder of photos or notes, or a CSV file, by its path on
+ * this computer. The collection is named after it.
+ */
+export type NewSource = { kind: SourceKind, path: string, };
+
+/**
+ * `pause_source`: pause a source, or resume it.
+ */
+export type PauseSource = { source: string, paused: boolean, };
+
+/**
+ * `set_source_every`: how often a source is read: every this many seconds
+ * (a minute, 5 or 30 minutes, an hour or a day), or only when asked.
+ */
+export type SetSourceEvery = { source: string, everySecs: number | null, };
+
+/**
+ * One of a source's recent syncs (kept 30 days), or several alike in a
+ * row (nothing new, or the same failure), kept as one.
+ */
+export type SourceRun = { 
+/**
+ * When the first and the last of them ran.
+ */
+firstMs: number, atMs: number, 
+/**
+ * Why it failed; `null` when it went through.
+ */
+failure: string | null, 
+/**
+ * Rows added or changed, and removed.
+ */
+upserted: number, deleted: number, count: number, };
+
+/**
+ * A source, by name: `pull_source`, `remove_source`, `show_source_files`.
+ */
+export type SourceRef = { source: string, };
+
+/**
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */
@@ -216,13 +324,14 @@ label: string, type: StorageType, path: string, };
 export type FolderRef = { path?: string, };
 
 /**
- * The folders in one folder, hidden ones left out.
+ * The folders in one folder, hidden ones left out, its CSV files, and how
+ * many photos and notes it holds (what a source of it would read).
  */
 export type FolderListing = { path: string, 
 /**
  * The folder above; `None` at the top.
  */
-parent: string | null, folders: Array<FolderEntry>, };
+parent: string | null, folders: Array<FolderEntry>, csvFiles: Array<FolderEntry>, photos: number, notes: number, };
 
 export type FolderEntry = { name: string, path: string, };
 
@@ -326,14 +435,258 @@ export type ShareAccess = "query" | "copy";
 export type ShareStatus = "active" | "expired" | "revoked";
 
 /**
- * A share just made. `token` is shown this once: hand it to the contact,
- * who mounts the Space with it.
+ * A share just made. `invite` is shown this once: the contact adds it in
+ * Oikome (`add_invite`). `token` is the same grant alone, for `CREATE SPACE
+ * ... WITH TOKEN` on the command line.
  */
 export type NewShare = { id: string, space: string, did: string, access: ShareAccess, 
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, token: string, };
+expiresAt: number, token: string, 
+/**
+ * The invite code: the token, where this data center is reached and
+ * what it is called.
+ */
+invite: string, };
+
+/**
+ * `add_invite`: an invite code someone sent, as pasted.
+ */
+export type InviteCode = { invite: string, };
+
+/**
+ * `decline_invite`: an invite waiting here.
+ */
+export type InviteRef = { id: string, };
+
+/**
+ * `accept_invite`: an invite waiting here, and the name its collection
+ * takes (by default the one `Invite::name` suggests).
+ */
+export type AcceptInvite = { id: string, name?: string, };
+
+/**
+ * What an invite offers.
+ */
+export type InviteKind = "collection" | "compute";
+
+/**
+ * An invite from another data center, waiting to be accepted or
+ * declined: to a collection, or to use its computer.
+ */
+export type Invite = { id: string, kind: InviteKind, 
+/**
+ * The data center that sent it.
+ */
+fromDid: string, 
+/**
+ * Its contact name here, or else the name it goes by.
+ */
+fromName: string, 
+/**
+ * Whether it is a contact already (accepting adds it).
+ */
+fromContact: boolean, 
+/**
+ * The collection, by its name there; empty for a computer.
+ */
+space: string, access: ShareAccess, 
+/**
+ * For a computer: tasks at once and per hour, as the lender set them.
+ */
+concurrent: number | null, perHour: number | null, 
+/**
+ * Seconds since the Unix epoch.
+ */
+expiresAt: number, 
+/**
+ * The share has ended; it can only be declined.
+ */
+ended: boolean, 
+/**
+ * The name it takes here: the one it had when accepted before (which
+ * it replaces), else its own, or its own with a number when taken.
+ * Empty for a computer.
+ */
+name: string, 
+/**
+ * It renews a collection already here, of that name, or a computer
+ * already lent to you.
+ */
+renews: boolean, receivedAtMs: number, };
+
+/**
+ * An invite accepted: the collection added, or whose computer.
+ */
+export type AcceptedInvite = { kind: InviteKind, 
+/**
+ * The collection's name here, or the lender's name.
+ */
+name: string, };
+
+/**
+ * Lending this computer: whether it is lent now, to whom, and how much
+ * each may use.
+ */
+export type Lending = { 
+/**
+ * Oikome's computations are offered to the people below.
+ */
+on: boolean, 
+/**
+ * Tasks each may have running at once…
+ */
+concurrent: number, 
+/**
+ * …and start per hour.
+ */
+perHour: number, 
+/**
+ * The longest one task may run, in milliseconds.
+ */
+taskMs: number, people: Array<LentTo>, };
+
+/**
+ * Someone this computer is lent to.
+ */
+export type LentTo = { did: string, name: string | null, 
+/**
+ * When their grant ends, in seconds since the Unix epoch.
+ */
+expiresAt: number, };
+
+/**
+ * `set_lending`: lend this computer (or stop) to these contacts, each
+ * within these limits.
+ */
+export type SetLending = { on: boolean, 
+/**
+ * Contacts' DIDs; anyone left out stops being able to use it.
+ */
+people: Array<string>, 
+/**
+ * 1 to 8.
+ */
+concurrent: number, 
+/**
+ * 1 to 1000.
+ */
+perHour: number, };
+
+/**
+ * Lending saved, with an invite code (shown this once) for each person
+ * newly lent to.
+ */
+export type LendingSaved = { lending: Lending, invites: Array<LendInvite>, };
+
+/**
+ * The code to send someone newly lent to.
+ */
+export type LendInvite = { did: string, name: string, invite: string, };
+
+/**
+ * Whether a computer lent to you can be used now.
+ */
+export type BorrowStatus = "available" | "unavailable" | "unreachable" | "ended";
+
+/**
+ * A computer lent to you.
+ */
+export type Borrowed = { id: string, fromDid: string, fromName: string, concurrent: number | null, perHour: number | null, 
+/**
+ * The longest one task may run there, in milliseconds.
+ */
+taskMs: number | null, 
+/**
+ * Seconds since the Unix epoch.
+ */
+expiresAt: number, status: BorrowStatus, };
+
+/**
+ * `stop_borrowing`: a computer lent to you, by its id.
+ */
+export type BorrowedRef = { id: string, };
+
+/**
+ * What a plugin reads, as its manifest says: one kind of collection.
+ */
+export type PluginShape = "table" | "photos" | "notes" | "series" | "any";
+
+/**
+ * A kind of column a plugin needs in what it reads.
+ */
+export type PluginColumn = "date" | "number" | "text" | "image" | "bool";
+
+/**
+ * A dashboard plugin: installed, or one of Oikome's own not added yet.
+ */
+export type Plugin = { 
+/**
+ * Lowercase letters, digits and `-`.
+ */
+id: string, name: string, 
+/**
+ * Who made it.
+ */
+by: string, version: string, description: string, 
+/**
+ * What it reads, in words ("A table of spending: a day, an amount and
+ * a category").
+ */
+reads: string, shape: PluginShape, 
+/**
+ * The kinds of column a collection needs for it: the apps offer only
+ * collections that have them.
+ */
+columns: Array<PluginColumn>, 
+/**
+ * Its card's first width, in Home's columns, and its height in pixels.
+ */
+width: number, height: number, 
+/**
+ * The page Home shows in its card, under `/plugins/<id>/`.
+ */
+entry: string, 
+/**
+ * One of Oikome's own.
+ */
+builtIn: boolean, installed: boolean, 
+/**
+ * The collections it may read (installed plugins only).
+ */
+collections: Array<string>, };
+
+/**
+ * `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on
+ * this computer (`path`), and the collections it may read.
+ */
+export type InstallPlugin = { builtIn?: string, path?: string, collections: Array<string>, };
+
+/**
+ * `inspect_plugin`: a folder on this computer that may hold a plugin.
+ */
+export type PluginFolder = { path: string, };
+
+/**
+ * `set_plugin_collections`: what an installed plugin may read now.
+ */
+export type PluginCollections = { id: string, collections: Array<string>, };
+
+/**
+ * `remove_plugin`: an installed plugin, by id.
+ */
+export type PluginRef = { id: string, };
+
+/**
+ * `plugin_read`: the rows of a collection, read as the plugin `plugin`;
+ * refused unless the plugin may read it.
+ */
+export type PluginRead = { plugin: string, space: string, 
+/**
+ * 1 to 1000; default 1000.
+ */
+limit?: number, };
 
 /**
  * A share, as listed (never with its token).
@@ -399,13 +752,24 @@ space?: string, };
 export type AccessOutcome = "allowed" | "denied" | "failed";
 
 /**
+ * Who sent a request, as the owner knows them.
+ */
+export type AccessWho = "you" | "person" | "plugin" | "unknown";
+
+/**
  * One request a peer or a browser sent this node.
  */
 export type AccessItem = { id: number, atMs: number, 
 /**
  * The caller's DID; `null` when it could not be authenticated.
  */
-did: string | null, contactName: string | null, method: string, spaces: Array<string>, 
+did: string | null, who: AccessWho, 
+/**
+ * Their name here: the contact's or the plugin's, the one they gave in
+ * an invite or a computer they lend, or the one they had when removed.
+ * `null` for the owner, and for a caller with no name here.
+ */
+name: string | null, method: string, spaces: Array<string>, 
 /**
  * The share (token id) that let it in.
  */

@@ -43,9 +43,32 @@ pub struct NodeInfo {
     /// This computer's name on its network ("rosh-mbp"); empty for a
     /// principal and where the system doesn't say.
     pub host: String,
+    /// The full name of this computer's account, to suggest a name from;
+    /// empty for a principal and where the system doesn't say.
+    pub owner_name: String,
+    /// The cards the owner arranged on Home, in order; `None` until they
+    /// do (the apps choose), and for a principal.
+    pub home_cards: Option<Vec<HomeCard>>,
     /// Where peers reach this node's Arrow Flight service (`https://ip:port`),
     /// when it is serving.
     pub flight_url: Option<String>,
+}
+
+/// A card on Home: the apps' own id for it (such as `recent` or
+/// `totals:spending`) and how many of Home's twelve columns it spans;
+/// without a width, the app gives the card its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeCard {
+    pub id: String,
+    pub width: Option<u8>,
+}
+
+/// `set_home_cards`: the cards on Home, in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeCards {
+    pub cards: Vec<HomeCard>,
 }
 
 /// `rename_node`: the data center's name.
@@ -96,6 +119,13 @@ pub struct SpaceSummary {
     pub storage: Option<String>,
     /// One of the examples a new data center starts with (`add_examples`).
     pub example: bool,
+    /// For a remote Space: the data center it is on (its DID)…
+    pub from_did: Option<String>,
+    /// …and what to call it: the contact's name, if it is a contact.
+    pub from_name: Option<String>,
+    /// For a remote Space: when the share it was added with ends, in seconds
+    /// since the Unix epoch.
+    pub expires_at: Option<u64>,
 }
 
 /// `create_space`: a new local Space.
@@ -200,6 +230,88 @@ pub struct DefaultStorage {
     pub storage: Option<String>,
 }
 
+/// What a source reads: a folder of photos, a folder of notes (Markdown
+/// or text, such as a notes vault), a CSV file, or flomo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceKind {
+    Photos,
+    Notes,
+    Csv,
+    FlomoExport,
+    FlomoMcp,
+}
+
+/// A source: where a collection's data comes from, and how its last pull
+/// went. A source writes the collection of its own name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSummary {
+    pub name: String,
+    pub kind: SourceKind,
+    /// The folder or file it reads, or the service it asks.
+    pub place: String,
+    /// Read again every this many seconds while the node runs; `None` only
+    /// when asked.
+    pub every_secs: Option<u64>,
+    /// Paused by the owner: not read on its schedule.
+    pub paused: bool,
+    /// When it was last read.
+    pub pulled_at_ms: Option<u64>,
+    /// The last read failed: when, and why.
+    pub failed_at_ms: Option<u64>,
+    pub failure: Option<String>,
+}
+
+/// `add_source`: a folder of photos or notes, or a CSV file, by its path on
+/// this computer. The collection is named after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSource {
+    pub kind: SourceKind,
+    pub path: String,
+}
+
+/// `set_source_every`: how often a source is read: every this many seconds
+/// (a minute, 5 or 30 minutes, an hour or a day), or only when asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSourceEvery {
+    pub source: String,
+    pub every_secs: Option<u64>,
+}
+
+/// One of a source's recent syncs (kept 30 days), or several alike in a
+/// row (nothing new, or the same failure), kept as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRun {
+    /// When the first and the last of them ran.
+    pub first_ms: u64,
+    pub at_ms: u64,
+    /// Why it failed; `null` when it went through.
+    pub failure: Option<String>,
+    /// Rows added or changed, and removed.
+    pub upserted: u64,
+    pub deleted: u64,
+    pub count: u64,
+}
+
+/// `pause_source`: pause a source, or resume it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseSource {
+    pub source: String,
+    pub paused: bool,
+}
+
+/// A source, by name: `pull_source`, `remove_source`, `show_source_files`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRef {
+    pub source: String,
+}
+
 /// `remove_storage`: a place added before; Local (this computer) is never
 /// removed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -229,7 +341,8 @@ pub struct FolderRef {
     pub path: Option<String>,
 }
 
-/// The folders in one folder, hidden ones left out.
+/// The folders in one folder, hidden ones left out, its CSV files, and how
+/// many photos and notes it holds (what a source of it would read).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderListing {
@@ -237,6 +350,9 @@ pub struct FolderListing {
     /// The folder above; `None` at the top.
     pub parent: Option<String>,
     pub folders: Vec<FolderEntry>,
+    pub csv_files: Vec<FolderEntry>,
+    pub photos: u32,
+    pub notes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -374,8 +490,9 @@ pub enum ShareStatus {
     Revoked,
 }
 
-/// A share just made. `token` is shown this once: hand it to the contact,
-/// who mounts the Space with it.
+/// A share just made. `invite` is shown this once: the contact adds it in
+/// Oikome (`add_invite`). `token` is the same grant alone, for `CREATE SPACE
+/// ... WITH TOKEN` on the command line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct NewShare {
@@ -386,6 +503,285 @@ pub struct NewShare {
     /// Seconds since the Unix epoch.
     pub expires_at: u64,
     pub token: String,
+    /// The invite code: the token, where this data center is reached and
+    /// what it is called.
+    pub invite: String,
+}
+
+/// `add_invite`: an invite code someone sent, as pasted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteCode {
+    pub invite: String,
+}
+
+/// `decline_invite`: an invite waiting here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteRef {
+    pub id: String,
+}
+
+/// `accept_invite`: an invite waiting here, and the name its collection
+/// takes (by default the one `Invite::name` suggests).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct AcceptInvite {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// What an invite offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum InviteKind {
+    /// A collection, read where it is kept.
+    Collection,
+    /// The sender's computer, lent for Oikome's own computations.
+    Compute,
+}
+
+/// An invite from another data center, waiting to be accepted or
+/// declined: to a collection, or to use its computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Invite {
+    pub id: String,
+    pub kind: InviteKind,
+    /// The data center that sent it.
+    pub from_did: String,
+    /// Its contact name here, or else the name it goes by.
+    pub from_name: String,
+    /// Whether it is a contact already (accepting adds it).
+    pub from_contact: bool,
+    /// The collection, by its name there; empty for a computer.
+    pub space: String,
+    pub access: ShareAccess,
+    /// For a computer: tasks at once and per hour, as the lender set them.
+    pub concurrent: Option<u32>,
+    pub per_hour: Option<u32>,
+    /// Seconds since the Unix epoch.
+    pub expires_at: u64,
+    /// The share has ended; it can only be declined.
+    pub ended: bool,
+    /// The name it takes here: the one it had when accepted before (which
+    /// it replaces), else its own, or its own with a number when taken.
+    /// Empty for a computer.
+    pub name: String,
+    /// It renews a collection already here, of that name, or a computer
+    /// already lent to you.
+    pub renews: bool,
+    pub received_at_ms: u64,
+}
+
+/// An invite accepted: the collection added, or whose computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedInvite {
+    pub kind: InviteKind,
+    /// The collection's name here, or the lender's name.
+    pub name: String,
+}
+
+/// Lending this computer: whether it is lent now, to whom, and how much
+/// each may use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Lending {
+    /// Oikome's computations are offered to the people below.
+    pub on: bool,
+    /// Tasks each may have running at once…
+    pub concurrent: u32,
+    /// …and start per hour.
+    pub per_hour: u32,
+    /// The longest one task may run, in milliseconds.
+    pub task_ms: u64,
+    pub people: Vec<LentTo>,
+}
+
+/// Someone this computer is lent to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LentTo {
+    pub did: String,
+    pub name: Option<String>,
+    /// When their grant ends, in seconds since the Unix epoch.
+    pub expires_at: u64,
+}
+
+/// `set_lending`: lend this computer (or stop) to these contacts, each
+/// within these limits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetLending {
+    pub on: bool,
+    /// Contacts' DIDs; anyone left out stops being able to use it.
+    pub people: Vec<String>,
+    /// 1 to 8.
+    pub concurrent: u32,
+    /// 1 to 1000.
+    pub per_hour: u32,
+}
+
+/// Lending saved, with an invite code (shown this once) for each person
+/// newly lent to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LendingSaved {
+    pub lending: Lending,
+    pub invites: Vec<LendInvite>,
+}
+
+/// The code to send someone newly lent to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LendInvite {
+    pub did: String,
+    pub name: String,
+    pub invite: String,
+}
+
+/// Whether a computer lent to you can be used now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum BorrowStatus {
+    /// It is on and lends to you.
+    Available,
+    /// It answers, but doesn't lend to you now: lending is turned off
+    /// there, or stopped for you (it doesn't say which).
+    Unavailable,
+    /// It can't be reached: off, or not on this network.
+    Unreachable,
+    /// The grant ran out.
+    Ended,
+}
+
+/// A computer lent to you.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Borrowed {
+    pub id: String,
+    pub from_did: String,
+    pub from_name: String,
+    pub concurrent: Option<u32>,
+    pub per_hour: Option<u32>,
+    /// The longest one task may run there, in milliseconds.
+    pub task_ms: Option<u64>,
+    /// Seconds since the Unix epoch.
+    pub expires_at: u64,
+    pub status: BorrowStatus,
+}
+
+/// What a plugin reads, as its manifest says: one kind of collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginShape {
+    /// Rows of values: spending, a reading list.
+    Table,
+    Photos,
+    Notes,
+    /// Readings over time, such as temperatures.
+    Series,
+    /// Any collection.
+    Any,
+}
+
+/// A kind of column a plugin needs in what it reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginColumn {
+    Date,
+    Number,
+    Text,
+    Image,
+    Bool,
+}
+
+/// A dashboard plugin: installed, or one of Oikome's own not added yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Plugin {
+    /// Lowercase letters, digits and `-`.
+    pub id: String,
+    pub name: String,
+    /// Who made it.
+    pub by: String,
+    pub version: String,
+    pub description: String,
+    /// What it reads, in words ("A table of spending: a day, an amount and
+    /// a category").
+    pub reads: String,
+    pub shape: PluginShape,
+    /// The kinds of column a collection needs for it: the apps offer only
+    /// collections that have them.
+    pub columns: Vec<PluginColumn>,
+    /// Its card's first width, in Home's columns, and its height in pixels.
+    pub width: u8,
+    pub height: u32,
+    /// The page Home shows in its card, under `/plugins/<id>/`.
+    pub entry: String,
+    /// One of Oikome's own.
+    pub built_in: bool,
+    pub installed: bool,
+    /// The collections it may read (installed plugins only).
+    pub collections: Vec<String>,
+}
+
+/// `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on
+/// this computer (`path`), and the collections it may read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct InstallPlugin {
+    #[serde(default)]
+    pub built_in: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    pub collections: Vec<String>,
+}
+
+/// `inspect_plugin`: a folder on this computer that may hold a plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginFolder {
+    pub path: String,
+}
+
+/// `set_plugin_collections`: what an installed plugin may read now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCollections {
+    pub id: String,
+    pub collections: Vec<String>,
+}
+
+/// `remove_plugin`: an installed plugin, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginRef {
+    pub id: String,
+}
+
+/// `plugin_read`: the rows of a collection, read as the plugin `plugin`;
+/// refused unless the plugin may read it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginRead {
+    pub plugin: String,
+    pub space: String,
+    /// 1 to 1000; default 1000.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `stop_borrowing`: a computer lent to you, by its id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BorrowedRef {
+    pub id: String,
 }
 
 /// A share, as listed (never with its token).
@@ -459,6 +855,20 @@ pub enum AccessOutcome {
     Failed,
 }
 
+/// Who sent a request, as the owner knows them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessWho {
+    /// The owner, on this computer.
+    You,
+    /// Someone's data center this one knows by a name.
+    Person,
+    /// A plugin on Home, reading as itself.
+    Plugin,
+    /// A computer this one has no name for.
+    Unknown,
+}
+
 /// One request a peer or a browser sent this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -467,7 +877,11 @@ pub struct AccessItem {
     pub at_ms: u64,
     /// The caller's DID; `null` when it could not be authenticated.
     pub did: Option<String>,
-    pub contact_name: Option<String>,
+    pub who: AccessWho,
+    /// Their name here: the contact's or the plugin's, the one they gave in
+    /// an invite or a computer they lend, or the one they had when removed.
+    /// `null` for the owner, and for a caller with no name here.
+    pub name: Option<String>,
     pub method: String,
     pub spaces: Vec<String>,
     /// The share (token id) that let it in.

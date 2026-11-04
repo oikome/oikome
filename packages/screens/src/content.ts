@@ -9,7 +9,7 @@
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import type { NodeClient, SpaceSummary, TableSummary } from "@oikome/client";
-import { measureLabel } from "./format";
+import { isoTime, measureLabel } from "./format";
 import { numeric, show } from "./parts";
 
 export type View = "photos" | "notes" | "table" | "series";
@@ -112,8 +112,20 @@ export function numberAt(table: Table, column: number, row: number): number | un
 /** Read how to show `table` from its columns and first rows. */
 export function shapeOf(table: Table): Shape {
   const fields = table.schema.fields;
-  const when = fields.findIndex(isWhen);
   const value = (c: number, r: number): unknown => table.getChildAt(c)?.get(r);
+  // A text column of days or times, as files and SQLite keep them.
+  const isoColumn = (c: number) => {
+    let seen = 0;
+    for (let r = 0; r < table.numRows; r++) {
+      const v = value(c, r);
+      if (v === null || v === undefined || v === "") continue;
+      if (typeof v !== "string" || !isoTime(v)) return false;
+      seen++;
+    }
+    return seen > 0;
+  };
+  const typed = fields.findIndex(isWhen);
+  const when = typed >= 0 ? typed : fields.findIndex((f, c) => isText(f) && isoColumn(c));
   const firstValue = (c: number): unknown => {
     for (let r = 0; r < table.numRows; r++) {
       const v = value(c, r);
@@ -128,14 +140,17 @@ export function shapeOf(table: Table): Shape {
       return v instanceof Uint8Array && imageType(v) !== undefined;
     })(),
   );
-  const texts = fields.map((f, c) => (isText(f) ? c : -1)).filter((c) => c >= 0);
+  const texts = fields.map((f, c) => (isText(f) && c !== when ? c : -1)).filter((c) => c >= 0);
   const numbers = fields.map((f, c) => (numeric(f) ? c : -1)).filter((c) => c >= 0);
   if (image >= 0) {
     const credit = texts.find((c) => named(fields[c]!, "credit", "source", "attribution", "license"));
     const rest = texts.filter((c) => c !== credit);
     const title =
       rest.find((c) => named(fields[c]!, "title", "name", "caption")) ?? rest[0];
-    const detail = rest.find((c) => c !== title);
+    // A photo's second line is where it was; never its file name.
+    const detail =
+      rest.find((c) => c !== title && named(fields[c]!, "place", "location", "where", "city")) ??
+      rest.find((c) => c !== title && !named(fields[c]!, "file", "filename", "path"));
     return { view: "photos", image, text: title, detail, credit, when: when >= 0 ? when : undefined };
   }
 
@@ -183,7 +198,9 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
       .join(", ") || undefined;
   return Array.from({ length: table.numRows }, (_, r) => {
     const bytes = at(shape.image, r);
-    const when = at(shape.when, r);
+    const raw = at(shape.when, r);
+    const iso = typeof raw === "string" ? isoTime(raw) : undefined;
+    const when = iso ? iso.ms : raw;
     return {
       image: bytes instanceof Uint8Array ? imageSrc(bytes) : undefined,
       text: shape.view === "series" ? reading(r) : text(shape.text, r),
@@ -192,17 +209,21 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
       when: when === null || when === undefined ? undefined : Number(when),
       whenKind: !whenField
         ? undefined
-        : DataType.isDate(whenField.type)
-          ? "day"
-          : DataType.isTimestamp(whenField.type) && !whenField.type.timezone
-            ? "wall"
-            : "moment",
+        : iso
+          ? iso.day
+            ? "day"
+            : "wall"
+          : DataType.isDate(whenField.type)
+            ? "day"
+            : DataType.isTimestamp(whenField.type) && !whenField.type.timezone
+              ? "wall"
+              : "moment",
     };
   });
 }
 
 /** Rows a cover or Home reads: enough to pick the latest and fill a collage. */
-const PREVIEW_ROWS = 12;
+export const PREVIEW_ROWS = 12;
 /** The latest readings a cover draws: three days of hourly ones. */
 const SERIES_ROWS = 72;
 
@@ -214,7 +235,8 @@ const previews = new Map<string, Promise<Preview>>();
  * else is not read just for a cover: its owner's computer may be off.
  */
 export function loadPreview(client: NodeClient, space: SpaceSummary): Promise<Preview> {
-  if (space.kind === "remote") return Promise.resolve({ shape: { view: "table" }, items: [] });
+  // One shared with you is read from its owner's data center; when that is
+  // off, the read fails and its cover stays plain.
   let preview = previews.get(space.name);
   if (!preview) {
     preview = (async () => {

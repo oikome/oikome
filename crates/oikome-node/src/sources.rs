@@ -33,7 +33,7 @@ use std::time::Duration;
 use arrow_array::{Array, ArrayRef, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
-use oikome_catalog::SourceDef;
+use oikome_catalog::{SourceDef, SourceFailure};
 use oikome_connect::{ConnectError, Connector, Pull, SourceConfig, TableDef, Value};
 use oikome_core::{CatalogError, CreateSpaceRequest, SpaceKind};
 use oikome_engine::name::quote_ident;
@@ -51,9 +51,105 @@ use crate::subscribe::lock_location;
 const CURSOR_TABLE: &str = "_oikome_source";
 /// The temporary table of the keys a complete pull listed.
 const KEYS_TABLE: &str = "_oikome_keys";
+/// The hidden table of a source's recent syncs, in the source's Space.
+const RUNS_TABLE: &str = "_oikome_source_runs";
+/// Syncs older than this are forgotten.
+const RUNS_KEPT: Duration = Duration::from_secs(30 * 24 * 3600);
+/// Most syncs [`OikomeSession::source_runs`] lists.
+const MAX_RUNS: i64 = 50;
+/// Longest failure kept with a sync, in characters.
+const MAX_RUN_FAILURE: usize = 300;
+
+/// One sync of a source, or several alike in a row (nothing new, or the
+/// same failure), kept as one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRun {
+    /// When the first and the last of them ran.
+    pub first_ms: u64,
+    pub at_ms: u64,
+    /// Why it failed; `None` when it went through.
+    pub failure: Option<String>,
+    /// Rows it added or changed, and removed.
+    pub upserted: u64,
+    pub deleted: u64,
+    /// Syncs kept as this one.
+    pub count: u64,
+}
+
+/// Keep a sync in the source's recent syncs. One like the last (nothing
+/// new again, or the same failure again) moves the last one's time on.
+async fn record_run(
+    engine: &Arc<dyn QueryEngine>,
+    space: &str,
+    source: &str,
+    upserted: u64,
+    deleted: u64,
+    failure: Option<&str>,
+) -> Result<(), SessionError> {
+    let table = qualified(space, RUNS_TABLE);
+    engine
+        .execute(
+            &format!(
+                "CREATE TABLE IF NOT EXISTS {table} (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+                 source TEXT NOT NULL, first_ms INTEGER NOT NULL, at_ms INTEGER NOT NULL, \
+                 failure TEXT, upserted INTEGER NOT NULL, deleted INTEGER NOT NULL, \
+                 count INTEGER NOT NULL DEFAULT 1)"
+            ),
+            &[],
+        )
+        .await?;
+    let now = unix_now_ms() as i64;
+    let failure = failure
+        .map(|f| Value::Text(f.chars().take(MAX_RUN_FAILURE).collect()))
+        .unwrap_or(Value::Null);
+    let alike = upserted == 0
+        && deleted == 0
+        && engine
+            .execute(
+                &format!(
+                    "UPDATE {table} SET at_ms = ?2, count = count + 1 \
+                     WHERE id = (SELECT MAX(id) FROM {table} WHERE source = ?1) \
+                     AND upserted = 0 AND deleted = 0 AND failure IS ?3"
+                ),
+                &[
+                    Value::Text(source.to_string()),
+                    Value::Int64(now),
+                    failure.clone(),
+                ],
+            )
+            .await?
+            > 0;
+    if !alike {
+        engine
+            .execute(
+                &format!(
+                    "INSERT INTO {table} (source, first_ms, at_ms, failure, upserted, deleted) \
+                     VALUES (?1, ?2, ?2, ?3, ?4, ?5)"
+                ),
+                &[
+                    Value::Text(source.to_string()),
+                    Value::Int64(now),
+                    failure,
+                    Value::Int64(upserted as i64),
+                    Value::Int64(deleted as i64),
+                ],
+            )
+            .await?;
+    }
+    engine
+        .execute(
+            &format!("DELETE FROM {table} WHERE at_ms < ?1"),
+            &[Value::Int64(now - RUNS_KEPT.as_millis() as i64)],
+        )
+        .await?;
+    Ok(())
+}
 
 fn token_env(source: &str) -> String {
-    format!("OIKOME_SOURCE_{}_TOKEN", source.to_ascii_uppercase())
+    format!(
+        "OIKOME_SOURCE_{}_TOKEN",
+        source.to_ascii_uppercase().replace('-', "_")
+    )
 }
 
 fn token_account(source: &str) -> String {
@@ -293,6 +389,7 @@ async fn apply(
             ],
         )
         .await?;
+    record_run(engine, space, source, upserted, deleted, None).await?;
     Ok(report)
 }
 
@@ -427,12 +524,105 @@ impl OikomeSession {
         added
     }
 
-    /// Pull the source `name` now.
+    /// Pull the source `name` now. A failure is kept with the source (see
+    /// [`SourceDef::failure`]) until a pull succeeds.
     pub async fn pull_source(&self, name: &str) -> Result<PullReport, SessionError> {
         self.deny_principal("pulling a source")?;
-        let (_, config) = self.source_config(name)?;
-        let connector = self.connector(name, &config)?;
-        self.pull_with(name, connector.as_ref()).await
+        let pulled = async {
+            let (_, config) = self.source_config(name)?;
+            let connector = self.connector(name, &config)?;
+            self.pull_with(name, connector.as_ref()).await
+        }
+        .await;
+        let failure = pulled.as_ref().err().map(|e| SourceFailure {
+            at_ms: unix_now_ms(),
+            message: e.to_string(),
+        });
+        let had = self
+            .catalog
+            .get_source(name)
+            .is_ok_and(|def| def.failure.is_some());
+        if let Some(failure) = &failure {
+            if let Err(e) = self.record_failed_run(name, &failure.message).await {
+                tracing::warn!(source = %name, error = %e, "keeping the failed sync failed");
+            }
+        }
+        if failure.is_some() || had {
+            if let Err(e) = self.catalog.set_source_failure(name, failure) {
+                tracing::warn!(source = %name, error = %e, "keeping the pull's outcome failed");
+            }
+        }
+        pulled
+    }
+
+    async fn record_failed_run(&self, name: &str, message: &str) -> Result<(), SessionError> {
+        let space = self.space(name)?;
+        let engine = self.engines().sqlite_private_for(&space)?;
+        record_run(&engine, name, name, 0, 0, Some(message)).await
+    }
+
+    /// The source `name`'s recent syncs, newest first.
+    pub async fn source_runs(&self, name: &str) -> Result<Vec<SourceRun>, SessionError> {
+        let engine = self.engines().sqlite_for(&self.space(name)?)?;
+        // Kept since this data center keeps them: none before.
+        let (_, stream) = engine
+            .query(
+                &format!(
+                    "SELECT count(*) FROM {}.sqlite_master WHERE type = 'table' AND name = ?1",
+                    quote_ident(name)
+                ),
+                &[Value::Text(RUNS_TABLE.to_string())],
+            )
+            .await?;
+        let batches: Vec<arrow_array::RecordBatch> = stream.try_collect().await?;
+        let kept = batches
+            .iter()
+            .find(|b| b.num_rows() > 0)
+            .and_then(|b| {
+                b.column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .map(|a| a.value(0))
+            })
+            .unwrap_or(0);
+        if kept == 0 {
+            return Ok(Vec::new());
+        }
+        let (_, stream) = engine
+            .query(
+                &format!(
+                    "SELECT first_ms, at_ms, failure, upserted, deleted, count FROM {} \
+                     WHERE source = ?1 ORDER BY id DESC LIMIT {MAX_RUNS}",
+                    qualified(name, RUNS_TABLE)
+                ),
+                &[Value::Text(name.to_string())],
+            )
+            .await?;
+        let batches: Vec<arrow_array::RecordBatch> = stream.try_collect().await?;
+        let mut runs = Vec::new();
+        for batch in batches {
+            let int = |i: usize, row: usize| {
+                batch
+                    .column(i)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .map_or(0, |a| a.value(row).max(0) as u64)
+            };
+            let failure = batch.column(2).as_any().downcast_ref::<StringArray>();
+            for row in 0..batch.num_rows() {
+                runs.push(SourceRun {
+                    first_ms: int(0, row),
+                    at_ms: int(1, row),
+                    failure: failure
+                        .filter(|a| !a.is_null(row))
+                        .map(|a| a.value(row).to_string()),
+                    upserted: int(3, row),
+                    deleted: int(4, row),
+                    count: int(5, row),
+                });
+            }
+        }
+        Ok(runs)
     }
 
     /// Pull the source `name` with `connector` in place of its own, e.g. a
@@ -553,7 +743,7 @@ impl OikomeSession {
     pub async fn pull_due_sources(&self) {
         let now = unix_now_ms();
         for def in self.catalog.list_sources() {
-            let Some(every) = def.every_secs else {
+            let Some(every) = def.every_secs.filter(|_| !def.paused) else {
                 continue;
             };
             let due = match self.last_pull(&def.name).await {

@@ -14,24 +14,31 @@ export type IconName =
   | "collection"
   | "computer"
   | "copy"
+  | "cpu"
   | "download"
+  | "drag"
   | "drive"
   | "error"
   | "folder"
   | "home"
   | "key"
+  | "lock"
   | "mark"
+  | "minus"
   | "more"
   | "nas"
   | "note"
   | "person-plus"
   | "photo"
+  | "plugin"
   | "search"
   | "plus"
   | "sliders"
   | "table"
   | "terminal"
   | "updown"
+  | "sync"
+  | "up"
   | "warning";
 
 const PATHS: Record<IconName, ReactElement> = {
@@ -88,7 +95,38 @@ const PATHS: Record<IconName, ReactElement> = {
       <path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" />
     </>
   ),
+  // A chip with its pins: a computer's processor.
+  cpu: (
+    <>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+      <rect x="9.5" y="9.5" width="5" height="5" rx="0.5" />
+      <path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" />
+    </>
+  ),
   download: <path d="M12 4v11m-5-5l5 5 5-5M5 19.5h14" />,
+  // Six dots: hold and move.
+  drag: (
+    <>
+      <circle cx="9" cy="7" r="1" fill="currentColor" />
+      <circle cx="15" cy="7" r="1" fill="currentColor" />
+      <circle cx="9" cy="12" r="1" fill="currentColor" />
+      <circle cx="15" cy="12" r="1" fill="currentColor" />
+      <circle cx="9" cy="17" r="1" fill="currentColor" />
+      <circle cx="15" cy="17" r="1" fill="currentColor" />
+    </>
+  ),
+  minus: <path d="M6 12h12" />,
+  // A padlock: closed off.
+  lock: (
+    <>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="2" />
+      <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+    </>
+  ),
+  // A plug: something that fits in.
+  plugin: <path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0zM12 16v4.5" />,
+  up: <path d="M6 15l6-6 6 6" />,
+  sync: <path d="M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4" />,
   error: (
     <>
       <circle cx="12" cy="12" r="8.5" />

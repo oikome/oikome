@@ -7,19 +7,34 @@
 // phone) and the desktop app will bring their own implementations.
 
 import type {
+  AcceptInvite,
+  AcceptedInvite,
   AccessItem,
   ApiError,
+  Borrowed,
+  BorrowedRef,
   Contact,
   ContactInput,
   DidRef,
   Empty,
   ErrorCode,
+  InstallPlugin,
+  Invite,
+  InviteCode,
+  InviteRef,
+  Lending,
+  LendingSaved,
   ListAccess,
   ListShares,
   NewShare,
   NewSpace,
   NodeInfo,
   NodeName,
+  Plugin,
+  PluginCollections,
+  PluginFolder,
+  PluginRead,
+  PluginRef,
   ReadRows,
   RecoveryKey,
   RemovedContact,
@@ -28,6 +43,7 @@ import type {
   Share,
   ShareRef,
   ShareSpace,
+  SetLending,
   SpaceRef,
   SpaceSummary,
   SqlDone,
@@ -35,6 +51,13 @@ import type {
   NewStorage,
   DefaultStorage,
   StorageRef,
+  HomeCards,
+  SourceSummary,
+  NewSource,
+  PauseSource,
+  SetSourceEvery,
+  SourceRef,
+  SourceRun,
   FoundPlace,
   FolderRef,
   FolderListing,
@@ -70,6 +93,15 @@ export interface NodeClient {
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
   removeStorage(request: StorageRef): Promise<StorageSummary[]>;
+  setHomeCards(request: HomeCards): Promise<NodeInfo>;
+  listSources(): Promise<SourceSummary[]>;
+  addSource(request: NewSource): Promise<SourceSummary>;
+  pullSource(request: SourceRef): Promise<SourceSummary>;
+  pauseSource(request: PauseSource): Promise<SourceSummary>;
+  setSourceEvery(request: SetSourceEvery): Promise<SourceSummary>;
+  listSourceRuns(request: SourceRef): Promise<SourceRun[]>;
+  removeSource(request: SourceRef): Promise<SourceSummary[]>;
+  showSourceFiles(request: SourceRef): Promise<Empty>;
   findPlaces(): Promise<FoundPlace[]>;
   listFolders(request?: FolderRef): Promise<FolderListing>;
   readRows(request: ReadRows): Promise<RowsResult>;
@@ -81,6 +113,21 @@ export interface NodeClient {
   shareSpace(request: ShareSpace): Promise<NewShare>;
   listShares(request?: ListShares): Promise<Share[]>;
   revokeShare(request: ShareRef): Promise<RevokedShare>;
+  listInvites(): Promise<Invite[]>;
+  addInvite(request: InviteCode): Promise<Invite>;
+  acceptInvite(request: AcceptInvite): Promise<AcceptedInvite>;
+  declineInvite(request: InviteRef): Promise<Invite[]>;
+  lending(): Promise<Lending>;
+  setLending(request: SetLending): Promise<LendingSaved>;
+  listBorrowed(): Promise<Borrowed[]>;
+  stopBorrowing(request: BorrowedRef): Promise<Borrowed[]>;
+  listPlugins(): Promise<Plugin[]>;
+  inspectPlugin(request: PluginFolder): Promise<Plugin>;
+  installPlugin(request: InstallPlugin): Promise<Plugin>;
+  setPluginCollections(request: PluginCollections): Promise<Plugin>;
+  removePlugin(request: PluginRef): Promise<Plugin[]>;
+  /** A collection's rows, read as the plugin; refused unless it may read them. */
+  pluginRead(request: PluginRead): Promise<RowsResult>;
   listAccess(request?: ListAccess): Promise<AccessItem[]>;
 }
 
@@ -209,6 +256,42 @@ export class HttpClient implements NodeClient {
     return this.#json("remove_storage", request);
   }
 
+  setHomeCards(request: HomeCards): Promise<NodeInfo> {
+    return this.#json("set_home_cards", request);
+  }
+
+  listSources(): Promise<SourceSummary[]> {
+    return this.#json("list_sources", {});
+  }
+
+  addSource(request: NewSource): Promise<SourceSummary> {
+    return this.#json("add_source", request);
+  }
+
+  pullSource(request: SourceRef): Promise<SourceSummary> {
+    return this.#json("pull_source", request);
+  }
+
+  pauseSource(request: PauseSource): Promise<SourceSummary> {
+    return this.#json("pause_source", request);
+  }
+
+  setSourceEvery(request: SetSourceEvery): Promise<SourceSummary> {
+    return this.#json("set_source_every", request);
+  }
+
+  listSourceRuns(request: SourceRef): Promise<SourceRun[]> {
+    return this.#json("list_source_runs", request);
+  }
+
+  removeSource(request: SourceRef): Promise<SourceSummary[]> {
+    return this.#json("remove_source", request);
+  }
+
+  showSourceFiles(request: SourceRef): Promise<Empty> {
+    return this.#json("show_source_files", request);
+  }
+
   findPlaces(): Promise<FoundPlace[]> {
     return this.#json("find_places", {});
   }
@@ -255,6 +338,62 @@ export class HttpClient implements NodeClient {
 
   revokeShare(request: ShareRef): Promise<RevokedShare> {
     return this.#json("revoke_share", request);
+  }
+
+  listInvites(): Promise<Invite[]> {
+    return this.#json("list_invites", {});
+  }
+
+  addInvite(request: InviteCode): Promise<Invite> {
+    return this.#json("add_invite", request);
+  }
+
+  acceptInvite(request: AcceptInvite): Promise<AcceptedInvite> {
+    return this.#json("accept_invite", request);
+  }
+
+  declineInvite(request: InviteRef): Promise<Invite[]> {
+    return this.#json("decline_invite", request);
+  }
+
+  lending(): Promise<Lending> {
+    return this.#json("lending", {});
+  }
+
+  setLending(request: SetLending): Promise<LendingSaved> {
+    return this.#json("set_lending", request);
+  }
+
+  listBorrowed(): Promise<Borrowed[]> {
+    return this.#json("list_borrowed", {});
+  }
+
+  stopBorrowing(request: BorrowedRef): Promise<Borrowed[]> {
+    return this.#json("stop_borrowing", request);
+  }
+
+  listPlugins(): Promise<Plugin[]> {
+    return this.#json("list_plugins", {});
+  }
+
+  inspectPlugin(request: PluginFolder): Promise<Plugin> {
+    return this.#json("inspect_plugin", request);
+  }
+
+  installPlugin(request: InstallPlugin): Promise<Plugin> {
+    return this.#json("install_plugin", request);
+  }
+
+  setPluginCollections(request: PluginCollections): Promise<Plugin> {
+    return this.#json("set_plugin_collections", request);
+  }
+
+  removePlugin(request: PluginRef): Promise<Plugin[]> {
+    return this.#json("remove_plugin", request);
+  }
+
+  async pluginRead(request: PluginRead): Promise<RowsResult> {
+    return this.#rows(await this.#post("plugin_read", request));
   }
 
   listAccess(request: ListAccess = {}): Promise<AccessItem[]> {

@@ -130,6 +130,7 @@
 }
 [data-theme="bold"] .screen-brand__name {
   font: 400 15px/20px var(--display);
+  letter-spacing: -0.01em;
   text-transform: uppercase;
 }
 .screen-brand__sub {
@@ -149,6 +150,7 @@
 }
 .screen-nav__item {
   position: relative;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -248,9 +250,6 @@
   width: 100%;
   font-weight: 700;
 }
-[data-theme="bold"] .screen-place[aria-pressed="true"] .oik-status {
-  box-shadow: var(--sh-s);
-}
 
 .screen-sidebar__foot {
   display: grid;
@@ -329,12 +328,12 @@
   display: grid;
   flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: var(--bw) solid var(--line);
   border-radius: 50%;
   background: var(--raised);
-  font: 600 12px/1 var(--font);
+  font: 600 11px/1 var(--font);
 }
 [data-theme="bold"] .screen-node__mark {
   border-color: #111;
@@ -386,7 +385,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  height: 52px;
+  height: 56px;
   padding: 0 var(--space-7);
   border-bottom: var(--bw) solid var(--line);
   background: var(--top-bg);
@@ -554,7 +553,7 @@
 .screen-page {
   box-sizing: border-box;
   max-width: 1240px;
-  padding: var(--space-7) var(--space-7) 72px;
+  padding: 28px var(--space-7) 64px;
   animation: screen-in 280ms var(--ease) both;
 }
 @keyframes screen-in {
@@ -571,7 +570,11 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
-  margin: 0 0 var(--space-6);
+  margin: 0 0 22px;
+}
+/* The prototype's 6 px from a page's label to its title (4 of them the gap). */
+.screen-header__text > .oik-label {
+  margin-bottom: 2px;
 }
 .screen-header__text {
   display: grid;
@@ -593,12 +596,8 @@
 }
 .screen-title--mono {
   font-family: var(--mono);
-  font-weight: 500;
   letter-spacing: -0.01em;
   text-transform: none;
-}
-[data-theme="bold"] .screen-title--mono {
-  font-weight: 700;
 }
 .screen-lede {
   max-width: 70ch;
@@ -666,9 +665,9 @@
 .screen-dash > [class*="screen-w"] {
   min-width: 0;
 }
-/* Two columns at the prototype's 1.55 : 1, for a table beside a list. */
+/* Two columns at the prototype's 7 : 5 of twelve, for a table beside a list. */
 .screen-dash--split {
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
 }
 .screen-dash--split > * {
   min-width: 0;
@@ -676,9 +675,18 @@
 .screen-dash .oik-group {
   margin-bottom: var(--space-4);
 }
-.screen-dash .oik-group__footnote {
-  margin-top: calc(-1 * var(--space-4) + var(--space-2));
-  margin-bottom: var(--space-4);
+/* Cards in rows, as the prototype's: each row's cards share their top and
+   bottom edges; the grid's gap is the only space between them. */
+.screen-dash--rows {
+  align-items: stretch;
+}
+.screen-dash--rows > .oik-group {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.screen-dash--rows > .oik-group > .oik-group__body {
+  flex: 1;
 }
 
 /* ----- Home ----- */
@@ -689,7 +697,7 @@
   gap: var(--space-6);
   align-items: center;
   margin-bottom: var(--space-4);
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-5) 22px;
 }
 [data-theme="ink"] .screen-hero,
 :root:not([data-theme]) .screen-hero {
@@ -706,11 +714,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  margin: var(--space-1) 0 2px;
-  font: 500 19px/26px var(--font);
+  margin: 6px 0 var(--space-1);
+  font: 500 20px/26px var(--font);
 }
 [data-theme="bold"] .screen-hero__title {
-  font: 400 20px/26px var(--display);
+  font: 400 24px/28px var(--display);
+  text-transform: uppercase;
 }
 .screen-hero__id,
 .screen-hero__meta {
@@ -811,6 +820,68 @@
   font: var(--text-small);
   color: var(--ink2);
 }
+/* Compute on Sharing: a switch and Change beside lending; a status and
+   More beside each computer lent to you. */
+.screen-compute__acts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.screen-lend-field {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.screen-lend-field > .oik-seg {
+  justify-self: start;
+}
+.screen-lend-field > .oik-field__label {
+  padding: 0;
+}
+.screen-lend-people {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-lend-code {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* An invite waiting: the prototype's notice, a plain card that asks for a
+   choice rather than warning. */
+.screen-invites {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.screen-invites .screen-callout {
+  margin-bottom: 0;
+}
+.screen-callout--quiet {
+  border-color: var(--line);
+}
+.screen-callout--quiet .screen-callout__title {
+  color: var(--ink);
+}
+[data-theme="bold"] .screen-callout--quiet {
+  background: var(--raised);
+}
+.screen-callout__text p.screen-callout__meta {
+  font: 400 12px/16px var(--mono);
+  color: var(--ink3);
+}
+.screen-callout__text p.oik-error {
+  margin-top: var(--space-1);
+  font: var(--text-small);
+  color: var(--signal);
+}
 
 .screen-kpis {
   display: grid;
@@ -831,15 +902,15 @@
   margin-bottom: var(--space-3);
 }
 .screen-figure__note {
-  font: var(--text-meta);
+  font: 500 11px/1 var(--mono);
   color: var(--ink2);
 }
 [data-theme="bold"] .screen-figure__note {
-  padding: 3px 8px;
+  padding: 3px 7px;
   border: 2px solid #111;
   border-radius: 999px;
   background: #3ddc97;
-  font: 700 11px/1 var(--font);
+  font: 700 11px/1 var(--mono);
   color: #111;
 }
 .screen-figure__value {
@@ -863,8 +934,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: 46px;
-  padding: var(--space-2) var(--space-4);
+  padding: 14px var(--space-4);
   border-bottom: var(--bw) solid var(--line2);
 }
 [data-theme="bold"] .screen-panel__head {
@@ -898,8 +968,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 56px;
-  padding: var(--space-2) var(--space-4);
+  padding: 11px var(--space-4);
   box-sizing: border-box;
   color: inherit;
   text-decoration: none;
@@ -913,11 +982,11 @@ a.screen-list__row:hover {
 a.screen-list__row:active {
   background: var(--active);
 }
+/* A photo beside its row is a little larger than an icon's tile: 40 px, as the prototype's. */
 .screen-list__thumb {
   flex: none;
-  width: 34px;
-  height: 34px;
-  border: var(--bw) solid var(--line);
+  width: 40px;
+  height: 40px;
   border-radius: var(--r-btn);
   object-fit: cover;
 }
@@ -979,7 +1048,7 @@ a.screen-list__row:hover .screen-list__thumb {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  animation: screen-drift 16s ease-in-out infinite alternate;
+  animation: screen-drift 14s ease-in-out infinite alternate;
 }
 [data-theme="ink"] .screen-memory img,
 :root:not([data-theme]) .screen-memory img {
@@ -991,7 +1060,7 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 @keyframes screen-drift {
   to {
-    transform: scale(1.07) translate(-1%, -1%);
+    transform: scale(1.08) translate(-1%, -1%);
   }
 }
 .screen-memory__cap {
@@ -1216,6 +1285,7 @@ a.screen-list__row:hover .screen-list__thumb {
   stroke-width: 2px;
   stroke-linejoin: round;
   stroke-linecap: round;
+  animation: screen-draw 800ms var(--ease) both;
 }
 [data-theme="bold"] .screen-series-cover__line path {
   stroke: #111;
@@ -1281,6 +1351,7 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 .screen-facts > div {
   display: grid;
+  align-content: start;
   gap: 4px;
   min-width: 0;
   padding: var(--space-3) var(--space-4);
@@ -1483,6 +1554,16 @@ a.screen-list__row:hover .screen-list__thumb {
   stroke-width: 2px;
   stroke-linejoin: round;
   stroke-linecap: round;
+  animation: screen-draw 900ms var(--ease) both;
+}
+/* A line is drawn from its first reading to its last. */
+@keyframes screen-draw {
+  from {
+    clip-path: inset(-10% 100% -10% 0);
+  }
+  to {
+    clip-path: inset(-10% 0 -10% 0);
+  }
 }
 [data-theme="bold"] .screen-series__line {
   stroke: #111;
@@ -1548,6 +1629,9 @@ a.screen-list__row:hover .screen-list__thumb {
   white-space: nowrap;
   transform: translateX(4px);
 }
+.screen-series__days span.is-end {
+  transform: translateX(calc(-100% - 4px));
+}
 
 .screen-notes {
   columns: 2 320px;
@@ -1594,18 +1678,14 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 .screen-table-in-card .oik-table th,
 .screen-table-in-card .oik-table td {
-  padding-left: 12px;
-  padding-right: 12px;
+  padding-left: var(--space-4);
+  padding-right: var(--space-4);
   vertical-align: middle;
 }
-.screen-table-in-card .oik-table :is(th, td):first-child {
-  padding-left: var(--space-4);
-}
-.screen-table-in-card .oik-table :is(th, td):last-child {
-  padding-right: var(--space-3);
-}
+/* On a card's head line, as tall as the line (the prototype's 20 px). */
 .screen-group-count {
   font: var(--text-meta);
+  line-height: 20px;
   color: var(--ink3);
 }
 .screen-cell-mono {
@@ -1653,10 +1733,505 @@ a.screen-list__row:hover .screen-list__thumb {
   white-space: normal;
 }
 
+/* ----- Home cards: totals by day, latest readings, Arrange ----- */
+
+/* Home's cards, each in a slot as wide as its columns. Arrange edits them
+   in place: a dashed edge, a minus to take one off, a corner to widen. */
+.screen-cards {
+  position: relative;
+}
+.screen-slot {
+  position: relative;
+  display: grid;
+  grid-column: span var(--span, 4);
+  min-width: 0;
+  border-radius: var(--r-card);
+}
+.screen-slot__card {
+  display: grid;
+  min-width: 0;
+}
+.screen-slot__card > * {
+  min-width: 0;
+}
+.screen-cards.is-editing .screen-slot:not(.screen-slot--add) {
+  cursor: grab;
+  outline: 1px dashed var(--ink3);
+  outline-offset: 4px;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  animation: screen-jiggle 300ms var(--ease);
+}
+.screen-cards.is-editing .screen-slot:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 4px;
+}
+[data-theme="bold"] .screen-cards.is-editing .screen-slot:not(.screen-slot--add) {
+  outline: 2px dashed #111;
+  outline-offset: 5px;
+}
+.screen-slot.is-dragging {
+  z-index: 3;
+  cursor: grabbing;
+}
+.screen-slot.is-dragging .screen-slot__card > * {
+  box-shadow: var(--sh-pop);
+}
+/* A card that moved keeps its charts drawn and its edges where they were. */
+.screen-cards.is-settled .screen-totals__bar > i,
+.screen-cards.is-settled .screen-series__line,
+.screen-cards.is-settled .screen-series-cover__line path,
+.screen-cards.is-still .screen-slot,
+.screen-cards.is-still .screen-slot__remove,
+.screen-cards.is-still .screen-slot--add {
+  animation: none;
+}
+@keyframes screen-jiggle {
+  50% {
+    transform: scale(0.995);
+  }
+}
+.screen-slot__remove.oik-icon-button {
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  animation: oik-lift 200ms var(--ease) both;
+}
+.screen-slot__remove .oik-icon {
+  width: 14px;
+  height: 14px;
+}
+.screen-slot__size {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.screen-slot__size::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--ink3);
+  border-bottom: 2px solid var(--ink3);
+}
+[data-theme="bold"] .screen-slot__size::after {
+  border-color: #111;
+}
+.screen-slot--add {
+  grid-column: span 4;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-2);
+  min-height: 140px;
+  border: var(--bw) dashed var(--line);
+  background: transparent;
+  color: var(--ink2);
+  font: var(--text);
+  font-weight: 500;
+  cursor: pointer;
+  animation: oik-lift 220ms var(--ease) both;
+  transition:
+    border-color 150ms var(--ease),
+    color 150ms var(--ease);
+}
+.screen-slot--add:hover {
+  border-color: var(--stroke-hover);
+  color: var(--ink);
+}
+.screen-slot--add .oik-icon {
+  width: 20px;
+  height: 20px;
+}
+[data-theme="bold"] .screen-slot--add {
+  border: 2px dashed #111;
+  color: #111;
+  font-weight: 700;
+}
+.screen-add-card__label {
+  margin: 0 0 var(--space-2);
+}
+.screen-add-card {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--bw) solid var(--line2);
+  border-radius: var(--r-btn);
+}
+[data-theme="bold"] .screen-add-card {
+  border: 2px solid #111;
+}
+.screen-add-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line2);
+}
+[data-theme="bold"] .screen-add-card__row {
+  border-bottom: 2px solid #111;
+}
+.screen-add-card__row:last-child {
+  border-bottom: 0;
+}
+.screen-add-card__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+/* Cards that open a page: Ink darkens the edge, Bold lifts the card. */
+a.screen-lift {
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 150ms var(--ease),
+    box-shadow 150ms var(--ease),
+    border-color 150ms var(--ease);
+}
+a.screen-lift:hover {
+  border-color: var(--stroke-hover);
+}
+[data-theme="bold"] a.screen-lift:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--sh-l);
+}
+[data-theme="bold"] a.screen-lift:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+.screen-totals__body {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-4);
+}
+.screen-totals__bars {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 140px;
+  border-bottom: 1px solid var(--line2);
+  touch-action: pan-y;
+}
+[data-theme="bold"] .screen-totals__bars {
+  border-bottom: 2px solid #111;
+}
+.screen-totals__bar {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  height: 100%;
+  align-items: flex-end;
+}
+.screen-totals__bar > i {
+  display: block;
+  width: min(100%, 10px);
+  border-radius: 3px 3px 0 0;
+  background: var(--ink);
+  transform-origin: bottom;
+  transition: opacity 120ms var(--ease);
+  animation: screen-grow-y 700ms var(--ease) both;
+}
+@keyframes screen-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+[data-theme="bold"] .screen-totals__bar > i {
+  width: 100%;
+  border: 2px solid #111;
+  border-bottom: 0;
+  background: #ff3d81;
+}
+.screen-totals__bars:hover .screen-totals__bar > i {
+  opacity: 0.35;
+}
+.screen-totals__bars:hover .screen-totals__bar.is-hover > i {
+  opacity: 1;
+}
+.screen-totals__axis {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font: 400 11px/14px var(--mono);
+  color: var(--ink3);
+}
+.screen-latest__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  margin: 0;
+}
+.screen-latest__grid > div {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  border-left: 1px solid var(--line2);
+}
+.screen-latest__grid > div:first-child {
+  border-left: 0;
+}
+[data-theme="bold"] .screen-latest__grid > div {
+  border-left-width: 2px;
+  border-left-color: #111;
+}
+.screen-latest__grid dd {
+  margin: 0;
+  font: 500 24px/1.15 var(--mono);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+[data-theme="bold"] .screen-latest__grid dd {
+  font: 400 26px/1.15 var(--display);
+  letter-spacing: 0;
+}
+[data-theme="bold"] .screen-totals__bars {
+  gap: 8px;
+}
+.screen-latest__grid dd small {
+  margin-left: 3px;
+  font: 400 12px/1 var(--mono);
+  letter-spacing: 0;
+  color: var(--ink3);
+}
+.screen-arrange {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-arrange__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.screen-arrange__row:last-child {
+  border-bottom: 0;
+}
+
+/* ----- Sources ----- */
+
+.screen-source__what {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.screen-source__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.screen-source__name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-source__meta {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-source__meta a {
+  color: inherit;
+}
+.screen-source__failure {
+  max-width: 46ch;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--signal);
+  white-space: normal;
+}
+/* The prototype's source rows: 14 px over and under two lines. */
+.screen-sources td {
+  max-width: none;
+  padding-block: 14px;
+}
+/* Two lines in a cell that stays a table cell, so the row's line runs on unbroken. */
+.screen-source__when > span {
+  display: block;
+}
+.screen-source__when > span + span {
+  margin-top: 2px;
+}
+.screen-source__next {
+  color: var(--ink3);
+}
+.screen-sources .screen-cell-action {
+  white-space: nowrap;
+}
+.screen-sources .screen-cell-action > * {
+  vertical-align: middle;
+}
+.screen-sources .screen-cell-action .oik-menu {
+  display: inline-block;
+}
+.screen-section-label {
+  margin: var(--space-7) 0 var(--space-3);
+}
+/* A source's row opens its page. */
+tr.screen-source {
+  cursor: pointer;
+}
+
+/* A source's page: its recent syncs beside its settings, as the prototype's. */
+.screen-source-page {
+  align-items: start;
+}
+.screen-panel__aside {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-panel__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding: 12px var(--space-4);
+  border-top: var(--bw) solid var(--line2);
+}
+[data-theme="bold"] .screen-panel__foot {
+  border-top-color: #111;
+}
+.screen-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-runs__row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 46px;
+  padding: 10px var(--space-4);
+}
+.screen-runs__row + .screen-runs__row {
+  border-top: var(--bw) solid var(--line2);
+}
+[data-theme="bold"] .screen-runs__row + .screen-runs__row {
+  border-top-color: #111;
+}
+.screen-runs__when {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-runs__what {
+  overflow-wrap: anywhere;
+}
+.screen-source-settings {
+  display: grid;
+  gap: 18px;
+  padding: var(--space-4);
+}
+.screen-source-settings__field {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.screen-source-settings__field .oik-seg {
+  flex-wrap: wrap;
+}
+.screen-source-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-link-mono {
+  font-family: var(--mono);
+}
+
+.screen-source-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+.screen-source-kind {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--raised);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms var(--ease),
+    transform 120ms var(--ease),
+    box-shadow 120ms var(--ease);
+}
+.screen-source-kind:hover {
+  border-color: var(--stroke-hover);
+}
+.screen-source-kind .screen-source__meta {
+  font: 400 12px/16px var(--font);
+  white-space: normal;
+}
+[data-theme="bold"] .screen-source-kind {
+  box-shadow: var(--sh-s);
+}
+[data-theme="bold"] .screen-source-kind:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--sh-m);
+}
+.screen-source-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-field);
+}
+.screen-source-pick .screen-path {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-facts__from {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.screen-facts__from a {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-facts__note {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+
 /* ----- Activity ----- */
 
 .screen-log-table__when {
   width: 1%;
+  font-size: 12px;
   color: var(--ink);
   text-align: left !important;
   white-space: nowrap;
@@ -1881,34 +2456,52 @@ a.screen-list__row:hover .screen-list__thumb {
   box-sizing: border-box;
   padding: 64px var(--space-4) var(--space-6);
 }
+/* The prototype's first run: one card, read from the left, the step said
+   in words at its foot. */
 .screen-onboarding__card {
   box-sizing: border-box;
   width: 100%;
-  max-width: 500px;
+  max-width: 520px;
   padding: var(--space-7);
-  text-align: center;
+  text-align: left;
   animation: oik-lift 300ms var(--ease) both;
 }
 .screen-onboarding__card .screen-title {
-  margin: var(--space-4) 0 var(--space-2);
+  margin: var(--space-5) 0 var(--space-2);
 }
 .screen-onboarding__card .screen-lede {
-  margin: 0 auto var(--space-5);
+  margin: 0 0 var(--space-5);
+}
+.screen-onboarding__step {
+  margin: var(--space-4) 0 0;
+  font: var(--text-small, 400 12px/16px var(--font));
+  color: var(--ink3);
+  text-align: center;
+}
+.screen-onboarding__restore {
+  display: block;
+  margin: var(--space-2) auto 0;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--ink3);
+  font: 400 12px/16px var(--font);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.screen-onboarding__restore:hover {
+  color: var(--ink);
 }
 .screen-form {
   text-align: left;
 }
-.screen-form .screen-title,
-.screen-form .screen-lede,
-.screen-form .screen-glyph {
-  text-align: center;
-}
 .screen-glyph {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: 0 auto;
+  width: 40px;
+  height: 40px;
+  margin: 0;
   border-radius: var(--r-btn);
   background: var(--ink);
   color: var(--raised);
@@ -1920,11 +2513,11 @@ a.screen-list__row:hover .screen-list__thumb {
   box-shadow: var(--sh-s);
 }
 .screen-glyph .oik-icon {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 }
 .screen-onboarding__card .screen-actions {
-  justify-content: center;
+  justify-content: flex-start;
 }
 .screen-form .screen-actions {
   flex-direction: column;
@@ -1934,8 +2527,12 @@ a.screen-list__row:hover .screen-list__thumb {
 /* ----- Narrower windows ----- */
 
 @media (max-width: 1100px) {
-  .screen-dash > [class*="screen-w"] {
+  .screen-dash > [class*="screen-w"],
+  .screen-cards > .screen-slot {
     grid-column: span 12;
+  }
+  .screen-slot__size {
+    display: none;
   }
   .screen-dash--split {
     grid-template-columns: minmax(0, 1fr);
@@ -1949,6 +2546,12 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 
 @media (max-width: 760px) {
+  .screen-runs__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .screen-runs__when {
+    grid-column: 1 / -1;
+  }
   .screen-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr;
@@ -2021,6 +2624,13 @@ a.screen-list__row:hover .screen-list__thumb {
   .screen-callout {
     flex-wrap: wrap;
   }
+  /* An invite's choices go under what it is, at the right. */
+  .screen-invites .screen-callout__text {
+    flex: 1 1 calc(100% - 64px);
+  }
+  .screen-invites .screen-callout > .oik-button:first-of-type {
+    margin-left: auto;
+  }
   .screen-share-pair {
     grid-template-columns: 1fr;
   }
@@ -2030,4 +2640,158 @@ a.screen-list__row:hover .screen-list__thumb {
   .screen-onboarding__card {
     padding: var(--space-6) var(--space-4);
   }
+}
+
+/* Work under way with no known end, such as a first read: a short bar
+   slides across, as in the prototype. */
+.screen-progress {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line2);
+}
+.screen-progress > i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink);
+  animation: screen-slide 1.4s var(--ease) infinite;
+}
+[data-theme="bold"] .screen-progress {
+  height: 10px;
+  border: 2px solid #111;
+  border-radius: 999px;
+  background: #fff;
+}
+[data-theme="bold"] .screen-progress > i {
+  background: #c8a2ff;
+}
+@keyframes screen-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* ----- Plugins: their cards on Home, their page ----- */
+
+/* A plugin's card: its head as any card's, its page below in a frame. */
+.screen-plugin__by {
+  font: 400 11px/14px var(--mono);
+  color: var(--ink3);
+  white-space: nowrap;
+}
+.screen-plugin__frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0 0 var(--r-card) var(--r-card);
+  background: transparent;
+}
+.screen-plugin-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.screen-plugin-name__text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.screen-plugin-name__name {
+  font-weight: 600;
+}
+.screen-plugin-name__by {
+  font: 400 11px/14px var(--mono);
+  color: var(--ink3);
+}
+.screen-plugin-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink2);
+}
+.screen-plugin-net .oik-icon {
+  width: 14px;
+  height: 14px;
+}
+.screen-plugin-net--long {
+  align-items: flex-start;
+}
+.screen-plugin-net--long .oik-icon {
+  margin-top: 3px;
+}
+.screen-plugin-offers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.screen-plugin-offer {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: var(--space-4);
+}
+[data-theme="bold"] .screen-plugin-offer {
+  transition:
+    transform 150ms var(--ease),
+    box-shadow 150ms var(--ease);
+}
+.screen-plugin-offer__what {
+  margin: 0;
+  color: var(--ink2);
+}
+.screen-plugin-offer__reads {
+  margin: 0;
+  font: var(--text-small);
+  color: var(--ink3);
+}
+.screen-plugin-offer__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+.screen-plugin-reads {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.screen-plugin-reads > legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+.screen-plugin-reads .screen-help {
+  margin: 0;
+}
+/* A destructive choice set apart from Cancel and Save, at the start. */
+.screen-dialog-start {
+  margin-right: auto;
+}
+.screen-add-card__none {
+  color: var(--ink3);
+  font-weight: 400;
+}
+
+/* Activity: each line opens what it means. */
+.screen-log-table__row {
+  cursor: pointer;
+}
+.screen-log-table__open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }

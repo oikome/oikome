@@ -63,6 +63,47 @@ pub(crate) fn host_name() -> String {
     }
 }
 
+/// The full name of the account running the node ("Rosh Jin"), for a
+/// first name to suggest; empty where the system doesn't say. It is shown
+/// to the owner only and never logged.
+pub(crate) fn owner_name() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // `id -F`: the account's full name, as System Settings shows it.
+        std::process::Command::new("id")
+            .arg("-F")
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .unwrap_or_default()
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // The comment field of this account's line in /etc/passwd.
+        let user = std::env::var("USER").unwrap_or_default();
+        std::fs::read_to_string("/etc/passwd")
+            .ok()
+            .and_then(|text| {
+                text.lines()
+                    .map(|line| line.split(':').collect::<Vec<_>>())
+                    .find(|f| f.len() > 4 && !user.is_empty() && f[0] == user)
+                    .map(|f| {
+                        f[4].split(',')
+                            .next()
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string()
+                    })
+            })
+            .unwrap_or_default()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var("USERNAME").unwrap_or_default()
+    }
+}
+
 /// The home directory of the user running the node.
 pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -189,23 +230,54 @@ pub(crate) fn list_folders(path: Option<&str>) -> Result<FolderListing, ApiError
         }
         _ => ApiError::invalid(format!("'{}' is not a folder", dir.display())),
     })?;
-    let mut folders: Vec<FolderEntry> = entries
+    let paths: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_dir() && !hidden(p))
-        .filter_map(|p| {
-            Some(FolderEntry {
-                name: p.file_name()?.to_str()?.to_string(),
-                path: text(&p)?,
-            })
+        .filter(|p| !hidden(p))
+        .collect();
+    let entry = |p: &PathBuf| {
+        Some(FolderEntry {
+            name: p.file_name()?.to_str()?.to_string(),
+            path: text(p)?,
         })
+    };
+    let extension = |p: &PathBuf| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default()
+    };
+    let files = || paths.iter().filter(|p| p.is_file());
+    let mut folders: Vec<FolderEntry> = paths
+        .iter()
+        .filter(|p| p.is_dir())
+        .filter_map(entry)
         .collect();
     folders.sort_by_key(|f| f.name.to_lowercase());
     folders.truncate(MAX_FOLDERS);
+    let mut csv_files: Vec<FolderEntry> = files()
+        .filter(|p| extension(p) == "csv")
+        .filter_map(entry)
+        .collect();
+    csv_files.sort_by_key(|f| f.name.to_lowercase());
+    csv_files.truncate(MAX_FOLDERS);
+    let count = |wanted: &[&str]| {
+        u32::try_from(
+            files()
+                .filter(|p| wanted.contains(&extension(p).as_str()))
+                .count(),
+        )
+        .unwrap_or(u32::MAX)
+    };
+    let photos = count(&["jpg", "jpeg", "png", "gif", "webp"]);
+    let notes = count(&["md", "markdown", "txt"]);
     Ok(FolderListing {
         path: text(&dir).ok_or_else(|| ApiError::invalid("the folder's name is not text"))?,
         parent: dir.parent().and_then(text),
         folders,
+        csv_files,
+        photos,
+        notes,
     })
 }
 

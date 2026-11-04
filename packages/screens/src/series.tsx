@@ -12,7 +12,7 @@ import type { Table } from "apache-arrow";
 import { DataType } from "apache-arrow";
 import type { Shape } from "./content";
 import { measure, numberAt, withUnit } from "./content";
-import { dateTime, monthAndDay, wallTime } from "./format";
+import { dateTime, isoTime, monthAndDay, wallTime } from "./format";
 import { show } from "./parts";
 import { strings } from "./strings";
 
@@ -77,11 +77,14 @@ export function SeriesCover({ table, shape }: { table: Table; shape: Shape }) {
 /** When each row was, in milliseconds, and how to read it. */
 function timesOf(table: Table, column: number | undefined) {
   const field = column === undefined ? undefined : table.schema.fields[column];
-  // A time without a zone, or a date, is shown as written.
-  const asWritten = !!field && (DataType.isDate(field.type) || (DataType.isTimestamp(field.type) && !field.type.timezone));
+  const text = !!field && (DataType.isUtf8(field.type) || DataType.isLargeUtf8(field.type));
+  // A time without a zone, a date, or one written as text, is shown as written.
+  const asWritten =
+    !!field && (text || DataType.isDate(field.type) || (DataType.isTimestamp(field.type) && !field.type.timezone));
   const times = Array.from({ length: table.numRows }, (_, r) => {
     const v = column === undefined ? undefined : table.getChildAt(column)?.get(r);
-    return v === null || v === undefined ? undefined : Number(v);
+    if (v === null || v === undefined) return undefined;
+    return typeof v === "string" ? isoTime(v)?.ms : Number(v);
   });
   const format = (ms: number) =>
     field && DataType.isDate(field.type) ? monthAndDay(ms, true) : asWritten ? wallTime(ms) : dateTime(ms);
@@ -199,7 +202,7 @@ export function SeriesView({ table, shape }: { table: Table; shape: Shape }) {
               <span className="screen-series__cross" style={{ left: `${x(at)}%` }} />
               <span className="screen-series__dot" style={{ left: `${x(at)}%`, top: `${y(line.values[at]!)}%` }} />
               <span
-                className={x(at) > 70 ? "screen-series__tip is-left" : "screen-series__tip"}
+                className={x(at) > 50 ? "screen-series__tip is-left" : "screen-series__tip"}
                 style={{ left: `${x(at)}%` }}
               >
                 <strong>{text(line.values[at])}</strong>
@@ -210,7 +213,8 @@ export function SeriesView({ table, shape }: { table: Table; shape: Shape }) {
         </div>
         <div className="screen-series__days" aria-hidden="true">
           {days.map((i) => (
-            <span key={i} style={{ left: `${x(i)}%` }}>
+            // A day near the right edge ends at its line, so it never runs off the card.
+            <span key={i} className={x(i) > 80 ? "is-end" : undefined} style={{ left: `${x(i)}%` }}>
               {times[i] !== undefined ? monthAndDay(times[i]!, asWritten) : ""}
             </span>
           ))}

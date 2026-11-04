@@ -58,6 +58,21 @@ impl CsvSource {
         Self { path, table }
     }
 
+    /// The column names of a CSV file's header, as written.
+    pub fn header(path: &Path) -> Result<Vec<String>, ConnectError> {
+        let bytes = std::fs::read(path)
+            .map_err(|e| ConnectError::Io(format!("{}: {e}", path.display())))?;
+        let (schema, _) = Format::default()
+            .with_header(true)
+            .infer_schema(Cursor::new(&bytes), Some(1))
+            .map_err(|e| ConnectError::Format(format!("{}: {e}", path.display())))?;
+        Ok(schema
+            .fields()
+            .iter()
+            .map(|f| f.name().trim().to_string())
+            .collect())
+    }
+
     /// The table a CSV file makes: its header's columns, their types
     /// guessed from the first rows (dates and times are text), and `key`
     /// as the columns that identify a row.
@@ -148,7 +163,8 @@ impl CsvSource {
                 "false" | "0" => Value::Bool(false),
                 _ => return Err(bad("true or false")),
             },
-            ColumnKind::Text => Value::Text(text.to_string()),
+            ColumnKind::Text | ColumnKind::Timestamp => Value::Text(text.to_string()),
+            ColumnKind::Blob => Value::Blob(text.as_bytes().to_vec()),
         })
     }
 }

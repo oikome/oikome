@@ -27,6 +27,21 @@ export function monthAndDay(ms: number, asWritten = false): string {
   return (asWritten ? monthDayAsWritten : monthDay).format(new Date(ms));
 }
 
+const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+
+/**
+ * A day or time written as text, as files and SQLite keep them
+ * ("2025-11-07", "2025-11-07 09:40:00"), read as written: milliseconds on
+ * the UTC clock, the way a TIMESTAMP without a zone is shown.
+ */
+export function isoTime(text: string): { ms: number; day: boolean } | undefined {
+  const m = ISO.exec(text.trim());
+  if (!m) return undefined;
+  const [, y, mo, d, h, mi, s] = m;
+  const ms = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h ?? 0), Number(mi ?? 0), Number(s ?? 0));
+  return Number.isNaN(ms) ? undefined : { ms, day: h === undefined };
+}
+
 /** A DATE cell: "Oct 28, 2026". */
 export function calendarDate(ms: number): string {
   return calendarDay.format(new Date(ms));
@@ -137,6 +152,18 @@ export function dateFromSeconds(seconds: number): string {
 /** "Dec 1, 2026" for milliseconds since the epoch. */
 export function dateFromMs(ms: number): string {
   return day.format(new Date(ms));
+}
+
+/** "7:36 PM" today, else "Nov 2, 7:36 PM". */
+export function sameDayTime(ms: number, now = Date.now()): string {
+  const today = new Date(ms).toDateString() === new Date(now).toDateString();
+  return today ? time.format(new Date(ms)) : `${monthAndDay(ms)}, ${time.format(new Date(ms))}`;
+}
+
+/** "Today 7:36 PM", or "Nov 2, 7:36 PM". */
+export function dayAndTime(ms: number, now = Date.now()): string {
+  const today = new Date(ms).toDateString() === new Date(now).toDateString();
+  return today ? `Today ${time.format(new Date(ms))}` : `${monthAndDay(ms)}, ${time.format(new Date(ms))}`;
 }
 
 /** "Just now", "4 min ago", "3 h ago", then the date and time. */

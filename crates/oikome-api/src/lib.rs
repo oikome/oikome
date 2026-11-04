@@ -29,16 +29,21 @@
 
 pub mod error;
 mod examples;
+mod invites;
+mod lending;
 mod places;
+mod plugins;
+mod sources;
 pub mod types;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
 use oikome_catalog::{LocationFormat, OikomeCatalog, StorageKind};
+use oikome_connect::SourceConfig;
 use oikome_core::{validate_space_name, AccessMode, CreateSpaceRequest};
 use oikome_identity::keys::NODE_KEY_FILE;
 use oikome_identity::ucan::{ABILITY_QUERY, ABILITY_READ};
@@ -46,14 +51,15 @@ use oikome_identity::{
     decode_recovery_key, encode_recovery_key, unix_now, Did, NodeIdentity, ENV_NODE_KEY,
 };
 use oikome_node::{
-    AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult, SessionConfig,
-    StorageCredentials,
+    AccessEntry, AccessLog, AccessLogError, AccessQuery, EngineRegistry, OikomeSession, Outcome,
+    QueryResult, SessionConfig, StorageCredentials,
 };
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
 use serde::{Deserialize, Serialize};
 
 pub use error::{ApiError, ErrorCode};
+pub use plugins::PLUGIN_SDK;
 pub use types::*;
 
 /// Longest `run_sql` text, in bytes.
@@ -95,7 +101,56 @@ struct NodeSettings {
     /// What the owner called each storage, by its name.
     #[serde(default)]
     storage_labels: BTreeMap<String, String>,
+    /// The cards on Home, in order, once the owner arranged them.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "kept_cards"
+    )]
+    home_cards: Option<Vec<HomeCard>>,
+    /// The setting up of this data center is in Activity.
+    #[serde(default)]
+    setup_logged: bool,
+    /// Collections whose source was removed, by the file or folder it read:
+    /// added again, it goes back into its collection.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    removed_sources: BTreeMap<String, String>,
 }
+
+/// The owner's own steps in Activity: setting up this data center, adding
+/// the examples, saving the recovery key. They are kept with the reads, as
+/// "You", through this computer.
+pub const OWNER_SETUP: &str = "owner_setup";
+pub const OWNER_EXAMPLES: &str = "owner_examples";
+pub const OWNER_KEY: &str = "owner_key";
+
+/// A card as `node.json` keeps it: with its width, or an id alone, as
+/// Home was kept before cards had widths.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum KeptCard {
+    Card(HomeCard),
+    Id(String),
+}
+
+fn kept_cards<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<HomeCard>>, D::Error> {
+    let kept = Option::<Vec<KeptCard>>::deserialize(d)?;
+    Ok(kept.map(|cards| {
+        cards
+            .into_iter()
+            .map(|card| match card {
+                KeptCard::Card(card) => card,
+                KeptCard::Id(id) => HomeCard { id, width: None },
+            })
+            .collect()
+    }))
+}
+
+/// At most this many cards on Home, each id this long, each spanning
+/// this many of its twelve columns.
+const MAX_HOME_CARDS: usize = 32;
+const MAX_CARD_ID: usize = 80;
+const CARD_WIDTHS: std::ops::RangeInclusive<u8> = 4..=12;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -148,6 +203,12 @@ pub struct Api {
     engines: Arc<EngineRegistry>,
     access_log: Option<AccessLog>,
     flight_url: Option<String>,
+    /// One change to the node's own files (settings, invites) at a time,
+    /// so two at once (Home arranged while the node is renamed) both land.
+    settings_lock: Arc<std::sync::Mutex<()>>,
+    /// When each plugin last read each collection, so Activity says it once
+    /// in a while rather than at every look at Home.
+    plugin_reads: Arc<std::sync::Mutex<HashMap<(String, String), u64>>>,
 }
 
 impl std::fmt::Debug for Api {
@@ -236,6 +297,8 @@ impl Api {
             engines,
             access_log: None,
             flight_url: None,
+            settings_lock: Arc::default(),
+            plugin_reads: Arc::default(),
         }
     }
 
@@ -284,14 +347,35 @@ impl Api {
         }
     }
 
-    /// Replace the settings file at once (temporary file, then rename).
+    /// Replace the settings file at once (a temporary file of this write's
+    /// own, then rename).
     fn save_settings(&self, settings: &NodeSettings) -> Result<(), ApiError> {
+        static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = self.settings_path();
         let bytes = serde_json::to_vec_pretty(settings).map_err(ApiError::internal)?;
-        let tmp = path.with_extension("json.tmp");
+        let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
         std::fs::create_dir_all(self.catalog.oikome_dir()).map_err(ApiError::internal)?;
         std::fs::write(&tmp, bytes).map_err(ApiError::internal)?;
-        std::fs::rename(&tmp, &path).map_err(ApiError::internal)
+        std::fs::rename(&tmp, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            ApiError::internal(e)
+        })
+    }
+
+    /// Change the settings: read, change and write them as one step.
+    fn update_settings<T>(
+        &self,
+        change: impl FnOnce(&mut NodeSettings) -> T,
+    ) -> Result<T, ApiError> {
+        let _one = self
+            .settings_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut settings = self.settings()?;
+        let out = change(&mut settings);
+        self.save_settings(&settings)?;
+        Ok(out)
     }
 
     // ----- Node -----
@@ -300,7 +384,10 @@ impl Api {
     pub async fn node_info(&self, caller: &Caller, _: Empty) -> Result<NodeInfo, ApiError> {
         let owner = caller.require_owner().is_ok();
         let settings = if owner {
-            self.settings()?
+            let settings = self.settings()?;
+            // A data center set up before Activity said so says it now.
+            self.log_setup(&settings, true)?;
+            settings
         } else {
             NodeSettings::default()
         };
@@ -321,6 +408,16 @@ impl Api {
             } else {
                 String::new()
             },
+            owner_name: if owner {
+                places::owner_name()
+            } else {
+                String::new()
+            },
+            home_cards: if owner {
+                settings.home_cards.clone()
+            } else {
+                None
+            },
             flight_url: self.flight_url.clone(),
         })
     }
@@ -337,9 +434,37 @@ impl Api {
                 "a name has 1 to {MAX_NODE_NAME_CHARS} characters"
             )));
         }
-        let mut settings = self.settings()?;
-        settings.name = name.to_string();
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| settings.name = name.to_string())?;
+        self.node_info(caller, Empty {}).await
+    }
+
+    /// Keep the cards the owner arranged on Home. The ids are the apps'
+    /// own; the node only checks their size and characters.
+    pub async fn set_home_cards(
+        &self,
+        caller: &Caller,
+        req: HomeCards,
+    ) -> Result<NodeInfo, ApiError> {
+        caller.require_owner()?;
+        let ok = req.cards.len() <= MAX_HOME_CARDS
+            && req.cards.iter().all(|card| {
+                !card.id.is_empty()
+                    && card.id.len() <= MAX_CARD_ID
+                    && card
+                        .id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_'))
+                    && card.width.is_none_or(|w| CARD_WIDTHS.contains(&w))
+            });
+        if !ok {
+            return Err(ApiError::invalid(format!(
+                "up to {MAX_HOME_CARDS} cards, each named with letters, digits, ':', '-' or '_' \
+                 and {} to {} columns wide",
+                CARD_WIDTHS.start(),
+                CARD_WIDTHS.end()
+            )));
+        }
+        self.update_settings(|settings| settings.home_cards = Some(req.cards))?;
         self.node_info(caller, Empty {}).await
     }
 
@@ -360,10 +485,51 @@ impl Api {
         _: Empty,
     ) -> Result<NodeInfo, ApiError> {
         caller.require_owner()?;
-        let mut settings = self.settings()?;
-        settings.recovery_key_saved_at_ms = Some(now_ms());
-        self.save_settings(&settings)?;
+        let at = now_ms();
+        self.update_settings(|settings| settings.recovery_key_saved_at_ms = Some(at))?;
+        self.log_owner(OWNER_KEY, Vec::new(), at);
         self.node_info(caller, Empty {}).await
+    }
+
+    /// Put one of the owner's own steps in Activity, at `at_ms`.
+    fn log_owner(&self, method: &str, spaces: Vec<String>, at_ms: u64) {
+        let (Some(log), Ok(did)) = (&self.access_log, self.node_did()) else {
+            return;
+        };
+        log.record(AccessEntry {
+            at_ms,
+            caller: Some(did),
+            method: method.to_string(),
+            spaces,
+            token_id: None,
+            outcome: Outcome::Allowed,
+            reason: None,
+        });
+    }
+
+    /// Put the setting up of this data center in Activity, once: when its
+    /// examples are added (the end of the first run), or, for one set up
+    /// before Activity said so, at the times its settings kept.
+    fn log_setup(&self, settings: &NodeSettings, backfill: bool) -> Result<(), ApiError> {
+        let Some(examples_at) = settings.examples_added_at_ms else {
+            return Ok(());
+        };
+        if settings.setup_logged || self.access_log.is_none() {
+            return Ok(());
+        }
+        // Set up before anything else it did: a key saved during the first
+        // run comes after.
+        let first = settings
+            .recovery_key_saved_at_ms
+            .map_or(examples_at, |key| key.min(examples_at));
+        self.log_owner(OWNER_SETUP, Vec::new(), first.saturating_sub(1));
+        self.log_owner(OWNER_EXAMPLES, settings.examples.clone(), examples_at);
+        if backfill {
+            if let Some(key) = settings.recovery_key_saved_at_ms {
+                self.log_owner(OWNER_KEY, Vec::new(), key);
+            }
+        }
+        self.update_settings(|settings| settings.setup_logged = true)
     }
 
     // ----- Spaces -----
@@ -394,6 +560,20 @@ impl Api {
                     .map(|l| format_name(&l.format))
                     .unwrap_or("unknown");
                 let storage = location.and_then(|l| l.storage).map(|b| b.storage);
+                // A remote Space: whose it is, and until when it is shared.
+                let from_did = (space.kind == oikome_core::SpaceKind::Remote)
+                    .then(|| space.uri.as_ref().map(|u| u.owner_did.clone()))
+                    .flatten();
+                let from_name = from_did
+                    .as_deref()
+                    .and_then(|did| self.catalog.get_contact(did))
+                    .map(|c| c.name);
+                let expires_at = from_did
+                    .is_some()
+                    .then(|| self.catalog.remote_token(&space.name).ok())
+                    .flatten()
+                    .and_then(|t| oikome_identity::Ucan::decode(t.expose()).ok())
+                    .map(|u| u.payload().exp);
                 SpaceSummary {
                     kind: match space.kind {
                         oikome_core::SpaceKind::Analytical => SpaceKind::Analytical,
@@ -406,6 +586,9 @@ impl Api {
                     shared_with: shared.get(&space.name).map_or(0, |d| d.len() as u32),
                     storage,
                     example: examples.contains(&space.name),
+                    from_did,
+                    from_name,
+                    expires_at,
                     name: space.name,
                 }
             })
@@ -472,54 +655,96 @@ impl Api {
                 session.revoke_token(&share.id)?;
             }
         }
+        // Its source stops with it; the files it read stay.
+        if self.catalog.get_source(&req.space).is_ok() {
+            session.remove_source(&req.space)?;
+        }
         session.drop_space(&req.space).await?;
-        let mut settings = self.settings()?;
-        if settings.examples.contains(&req.space) {
-            settings.examples.retain(|name| name != &req.space);
-            self.save_settings(&settings)?;
+        if self.settings()?.examples.contains(&req.space) {
+            self.update_settings(|settings| settings.examples.retain(|name| name != &req.space))?;
         }
         Ok(Empty {})
     }
 
+    /// Where the examples' files go: `Examples` in the folder new
+    /// collections go to when the owner picked one on this computer, or in
+    /// the data folder.
+    fn examples_folder(&self, settings: &NodeSettings) -> std::path::PathBuf {
+        let picked = settings
+            .default_storage
+            .as_deref()
+            .and_then(|name| self.catalog.get_storage(name).ok())
+            .and_then(|def| match def.kind {
+                StorageKind::Folder { path } => Some(std::path::PathBuf::from(path)),
+                _ => None,
+            });
+        picked
+            .unwrap_or_else(|| std::path::PathBuf::from(self.catalog.root_path()))
+            .join("Examples")
+    }
+
     /// Add the examples a new data center starts with (one weekend in
     /// Lisbon as photos, notes and spending; a guide; a reading list; a
-    /// home's temperatures), once. A name already taken is left alone.
-    /// Returns the examples there now.
+    /// home's temperatures), once: their files go into `Examples` where the
+    /// owner keeps their data (a folder they picked, or the data folder),
+    /// and each folder becomes the source of its collection. A name already
+    /// taken is left alone, and so is a file already there. Returns the
+    /// examples there now.
     pub async fn add_examples(
         &self,
         caller: &Caller,
         _: Empty,
     ) -> Result<Vec<SpaceSummary>, ApiError> {
         caller.require_owner()?;
-        let mut settings = self.settings()?;
+        let settings = self.settings()?;
         if settings.examples_added_at_ms.is_none() {
+            let mut added = Vec::new();
             self.refresh()?;
             let session = self.session(None);
+            let folder = self.examples_folder(&settings);
             for example in examples::examples() {
                 if self.catalog.get_space(example.name).is_ok()
                     || self.catalog.get_location(example.name).is_ok()
+                    || self.catalog.get_source(example.name).is_ok()
                 {
                     continue;
                 }
-                session
-                    .create_space(CreateSpaceRequest {
-                        name: example.name.to_string(),
-                        kind: Some(oikome_core::SpaceKind::Analytical),
-                        storage: settings.default_storage.clone(),
-                        ..Default::default()
-                    })
-                    .await?;
-                for statement in &example.statements {
-                    if let Err(e) = session.sql(statement).await {
-                        // Leave no half-filled example behind.
-                        let _ = session.drop_space(example.name).await;
-                        return Err(e.into());
+                let dir = folder.join(example.name);
+                std::fs::create_dir_all(&dir).map_err(ApiError::internal)?;
+                for (i, (file, bytes)) in (0u64..).zip(&example.files) {
+                    let path = dir.join(file);
+                    if path.exists() {
+                        continue;
+                    }
+                    std::fs::write(&path, bytes).map_err(ApiError::internal)?;
+                    if let Some(at) = example.modified {
+                        let at =
+                            std::time::UNIX_EPOCH + std::time::Duration::from_secs(at + 60 * i);
+                        std::fs::File::options()
+                            .write(true)
+                            .open(&path)
+                            .and_then(|f| f.set_modified(at))
+                            .map_err(ApiError::internal)?;
                     }
                 }
-                settings.examples.push(example.name.to_string());
+                let place = dir.to_string_lossy().into_owned();
+                let config = match example.feed {
+                    examples::Feed::Photos => SourceConfig::PhotosFolder { path: place },
+                    examples::Feed::Notes => SourceConfig::NotesFolder { path: place },
+                    examples::Feed::Csv { file, table } => {
+                        sources::csv_config(&dir.join(file), table).await?
+                    }
+                };
+                session
+                    .add_source(example.name, config, Some(sources::EVERY), None)
+                    .await?;
+                added.push(example.name.to_string());
             }
-            settings.examples_added_at_ms = Some(now_ms());
-            self.save_settings(&settings)?;
+            self.update_settings(|settings| {
+                settings.examples.extend(added);
+                settings.examples_added_at_ms = Some(now_ms());
+            })?;
+            self.log_setup(&self.settings()?, false)?;
         }
         Ok(self
             .list_spaces(caller, Empty {})
@@ -661,14 +886,14 @@ impl Api {
                 oikome_node::SessionError::Store { .. } => ApiError::invalid(e.to_string()),
                 other => other.into(),
             })?;
-        let mut settings = self.settings()?;
-        settings
-            .storage_labels
-            .insert(name.clone(), label.to_string());
-        if req.make_default.unwrap_or(false) {
-            settings.default_storage = Some(name.clone());
-        }
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| {
+            settings
+                .storage_labels
+                .insert(name.clone(), label.to_string());
+            if req.make_default.unwrap_or(false) {
+                settings.default_storage = Some(name.clone());
+            }
+        })?;
         self.list_storages(caller, Empty {})
             .await?
             .into_iter()
@@ -688,9 +913,7 @@ impl Api {
         if let Some(name) = &req.storage {
             self.catalog.get_storage(name)?;
         }
-        let mut settings = self.settings()?;
-        settings.default_storage = req.storage;
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| settings.default_storage = req.storage)?;
         self.list_storages(caller, Empty {}).await
     }
 
@@ -722,12 +945,12 @@ impl Api {
             ));
         }
         self.session(None).remove_storage(&req.storage)?;
-        let mut settings = self.settings()?;
-        settings.storage_labels.remove(&req.storage);
-        if settings.default_storage.as_deref() == Some(req.storage.as_str()) {
-            settings.default_storage = None;
-        }
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| {
+            settings.storage_labels.remove(&req.storage);
+            if settings.default_storage.as_deref() == Some(req.storage.as_str()) {
+                settings.default_storage = None;
+            }
+        })?;
         self.list_storages(caller, Empty {}).await
     }
 
@@ -953,12 +1176,15 @@ impl Api {
                 revoked_shares += 1;
             }
         }
+        // Lending stops for them too.
+        self.stop_lending_to(&req.did)?;
         for grant in self.catalog.list_space_grants() {
             if grant.principal == req.did {
                 session.revoke_space(&grant.space, std::slice::from_ref(&req.did))?;
             }
         }
         let contact = self.catalog.remove_contact(&req.did)?;
+        self.remember_name(&contact.did, &contact.name);
         Ok(RemovedContact {
             contact: contact_of(contact),
             revoked_shares,
@@ -1084,6 +1310,12 @@ impl Api {
                 ShareAccess::Query
             },
             expires_at: issued.expires_at,
+            invite: invites::invite_code(
+                &issued.token,
+                self.flight_url.as_deref(),
+                &self.settings()?.name,
+                None,
+            ),
             token: issued.token,
         })
     }
@@ -1137,6 +1369,16 @@ impl Api {
 
     // ----- Access log -----
 
+    /// Keep the name of a caller that is no longer a contact or a plugin
+    /// here, so its lines in Activity still say who it was.
+    fn remember_name(&self, did: &str, name: &str) {
+        if let Some(log) = &self.access_log {
+            if let Err(e) = log.remember_name(did, name) {
+                tracing::warn!(error = %e, "could not keep a name for the access log");
+            }
+        }
+    }
+
     /// Requests peers and browsers sent this node, newest first.
     pub async fn list_access(
         &self,
@@ -1156,32 +1398,62 @@ impl Api {
             caller: req.did,
             space: req.space,
         };
-        let records = tokio::task::spawn_blocking(move || log.list(&query))
-            .await
-            .map_err(ApiError::internal)??;
-        let names: BTreeMap<String, String> = self
-            .catalog
-            .list_contacts()
+        let (records, gone) = tokio::task::spawn_blocking(move || {
+            Ok::<_, AccessLogError>((log.list(&query)?, log.names()?))
+        })
+        .await
+        .map_err(ApiError::internal)??;
+        let own = self.node_did()?;
+        let plugins: BTreeMap<String, String> = self.plugin_names().into_iter().collect();
+        // People by the name the owner knows them by: a contact's, else the
+        // one they gave in an invite or with a computer they lend.
+        let mut people: BTreeMap<String, String> = self
+            .invite_names()
             .into_iter()
-            .map(|c| (c.did, c.name))
+            .chain(self.lender_names())
             .collect();
+        people.extend(
+            self.catalog
+                .list_contacts()
+                .into_iter()
+                .map(|c| (c.did, c.name)),
+        );
         Ok(records
             .into_iter()
-            .map(|r| AccessItem {
-                contact_name: r.caller.as_ref().and_then(|d| names.get(d).cloned()),
-                id: r.id,
-                at_ms: r.at_ms,
-                did: r.caller,
-                method: r.method,
-                spaces: r.spaces,
-                share_id: r.token_id,
-                outcome: match r.outcome {
-                    Outcome::Allowed => AccessOutcome::Allowed,
-                    Outcome::Denied => AccessOutcome::Denied,
-                    Outcome::Failed => AccessOutcome::Failed,
-                },
-                reason: r.reason,
-                count: r.count,
+            .map(|r| {
+                // Someone removed since keeps the name they had.
+                let named = |known: &BTreeMap<String, String>, did: &str| {
+                    known.get(did).or_else(|| gone.get(did)).cloned()
+                };
+                let (who, name) = match r.caller.as_deref() {
+                    _ if r.method.starts_with("owner_") => (AccessWho::You, None),
+                    Some(did) if did == own => (AccessWho::You, None),
+                    Some(did) if r.method == plugins::READ_METHOD => {
+                        (AccessWho::Plugin, named(&plugins, did))
+                    }
+                    Some(did) => match named(&people, did) {
+                        Some(name) => (AccessWho::Person, Some(name)),
+                        None => (AccessWho::Unknown, None),
+                    },
+                    None => (AccessWho::Unknown, None),
+                };
+                AccessItem {
+                    who,
+                    name,
+                    id: r.id,
+                    at_ms: r.at_ms,
+                    did: r.caller,
+                    method: r.method,
+                    spaces: r.spaces,
+                    share_id: r.token_id,
+                    outcome: match r.outcome {
+                        Outcome::Allowed => AccessOutcome::Allowed,
+                        Outcome::Denied => AccessOutcome::Denied,
+                        Outcome::Failed => AccessOutcome::Failed,
+                    },
+                    reason: r.reason,
+                    count: r.count,
+                }
             })
             .collect())
     }

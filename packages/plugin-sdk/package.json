@@ -1,0 +1,8 @@
+{
+  "name": "@oikome/plugin-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "The bridge between an Oikome dashboard plugin and the app: data in, theme in, open a collection out",
+  "files": ["sdk.js", "README.md"]
+}

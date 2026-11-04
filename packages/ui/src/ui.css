@@ -86,6 +86,7 @@
   border-color: var(--signal);
 }
 [data-theme="bold"] .oik-button {
+  padding: 0 14px;
   box-shadow: var(--sh-s);
 }
 [data-theme="bold"] .oik-button:hover:not(:disabled) {
@@ -213,19 +214,20 @@
 /* ----- Cards of rows: a titled card with a head, rows in it ----- */
 
 .oik-group {
-  margin: 0 0 var(--space-6);
+  margin: 0 0 var(--space-4);
   border: var(--bw) solid var(--line);
   border-radius: var(--r-card);
   background: var(--raised);
   box-shadow: var(--sh-m);
 }
+/* A card's head: its label, and an action at the right. Its height is its
+   content's: 14 px above and below, as the prototype's. */
 .oik-group__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: 46px;
-  padding: var(--space-2) var(--space-4);
+  padding: 14px var(--space-4);
   border-bottom: var(--bw) solid var(--line2);
 }
 .oik-group__title {
@@ -258,9 +260,12 @@
 .oik-group__panel > :last-child {
   margin-bottom: 0;
 }
+/* A note about a card, inside it at the foot, so cards side by side keep
+   their edges in line. */
 .oik-group__footnote {
-  margin: calc(-1 * var(--space-6) + var(--space-2)) 0 var(--space-6);
-  padding: 0 2px;
+  margin: 0;
+  padding: 10px var(--space-4) 12px;
+  border-top: 1px solid var(--line2);
   font: var(--text-small);
   color: var(--ink3);
 }
@@ -281,8 +286,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 52px;
-  padding: var(--space-2) var(--space-4);
+  padding: 11px var(--space-4);
   box-sizing: border-box;
   color: inherit;
   text-decoration: none;
@@ -360,14 +364,18 @@
 }
 /* A row's More menu stays quiet until it is pointed at, in both styles. */
 .oik-row__trailing .oik-menu > .oik-icon-button--filled,
-[data-theme="bold"] .oik-row__trailing .oik-menu > .oik-icon-button--filled {
+[data-theme="bold"] .oik-row__trailing .oik-menu > .oik-icon-button--filled,
+.oik-table .oik-menu > .oik-icon-button--filled,
+[data-theme="bold"] .oik-table .oik-menu > .oik-icon-button--filled {
   border-color: transparent;
   background: none;
   box-shadow: none;
   transform: none;
 }
 .oik-row__trailing .oik-menu > .oik-icon-button--filled:hover:not(:disabled),
-.oik-row__trailing .oik-menu > .oik-icon-button--filled[aria-expanded="true"] {
+.oik-row__trailing .oik-menu > .oik-icon-button--filled[aria-expanded="true"],
+.oik-table .oik-menu > .oik-icon-button--filled:hover:not(:disabled),
+.oik-table .oik-menu > .oik-icon-button--filled[aria-expanded="true"] {
   background: var(--hover);
 }
 .oik-row__chevron {
@@ -459,23 +467,16 @@
   display: inline-grid;
   flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: var(--bw) solid var(--line);
   border-radius: 50%;
   background: var(--raised);
   color: var(--ink);
-  font: 600 12px/1 var(--font);
+  font: 600 11px/1 var(--font);
 }
-/* You: drawn like everyone else in Ink (the prototype's outlined initials); pink in Bold. */
-.oik-avatar--you {
-  border-color: var(--ink);
-}
-.oik-avatar--sm {
-  width: 22px;
-  height: 22px;
-  font-size: 10px;
-}
+/* One size everywhere, as the prototype's: in a table, a stack or a list.
+   You are drawn like everyone else in Ink, pink in Bold. */
 [data-theme="bold"] .oik-avatar { font-weight: 700; }
 [data-theme="bold"] .oik-avatar--you { background: #ff3d81; color: #111; border-color: #111; }
 [data-theme="bold"] .oik-avatar--orchid { background: #c8a2ff; }
@@ -500,13 +501,12 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-weight: 500;
   white-space: nowrap;
 }
 .oik-status > i {
   flex: none;
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
 }
 .oik-status--ok > i { background: var(--ink); }
@@ -547,10 +547,73 @@
     transform: rotate(360deg);
   }
 }
+/* A button whose work is running turns its glyph, and stays legible. */
+.oik-is-spinning .oik-icon {
+  animation: oik-spin 900ms linear infinite;
+}
+.oik-is-spinning:disabled {
+  opacity: 1;
+}
 @keyframes oik-beat {
   50% {
     transform: scale(0.6);
   }
+}
+
+/* An on/off switch: the prototype's toggle, its knob sliding over 200 ms */
+.oik-switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background-color 200ms var(--ease);
+}
+.oik-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 19, 16, 0.2);
+  transition: transform 200ms var(--ease);
+}
+.oik-switch--on {
+  background: var(--ink);
+}
+.oik-switch--on::after {
+  transform: translateX(14px);
+}
+.oik-switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+[data-theme="bold"] .oik-switch {
+  width: 40px;
+  height: 24px;
+  border: 2px solid #111;
+  background: #fff;
+}
+[data-theme="bold"] .oik-switch::after {
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #111;
+  box-shadow: none;
+}
+[data-theme="bold"] .oik-switch--on {
+  background: #3ddc97;
+}
+[data-theme="bold"] .oik-switch--on::after {
+  transform: translateX(16px);
 }
 
 /* A few options side by side */
@@ -743,14 +806,38 @@
   gap: var(--space-2);
   cursor: pointer;
 }
+/* The prototype's box: a 1.5 px outline, ink with a light tick when on;
+   in Bold a 2 px outline, green with a black tick. */
 .oik-checkbox input {
+  appearance: none;
+  flex: none;
+  display: grid;
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--ink);
+  border: 1.5px solid var(--ink2);
+  border-radius: 4px;
+  background: var(--raised) center / 14px no-repeat;
+  cursor: pointer;
+  transition: background-color 150ms var(--ease), border-color 150ms var(--ease);
+}
+.oik-checkbox input:checked {
+  border-color: var(--ink);
+  background-color: var(--ink);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-5' fill='none' stroke='%23fcfcfb' stroke-width='2'/%3E%3C/svg%3E");
+}
+.oik-checkbox input:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 [data-theme="bold"] .oik-checkbox input {
-  accent-color: #ff3d81;
+  border: 2px solid #111;
+  border-radius: 6px;
+}
+[data-theme="bold"] .oik-checkbox input:checked {
+  border-color: #111;
+  background-color: #3ddc97;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.2 8.2l2.4 2.4 5-5.2' fill='none' stroke='%23111' stroke-width='2.2'/%3E%3C/svg%3E");
 }
 
 /* ----- Choices as cards ----- */
@@ -767,6 +854,10 @@
 .oik-choices > legend {
   margin-bottom: 6px;
   padding: 0;
+}
+/* A choice's icon sits in a tile, as in the prototype. */
+.oik-choice__tile {
+  flex: none;
 }
 .oik-choice {
   display: flex;
@@ -943,28 +1034,38 @@
   position: relative;
 }
 .oik-menu__list {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  min-width: 200px;
+  /* A popover, placed under (or over) its button by the component. */
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  min-width: 210px;
   margin: 0;
-  padding: var(--space-1);
+  overflow: visible;
+  color: var(--ink);
+  padding: 6px;
   list-style: none;
   border: var(--bw) solid var(--line);
-  border-radius: var(--r-btn);
+  border-radius: var(--r-card);
   background: var(--raised);
-  box-shadow: var(--sh-pop);
+  box-shadow: 0 12px 32px rgba(20, 19, 16, 0.12);
   animation: oik-drop 140ms var(--ease) both;
+}
+.oik-menu__list[data-side="above"] {
+  animation-name: oik-rise;
+}
+[data-theme="bold"] .oik-menu__list {
+  border-radius: 14px;
+  box-shadow: var(--sh-m);
 }
 .oik-menu__item {
   display: flex;
   align-items: center;
   width: 100%;
   height: 34px;
-  padding: 0 var(--space-3);
+  padding: 0 10px;
   border: 0;
-  border-radius: calc(var(--r-btn) - 2px);
+  border-radius: var(--r-btn);
   background: none;
   color: var(--ink);
   font: var(--text);
@@ -984,6 +1085,12 @@
   from {
     opacity: 0;
     transform: translateY(-4px);
+  }
+}
+@keyframes oik-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }
 
@@ -1011,14 +1118,19 @@
   text-align: left;
   white-space: nowrap;
 }
+/* Rows 46 px high, as the prototype's, padding included; a cell that wraps
+   grows, 6 px from its edges. */
 .oik-table td {
+  box-sizing: border-box;
   max-width: 40ch;
-  padding: 12px 16px;
+  height: 46px;
+  padding: 6px 16px;
   border-top: 1px solid var(--line2);
-  vertical-align: top;
+  vertical-align: middle;
   overflow-wrap: anywhere;
 }
 [data-theme="bold"] .oik-table td {
+  height: 50px;
   border-top: 2px solid #111;
 }
 .oik-table tbody tr:first-child td {
@@ -1032,8 +1144,11 @@
 }
 /* Numbers and dates: mono figures; numbers line up on the right */
 .oik-table .oik-num {
-  font: var(--text-data);
   text-align: right;
+}
+/* Figures in a row: the row's own size, in the mono face (the prototype's 14/20). */
+.oik-table td.oik-num {
+  font-family: var(--mono);
 }
 .oik-table__null {
   color: var(--ink3);
@@ -1053,6 +1168,9 @@
   background: var(--raised);
   color: var(--ink);
   box-shadow: var(--sh-pop);
+  /* Opened from a table's cell, it doesn't take the cell's text settings. */
+  white-space: normal;
+  text-align: start;
 }
 .oik-dialog::backdrop {
   background: var(--scrim);
@@ -1082,7 +1200,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
+  padding: 18px var(--space-5);
   border-bottom: var(--bw) solid var(--line2);
 }
 [data-theme="bold"] .oik-dialog__head {
@@ -1094,8 +1212,16 @@
   text-transform: var(--heading-case);
   overflow-wrap: anywhere;
 }
+/* What a dialog holds, 18 px apart, whatever it is: the gap sets the
+   rhythm, not each part's margins. */
 .oik-dialog__body {
+  display: grid;
+  gap: 18px;
   padding: var(--space-5);
+}
+.oik-dialog__body > * {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 .oik-dialog__body form > :last-child {
   margin-bottom: 0;
@@ -1108,7 +1234,7 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-5) var(--space-4);
+  padding: 14px var(--space-5);
   border-top: var(--bw) solid var(--line2);
 }
 [data-theme="bold"] .oik-dialog__actions {
@@ -1166,11 +1292,13 @@
   background: var(--ink);
   color: var(--raised);
   font: var(--text);
+  font-weight: 500;
   animation: oik-rise 220ms var(--ease) both;
 }
 [data-theme="bold"] .oik-toast {
+  border-color: #111;
   border-radius: 999px;
-  background: #ffd23f;
+  background: #3ddc97;
   color: #111;
   box-shadow: var(--sh-s);
   font-weight: 700;

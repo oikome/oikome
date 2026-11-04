@@ -4,7 +4,7 @@
 // First run: name the data center, save the recovery key, done.
 
 import { useState } from "react";
-import { Button, Card, ErrorText, Icon, StepDots, TextField } from "@oikome/ui";
+import { Button, Card, ErrorText, Icon, TextField } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
@@ -34,18 +34,21 @@ export function Onboarding({
 }) {
   const client = useClient();
   const [step, setStep] = useState(info.name ? 2 : 1);
-  // A name is filled in: a lazy Continue is a fine answer.
-  const [name, setName] = useState(info.name || strings.defaultName);
+  const s = strings.onboarding;
+  // A name is filled in, the owner's own when the computer knows it: a lazy
+  // Continue is a fine answer.
+  // Only a first name that reads as one ("Rosh"), not an account name ("z.jin").
+  const first = info.ownerName.trim().split(/\s+/)[0] ?? "";
+  const suggested = /^\p{Lu}[\p{L}'’-]*$/u.test(first) ? s.namedAfter(first) : strings.defaultName;
+  const [name, setName] = useState(info.name || suggested);
   const [restoreHelp, setRestoreHelp] = useState(false);
   const save = useAction();
-  const s = strings.onboarding;
   // Where collections are kept: this computer unless the owner picks another place.
   const storage = useStoragePicker({ withThisComputer: true });
 
   return (
     <main className="screen-onboarding">
       <Card className="screen-onboarding__card">
-        <StepDots step={step} total={STEPS} label={s.stepOf(step, STEPS)} />
         {step === 1 && (
           <form
             className="screen-form"
@@ -84,21 +87,21 @@ export function Onboarding({
               name="node-name"
               value={name}
               onChange={setName}
-              placeholder={strings.defaultName}
+              placeholder={suggested}
               selectOnFocus
               autoFocus
             />
             {storage.picker}
-            <p className="screen-help">{strings.storage.later}</p>
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" large disabled={save.busy}>
                 {save.busy ? strings.storage.connecting : s.continue}
               </Button>
-              <Button variant="text" onClick={() => setRestoreHelp((v) => !v)}>
-                {s.restoreLink}
-              </Button>
             </div>
+            <p className="screen-onboarding__step">{s.stepNext(1, STEPS, s.nextKey)}</p>
+            <button type="button" className="screen-onboarding__restore" onClick={() => setRestoreHelp((v) => !v)}>
+              {s.restoreLink}
+            </button>
             {restoreHelp && <p className="screen-muted screen-result">{s.restoreHelp}</p>}
           </form>
         )}
@@ -115,6 +118,7 @@ export function Onboarding({
               }}
               onLater={() => setStep(3)}
             />
+            <p className="screen-onboarding__step">{s.stepNext(2, STEPS, s.nextSet)}</p>
           </>
         )}
         {step === 3 && (
@@ -127,6 +131,7 @@ export function Onboarding({
                 {s.goToCollections}
               </Button>
             </div>
+            <p className="screen-onboarding__step">{s.stepOf(3, STEPS)}</p>
           </>
         )}
       </Card>

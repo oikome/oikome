@@ -37,23 +37,39 @@ pub struct SourceDef {
     /// on demand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub every_secs: Option<u64>,
+    /// Paused by the owner: not pulled on its schedule (it still is when
+    /// asked).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
     pub created_at_ms: u64,
+    /// The last pull failed: when, and why (never with credentials). A
+    /// pull that succeeds clears it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<SourceFailure>,
 }
 
-/// Check a source name: a letter or `_`, then letters, digits or `_`; it
-/// also names the source's Space and environment variables.
+/// Why a source's last pull failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceFailure {
+    pub at_ms: u64,
+    pub message: String,
+}
+
+/// Check a source name: a letter or `_`, then letters, digits, `_` or `-`,
+/// like the name of the Space it writes. In environment variables a `-`
+/// reads `_`.
 pub fn validate_source_name(name: &str) -> Result<(), CatalogError> {
     let mut chars = name.chars();
     let ok = name.len() <= 64
         && chars
             .next()
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if ok {
         Ok(())
     } else {
         Err(CatalogError::InvalidProperty(format!(
-            "source name '{name}': use a letter or '_', then letters, digits or '_'"
+            "source name '{name}': use a letter or '_', then letters, digits, '_' or '-'"
         )))
     }
 }
@@ -71,7 +87,9 @@ impl OikomeCatalog {
             name: name.to_string(),
             config,
             every_secs,
+            paused: false,
             created_at_ms: now_ms(),
+            failure: None,
         };
         self.mutate_registry(|reg| {
             if reg.sources.contains_key(name) {
@@ -96,6 +114,52 @@ impl OikomeCatalog {
         self.with_registry(|reg| reg.sources.values().cloned().collect())
     }
 
+    /// Keep why the source's last pull failed, or clear it (`None`) after one
+    /// that succeeded.
+    pub fn set_source_failure(
+        &self,
+        name: &str,
+        failure: Option<SourceFailure>,
+    ) -> Result<(), CatalogError> {
+        self.mutate_registry(|reg| {
+            let def = reg
+                .sources
+                .get_mut(name)
+                .ok_or_else(|| CatalogError::InvalidProperty(format!("no source '{name}'")))?;
+            def.failure = failure;
+            Ok(())
+        })
+    }
+
+    /// Pull the source `name` every this many seconds (at least a minute),
+    /// or (`None`) only when asked.
+    pub fn set_source_every(
+        &self,
+        name: &str,
+        every_secs: Option<u64>,
+    ) -> Result<(), CatalogError> {
+        self.mutate_registry(|reg| {
+            let def = reg
+                .sources
+                .get_mut(name)
+                .ok_or_else(|| CatalogError::InvalidProperty(format!("no source '{name}'")))?;
+            def.every_secs = every_secs.map(|s| s.max(60));
+            Ok(())
+        })
+    }
+
+    /// Pause the source `name`, or resume it.
+    pub fn set_source_paused(&self, name: &str, paused: bool) -> Result<(), CatalogError> {
+        self.mutate_registry(|reg| {
+            let def = reg
+                .sources
+                .get_mut(name)
+                .ok_or_else(|| CatalogError::InvalidProperty(format!("no source '{name}'")))?;
+            def.paused = paused;
+            Ok(())
+        })
+    }
+
     /// Unregister the source `name`; its Space and data stay.
     pub fn remove_source(&self, name: &str) -> Result<(), CatalogError> {
         self.mutate_registry(|reg| {
@@ -113,10 +177,10 @@ mod tests {
 
     #[test]
     fn source_names_are_identifiers() {
-        for good in ["flomo", "bank_2026", "_x"] {
+        for good in ["flomo", "bank_2026", "_x", "lisbon-photos"] {
             validate_source_name(good).unwrap();
         }
-        for bad in ["", "2x", "a-b", "a b", "a.b", &"a".repeat(65)] {
+        for bad in ["", "2x", "-a", "a b", "a.b", &"a".repeat(65)] {
             assert!(validate_source_name(bad).is_err(), "{bad}");
         }
     }

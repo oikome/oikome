@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import {
   Button,
   ChoiceList,
+  ConfirmDialog,
   Dialog,
   ErrorText,
   Icon,
@@ -54,14 +55,33 @@ export function placeName(place: string): string {
 }
 
 /** How a source is doing, in one word and a glyph. */
-export function statusOf(source: SourceSummary): { kind: "ok" | "bad" | "idle"; label: string } {
+export function statusOf(source: SourceSummary): { kind: "ok" | "bad" | "idle" | "off"; label: string } {
+  if (source.paused) return { kind: "off", label: s.paused };
   if (source.failedAtMs != null) return { kind: "bad", label: s.failed };
   if (source.pulledAtMs == null) return { kind: "idle", label: s.waiting };
   return { kind: "ok", label: s.upToDate };
 }
 
+/** When it was last read (or failed). */
+export function lastText(source: SourceSummary): string {
+  if (source.failedAtMs != null && !source.paused) return s.failedAgo(since(source.failedAtMs));
+  return source.pulledAtMs != null ? since(source.pulledAtMs) : "—";
+}
+
+/** When it is read next. */
+export function nextText(source: SourceSummary, now = Date.now()): string {
+  if (source.paused) return s.pausedNext;
+  if (!source.everySecs) return s.whenAsked;
+  const next =
+    source.pulledAtMs != null
+      ? Math.max(0, Math.round((source.pulledAtMs + source.everySecs * 1000 - now) / 60_000))
+      : 0;
+  if (next === 0) return s.nextSoon;
+  return next < 120 ? s.nextIn(next) : s.nextInHours(Math.round(next / 60));
+}
+
 /** What the source's collection holds, from its cover's first read. */
-function Holds({ space }: { space?: SpaceSummary }) {
+export function Holds({ space }: { space?: SpaceSummary }) {
   const client = useClient();
   const preview = useLoad(async () => (space ? loadPreview(client, space) : undefined), [space?.name]);
   return <>{countOf(preview.data) ?? "—"}</>;
@@ -79,23 +99,30 @@ function Row({
   const client = useClient();
   const toast = useToast();
   const sync = useAction();
+  const remove = useAction();
+  const [removing, setRemoving] = useState(false);
   const status = statusOf(source);
   const failed = status.kind === "bad";
-  const next =
-    source.everySecs && source.pulledAtMs
-      ? Math.max(0, Math.round((source.pulledAtMs + source.everySecs * 1000 - Date.now()) / 60_000))
-      : undefined;
+  const details = `/sources/${encodeURIComponent(source.name)}`;
   return (
-    <tr className={failed ? "screen-source is-failed" : "screen-source"}>
+    <tr
+      className={failed ? "screen-source is-failed" : "screen-source"}
+      onClick={(e) => {
+        // The row opens its details; its own links and buttons do their part.
+        if (!(e.target as Element).closest("a, button, dialog")) navigate(details);
+      }}
+    >
       <td>
         <span className="screen-source__what">
           <span className="oik-tile">
             <Icon name={SOURCE_ICONS[source.kind]} />
           </span>
           <span className="screen-source__text">
-            <span className="screen-source__name" translate="no" title={source.place}>
-              {placeName(source.place)}
-            </span>
+            <Link to={details} className="screen-source__name">
+              <span translate="no" title={source.place}>
+                {placeName(source.place)}
+              </span>
+            </Link>
             <span className="screen-source__meta">
               {s.kinds[source.kind]} → <Link to={`/collections/${encodeURIComponent(source.name)}`}>{source.name}</Link>
             </span>
@@ -107,16 +134,8 @@ function Row({
         <Status kind={status.kind}>{status.label}</Status>
       </td>
       <td className="screen-cell-mono screen-source__when">
-        <span>
-          {failed && source.failedAtMs != null
-            ? s.failedAgo(since(source.failedAtMs))
-            : source.pulledAtMs != null
-              ? since(source.pulledAtMs)
-              : "—"}
-        </span>
-        <span className="screen-source__next">
-          {source.everySecs ? (next === undefined || next === 0 ? s.nextSoon : s.nextIn(next)) : s.whenAsked}
-        </span>
+        <span>{lastText(source)}</span>
+        <span className="screen-source__next">{nextText(source)}</span>
       </td>
       <td className="screen-cell-mono">
         <Holds space={space} />
@@ -137,6 +156,7 @@ function Row({
         <Menu
           label={strings.common.moreActions(placeName(source.place))}
           items={[
+            { label: s.openDetails, onSelect: () => navigate(details) },
             {
               label: s.showFiles,
               onSelect: async () => {
@@ -145,19 +165,43 @@ function Row({
             },
             { label: s.openCollection, onSelect: () => navigate(`/collections/${encodeURIComponent(source.name)}`) },
             {
-              label: s.stop,
-              destructive: true,
+              label: source.paused ? s.resume : s.pause,
               onSelect: async () => {
-                const done = await sync.run(() => client.removeSource({ source: source.name }));
+                const done = await sync.run(() =>
+                  client.pauseSource({ source: source.name, paused: !source.paused }),
+                );
                 if (done) {
-                  toast(s.stopped(placeName(source.place)));
+                  toast(done.paused ? s.pausedToast(placeName(source.place)) : s.resumed(placeName(source.place)));
                   onChange();
                 }
               },
             },
+            { label: s.remove, destructive: true, onSelect: () => setRemoving(true) },
           ]}
         />
         {sync.error && <span className="oik-visually-hidden" role="alert">{sync.error}</span>}
+        {removing && (
+          <ConfirmDialog
+            title={s.removeTitle(placeName(source.place))}
+            body={s.removeBody(source.name, placeName(source.place))}
+            confirmLabel={s.removeYes}
+            cancelLabel={strings.common.cancel}
+            busy={remove.busy}
+            error={remove.error}
+            onConfirm={async () => {
+              const done = await remove.run(() => client.removeSource({ source: source.name }));
+              if (done) {
+                setRemoving(false);
+                toast(s.removed(placeName(source.place)));
+                onChange();
+              }
+            }}
+            onCancel={() => {
+              setRemoving(false);
+              remove.clear();
+            }}
+          />
+        )}
       </td>
     </tr>
   );
@@ -275,7 +319,8 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   const list = [...(sources.data ?? [])].sort((a, b) =>
     placeName(a.place).localeCompare(placeName(b.place), "en", { sensitivity: "base" }),
   );
-  const failing = list.filter((x) => x.failedAtMs != null).length;
+  const paused = list.filter((x) => x.paused).length;
+  const failing = list.filter((x) => !x.paused && x.failedAtMs != null).length;
   const reload = () => {
     sources.reload();
     spaces.reload();
@@ -283,7 +328,7 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
 
   return (
     <>
-      <ScreenHeader title={s.title} lede={sources.data ? s.lede(list.length, failing) : s.ledeShort}>
+      <ScreenHeader title={s.title} lede={sources.data ? s.lede(list.length, failing, paused) : s.ledeShort}>
         <Button variant="primary" icon="plus" onClick={() => setAdding("photos")}>
           {s.addTitle}
         </Button>

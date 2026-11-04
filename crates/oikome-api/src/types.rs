@@ -254,6 +254,8 @@ pub struct SourceSummary {
     /// Read again every this many seconds while the node runs; `None` only
     /// when asked.
     pub every_secs: Option<u64>,
+    /// Paused by the owner: not read on its schedule.
+    pub paused: bool,
     /// When it was last read.
     pub pulled_at_ms: Option<u64>,
     /// The last read failed: when, and why.
@@ -268,6 +270,39 @@ pub struct SourceSummary {
 pub struct NewSource {
     pub kind: SourceKind,
     pub path: String,
+}
+
+/// `set_source_every`: how often a source is read: every this many seconds
+/// (a minute, 5 or 30 minutes, an hour or a day), or only when asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSourceEvery {
+    pub source: String,
+    pub every_secs: Option<u64>,
+}
+
+/// One of a source's recent syncs (kept 30 days), or several alike in a
+/// row (nothing new, or the same failure), kept as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRun {
+    /// When the first and the last of them ran.
+    pub first_ms: u64,
+    pub at_ms: u64,
+    /// Why it failed; `null` when it went through.
+    pub failure: Option<String>,
+    /// Rows added or changed, and removed.
+    pub upserted: u64,
+    pub deleted: u64,
+    pub count: u64,
+}
+
+/// `pause_source`: pause a source, or resume it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseSource {
+    pub source: String,
+    pub paused: bool,
 }
 
 /// A source, by name: `pull_source`, `remove_source`, `show_source_files`.
@@ -820,6 +855,20 @@ pub enum AccessOutcome {
     Failed,
 }
 
+/// Who sent a request, as the owner knows them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AccessWho {
+    /// The owner, on this computer.
+    You,
+    /// Someone's data center this one knows by a name.
+    Person,
+    /// A plugin on Home, reading as itself.
+    Plugin,
+    /// A computer this one has no name for.
+    Unknown,
+}
+
 /// One request a peer or a browser sent this node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -828,7 +877,11 @@ pub struct AccessItem {
     pub at_ms: u64,
     /// The caller's DID; `null` when it could not be authenticated.
     pub did: Option<String>,
-    pub contact_name: Option<String>,
+    pub who: AccessWho,
+    /// Their name here: the contact's or the plugin's, the one they gave in
+    /// an invite or a computer they lend, or the one they had when removed.
+    /// `null` for the owner, and for a caller with no name here.
+    pub name: Option<String>,
     pub method: String,
     pub spaces: Vec<String>,
     /// The share (token id) that let it in.

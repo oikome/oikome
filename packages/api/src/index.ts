@@ -256,6 +256,10 @@ place: string,
  */
 everySecs: number | null, 
 /**
+ * Paused by the owner: not read on its schedule.
+ */
+paused: boolean, 
+/**
  * When it was last read.
  */
 pulledAtMs: number | null, 
@@ -269,6 +273,35 @@ failedAtMs: number | null, failure: string | null, };
  * this computer. The collection is named after it.
  */
 export type NewSource = { kind: SourceKind, path: string, };
+
+/**
+ * `pause_source`: pause a source, or resume it.
+ */
+export type PauseSource = { source: string, paused: boolean, };
+
+/**
+ * `set_source_every`: how often a source is read: every this many seconds
+ * (a minute, 5 or 30 minutes, an hour or a day), or only when asked.
+ */
+export type SetSourceEvery = { source: string, everySecs: number | null, };
+
+/**
+ * One of a source's recent syncs (kept 30 days), or several alike in a
+ * row (nothing new, or the same failure), kept as one.
+ */
+export type SourceRun = { 
+/**
+ * When the first and the last of them ran.
+ */
+firstMs: number, atMs: number, 
+/**
+ * Why it failed; `null` when it went through.
+ */
+failure: string | null, 
+/**
+ * Rows added or changed, and removed.
+ */
+upserted: number, deleted: number, count: number, };
 
 /**
  * A source, by name: `pull_source`, `remove_source`, `show_source_files`.
@@ -719,13 +752,24 @@ space?: string, };
 export type AccessOutcome = "allowed" | "denied" | "failed";
 
 /**
+ * Who sent a request, as the owner knows them.
+ */
+export type AccessWho = "you" | "person" | "plugin" | "unknown";
+
+/**
  * One request a peer or a browser sent this node.
  */
 export type AccessItem = { id: number, atMs: number, 
 /**
  * The caller's DID; `null` when it could not be authenticated.
  */
-did: string | null, contactName: string | null, method: string, spaces: Array<string>, 
+did: string | null, who: AccessWho, 
+/**
+ * Their name here: the contact's or the plugin's, the one they gave in
+ * an invite or a computer they lend, or the one they had when removed.
+ * `null` for the owner, and for a caller with no name here.
+ */
+name: string | null, method: string, spaces: Array<string>, 
 /**
  * The share (token id) that let it in.
  */

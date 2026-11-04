@@ -48,9 +48,9 @@ use base64::Engine;
 use oikome_api::{
     AcceptInvite, Api, ApiError, BorrowedRef, Caller, ContactInput, DefaultStorage, DidRef, Empty,
     ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
-    NewSource, NewSpace, NewStorage, NodeName, PluginCollections, PluginFolder, PluginRead,
-    PluginRef, ReadRows, Rows, RunSql, SetLending, ShareRef, ShareSpace, SourceRef, SpaceRef,
-    SqlResult, StorageRef, PLUGIN_SDK,
+    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
+    PluginRead, PluginRef, ReadRows, Rows, RunSql, SetLending, SetSourceEvery, ShareRef,
+    ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, PLUGIN_SDK,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -412,6 +412,9 @@ impl WebState {
             "list_sources" => json_op!(list_sources, Empty),
             "add_source" => json_op!(add_source, NewSource),
             "pull_source" => json_op!(pull_source, SourceRef),
+            "pause_source" => json_op!(pause_source, PauseSource),
+            "set_source_every" => json_op!(set_source_every, SetSourceEvery),
+            "list_source_runs" => json_op!(list_source_runs, SourceRef),
             "remove_source" => json_op!(remove_source, SourceRef),
             "show_source_files" => json_op!(show_source_files, SourceRef),
             "find_places" => json_op!(find_places, Empty),

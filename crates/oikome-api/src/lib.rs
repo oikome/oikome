@@ -51,8 +51,8 @@ use oikome_identity::{
     decode_recovery_key, encode_recovery_key, unix_now, Did, NodeIdentity, ENV_NODE_KEY,
 };
 use oikome_node::{
-    AccessEntry, AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult,
-    SessionConfig, StorageCredentials,
+    AccessEntry, AccessLog, AccessLogError, AccessQuery, EngineRegistry, OikomeSession, Outcome,
+    QueryResult, SessionConfig, StorageCredentials,
 };
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
@@ -111,6 +111,10 @@ struct NodeSettings {
     /// The setting up of this data center is in Activity.
     #[serde(default)]
     setup_logged: bool,
+    /// Collections whose source was removed, by the file or folder it read:
+    /// added again, it goes back into its collection.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    removed_sources: BTreeMap<String, String>,
 }
 
 /// The owner's own steps in Activity: setting up this data center, adding
@@ -1180,6 +1184,7 @@ impl Api {
             }
         }
         let contact = self.catalog.remove_contact(&req.did)?;
+        self.remember_name(&contact.did, &contact.name);
         Ok(RemovedContact {
             contact: contact_of(contact),
             revoked_shares,
@@ -1364,6 +1369,16 @@ impl Api {
 
     // ----- Access log -----
 
+    /// Keep the name of a caller that is no longer a contact or a plugin
+    /// here, so its lines in Activity still say who it was.
+    fn remember_name(&self, did: &str, name: &str) {
+        if let Some(log) = &self.access_log {
+            if let Err(e) = log.remember_name(did, name) {
+                tracing::warn!(error = %e, "could not keep a name for the access log");
+            }
+        }
+    }
+
     /// Requests peers and browsers sent this node, newest first.
     pub async fn list_access(
         &self,
@@ -1383,35 +1398,62 @@ impl Api {
             caller: req.did,
             space: req.space,
         };
-        let records = tokio::task::spawn_blocking(move || log.list(&query))
-            .await
-            .map_err(ApiError::internal)??;
-        // Contacts by their names, and plugins (which read as principals of
-        // their own) by theirs.
-        let names: BTreeMap<String, String> = self
-            .catalog
-            .list_contacts()
+        let (records, gone) = tokio::task::spawn_blocking(move || {
+            Ok::<_, AccessLogError>((log.list(&query)?, log.names()?))
+        })
+        .await
+        .map_err(ApiError::internal)??;
+        let own = self.node_did()?;
+        let plugins: BTreeMap<String, String> = self.plugin_names().into_iter().collect();
+        // People by the name the owner knows them by: a contact's, else the
+        // one they gave in an invite or with a computer they lend.
+        let mut people: BTreeMap<String, String> = self
+            .invite_names()
             .into_iter()
-            .map(|c| (c.did, c.name))
-            .chain(self.plugin_names())
+            .chain(self.lender_names())
             .collect();
+        people.extend(
+            self.catalog
+                .list_contacts()
+                .into_iter()
+                .map(|c| (c.did, c.name)),
+        );
         Ok(records
             .into_iter()
-            .map(|r| AccessItem {
-                contact_name: r.caller.as_ref().and_then(|d| names.get(d).cloned()),
-                id: r.id,
-                at_ms: r.at_ms,
-                did: r.caller,
-                method: r.method,
-                spaces: r.spaces,
-                share_id: r.token_id,
-                outcome: match r.outcome {
-                    Outcome::Allowed => AccessOutcome::Allowed,
-                    Outcome::Denied => AccessOutcome::Denied,
-                    Outcome::Failed => AccessOutcome::Failed,
-                },
-                reason: r.reason,
-                count: r.count,
+            .map(|r| {
+                // Someone removed since keeps the name they had.
+                let named = |known: &BTreeMap<String, String>, did: &str| {
+                    known.get(did).or_else(|| gone.get(did)).cloned()
+                };
+                let (who, name) = match r.caller.as_deref() {
+                    _ if r.method.starts_with("owner_") => (AccessWho::You, None),
+                    Some(did) if did == own => (AccessWho::You, None),
+                    Some(did) if r.method == plugins::READ_METHOD => {
+                        (AccessWho::Plugin, named(&plugins, did))
+                    }
+                    Some(did) => match named(&people, did) {
+                        Some(name) => (AccessWho::Person, Some(name)),
+                        None => (AccessWho::Unknown, None),
+                    },
+                    None => (AccessWho::Unknown, None),
+                };
+                AccessItem {
+                    who,
+                    name,
+                    id: r.id,
+                    at_ms: r.at_ms,
+                    did: r.caller,
+                    method: r.method,
+                    spaces: r.spaces,
+                    share_id: r.token_id,
+                    outcome: match r.outcome {
+                        Outcome::Allowed => AccessOutcome::Allowed,
+                        Outcome::Denied => AccessOutcome::Denied,
+                        Outcome::Failed => AccessOutcome::Failed,
+                    },
+                    reason: r.reason,
+                    count: r.count,
+                }
             })
             .collect())
     }

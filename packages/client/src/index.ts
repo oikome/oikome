@@ -54,7 +54,10 @@ import type {
   HomeCards,
   SourceSummary,
   NewSource,
+  PauseSource,
+  SetSourceEvery,
   SourceRef,
+  SourceRun,
   FoundPlace,
   FolderRef,
   FolderListing,
@@ -94,6 +97,9 @@ export interface NodeClient {
   listSources(): Promise<SourceSummary[]>;
   addSource(request: NewSource): Promise<SourceSummary>;
   pullSource(request: SourceRef): Promise<SourceSummary>;
+  pauseSource(request: PauseSource): Promise<SourceSummary>;
+  setSourceEvery(request: SetSourceEvery): Promise<SourceSummary>;
+  listSourceRuns(request: SourceRef): Promise<SourceRun[]>;
   removeSource(request: SourceRef): Promise<SourceSummary[]>;
   showSourceFiles(request: SourceRef): Promise<Empty>;
   findPlaces(): Promise<FoundPlace[]>;
@@ -264,6 +270,18 @@ export class HttpClient implements NodeClient {
 
   pullSource(request: SourceRef): Promise<SourceSummary> {
     return this.#json("pull_source", request);
+  }
+
+  pauseSource(request: PauseSource): Promise<SourceSummary> {
+    return this.#json("pause_source", request);
+  }
+
+  setSourceEvery(request: SetSourceEvery): Promise<SourceSummary> {
+    return this.#json("set_source_every", request);
+  }
+
+  listSourceRuns(request: SourceRef): Promise<SourceRun[]> {
+    return this.#json("list_source_runs", request);
   }
 
   removeSource(request: SourceRef): Promise<SourceSummary[]> {

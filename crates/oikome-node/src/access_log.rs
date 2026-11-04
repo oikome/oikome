@@ -22,6 +22,10 @@
 //! full. Failed authentications carry no caller and can be sent by anyone
 //! who reaches the port, so they are merged into one row per method and
 //! minute, and kept under a cap of their own.
+//!
+//! The names of callers that are gone (a removed contact or plugin) are
+//! kept beside the rows, as long as the rows are, so a line still says who
+//! it was.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -164,7 +168,12 @@ fn open_connection(path: &Path) -> Result<Connection, rusqlite::Error> {
              reason   TEXT,
              count    INTEGER NOT NULL DEFAULT 1
          );
-         CREATE INDEX IF NOT EXISTS access_caller ON access (caller, id);",
+         CREATE INDEX IF NOT EXISTS access_caller ON access (caller, id);
+         CREATE TABLE IF NOT EXISTS names (
+             caller TEXT PRIMARY KEY,
+             name   TEXT NOT NULL,
+             at_ms  INTEGER NOT NULL
+         );",
     )?;
     Ok(conn)
 }
@@ -206,6 +215,8 @@ fn prune(conn: &Connection) -> Result<(), rusqlite::Error> {
         "DELETE FROM access WHERE at_ms < ?1 AND method <> 'owner_setup'",
         params![cutoff],
     )?;
+    // A name is kept as long as the lines it was remembered for.
+    conn.execute("DELETE FROM names WHERE at_ms < ?1", params![cutoff])?;
     conn.execute(
         "DELETE FROM access WHERE caller IS NULL AND id <= (
              SELECT id FROM access WHERE caller IS NULL
@@ -301,6 +312,32 @@ impl AccessLog {
                 }
             }
         }
+    }
+
+    /// Keep `name` for `caller`, which is no longer a contact or a plugin
+    /// here, so its lines still say who it was. Blocking.
+    pub fn remember_name(&self, caller: &str, name: &str) -> Result<(), AccessLogError> {
+        let conn = open_connection(&self.path)?;
+        conn.execute(
+            "INSERT INTO names (caller, name, at_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT (caller) DO UPDATE SET name = excluded.name, at_ms = excluded.at_ms",
+            params![caller, clip(Some(name.to_string())), now_ms() as i64],
+        )?;
+        Ok(())
+    }
+
+    /// The names kept by [`Self::remember_name`], by caller. Blocking.
+    pub fn names(&self) -> Result<std::collections::HashMap<String, String>, AccessLogError> {
+        let conn = Connection::open_with_flags(
+            &self.path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        let mut stmt = conn.prepare("SELECT caller, name FROM names")?;
+        let names = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(names)
     }
 
     /// Entries dropped because the writer was behind.
@@ -483,5 +520,20 @@ mod tests {
         let clipped = clip(Some(reason)).unwrap();
         assert!(clipped.len() <= MAX_REASON_BYTES);
         assert!(clipped.chars().all(|c| c == 'é'));
+    }
+
+    #[test]
+    fn names_are_remembered_and_renamed() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = AccessLog::open(dir.path()).unwrap();
+        assert!(log.names().unwrap().is_empty());
+        log.remember_name("did:key:a", "Sam").unwrap();
+        log.remember_name("did:key:b", "Spending by category")
+            .unwrap();
+        log.remember_name("did:key:a", "Sam Lee").unwrap();
+        let names = log.names().unwrap();
+        assert_eq!(names.len(), 2);
+        assert_eq!(names["did:key:a"], "Sam Lee");
+        assert_eq!(names["did:key:b"], "Spending by category");
     }
 }

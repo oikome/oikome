@@ -145,7 +145,7 @@ export function Collection({ name }: { name: string }) {
             <dt className="oik-label">{s.factFrom}</dt>
             {source ? (
               <dd className="screen-facts__from">
-                <Link to="/sources">
+                <Link to={`/sources/${encodeURIComponent(source.name)}`}>
                   <span title={source.place} translate="no">
                     {homeRelative(source.place)}
                   </span>

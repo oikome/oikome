@@ -1351,6 +1351,7 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 .screen-facts > div {
   display: grid;
+  align-content: start;
   gap: 4px;
   min-width: 0;
   padding: var(--space-3) var(--space-4);
@@ -2085,6 +2086,78 @@ a.screen-lift:hover {
 .screen-section-label {
   margin: var(--space-7) 0 var(--space-3);
 }
+/* A source's row opens its page. */
+tr.screen-source {
+  cursor: pointer;
+}
+
+/* A source's page: its recent syncs beside its settings, as the prototype's. */
+.screen-source-page {
+  align-items: start;
+}
+.screen-panel__aside {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-panel__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding: 12px var(--space-4);
+  border-top: var(--bw) solid var(--line2);
+}
+[data-theme="bold"] .screen-panel__foot {
+  border-top-color: #111;
+}
+.screen-runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-runs__row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 46px;
+  padding: 10px var(--space-4);
+}
+.screen-runs__row + .screen-runs__row {
+  border-top: var(--bw) solid var(--line2);
+}
+[data-theme="bold"] .screen-runs__row + .screen-runs__row {
+  border-top-color: #111;
+}
+.screen-runs__when {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-runs__what {
+  overflow-wrap: anywhere;
+}
+.screen-source-settings {
+  display: grid;
+  gap: 18px;
+  padding: var(--space-4);
+}
+.screen-source-settings__field {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.screen-source-settings__field .oik-seg {
+  flex-wrap: wrap;
+}
+.screen-source-settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-link-mono {
+  font-family: var(--mono);
+}
+
 .screen-source-kinds {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -2473,6 +2546,12 @@ a.screen-lift:hover {
 }
 
 @media (max-width: 760px) {
+  .screen-runs__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .screen-runs__when {
+    grid-column: 1 / -1;
+  }
   .screen-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr;

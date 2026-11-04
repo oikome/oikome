@@ -349,12 +349,15 @@ export const strings = {
   sources: {
     title: "Sources",
     ledeShort: "Folders and files that bring your data in.",
-    lede: (count: number, failing: number) =>
-      count === 0
-        ? "Folders and files that bring your data in. Edit them with any app; Oikome reads them again every minute."
-        : failing === 0
-          ? `Folders and files that bring your data in. ${count === 1 ? "It is" : `All ${count} are`} up to date.`
-          : `Folders and files that bring your data in. ${failing === 1 ? "One needs" : `${failing} need`} you.`,
+    lede: (count: number, failing: number, paused: number) => {
+      const lead = "Folders and files that bring your data in.";
+      if (count === 0) return `${lead} Edit them with any app; Oikome reads them again every minute.`;
+      if (failing > 0) return `${lead} ${failing === 1 ? "One needs" : `${failing} need`} you.`;
+      if (paused === 0) return `${lead} ${count === 1 ? "It is" : `All ${count} are`} up to date.`;
+      if (paused === count) return `${lead} ${count === 1 ? "It is" : `All ${count} are`} paused.`;
+      const live = count - paused;
+      return `${lead} ${live} ${live === 1 ? "is" : "are"} up to date; ${paused} ${paused === 1 ? "is" : "are"} paused.`;
+    },
     none: "Nothing comes in yet. Add a folder of photos or notes, or a CSV file.",
     colSource: "Source",
     colStatus: "Status",
@@ -382,15 +385,56 @@ export const strings = {
     daysAgo: (n: number) => (n === 1 ? "yesterday" : `${n} days ago`),
     failedAgo: (when: string) => `Failed ${when}`,
     nextIn: (n: number) => `in ${n} min`,
-    nextSoon: "next in a minute",
+    nextSoon: "in a minute",
     whenAsked: "when asked",
     syncNowFor: (name: string) => `Sync now: ${name}`,
     syncNow: "Sync Now",
     synced: (name: string) => `Read ${name} again.`,
     showFiles: "Show Files",
     openCollection: "Open Collection",
-    stop: "Stop Syncing",
-    stopped: (name: string) => `Stopped reading ${name}. The collection stays as it is.`,
+    pause: "Pause",
+    resume: "Resume",
+    paused: "Paused",
+    pausedNext: "paused",
+    pausedToast: (name: string) => `Paused ${name}. Nothing new comes in until you resume it.`,
+    resumed: (name: string) => `Resumed ${name}.`,
+    remove: "Remove Source…",
+    removeTitle: (name: string) => `Remove ${name}?`,
+    removeBody: (collection: string, name: string) =>
+      `${collection} and everything in it stay, and so do your files. Nothing new comes in from ${name}. Add it again later and it goes back into ${collection}.`,
+    removeYes: "Remove",
+    removed: (name: string) => `Removed ${name}.`,
+    removeShort: "Remove Source",
+    openDetails: "Open Details",
+    nextInHours: (n: number) => `in ${n} h`,
+    label: "Source",
+    brings: (what: string) => `Brings ${what} into`,
+    what: { photos: "photos", notes: "notes", csv: "rows", "flomo-export": "notes", "flomo-mcp": "notes" } as Record<string, string>,
+    goneTitle: "This Source Was Removed",
+    goneBody: "Its collection stays.",
+    badBody: (collection: string) => `Nothing new has come in since it failed. What ${collection} holds is still there.`,
+    reads: "Reads",
+    readsFolder: (path: string) => `A folder: ${path}`,
+    readsFile: (path: string) => `A file: ${path}`,
+    recent: "Recent syncs",
+    kept30: "kept for 30 days",
+    noRuns: "Syncs show here from the next one on.",
+    done: "Done",
+    runNothing: "Nothing new",
+    runChanged: (n: number) => `${n} new or changed`,
+    runRemoved: (n: number) => `${n} removed`,
+    runSince: (when: string) => `since ${when}`,
+    checkNew: "Check for new",
+    every: {
+      minute: "1 min",
+      five: "5 min",
+      thirty: "30 min",
+      hourly: "Hourly",
+      daily: "Daily",
+      ask: "When I ask",
+    },
+    pauseThis: "Pause this source",
+    goesInto: "Goes into",
     more: "Bring in more",
     addTitle: "Add Source",
     addWhat: "What to bring in",
@@ -601,7 +645,7 @@ export const strings = {
     colWho: "Who",
     colThrough: "Through",
     viaShare: "Share",
-    viaContact: "Contact",
+    viaLending: "Lending",
     viaNetwork: "Network",
     viaPlugin: "Plugin",
     viaThisComputer: "This computer",
@@ -642,7 +686,8 @@ export const strings = {
     recent: "Recent",
     filterLabel: "Show",
     everyone: "Everyone",
-    notAContact: "Someone not in your contacts",
+    unknown: "Unknown",
+    removedPlugin: "A removed plugin",
     allowed: "Allowed",
     refused: "Refused",
     empty: "No one has asked for your data yet.",

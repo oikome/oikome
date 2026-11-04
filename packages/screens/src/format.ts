@@ -154,6 +154,18 @@ export function dateFromMs(ms: number): string {
   return day.format(new Date(ms));
 }
 
+/** "7:36 PM" today, else "Nov 2, 7:36 PM". */
+export function sameDayTime(ms: number, now = Date.now()): string {
+  const today = new Date(ms).toDateString() === new Date(now).toDateString();
+  return today ? time.format(new Date(ms)) : `${monthAndDay(ms)}, ${time.format(new Date(ms))}`;
+}
+
+/** "Today 7:36 PM", or "Nov 2, 7:36 PM". */
+export function dayAndTime(ms: number, now = Date.now()): string {
+  const today = new Date(ms).toDateString() === new Date(now).toDateString();
+  return today ? `Today ${time.format(new Date(ms))}` : `${monthAndDay(ms)}, ${time.format(new Date(ms))}`;
+}
+
 /** "Just now", "4 min ago", "3 h ago", then the date and time. */
 export function ago(ms: number, now = Date.now()): string {
   const minutes = Math.round((now - ms) / 60_000);

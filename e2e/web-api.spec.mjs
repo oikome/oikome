@@ -177,7 +177,7 @@ test("the access log shows the contact's reads and the refusal", async () => {
     })
     .toEqual(expect.arrayContaining(["allowed", "denied"]));
   const items = await client.listAccess({ did: contactDid });
-  expect(items.every((i) => i.contactName === "Bob")).toBe(true);
+  expect(items.every((i) => i.who === "person" && i.name === "Bob")).toBe(true);
   expect(items.every((i) => i.spaces.includes("notes"))).toBe(true);
   expect(items.find((i) => i.outcome === "allowed").shareId).toBe(share.id);
 });

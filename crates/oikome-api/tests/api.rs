@@ -1441,3 +1441,208 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::PermissionDenied);
 }
+
+/// Activity names who each line was: you, a person, a plugin (by the name
+/// it had, once removed), or a computer it has no name for.
+#[tokio::test]
+async fn activity_names_who_it_was() {
+    use oikome_node::{AccessEntry, AccessLog, Outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let log = AccessLog::open(&catalog.oikome_dir()).unwrap();
+    let api = Api::new(catalog.clone(), engines).with_access_log(log.clone());
+    let n = Node {
+        _dir: dir,
+        catalog,
+        api,
+    };
+    notes(&n).await;
+    let own = n.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    let (bob, stranger) = (did(2), did(3));
+    n.api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: bob.clone(),
+                name: "Bob".into(),
+            },
+        )
+        .await
+        .unwrap();
+    // Bob, a stranger and someone unauthenticated ask; so does the owner,
+    // from this computer.
+    for caller in [Some(bob.clone()), Some(stranger.clone()), None, Some(own)] {
+        log.record(AccessEntry {
+            at_ms: 1,
+            caller,
+            method: "do_get".into(),
+            spaces: vec!["notes".into()],
+            token_id: None,
+            outcome: Outcome::Denied,
+            reason: None,
+        });
+    }
+    // A plugin reads, then it and Bob are removed.
+    let plugin = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("spending-by-category".into()),
+                path: None,
+                collections: vec!["notes".into()],
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .plugin_read(
+            &OWNER,
+            PluginRead {
+                plugin: plugin.id.clone(),
+                space: "notes".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .remove_plugin(&OWNER, PluginRef { id: plugin.id })
+        .await
+        .unwrap();
+    n.api
+        .remove_contact(&OWNER, DidRef { did: bob.clone() })
+        .await
+        .unwrap();
+
+    let mut items = Vec::new();
+    for _ in 0..100 {
+        items = n
+            .api
+            .list_access(&OWNER, ListAccess::default())
+            .await
+            .unwrap();
+        if items.len() >= 5 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let of = |did: Option<&str>, method: &str| {
+        let item = items
+            .iter()
+            .find(|i| i.did.as_deref() == did && i.method == method)
+            .unwrap_or_else(|| panic!("no {method} line by {did:?}"));
+        (item.who, item.name.clone())
+    };
+    assert_eq!(
+        of(Some(&bob), "do_get"),
+        (AccessWho::Person, Some("Bob".into()))
+    );
+    assert_eq!(of(Some(&stranger), "do_get"), (AccessWho::Unknown, None));
+    assert_eq!(of(None, "do_get"), (AccessWho::Unknown, None));
+    let read = items.iter().find(|i| i.method == "plugin_read").unwrap();
+    assert_eq!(
+        (read.who, read.name.as_deref()),
+        (AccessWho::Plugin, Some("Spending by category"))
+    );
+    assert_eq!(items.iter().filter(|i| i.who == AccessWho::You).count(), 1);
+}
+
+/// A source can be paused and resumed; removed, its collection stays, and
+/// adding the same folder again puts it back into that collection.
+#[tokio::test]
+async fn a_source_pauses_and_comes_back_into_its_collection() {
+    let n = node();
+    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let guide =
+        |sources: &[SourceSummary]| sources.iter().find(|s| s.name == "oikome-guide").cloned();
+    let pause = |paused| PauseSource {
+        source: "oikome-guide".into(),
+        paused,
+    };
+    let paused = n.api.pause_source(&OWNER, pause(true)).await.unwrap();
+    assert!(paused.paused);
+    let listed = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    assert!(guide(&listed).unwrap().paused);
+    assert!(
+        !n.api
+            .pause_source(&OWNER, pause(false))
+            .await
+            .unwrap()
+            .paused
+    );
+
+    let place = guide(&listed).unwrap().place;
+    let left = n
+        .api
+        .remove_source(
+            &OWNER,
+            SourceRef {
+                source: "oikome-guide".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(guide(&left).is_none());
+    assert!(n.catalog.get_space("oikome-guide").is_ok());
+    let back = n
+        .api
+        .add_source(
+            &OWNER,
+            NewSource {
+                kind: SourceKind::Notes,
+                path: place,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(back.name, "oikome-guide");
+    assert!(n.catalog.get_space("oikome-guide-2").is_err());
+
+    // How often it is read: one of the choices, or only when asked.
+    let every = |every_secs| SetSourceEvery {
+        source: "oikome-guide".into(),
+        every_secs,
+    };
+    let set = n
+        .api
+        .set_source_every(&OWNER, every(Some(300)))
+        .await
+        .unwrap();
+    assert_eq!(set.every_secs, Some(300));
+    assert!(n
+        .api
+        .set_source_every(&OWNER, every(Some(42)))
+        .await
+        .is_err());
+    let set = n.api.set_source_every(&OWNER, every(None)).await.unwrap();
+    assert_eq!(set.every_secs, None);
+
+    // Its recent syncs: what came in, then nothing new again and again as
+    // one line, then a failure.
+    let guide = || SourceRef {
+        source: "oikome-guide".into(),
+    };
+    n.api.pull_source(&OWNER, guide()).await.unwrap();
+    n.api.pull_source(&OWNER, guide()).await.unwrap();
+    let runs = n.api.list_source_runs(&OWNER, guide()).await.unwrap();
+    assert_eq!(runs[0].upserted + runs[0].deleted, 0, "{runs:?}");
+    // Added back, then read twice: three times nothing new.
+    assert_eq!(runs[0].count, 3, "{runs:?}");
+    assert!(runs[0].first_ms < runs[0].at_ms, "{runs:?}");
+    assert!(runs.iter().any(|r| r.upserted == 7), "{runs:?}");
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    std::fs::write(
+        root.join("Examples/spending/spending.csv"),
+        "what,day\nonly,two\n",
+    )
+    .unwrap();
+    let spending = || SourceRef {
+        source: "spending".into(),
+    };
+    assert!(n.api.pull_source(&OWNER, spending()).await.is_err());
+    let runs = n.api.list_source_runs(&OWNER, spending()).await.unwrap();
+    assert!(runs[0].failure.is_some(), "{runs:?}");
+}

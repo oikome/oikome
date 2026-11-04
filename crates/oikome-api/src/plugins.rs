@@ -55,7 +55,7 @@ const MAX_INSTALLED: usize = 50;
 /// What one read gives a plugin: rows, and bytes (photos are large).
 const MAX_ROWS: u32 = 1000;
 const MAX_READ_BYTES: usize = 32 << 20;
-const READ_METHOD: &str = "plugin_read";
+pub(crate) const READ_METHOD: &str = "plugin_read";
 /// A plugin's reads of one collection go to Activity at most this often;
 /// refusals, always.
 const READ_LOG_EVERY_MS: u64 = 10 * 60 * 1000;
@@ -551,6 +551,7 @@ impl Api {
         self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
             all.retain(|p| p.id != req.id)
         })?;
+        self.remember_name(&installed.did, &installed.name);
         let dir = self.plugins_dir().join(&req.id);
         if dir.exists() {
             std::fs::remove_dir_all(&dir).map_err(ApiError::internal)?;

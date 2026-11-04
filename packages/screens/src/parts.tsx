@@ -55,6 +55,8 @@ function pageTitle(url: string): string | undefined {
   const titles: Record<string, string> = {
     "/": strings.nav.home,
     "/collections": strings.nav.collections,
+    "/sources": strings.nav.sources,
+    "/plugins": strings.nav.plugins,
     "/sharing": strings.nav.sharing,
     "/activity": strings.nav.activity,
     "/settings": strings.nav.settings,

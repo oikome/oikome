@@ -3,7 +3,7 @@
 //
 // Components of the Oikome apps (styles in ui.css).
 
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Icon } from "./icons";
 import type { IconName } from "./icons";
@@ -801,12 +801,37 @@ export interface MenuItem {
 /**
  * A More (…) button and the actions behind it. Opens from the button,
  * moves with the arrow keys, closes on Escape, Tab or a click elsewhere.
+ * The list is a popover above the page, so a table or card that scrolls
+ * never cuts it off; it opens upward when there is no room below.
  */
 export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const listId = useId();
+
+  useLayoutEffect(() => {
+    const ul = list.current;
+    const button = trigger.current;
+    if (!open || !ul || !button) return;
+    ul.showPopover?.();
+    const place = () => {
+      const at = button.getBoundingClientRect();
+      const height = ul.offsetHeight;
+      const below = at.bottom + 6 + height <= window.innerHeight - 8 || at.top - 6 - height < 8;
+      ul.style.top = `${below ? at.bottom + 6 : at.top - 6 - height}px`;
+      ul.style.left = `${Math.max(8, at.right - ul.offsetWidth)}px`;
+      ul.dataset.side = below ? "below" : "above";
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -862,7 +887,15 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
         <Icon name="more" />
       </button>
       {open && (
-        <ul id={listId} role="menu" aria-label={label} className="oik-menu__list" onKeyDown={move}>
+        <ul
+          ref={list}
+          id={listId}
+          role="menu"
+          aria-label={label}
+          className="oik-menu__list"
+          popover="manual"
+          onKeyDown={move}
+        >
           {items.map((item) => (
             <li key={item.label} role="none">
               <button

@@ -235,6 +235,16 @@ impl Api {
             .find(|h| h.owner == owner)
     }
 
+    /// The names lenders gave with the computers they lend here, by DID.
+    pub(crate) fn lender_names(&self) -> Vec<(String, String)> {
+        read_private::<Held>(&self.borrowed_path())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|h| !h.from.trim().is_empty())
+            .map(|h| (h.owner, h.from))
+            .collect()
+    }
+
     pub(crate) fn change_borrowed<T>(
         &self,
         change: impl FnOnce(&mut Vec<Held>) -> T,

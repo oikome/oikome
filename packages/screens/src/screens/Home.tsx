@@ -23,7 +23,7 @@ import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
-import { sentence } from "./Activity";
+import { sentence, who } from "./Activity";
 
 const s = strings.home;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -536,7 +536,7 @@ function RecentRow({ recent, tone }: { recent: Recent; tone: TileTone }) {
 function LogRow({ item }: { item: AccessItem }) {
   return (
     <li className="screen-list__row">
-      <Avatar name={item.contactName ?? "?"} small />
+      <Avatar name={who(item)} small />
       <span className="screen-list__text">
         <span className="screen-list__title">{sentence(item)}</span>
         <span className="screen-list__meta">{ago(item.atMs)}</span>

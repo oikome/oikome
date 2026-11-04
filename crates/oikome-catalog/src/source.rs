@@ -37,6 +37,10 @@ pub struct SourceDef {
     /// on demand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub every_secs: Option<u64>,
+    /// Paused by the owner: not pulled on its schedule (it still is when
+    /// asked).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
     pub created_at_ms: u64,
     /// The last pull failed: when, and why (never with credentials). A
     /// pull that succeeds clears it.
@@ -83,6 +87,7 @@ impl OikomeCatalog {
             name: name.to_string(),
             config,
             every_secs,
+            paused: false,
             created_at_ms: now_ms(),
             failure: None,
         };
@@ -122,6 +127,35 @@ impl OikomeCatalog {
                 .get_mut(name)
                 .ok_or_else(|| CatalogError::InvalidProperty(format!("no source '{name}'")))?;
             def.failure = failure;
+            Ok(())
+        })
+    }
+
+    /// Pull the source `name` every this many seconds (at least a minute),
+    /// or (`None`) only when asked.
+    pub fn set_source_every(
+        &self,
+        name: &str,
+        every_secs: Option<u64>,
+    ) -> Result<(), CatalogError> {
+        self.mutate_registry(|reg| {
+            let def = reg
+                .sources
+                .get_mut(name)
+                .ok_or_else(|| CatalogError::InvalidProperty(format!("no source '{name}'")))?;
+            def.every_secs = every_secs.map(|s| s.max(60));
+            Ok(())
+        })
+    }
+
+    /// Pause the source `name`, or resume it.
+    pub fn set_source_paused(&self, name: &str, paused: bool) -> Result<(), CatalogError> {
+        self.mutate_registry(|reg| {
+            let def = reg
+                .sources
+                .get_mut(name)
+                .ok_or_else(|| CatalogError::InvalidProperty(format!("no source '{name}'")))?;
+            def.paused = paused;
             Ok(())
         })
     }

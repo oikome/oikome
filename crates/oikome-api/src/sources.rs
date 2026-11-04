@@ -26,11 +26,14 @@ use oikome_connect::csv::CsvSource;
 use oikome_connect::{Connector, SourceConfig, Value};
 
 use crate::{
-    Api, ApiError, Caller, Empty, ErrorCode, NewSource, SourceKind, SourceRef, SourceSummary,
+    Api, ApiError, Caller, Empty, ErrorCode, NewSource, PauseSource, SetSourceEvery, SourceKind,
+    SourceRef, SourceRun, SourceSummary,
 };
 
 /// Sources are read again this often while the node runs.
 pub(crate) const EVERY: Duration = Duration::from_secs(60);
+/// How often the owner can have a source read, in seconds.
+const EVERY_CHOICES: [u64; 5] = [60, 300, 1800, 3600, 86_400];
 
 /// What the owner sees of a source's settings.
 fn kind_and_place(config: &SourceConfig) -> (SourceKind, String) {
@@ -43,6 +46,12 @@ fn kind_and_place(config: &SourceConfig) -> (SourceKind, String) {
     }
 }
 
+/// A source's file or folder as its removed collection is kept by: the
+/// real path, so `/var/x` and `/private/var/x` are one place.
+fn place_key(place: &str) -> String {
+    std::fs::canonicalize(place).map_or_else(|_| place.to_string(), |p| p.display().to_string())
+}
+
 fn summary(def: &SourceDef, config: &SourceConfig, pulled_at_ms: Option<u64>) -> SourceSummary {
     let (kind, place) = kind_and_place(config);
     SourceSummary {
@@ -50,6 +59,7 @@ fn summary(def: &SourceDef, config: &SourceConfig, pulled_at_ms: Option<u64>) ->
         kind,
         place,
         every_secs: def.every_secs,
+        paused: def.paused,
         pulled_at_ms,
         failed_at_ms: def.failure.as_ref().map(|f| f.at_ms),
         failure: def.failure.as_ref().map(|f| f.message.clone()),
@@ -258,13 +268,31 @@ impl Api {
                 || self.catalog.get_location(name).is_ok()
                 || self.catalog.get_source(name).is_ok()
         };
-        let name = std::iter::once(base.clone())
-            .chain((2..).map(|i| format!("{base}-{i}")))
-            .find(|n| !taken(n))
-            .unwrap_or(base);
+        // A file or folder whose source was removed goes back into its
+        // collection, while that is still there and nothing else reads into it.
+        let place = place_key(&kind_and_place(&config).1);
+        let back = self
+            .settings()?
+            .removed_sources
+            .get(&place)
+            .filter(|name| {
+                self.catalog.get_source(name).is_err()
+                    && self
+                        .catalog
+                        .get_space(name)
+                        .is_ok_and(|s| s.kind == oikome_core::SpaceKind::Transactional)
+            })
+            .cloned();
+        let name = back.unwrap_or_else(|| {
+            std::iter::once(base.clone())
+                .chain((2..).map(|i| format!("{base}-{i}")))
+                .find(|n| !taken(n))
+                .unwrap_or(base)
+        });
         self.session(None)
             .add_source(&name, config, Some(EVERY), None)
             .await?;
+        self.update_settings(|s| s.removed_sources.remove(&place))?;
         self.list_sources(caller, Empty {})
             .await?
             .into_iter()
@@ -289,8 +317,73 @@ impl Api {
             .ok_or_else(|| ApiError::not_found("there is no such source"))
     }
 
+    /// How often a source is read, from the choices the apps offer.
+    pub async fn set_source_every(
+        &self,
+        caller: &Caller,
+        req: SetSourceEvery,
+    ) -> Result<SourceSummary, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        if req.every_secs.is_some_and(|s| !EVERY_CHOICES.contains(&s)) {
+            return Err(ApiError::invalid(
+                "read it every minute, 5 or 30 minutes, hour or day, or only when asked",
+            ));
+        }
+        self.catalog.get_source(&req.source)?;
+        self.catalog.set_source_every(&req.source, req.every_secs)?;
+        self.list_sources(caller, Empty {})
+            .await?
+            .into_iter()
+            .find(|s| s.name == req.source)
+            .ok_or_else(|| ApiError::not_found("there is no such source"))
+    }
+
+    /// A source's recent syncs, newest first.
+    pub async fn list_source_runs(
+        &self,
+        caller: &Caller,
+        req: SourceRef,
+    ) -> Result<Vec<SourceRun>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        self.catalog.get_source(&req.source)?;
+        Ok(self
+            .session(None)
+            .source_runs(&req.source)
+            .await?
+            .into_iter()
+            .map(|r| SourceRun {
+                first_ms: r.first_ms,
+                at_ms: r.at_ms,
+                failure: r.failure,
+                upserted: r.upserted,
+                deleted: r.deleted,
+                count: r.count,
+            })
+            .collect())
+    }
+
+    /// Pause a source, or resume it. Paused, it isn't read on its schedule
+    /// (Sync Now still reads it); its collection stays as it is.
+    pub async fn pause_source(
+        &self,
+        caller: &Caller,
+        req: PauseSource,
+    ) -> Result<SourceSummary, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        self.catalog.get_source(&req.source)?;
+        self.catalog.set_source_paused(&req.source, req.paused)?;
+        self.list_sources(caller, Empty {})
+            .await?
+            .into_iter()
+            .find(|s| s.name == req.source)
+            .ok_or_else(|| ApiError::not_found("there is no such source"))
+    }
+
     /// Stop reading a source; its collection stays as it is, and so do the
-    /// files it read.
+    /// files it read. Added again, they go back into that collection.
     pub async fn remove_source(
         &self,
         caller: &Caller,
@@ -298,8 +391,12 @@ impl Api {
     ) -> Result<Vec<SourceSummary>, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        self.catalog.get_source(&req.source)?;
+        let def = self.catalog.get_source(&req.source)?;
         self.session(None).remove_source(&req.source)?;
+        if let Ok(config) = serde_json::from_value::<SourceConfig>(def.config) {
+            let place = place_key(&kind_and_place(&config).1);
+            self.update_settings(|s| s.removed_sources.insert(place, def.name))?;
+        }
         self.list_sources(caller, Empty {}).await
     }
 

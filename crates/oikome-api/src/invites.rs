@@ -273,6 +273,18 @@ impl Api {
         read_private(&self.invites_path())
     }
 
+    /// The names people gave in the invites waiting here, by their DID.
+    pub(crate) fn invite_names(&self) -> Vec<(String, String)> {
+        self.waiting()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|w| {
+                let grant = grant_of(&w.token)?;
+                Some((grant.owner.to_string(), sender_name(&w.from, &grant.owner)))
+            })
+            .collect()
+    }
+
     fn change_waiting<T>(
         &self,
         change: impl FnOnce(&mut Vec<Waiting>) -> T,

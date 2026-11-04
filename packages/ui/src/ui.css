@@ -1034,12 +1034,15 @@
   position: relative;
 }
 .oik-menu__list {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
+  /* A popover, placed under (or over) its button by the component. */
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
   min-width: 210px;
   margin: 0;
+  overflow: visible;
+  color: var(--ink);
   padding: 6px;
   list-style: none;
   border: var(--bw) solid var(--line);
@@ -1047,6 +1050,9 @@
   background: var(--raised);
   box-shadow: 0 12px 32px rgba(20, 19, 16, 0.12);
   animation: oik-drop 140ms var(--ease) both;
+}
+.oik-menu__list[data-side="above"] {
+  animation-name: oik-rise;
 }
 [data-theme="bold"] .oik-menu__list {
   border-radius: 14px;
@@ -1079,6 +1085,12 @@
   from {
     opacity: 0;
     transform: translateY(-4px);
+  }
+}
+@keyframes oik-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }
 
@@ -1156,6 +1168,9 @@
   background: var(--raised);
   color: var(--ink);
   box-shadow: var(--sh-pop);
+  /* Opened from a table's cell, it doesn't take the cell's text settings. */
+  white-space: normal;
+  text-align: start;
 }
 .oik-dialog::backdrop {
   background: var(--scrim);

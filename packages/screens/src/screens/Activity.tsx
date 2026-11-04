@@ -17,15 +17,22 @@ import { strings } from "../strings";
 const s = strings.activity;
 const PAGE = 50;
 
-/** The owner's own steps, kept with the reads. */
-export function byOwner(item: AccessItem): boolean {
-  return item.method.startsWith("owner_");
+/** Who it was, by name: you, a person, a plugin, or a computer with no name here. */
+export function who(item: AccessItem): string {
+  switch (item.who) {
+    case "you":
+      return strings.common.you;
+    case "plugin":
+      return item.name ?? s.removedPlugin;
+    case "person":
+      return item.name ?? s.unknown;
+    case "unknown":
+      return s.unknown;
+  }
 }
 
-/** Who it was, in the words the owner uses. */
-export function who(item: AccessItem): string {
-  if (byOwner(item)) return strings.common.you;
-  return item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
+function lends(item: AccessItem): boolean {
+  return item.method === "do_exchange:oikome.compute" || item.method === "do_action:oikome.compute_methods";
 }
 
 /** What happened, without who: "read lisbon-photos". */
@@ -52,17 +59,18 @@ function Deed({ item }: { item: AccessItem }) {
 
 /** How it reached the data center. */
 function through(item: AccessItem): string {
-  if (byOwner(item)) return s.viaThisComputer;
-  if (item.method === "plugin_read") return s.viaPlugin;
+  if (item.who === "you") return s.viaThisComputer;
+  if (item.who === "plugin") return s.viaPlugin;
   if (item.shareId) return s.viaShare;
-  return item.did ? s.viaContact : s.viaNetwork;
+  if (lends(item)) return s.viaLending;
+  return s.viaNetwork;
 }
 
 /** One line of the log, in words: "Sam read lisbon-photos". */
 export function sentence(item: AccessItem): string {
   const name = who(item);
   // Using this computer, lent to them: no collection is read.
-  if (item.method === "do_exchange:oikome.compute" || item.method === "do_action:oikome.compute_methods") {
+  if (lends(item)) {
     if (item.outcome === "denied") return s.turnedAwayCompute(name);
     if (item.outcome === "failed") return s.taskFailed(name);
     return item.method === "do_exchange:oikome.compute" ? s.ranTask(name) : s.checkedLending(name);
@@ -106,7 +114,7 @@ function detail(item: AccessItem): { body: string; go?: { to: string; label: str
       };
   }
   if (item.outcome !== "allowed") {
-    return item.did
+    return item.who === "person"
       ? { body: s.detailRefused(name, what), go: { to: "/sharing", label: s.goSharing } }
       : { body: s.detailUnknown(what, item.count) };
   }
@@ -118,10 +126,9 @@ function detail(item: AccessItem): { body: string; go?: { to: string; label: str
 
 type Filter = "all" | "people" | "plugins" | "you";
 
-function kindOf(item: AccessItem): Filter {
-  if (byOwner(item)) return "you";
-  if (item.method === "plugin_read") return "plugins";
-  return "people";
+/** The filter a line shows under; a computer with no name here only under Everyone. */
+function kindOf(item: AccessItem): Filter | undefined {
+  return ({ you: "you", person: "people", plugin: "plugins", unknown: undefined } as const)[item.who];
 }
 
 export function Activity() {
@@ -147,7 +154,11 @@ export function Activity() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
-  const shown = filter === "all" ? items : items.filter((item) => kindOf(item) === filter);
+  // Newest first by when it happened: the first steps of a data center set
+  // up before Activity kept them are written later, with their own times.
+  const shown = items
+    .filter((item) => filter === "all" || kindOf(item) === filter)
+    .sort((a, b) => b.atMs - a.atMs);
 
   return (
     <div className="screen-column screen-column--wide">

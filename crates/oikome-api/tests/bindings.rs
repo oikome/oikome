@@ -66,6 +66,9 @@ fn bindings() -> String {
         SourceKind,
         SourceSummary,
         NewSource,
+        PauseSource,
+        SetSourceEvery,
+        SourceRun,
         SourceRef,
         FoundPlace,
         FolderRef,
@@ -113,6 +116,7 @@ fn bindings() -> String {
         RevokedShare,
         ListAccess,
         AccessOutcome,
+        AccessWho,
         AccessItem,
     );
     out

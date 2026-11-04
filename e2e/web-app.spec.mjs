@@ -224,6 +224,48 @@ test("the examples are files: edit one, sync it, and it shows", async () => {
   await expect(
     page.getByRole("table", { name: "spending" }).getByRole("cell", { name: "Coffee at the airport" }),
   ).toBeVisible();
+
+  // Paused, a source stays listed; removed (after a question), its
+  // collection stays, and adding the folder again puts it back there.
+  await page.goto(`${base}/sources`);
+  const guide = sources.locator("tbody tr").filter({ hasText: "oikome-guide" });
+  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await page.getByRole("menuitem", { name: "Pause" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Paused oikome-guide.");
+  await expect(guide).toContainText("Paused");
+  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await page.getByRole("menuitem", { name: "Resume" }).click();
+  await expect(guide).toContainText("Up to date");
+  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await page.getByRole("menuitem", { name: "Remove Source…" }).click();
+  await page.getByRole("dialog", { name: "Remove oikome-guide?" }).getByRole("button", { name: "Remove" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Removed oikome-guide.");
+  await expect(sources.locator("tbody tr")).toHaveCount(3);
+  const back = await api("add_source", { kind: "notes", path: join(owner, "Examples", "oikome-guide") });
+  expect(back.name).toBe("oikome-guide");
+
+  // Its page: what it did lately, how often it reads, paused with a switch,
+  // and removed from there too.
+  await page.reload();
+  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await page.getByRole("menuitem", { name: "Open Details" }).click();
+  await expect(page).toHaveURL(`${base}/sources/oikome-guide`);
+  await expect(page.getByRole("heading", { name: "oikome-guide", level: 1 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Recent syncs" })).toContainText("Done");
+  const pause = page.getByRole("switch", { name: "Pause this source" });
+  await pause.click();
+  await expect(pause).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator(".screen-facts")).toContainText("Paused");
+  await pause.click();
+  await expect(page.locator(".screen-facts")).toContainText("Up to date");
+  const hourly = page.getByRole("radiogroup", { name: "Check for new" }).getByRole("radio", { name: "Hourly" });
+  await hourly.click();
+  await expect(hourly).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Remove Source" }).click();
+  await page.getByRole("dialog", { name: "Remove oikome-guide?" }).getByRole("button", { name: "Remove" }).click();
+  await expect(page).toHaveURL(`${base}/sources`);
+  await expect(sources.locator("tbody tr")).toHaveCount(3);
+  await api("add_source", { kind: "notes", path: join(owner, "Examples", "oikome-guide") });
 });
 
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
@@ -666,6 +708,7 @@ test("screens use words for people, also when something fails", async () => {
     "/collections/oikome-guide",
     "/collections/home-climate",
     "/sources",
+    "/sources/spending",
     "/sharing",
     "/plugins",
     "/activity",
@@ -775,6 +818,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/collections/oikome-guide", "oikome-guide"],
     ["/collections/home-climate", "home-climate"],
     ["/sources", "Sources"],
+    ["/sources/spending", "spending.csv"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
     ["/plugins", "Plugins"],

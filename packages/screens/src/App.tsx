@@ -17,7 +17,8 @@ import { BackLink } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
 import { Plugins } from "./screens/Plugins";
-import { Sources } from "./screens/Sources";
+import { SourceDetail } from "./screens/SourceDetail";
+import { placeName, Sources } from "./screens/Sources";
 import { Collection } from "./screens/Collection";
 import { Collections } from "./screens/Collections";
 import { Home } from "./screens/Home";
@@ -128,6 +129,9 @@ function Root() {
     );
   } else if (path === "/sources") {
     screen = <Sources startAdding={query.get("add") === "1"} />;
+  } else if (path.startsWith("/sources/")) {
+    const name = decodeSafe(path.slice("/sources/".length));
+    screen = <SourceDetail key={name} name={name} />;
   } else if (path === "/plugins") {
     screen = <Plugins info={info} onInfo={setInfo} />;
   } else if (path === "/activity") {
@@ -145,7 +149,11 @@ function Root() {
     );
   }
 
-  const sub = path.startsWith("/collections/") ? decodeSafe(path.slice("/collections/".length)) : undefined;
+  const sub = path.startsWith("/collections/")
+    ? decodeSafe(path.slice("/collections/".length))
+    : path.startsWith("/sources/")
+      ? decodeSafe(path.slice("/sources/".length))
+      : undefined;
   return (
     <Shell info={info} current={section?.to} path={path} sub={sub}>
       {screen}
@@ -286,6 +294,9 @@ function Shell({
   const sectionLabel = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
   const spaces = useLoad(() => client.listSpaces(), [path]);
   const sources = useLoad(() => client.listSources(), [path]);
+  // A source is called by its file or folder, as on its page.
+  const source = path.startsWith("/sources/") ? sources.data?.find((x) => x.name === sub) : undefined;
+  const subLabel = source ? placeName(source.place) : sub;
   const storages = useLoad(() => client.listStorages(), [path]);
   const [picked, setPicked] = useState<string | null>(rememberedPlace);
   const [searching, setSearching] = useState(false);
@@ -391,7 +402,7 @@ function Shell({
               <>
                 <span className="screen-crumb__sep" aria-hidden="true">/</span>
                 <span className="screen-crumb__here screen-crumb__here--mono" aria-current="page" translate="no">
-                  {sub}
+                  {subLabel}
                 </span>
               </>
             )}

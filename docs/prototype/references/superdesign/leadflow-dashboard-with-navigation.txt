@@ -1,0 +1,52 @@
+LeadFlow Dashboard with Navigation
+
+A high-contrast LeadFlow dashboard employing a Neubrutalist design system. It features bold typography, vibrant color blocks (Hot Pink, Mint, Canary, Lilac), and heavy 2px black borders. The layout uses a 240px sidebar and a bento-style grid for KPIs and data visualization. Ideal for SaaS dashboards, fintech platforms, or modern CRM tools requiring a high-energy, brutalist aesthetic. The UI utilizes the View Transition API for seamless state changes and prefetch hints for performance.
+
+4
+4g7fu@web-library.net
+Prompt
+Use prompt
+Copy full prompt
+Summary
+
+A bold, Neubrutalist-inspired SaaS dashboard characterized by thick black borders, flat vibrant colors, hard shadows, and a distinct grid-based background. It combines editorial typography (Archivo Black) with technical mono-spacing for data points.
+
+Style
+Copy style
+
+The style essence is 'Neubrutalism': high contrast and geometric. Typography pairs 'Archivo Black' (headings) with 'Space Grotesk' (body) and 'Space Mono' (data). Colors are saturated: Hot Pink (#ff3d81), Mint (#3ddc97), Canary (#ffd23f), Lilac (#c8a2ff), and Coral (#ff6b5e) set against a Cream Canvas (#fdf9f0). Elements use 2px solid black borders and 'hard shadows' (no blur) that shift on interaction.
+
+Create a design system using a Neubrutalist aesthetic. **Colors**: Background #fdf9f0 (with 24px grid pattern in #111111 at 5% opacity), Primary #ff3d81, Success #3ddc97, Warning #ffd23f, Accent #c8a2ff, Danger #ff6b5e, Ink #111111. **Typography**: Headings use 'Archivo Black' (uppercase, tight tracking), body text uses 'Space Grotesk' (500/600/700 weights), and numeric data uses 'Space Mono'. **Components**: All cards/buttons must have a 2px solid #111111 border. **Shadows**: Use hard shadows with 0px blur: Small (4px 4px 0px 0px #111111), Medium (6px 6px 0px 0px #111111), Large (9px 9px 0px 0px #111111). **Interactions**: On hover, cards should translate(-2px, -2px) and increase shadow depth. On active/click, buttons should translate(2px, 2px) and shadow should go to 0px. **Global**: Border-radius for cards is 18px, buttons 8px, tags/nav-items 9999px.
+Layout
+(5 sections)
+Copy layout
+
+A fixed sidebar layout (240px) with a fluid main content area. The main dashboard uses a bento grid system for metrics and analytics, followed by a full-width activity table.
+
+Navigation Sidebar
+Copy
+Top Bar Header
+Copy
+KPI Grid
+Copy
+Analytics Section
+Copy
+Recent Activity Table
+Copy
+Components
+(2)
+Neubrutal Button
+Copy
+
+Actionable button with high-contrast borders and shadows.
+
+HTML/CSS: `background: #ff3d81; border: 2px solid #111111; border-radius: 8px; padding: 8px 16px; font-weight: 700; box-shadow: 4px 4px 0px 0px #111111;` Transition: `all 0.1s ease`. Hover: `transform...
+Status Pill
+Copy
+
+Rounded indicator for data states.
+
+A capsule-shaped pill (9999px radius). Padding: 4px 12px. Border: 2px solid #111111. Shadow: 4px 4px 0px 0px #111111. Text: 12px bold. Colors: Success (#3ddc97), Pending (#ffd23f), Active (#c8a2ff), E...
+Mobile
+Tablet
+Desktop

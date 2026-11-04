@@ -1,14 +1,17 @@
-# Oikome — Architecture v3.0
+# Oikome — Architecture
 
 > **Version**: v3.0
 > **Date**: 2026-09-27
 > **Codename**: oikome
+> Oikome's Chinese name is 尘屋 (Chén Wū). For now it is only a note: code, paths and the interface use Oikome.
 > **Positioning**: An AI-native, multimodal private data center that usually runs on personal resources and supports trusted data exchange. Built on a decentralized local federated query semantic layer: embedded, sovereign, P2P-native.
 > **Core Change**: Oikome no longer owns query *computation*. Computation is delegated to pluggable embedded engines (DuckDB for analytics, SQLite for transactions; browser-hosted engines in WASM). DataFusion is retained **only** as the federation coordinator that merges results across engines and nodes. Oikome's own value concentrates in the semantic layer (naming, policy, views), the federation layer (routing, pushdown, merge), identity/authorization (DID/UCAN) and P2P (discovery, snapshot sync, Arrow Flight).
 > **Status**: 3.0-A (engines), 3.0-B (local federation), 3.0-C (semantic layer) and 3.0-D (publishing) implemented on `main`. Supersedes v2.0.
 > **Revised 2026-10-30**: positioning changed to an AI-native, multimodal private data center (§1). Added cloud drives (§7.5), Lance as a third Location format (§7.6), connectors (§11), compute sharing (§12) and roadmap phases 3.4–3.6. The engine, federation and semantic layers are unchanged.
 > **Revised 2026-11-01**: added the user-facing apps: repository layout (§13.3), apps and the API layer (§13.4) and an apps track beside the core phases (§14.1).
 > **Revised 2026-11-02**: storages (§7.5): a NAS at home first (3.4a), cloud drives step by step, each once files are encrypted on the client (3.4b onward). 3.4b: client-side encryption, drives through their sync folders, credentials kept by the node (keychain). 3.5: connectors (§11): CSV files and flomo (HTML export; MCP, not yet run against flomo).
+> **Revised 2026-11-04**: security (§17): what is protected and who can see what, defaults kept sound rather than maximal, a per-node security mode, known gaps and what is left for later; phase 3.7. Public shares to anyone within the owner's limits, Web2 and Web3 (wallets as identities, chains as sources, no token), and paid access through payment plugins the owner picks (§1, §11.1, §13.4); phase 3.8 and milestone M5.
+> **Revised 2026-11-04**: files are viewed where they are (§7.7). A copy is made only when the owner saves one somewhere (§7.8), and a saved Space can be shared on its own, as a portfolio or publicly (§7.9). Storages are sources as well as targets. Drives over their API (3.4c), Baidu Netdisk (3.4d) and object storage (3.4e) are added (§7.5), with roadmap phases 3.9–3.11 (§14).
 
 ---
 
@@ -29,7 +32,7 @@
 
 **What stays the same**: Space sovereignty, single write master per Space, DID/UCAN, deny-by-default, Iceberg catalog for analytical Spaces, Parquet as the interchange/publication format, VFS (opendal), Arrow Flight + libp2p for the network layer.
 
-**Rescinded v1 constraints**: #2 *Columnar-Only Storage* (SQLite is row-oriented) and the Layer 3 *self-built vectorized engine*.
+**Rescinded from v1**: columnar-only storage (SQLite is row-oriented) and a self-built vectorized engine.
 
 ---
 
@@ -41,11 +44,13 @@ AI platforms hold more and more personal data, and storage and compute are conce
 
 | | What it means in Oikome | Where |
 |---|---|---|
-| Private | The data belongs to its owner — a person, a family or a small team — and lives on storage the owner controls: local disk, NAS, cloud drives. Connectors bring it in from the apps the owner uses | §7, §11 |
+| Private | The data belongs to its owner — a person, a family or a small team — and lives on storage the owner controls: local disk, NAS, cloud drives, object storage. Files are viewed where they are and copied only when the owner saves them somewhere. Connectors bring data in from the apps the owner uses | §7, §11 |
 | Multimodal | Text, images, audio, files and vectors are first-class data alongside tables | §7.6, §8 |
 | AI-native | AI is a primary user from the start. AI tools and agents connect through MCP like any other app (dashboards, notes), as principals that see only what they are granted. Data is kept in forms AI uses directly: text, embeddings, search indexes. Views and names tell AI what the data means. AI workloads such as embedding and inference run on personal resources | §2 L5, §6, §7.6, §12 |
 | Personal resources | Storage and compute come from individuals, not from a platform's cloud: first the owner's own machines, which compute with embedded engines (DuckDB, SQLite); then other individuals' machines through compute sharing. "Usually": a cloud bucket can still serve as a Location | §4, §7, §12 |
-| Trusted data exchange | Data moves only between data centers that trust each other, in both directions, under grants the owner can revoke | §5, §6, §9 |
+| Trusted data exchange | Data moves between data centers that trust each other, in both directions, under grants the owner can revoke. The owner may also open chosen data to anyone, strangers included, within limits the owner sets (public shares) | §5, §6, §9, §13.4 |
+| Web2 and Web3 | Data comes from the apps people use and from chains (an address's transactions and tokens); a wallet can be an identity (`did:pkh`). No token or chain of its own, private data never goes on a chain, and no wallet is needed to use Oikome | §9, §11.1, §13.4 |
+| Paid access | An owner may charge for chosen data. Payment goes through a payment plugin the owner picks (PayPal, Alipay, a Web3 wallet and others) straight into the owner's own account; Oikome never holds funds. A paid order is only the condition for a grant | §13.4 |
 
 **Data exchange and compute sharing use the same trust mechanism with different authorizations.** Both rest on DID identities, peer relationships, deny-by-default and UCAN revocation (§9). Data is authorized with `space/query` / `space/read` plus grants and policies (§5.3, §6); compute with `compute/<method>` (§12). Neither implies the other.
 
@@ -59,7 +64,7 @@ Analogy: Oikome is to embedded engines what a service mesh is to services. DuckD
 2. **Single Write Master per Space** (unchanged). Write delegation is explicit via UCAN.
 3. **Space is the sovereignty unit; Location is the physical unit.** They are decoupled. Authorization, engine selection and sync policy attach to the Space; format and residency attach to the Location.
 4. **Immutable files are the only thing that crosses the network.** P2P synchronization exchanges Iceberg snapshots (Parquet + manifests) and Lance versions (data files + manifest). Transactional state never replicates live; it is *published* as snapshots.
-5. **Deny by default** (unchanged). No peer relationship → no catalog visibility → no query possibility. Unauthorized tables "do not exist".
+5. **Deny by default** (unchanged). No peer relationship → no catalog visibility → no query possibility. Unauthorized tables "do not exist". A public share (§13.4) is the owner's explicit grant to anyone; without one, a stranger sees nothing.
 6. **Engines are host-replaceable.** The `QueryEngine` contract must be implementable by a native Rust crate *or* by the embedding host (JS in the browser, FFI elsewhere).
 7. **Format interoperability** (unchanged). Parquet / Arrow / Iceberg / SQLite files remain directly usable by external tools with zero export.
 
@@ -141,6 +146,7 @@ pub struct Location {
     pub id: LocationId,
     pub format: LocationFormat,      // IcebergParquet { namespace } | SqliteFile { path } | Lance { root }
                                      // | Remote / Replica (another node's Space) | StorageCopy (§7.5)
+                                     // | InPlace { storage, path } (files viewed where they are, §7.7)
     pub residency: Vec<String>,      // "disk"
     pub writer: Option<String>,      // at most ONE writable Space per Location
     pub storage: Option<StorageBinding>, // the storage (a NAS) the Location is kept on as well (§7.5)
@@ -155,10 +161,11 @@ pub struct Location {
 | Single writer | `Location.writer` is `None` or exactly one Space. Any further binding must be `ACCESS = 'readonly'`. |
 | Kind ↔ format | `Transactional` requires `SqliteFile`. `Analytical` accepts `IcebergParquet`, `Lance` or (read-only) `SqliteFile`. |
 | Independent policies | Two Spaces over one Location carry independent UCAN scopes, policies and views. This is the intended way to expose the same data under different governance. |
+| In place | An `InPlace` Location is read-only and holds no data of its own. Its files stay where they are, and its index is a cache on the node (§7.7). |
 
 ### 3.3 Node Types
 
-Unchanged from v1 (Full / Edge / Browser), with one refinement: the node type no longer changes *what engine code ships*; it changes *which `QueryEngine` implementations are registered*.
+Three node types: a **Full** node runs where data is kept for good (a NAS, a server, an always-on computer), an **Edge** node runs on a desktop or laptop, and a **Browser** node runs in a web page (§10). The node type does not change *what engine code ships*; it changes *which `QueryEngine` implementations are registered*.
 
 | Node | Registered engines | Coordinator |
 |------|--------------------|-------------|
@@ -393,11 +400,13 @@ PUBLISH SPACE orders [TABLES (orders, items)] [TO orders_published]
 
 `oikome-vfs` holds the opendal VFS. Since 3.4a it also has `RemoteStore`: the folder of one Space on a storage (§7.5), over WebDAV or as a mounted folder. Every file is written under a temporary name, checked for size and renamed into place, so a reader sees a file whole or not at all. opendal sends a WebDAV file as a single request body, so uploads are streamed with a plain PUT instead.
 
-DuckDB and SQLite need real file paths, and DuckDB reads an Iceberg table as a list of local Parquet files. A Space on a storage is therefore never read in place: each node keeps a local copy of a whole snapshot (§7.5). The per-file `materialize()` cache planned earlier was dropped; a size-bounded cache only helps once an engine reads part of a table. The Iceberg `Storage` adapter in `oikome-vfs` is still unused.
+DuckDB and SQLite need real file paths, and DuckDB reads an Iceberg table as a list of local Parquet files. A Space on a storage is therefore never read in place: each node keeps a local copy of a whole snapshot (§7.5). The per-file `materialize()` cache planned earlier was dropped; a size-bounded cache only helps once an engine reads part of a table. The Iceberg `Storage` adapter in `oikome-vfs` is still unused. All of this is about Spaces kept on a storage. The owner's own files on a storage are viewed where they are (§7.7).
 
 ### 7.5 Storages: a NAS First, Cloud Drives Step by Step
 
-A storage is a place other than the node's disk where a Space is kept: a NAS at home (3.4a), reached over WebDAV (Synology, QNAP, Nextcloud and most others) or mounted as a folder (SMB, NFS), and cloud drives through the folder their desktop client syncs (3.4b: iCloud Drive, Dropbox, OneDrive, Google Drive). A drive provider can read whatever is uploaded, so a drive is always encrypted on the client; a NAS may be. Drives over their API follow in 3.4c.
+A storage is a place other than the node's disk where a Space is kept: a NAS at home (3.4a), reached over WebDAV (Synology, QNAP, Nextcloud and most others) or mounted as a folder (SMB, NFS), and cloud drives through the folder their desktop client syncs (3.4b: iCloud Drive, Dropbox, OneDrive, Google Drive). A drive provider can read whatever is uploaded, so a drive is always encrypted on the client; a NAS may be. Drives over their API (3.4c), Baidu Netdisk (3.4d) and object storage (3.4e) follow.
+
+A storage has two roles. It keeps Spaces, as this section describes. Its other files, the ones the owner put there, can also be viewed in place (§7.7), and it is a target for Save To (§7.8).
 
 ```sh
 oikome storage add nas --webdav https://nas.local:5006/oikome --username me --password-stdin
@@ -432,8 +441,10 @@ REFRESH SPACE photos;                                     -- `oikome serve` also
 |------|---------------|-----|
 | Analytical Space (Iceberg + Parquet) | Yes, written by one node | Parquet data files are immutable |
 | Analytical Space (Lance, §7.6) | Yes, written by one node | Lance files are immutable too; each version adds a manifest |
-| Transactional Space (SQLite file) | **No** — rejected at `CREATE SPACE` | SQLite's WAL needs file locks and shared memory on a local filesystem |
+| Transactional Space (SQLite file) | **No** — rejected at `CREATE SPACE`; a published copy can go there (below) | SQLite's WAL needs file locks and shared memory on a local filesystem |
 | Node registry (`.oikome/`), identity key, storage credentials and keys | No | They belong to one node |
+
+**A collection a source fills.** Connectors write a transactional Space (§11), so its working copy always stays on the node's disk. A share mounted over SMB or NFS does not change this: it is still a network filesystem, where SQLite's locks and shared memory are not reliable. The owner may still keep such a collection on a storage. The node then publishes the Space after every pull (§7.3) and pushes the published snapshot to the storage like any analytical Space, so the storage holds a second, read-only copy that can be a few minutes behind the working copy. The apps put these collections on Local by default and ask before any other place (§13.4). Not built yet: `add_source` always creates the Space on the node's disk.
 
 **Rules**
 
@@ -456,11 +467,43 @@ Each file's header carries a key id, so the wrong key is reported as such; a fol
 
 **Drives through their sync folder.** `--drive` marks a folder the drive's desktop client syncs and always encrypts it; a `--folder` inside a known sync location (`~/Library/Mobile Documents`, `~/Library/CloudStorage`, `~/Dropbox`, `~/OneDrive*`, `~/Google Drive`, …) is refused without encryption. Sync clients may upload files out of order or create conflict copies; readers take the newest complete snapshot and ignore files no snapshot names, and a snapshot whose files have not arrived yet waits for the next sync. iCloud may leave files as placeholders, which macOS downloads when they are read.
 
-Not done yet: drives over their API (3.4c: OAuth sign-in, opendal `gdrive`, `dropbox`, `onedrive`), the keychain on Linux desktops, changing a storage's key, a size-bounded cache (every node holds the current snapshot of each Space it reads in full), restoring a writer from its storage, and `PUBLISH` into a Space on a storage.
+**Drives over their API (3.4c).** For nodes without a desktop client, Google Drive and Dropbox go through opendal's `gdrive` and `dropbox` services. Files are encrypted as above.
+
+- **opendal is upgraded first,** from 0.52 to the current release (0.59). 3.4d's service needs it too.
+- **Sign-in** is the OAuth authorization code flow with PKCE. The browser returns to `http://127.0.0.1:53917/`, a fixed port that the OAuth client registers. A node without a browser prints the sign-in link and takes back the address the browser was sent to, pasted in.
+- **The OAuth client is the owner's own.** Its client ID and secret are entered once with the storage and kept like a password. None is built into Oikome.
+- **Tokens.** The refresh token is kept like a password. The node renews the access token before it expires and revokes the token when the storage is removed.
+- **Least permission.** Keeping Spaces needs access only to the files Oikome creates: Google's `drive.file`, or a Dropbox app limited to its own folder. Viewing the drive's other files in place (§7.7) needs read access to the whole drive (Google's `drive.readonly`, a Dropbox app with "Full Dropbox" access). It is asked for only when the owner turns that on.
+- **Large files.** opendal's `gdrive` and `dropbox` writers send a file in one request. Google advises this only up to 5 MB, and Dropbox accepts at most 150 MB.
+  - Oikome adds Google's resumable uploads and Dropbox's upload sessions to these two writers in its fork of apache/opendal. Oikome uses them as a git dependency, like 3.4d.
+  - They are contributed upstream, an issue first and a pull request once they have run against real accounts.
+  - Keeping a large file as parts on the drive was turned down: every reader would have to put the parts back together, and other opendal users gain nothing.
+- **OneDrive stays on its sync folder.** opendal's `onedrive` (0.52) addresses files by path under the drive's root, which needs read and write access to the whole drive (`Files.ReadWrite`). This is looked at again after the upgrade.
+
+**Baidu Netdisk (3.4d).** Baidu Netdisk is reached through its Open Platform (the xpan API). opendal has no service for it.
+
+- **The service.** A `baidu-netdisk` service is written in Oikome's fork of apache/opendal, shaped like `aliyun-drive`. Oikome uses it as a git dependency. It is proposed upstream (apache/opendal#8481) after it has run against a real account.
+- **Sign-in** works as above (OAuth authorization code; the platform also offers device codes).
+- **One folder.** An Open Platform app can write only under `/apps/<app name>/`. The app is registered as `Oikome`, so a storage's folders are under `/apps/Oikome/`. Viewing in place needs the app to read the owner's other folders as well. Whether it can is still to be confirmed.
+- **Uploads.** An upload is precreate, then one call per block, then create. Precreate needs the MD5 of every block up front. Blocks are 4 MB for free accounts, and members get larger blocks and files.
+  - opendal's writer streams, so it does not know these hashes in advance.
+  - Oikome uploads only local files. If the service cannot stream, `RemoteStore` hashes the file first and uploads it itself, as it does for WebDAV.
+- **Limits.** Downloads are slow without a Super membership, and frequent calls are refused (errno 31034), which the node retries with backoff. Baidu Netdisk therefore suits Save To and backups better than Spaces that other nodes read often.
+
+**Object storage (3.4e).** S3-compatible services go through opendal's `s3`: AWS S3, Cloudflare R2, Backblaze B2, MinIO, and Aliyun OSS and Tencent COS through their S3-compatible endpoints.
+
+- **Keys.** The access key and secret are entered once and kept like a password.
+- **Encrypted by default,** since the provider can read what is uploaded. A service the owner runs, such as MinIO at home, may turn encryption off, like a NAS.
+- **Large files.** Multipart uploads and range reads suit large files such as video. Object storage also suits public snapshots (§13.4).
+- **One writer per folder,** claimed as on WebDAV.
+
+Phases that need accounts (3.4c–3.4e, drives in 3.9, flomo's MCP from 3.5) are written first. Once all of them are written, they are run against real accounts together. MinIO covers 3.4e in CI without an account.
+
+Not done yet: drives over their API (3.4c), Baidu Netdisk (3.4d), object storage (3.4e), the keychain on Linux desktops, changing a storage's key, a size-bounded cache (every node holds the current snapshot of each Space it reads in full), restoring a writer from its storage, and `PUBLISH` into a Space on a storage.
 
 ### 7.6 Lance Locations
 
-Lance is a columnar format with versions, built for vector search, full-text search and large objects. A Lance Location holds one Lance dataset per table. It is for data that is searched or read row by row rather than aggregated: note text and embeddings, documents, images, audio, attachments.
+Lance is a columnar format with versions, built for vector search, full-text search and large objects. A Lance Location holds one Lance dataset per table. It is for data that is searched or read row by row rather than aggregated: note text and embeddings, documents, thumbnails, attachments. Originals that live elsewhere are referenced rather than copied (see the rules below).
 
 ```sql
 CREATE SPACE notes WITH FORMAT = 'lance';     -- FORMAT defaults to 'iceberg' for analytical Spaces
@@ -490,8 +533,70 @@ Rules:
 - **Single writer** as for any Location (§3.2); a second Space bound `ACCESS = 'readonly'` reads it and refuses writes.
 - **Storages:** the same rules as Iceberg Locations (§7.5); a copy is searched with the writer's indexes.
 - **Not in the browser.** The `lance` extension is published for linux (amd64, arm64), macOS arm64 and windows amd64, not WebAssembly; browser nodes reach Lance Spaces through a Full Node (§10).
+- **Originals are referenced, not copied.** A photo, recording or document that lives in a place (§7.7) is named by its place, path and BLAKE3. Lance keeps what is made from it: text, embeddings and thumbnails. A Space made by Save To keeps its originals as files beside its tables (§7.8).
 
 Not done yet: reading a pinned version (waits for the extension), `PUBLISH` (§7.3) into a Lance Space, peers searching over query shipping, and a search spanning several Spaces.
+
+### 7.7 Viewing in Place
+
+Files the owner already has, such as photos on a NAS, documents on a drive or a folder of CSV files, are browsed, previewed and queried where they are. Nothing is copied into a Space until the owner saves it somewhere (§7.8).
+
+```sql
+CREATE SPACE finance WITH PLACE = 'nas', PATH = 'Finance';            -- read-only
+SELECT * FROM finance."2025";                                         -- Finance/2025.csv, read where it is
+CREATE SPACE lisbon WITH PLACE = 'local', PATH = '~/Pictures/Lisbon';
+SELECT name, taken FROM lisbon.files WHERE kind = 'image';            -- the index (below)
+```
+
+- **Places.** A place is a folder on this computer (`local`) or on any storage (§7.5).
+  - Oikome's own folders on a storage, the ones that keep Spaces, are skipped.
+  - On a drive, viewing in place needs read access to the whole drive (§7.5). It is asked for when the first in-place Space is made on that storage.
+- **Read-only.** An in-place Space is bound to an `InPlace` Location (§3.2). Oikome never writes, renames or deletes there, and DML and DDL are refused. Files change only through the owner's other apps.
+- **Tables.** Each CSV, Parquet or JSON file at the top of the folder is a table named after the file. `files` is the index.
+- **The index is a cache.** For each in-place Space the node keeps an index in `.oikome/index/<location>/`.
+  - It holds a row per file (path, name, kind, size, modified time, and the BLAKE3 once the file has been read), text from notes and documents, thumbnails of images and video frames, and later the embeddings and descriptions Vane makes. Oikome stores and searches those; making them is Vane's job.
+  - It is a Lance dataset, so it can be searched (§7.6).
+  - Deleting it loses nothing but time: reading the place again rebuilds it.
+  - It is not a copy in the sense of §7.8. The owner did not choose to make it, and originals never enter it.
+- **Keeping up.** While it serves, the node scans each place again on an interval, and on `REFRESH SPACE`. Size and modified time tell what changed; a drive's own change list can replace the scan later.
+- **Reading files.**
+  - Files on this computer and on mounted folders are read in place by DuckDB.
+  - Files on WebDAV, drives and object storage are first fetched through the VFS into a size-bounded cache, keyed by place, path, size and modified time, because DuckDB reads only local files here.
+  - Images and video for the apps are streamed with range reads.
+  - Later, a DuckDB file system over the VFS could let engines read only the parts they need.
+- **Offline.** When a place cannot be reached, the index still answers: names, text and thumbnails are there, the originals are not. Opening an original says that the place is offline.
+- **Sharing in place.** An in-place Space is shared with grants and policies like any Space, but only by query shipping: the node reads the files when the peer queries. To give a contact a copy, save it into a Space of its own (§7.8, §7.9).
+- **Apps.** An app's data cannot be read where it is, so its connector pulls it into a Space on the node (§11). That Space plays the part of the index: the node keeps it and refreshes it on an interval, and the owner never chose it as a copy.
+- **Folder sources.** In 3.9, the `photos-folder` and `notes-folder` sources (§11) become in-place Spaces. The photos stay in their folder instead of being copied into SQLite, and their thumbnails and text go to the index.
+- **Limits.** Hidden files and links are skipped. Files over a size cap are listed but not read for text or thumbnails.
+
+### 7.8 Save To
+
+A copy is made only when the owner asks for one. Save To takes a selection (files, a folder, a query's rows, an app's records) and writes it to a target the owner picks.
+
+| | Files | A new Space |
+|---|---|---|
+| What lands | The files themselves, with their real names and formats, in folders made by the rules | Tables, with the originals as files beside them |
+| Read by | Finder, Photos and other apps; Oikome views them in place (§7.7) | Oikome; shared and subscribed like any Space (§7.9) |
+| Encryption | Encrypted by default on a drive or object storage, and then readable only through Oikome. The owner may turn it off so that other apps can open the files, and is told that the provider can then read them | As the storage's (§7.5) |
+
+- **Rules.** A folder rule and a name rule are built from the item's own fields, for example `{taken:yyyy}/{taken:MM}` and `{taken:yyyy-MM-dd} {title}`. A file that would land on a name already taken gets a number.
+- **Once or continuing.**
+  - Once writes the selection as it is now: a fixed version.
+  - A continuing rule is kept on the node and runs on its interval while the node serves. New and changed items that match are written. Items removed at the source stay in the target unless the rule says otherwise.
+  - A continuing rule into a Space commits a snapshot each run, so subscribers receive new versions.
+- **Only its own files.** The node records what each rule wrote (path and BLAKE3) and changes only those. It never overwrites or deletes a file it did not write.
+- **Not Space storage.** A Space kept on a drive (§7.5) is sealed objects with hashed names, which only Oikome can read. Save To's files belong to the owner and are in plain sight. A Space made by Save To is kept like any other Space, on this computer or on a storage.
+- **Permissions.** Saving into a drive needs only the least permission of §7.5, wherever the files come from.
+- **Editing happens elsewhere.** Oikome views, picks, saves and shares. Photos are edited in other software, and the edited files are viewed in place or saved like any others.
+- **Configuration, not SQL.** Rules are node configuration, like sources (§11.4): `add_save_rule`, `run_save_rule` and `remove_save_rule` in the API, and `oikome save` on the command line. There is no SQL statement for them.
+- **`PUBLISH SPACE` (§7.3)** is the first case of Save To: from a transactional Space into a read-only analytical Space, once or on an interval.
+
+### 7.9 Sharing Saved Spaces and Portfolios
+
+- **To contacts.** A Space made by Save To is shared and revoked with the existing whole-Space grants (§6, §13.4). Unlike an in-place Space or a view, it no longer depends on its source: a contact who subscribes keeps reading it when the source folder is offline, changed or deleted. The Space can also be kept on a NAS or object storage rather than on the laptop the source is on.
+- **Portfolios.** A portfolio is a way of showing a Space: the order of its items, a cover, a title and captions. These are kept with the Space and sent with its snapshots, so subscribers see the same portfolio. The apps or a dashboard plugin show it, and the data underneath is the saved Space.
+- **To anyone.** A saved Space can also be a public share (§13.4, 3.8). It does not depend on its source, so it is what a public share or a public snapshot is best made from. Photos in a public share lose their location data by default.
 
 ---
 
@@ -538,7 +643,7 @@ A Space does not declare the extensions it needs. They follow from its format an
 
 ## 9. Identity & Network (L0)
 
-Unchanged in intent from v1 §8: DID (Ed25519), UCAN (issue/verify/revoke/CRL), peer state machine, libp2p discovery, Arrow Flight RPC. Two clarifications for v3:
+Each node is a DID (`did:key`, Ed25519). Access is granted by UCANs that a node issues, delegates and revokes; libp2p finds nodes and Arrow Flight carries the data. Two clarifications for v3:
 
 - Arrow Flight `DoGet` carries **SQL in the receiver's semantic namespace**; the receiver runs it through its own semantic layer and engines. A node never executes SQL it did not rewrite itself.
 - Snapshot sync exchanges only `IcebergParquet` and `Lance` Locations. SQLite files never leave a node. For a Lance table, `oikome.snapshot` lists one version's files with their path in the dataset; the subscriber checks each path (only `data/`, `_versions/`, `_deletions/`, `_indices/<uuid>/`, plain names), downloads the version's manifest last so a reader sees the old version or the whole new one, and keeps the files of the current and previous version.
@@ -579,7 +684,9 @@ The peer protocol over Arrow Flight (`oikome-network::protocol`). Every call car
 - One row per call of each entry point (`get_schema`, `do_get`, `do_exchange`, the actions, `serve_envelope`): time, caller DID, method, Spaces, the id of the UCAN that let it in, outcome (`allowed`, `denied`, `failed`) and the reason. The reason is never sent to the caller.
 - `fetch_file` is recorded only when refused; the subscription is recorded by its `oikome.snapshot` call.
 - Rows live in `.oikome/access_log.sqlite`. Requests never wait for the log: a writer thread takes entries from a bounded channel (10,000), and entries are dropped (and counted) when it falls behind.
-- Failed authentications carry no caller and can come from anyone who reaches the port, so they are merged into one row per method and minute, under a cap of their own (10,000 rows). The log keeps 90 days, at most 100,000 rows.
+- Failed authentications carry no caller and can come from anyone who reaches the port, so they are merged into one row per method and minute, under a cap of their own (10,000 rows). The log keeps 90 days, at most 100,000 rows; the setting up of the data center (below) outlasts the 90 days.
+- The owner's own first steps are kept with the requests, as the owner's (M2, written by `oikome-api`): setting up the data center, adding the examples and saving the recovery key (`owner_setup`, `owner_examples`, `owner_key`). A data center set up before has them added once, at the times its settings kept.
+- When a contact or a plugin is removed, the name it had is kept beside the rows (the `names` table) as long as the rows are, so its lines still say who it was.
 - The owner reads it through `list_access` (§13.4).
 
 **Registry writes across processes (M1b).** `serve` and `oikome sql` are separate processes over the same `.oikome/`. A writer holds an exclusive lock on `.oikome/registry.lock`, reads the registry files again, changes them and saves them; `refresh` holds the lock shared while it reads. Without this, a write from one process could save a copy loaded before the other process's write and undo it, for example bringing back a token revoked with `oikome sql`.
@@ -662,8 +769,11 @@ A private data center is useful only once the data is in it, and most of an owne
 |------|---------|------|
 | App API | flomo through its MCP server (`https://flomoapp.com/mcp`, personal token; requires flomo MAX) | Incremental, on a schedule |
 | Export file | flomo's HTML export (all plans), Apple Health `export.xml`, a bank's CSV statement | On each import; a re-import reconciles |
+| Chain (planned, not scheduled) | An address's transactions and tokens on Ethereum and similar chains, through a public RPC node the owner picks | Incremental, by block |
 
 Connectors use only an app's official API or files the person exports. Reverse-engineered endpoints break without notice and may breach the app's terms.
+
+Connectors are for apps, whose data cannot be read where it is. Folders and storages are viewed in place instead (§7.7), and the folder sources below (`photos-folder`, `notes-folder`) move there in 3.9.
 
 ### 11.2 Contract
 
@@ -715,9 +825,12 @@ oikome source list
 oikome source remove flomo     # the Space and its data stay
 ```
 
-- Sources are registered on the node (`.oikome/sources.json`: connector settings and interval, no credentials), from the command line now and from the apps' Sources screen later (M2), through the same node functions (`add_source`, `pull_source`, `remove_source`). There is no SQL statement for them.
+- Sources are registered on the node (`.oikome/sources.json`: connector settings and interval, no credentials), from the command line and from the apps' Sources screen (M2), through the same node functions (`add_source`, `pull_source`, `remove_source`). There is no SQL statement for them.
+- A source can be paused (`paused`): it is not pulled on its interval, and still is when asked. Its interval is the owner's to set: a minute (the default for the apps' sources), 5 or 30 minutes, an hour, a day, or only when asked.
+- Each pull is kept for 30 days in the Space's hidden `_oikome_source_runs` table: when, how many rows it added or changed and removed, or why it failed. A successful pull's row is written in the same transaction as its data and cursor. A pull like the last one (nothing new again, or the same failure again) moves that row's time on and counts it, so a source read every minute does not fill the list.
 - A connector runs only on the node that owns its target Space (principle 2): on demand, or on its interval while the node serves (`oikome serve` checks every minute, `--source-sync`).
 - A token is entered once (standard input now, the apps later) and kept by the node like storage credentials (§7.5): OS keychain, else a private file; `OIKOME_SOURCE_<NAME>_TOKEN` overrides it. Tokens never enter Space data, the registry, snapshots, or anything sent to a peer.
+- A source's collection is a transactional Space on the node's disk. When the owner keeps it on a storage, the copy there is published after each pull (§7.5).
 - Connectors are in-process Rust code. Third-party connectors arrive as plugins in M4.
 
 ---
@@ -854,9 +967,9 @@ oikome/
 ├── crates/           Rust core; adds oikome-api [M1b] and oikome-mcp [M3]
 ├── apps/             one thin shell per client: entry, platform glue, packaging; no screens
 │   ├── web/          the web app, served by `oikome serve --web --web-root apps/web/dist`          [M1c ✅]
-│   ├── desktop/      Tauri; runs a Full Node in process                                             [later]
+│   ├── desktop/      Tauri 2; runs a Full Node in process                                           [later]
 │   │   └── src-tauri/
-│   └── mobile/       Tauri 2 mobile; reaches the owner's node over WebRTC, as a phone browser does  [later]
+│   └── mobile/       Tauri 2; reaches the owner's node over WebRTC, as a phone browser does         [later]
 ├── packages/         TypeScript shared by every client
 │   ├── screens/      every screen and feature, desktop and phone layouts, UI strings                [M1c ✅]
 │   ├── ui/           design system: tokens and components                                           [M1c ✅]
@@ -865,7 +978,8 @@ oikome/
 │   ├── api/          TypeScript types generated from oikome-api                                     [M1b]
 │   └── plugin-sdk/   the bridge every plugin page loads first (`sdk.js`) and its guide             [M2]
 ├── plugins/          Oikome's own plugins, built into the node: spending-by-category, photo-memories [M2]
-├── design/           PRODUCT.md, DESIGN.md, design.json                                             [later]
+├── docs/             architecture.md (this document), prd.md (the apps' PRD), prototype/ (the clickable design prototype, its translations and design references)
+├── design/           DESIGN.md, design.json                                                         [later]
 └── e2e/              Playwright: browser-node tests and test page (harness/); later per client      [M1a ✅]
 ```
 
@@ -889,7 +1003,7 @@ oikome/
 ### 13.4 Apps and the API Layer
 
 ```
- apps/web (browser)          apps/desktop (Tauri, later)        AI tools (MCP clients)
+ apps/web (browser)          apps/desktop (Tauri 2, later)      AI tools (MCP clients)
        │ HTTP                        │ in-process call                  │ MCP (stdio or HTTP)
  oikome-server --web                 │                              oikome-mcp            [M3]
        └─────────────────────────────┼──────────────────────────────────┘
@@ -924,7 +1038,7 @@ oikome/
 | `lending`, `set_lending` | Lending this computer (§12) to contacts: on or paused (offering `sql` or withdrawing it, grants kept), to whom, and how much each may use (the per-peer quota: 1 to 8 tasks at once, 1 to 1,000 an hour). Someone newly lent to gets a `compute/sql` grant for a year and an invite code, returned once; someone left out, or removed as a contact, has theirs revoked |
 | `list_borrowed`, `stop_borrowing` | Computers lent to this node, accepted from invites and kept in `.oikome/identity/borrowed.json` (owner-only). Each is asked, for at most 3 s, which methods it lends now: available, not lending now (paused there or stopped for this node; the lender doesn't say which), can't reach, or ended. Using one from the apps comes with borrowed compute (M4) |
 | `list_shares`, `revoke_share` | Shares: issued UCANs whose capabilities all name one Space (tokens issued with SQL for several Spaces or `*` are not listed). Revoking the contact's last active share of a Space removes their grant on it |
-| `list_access` | The access log (§9), newest first, by DID or Space, with contact names |
+| `list_access` | The access log (§9), newest first, by DID or Space. Each row says who it was as the owner knows them (`who`, `name`): you; a person, by their contact name, else the name they gave in an invite or with a computer they lend, else the one they had when removed; a plugin, by its name, also once removed; or unknown. A name a caller gives itself in a request is not used: anyone could claim one |
 
 - The API never builds SQL from request fields: names are checked against the catalog and operations call the node directly. Only `run_sql` runs SQL, the owner's own.
 - **`oikome-mcp`** (M3) exposes Principal operations only: list the Spaces it may read, then search and query within its grants. It never exposes Owner commands.
@@ -932,16 +1046,30 @@ oikome/
   - `oikome mcp`, when started by an AI client, is a thin bridge: it reaches the running node with that assistant's UCAN. It does not open the data directory, where it would contend for DuckDB and SQLite file locks.
   - The MCP SDK and its license are checked when M3 starts.
 - **Plugins** (M2) are cards on Home: a folder of web files with a manifest (`oikome-plugin.json`: id, name, maker, version, what it reads as a shape and the kinds of column it needs, card size, entry page). Installed ones are kept in `.oikome/plugins/<id>/` (Oikome's own are built into the node); each is a Principal with a DID made at install and whole-Space grants on exactly the collections the owner chose. The web server serves `/plugins/<id>/…` with a policy of its own: CSP `default-src 'none'` with `connect-src`, `frame-src`, `worker-src` and `form-action` `'none'`, `sandbox allow-scripts` (an opaque origin: no cookies, storage or app API), `frame-ancestors 'self'`, a Permissions-Policy denying devices, and DNS prefetch off; the app's own `frame-src 'self'` stops a plugin frame navigating elsewhere. CSP doesn't cover WebRTC (Chromium ignores `webrtc 'block'`; a sandboxed frame still sent STUN packets), so the server injects the bridge (`packages/plugin-sdk/sdk.js`) as the page's first script, which removes the `RTC*` constructors before plugin code runs; nested frames, workers and `eval` are blocked, so no fresh copy can be had. The app reads a plugin's collections through `plugin_read`, which runs as the plugin, so the node's grants decide (a record claiming more changes nothing), and posts the rows as plain values (dates ISO, images `data:` URLs, up to 1,000 rows and 32 MB) with the style to that frame alone; the frame may ask only to open one of its collections. Reads are in Activity as the plugin's (allowed ones at most once per 10 minutes per collection, refusals always). `list_plugins`, `inspect_plugin`, `install_plugin`, `set_plugin_collections`, `remove_plugin`.
+- **Public shares** (3.8, not built). A share to anyone rather than to a contact. Nothing is public until the owner shares it (principle 5).
+  - What: a collection, a view or chosen columns, query-only by default; copying only when the owner allows it.
+  - Who: anyone with a DID, one made in the browser on the spot or a wallet's (`did:pkh`, signed in with Sign-In with Ethereum, EIP-4361). Callers are named in Activity by their DID like anyone else.
+  - Limits per caller, set by the owner: requests per minute, rows and run time per query. A request over them is refused, not queued.
+  - Reach: strangers never need the owner's address. Live queries go through a relay (§17); a public collection can also be published as a read-only snapshot to a storage or to IPFS or Arweave. Its files are named by their BLAKE3 hash and the owner signs its manifest, so anyone can mirror it and check what they got.
+  - Being found: a public share may be listed where people look for it, if the owner chooses. Private shares never are.
+- **Payment plugins** (M5, not built). An owner may charge for a public share or a share to a contact.
+  - A payment plugin connects one payment service the owner chooses: PayPal, Alipay, a Web3 wallet and others. The owner sets it up with their own merchant account or wallet address, and the money goes straight there. Oikome has no payment channel of its own and never holds or moves funds.
+  - What is priced: an item (a collection, a view, chosen columns), for a period or per query; a copy may be priced apart from query-only access.
+  - Contract: `create_order` (item, price, buyer's DID → a payment link or QR code), `order_status` (pending, paid, refunded) and `refund`. Paid means confirmed by the payment service's servers, or for a wallet, by the node reading the chain through a public RPC until the transfer has enough confirmations. A node behind a NAT usually cannot receive a service's callback, so the plugin asks the service for the order's state.
+  - The node issues the grant when an order is paid (a UCAN for exactly what was bought, for its period) and revokes it on a refund. Orders are in Activity.
+  - Permissions are the reverse of a card's: a payment plugin may reach its own service's hosts and reads no data; it sees only orders (item, price, buyer's DID). How it runs (process, sandbox) is decided with M5.
+  - A copy cannot be taken back once sold. Query-only access, a watermark per buyer on copies and security mode (§17.4) limit what a buyer can pass on; the apps say so when the owner prices a copy.
+  - Merchant qualification, tax and content rules are between the owner and the payment service.
 
 How each client reaches data (screens depend only on `NodeClient`):
 
 | Client | Runs in | Reaches data through | Layout |
 |--------|---------|----------------------|--------|
 | Web, desktop browser | Page served by the Full Node | HTTP on loopback, owner session | Desktop |
-| Desktop app (later) | Tauri window | In-process calls to `oikome-api` | Desktop |
-| Phone app (later) | Tauri 2 mobile, paired with the owner's node | WebRTC with a UCAN issued at pairing | Phone |
+| Desktop app (later) | Tauri 2 window | In-process calls to `oikome-api` | Desktop |
+| Phone app (later) | Tauri 2, paired with the owner's node (§13.5) | WebRTC with a UCAN issued at pairing | Phone |
 
-**Phones.** Pairing a phone comes with the phone app. A phone browser would need the browser node's page over HTTPS, which the owner's loopback server cannot give it, and a page from a public origin or a self-signed certificate on the local network was turned down. The screens have a phone layout already, which the phone app reuses. Which Owner operations a paired phone may perform is decided with it.
+**Phones.** Pairing a phone comes with the phone app. A phone browser would need the browser node's page over HTTPS, which the owner's loopback server cannot give it, and a page from a public origin or a self-signed certificate on the local network was turned down. The screens have a phone layout already, which the phone app reuses. Which Owner operations a paired phone may perform is decided with it. How each kind of device pairs and reaches the node is in §13.5.
 
 **The web app (M1c).**
 - **Stack:** React 19 and Vite 7, built into `apps/web/dist`. Vite 8 was not used: it requires lightningcss, which is MPL-2.0.
@@ -954,12 +1082,12 @@ How each client reaches data (screens depend only on `NodeClient`):
   - Hashed assets are cached for a year; everything else is `no-store`.
   - Embedding the build in the binary waits for packaging.
 - **Words for people:** Collection (a Space), Contact, Share, Stop sharing, Activity (the access log), Your ID (the DID), invite code (the token, with where the sharer is and its name). A collection shared with you says whom it is from (`from_did`, `from_name`) and until when (`expires_at`), and is left by dropping it. The web app runs no SQL of the owner's: `run_sql` stays in the API for the command line and tests, and data comes in through importing (later).
-- **Screens:** Home (what the data center holds, where and who reads it, what came in last, recent Activity, the room on every place, and the recovery key until it is stored), Collections (a cover per collection), a page per collection, Sharing, Activity, Settings. The sidebar lists the places collections are kept in; the card under it shows the room on the one picked (`list_storages` reports free and total space for this computer and a folder).
+- **Screens:** Home (what the data center holds, where and who reads it, what came in last, recent Activity, the room on every place, and the recovery key until it is stored), Collections (a cover per collection), a page per collection, Sources and a page per source (its status, recent syncs, how often it is read, a Pause switch and Remove), Sharing, Plugins, Activity, Settings. Activity says who each line was as `list_access` names them, and opens what a line means and where to act on it; it filters Everyone, People, Plugins and You. The sidebar lists the places collections are kept in; the card under it shows the room on the one picked (`list_storages` reports free and total space for this computer and a folder).
 - **Two styles,** picked under Settings › Appearance and kept by the browser: Ink (the default: black ink on white, hairlines and no shadows, data in IBM Plex Mono, states as ink glyphs, crimson only for what needs the owner) and Bold (neubrutalist: 2px outlines, hard shadows, bright fills, Archivo Black). Both are sets of values for the same tokens; the faces ship with the app under the SIL Open Font License.
   - A collection shows what its first table holds, read from the columns rather than from names: a column of images is photos, a few columns with long text are notes, anything else is a table. Images reach the page as `data:` URLs, which the CSP already allows.
   - Times written without a zone (`TIMESTAMP`) show as written; `DECIMAL` values with their scale.
 - **First run:** the data center's name is filled in, so Continue alone goes through. `add_examples` then makes four examples, once, one of each kind: photos of a weekend in Lisbon, a short guide to Oikome (notes), three weeks of spending that end with that weekend (a table) and two weeks of a home's hourly temperatures and humidity (readings). They are plain files, like a notes app's vault: written into `Examples/<name>/` of the folder the owner picked for new collections, or of the data folder (photos with a `captions.csv`, notes as Markdown, tables as CSV), and each folder is the source (§11) of the collection of its name, read again every minute. A file already there is left as it is; a removed example stays removed, and its files stay. The six photos are from Wikimedia Commons (CC0 and CC BY), credited in `captions.csv`, in each row and in `NOTICE`; the rest is written for Oikome, and the readings are computed from a fixed formula. The apps show numbers over time with nothing else beside them as *readings*: the latest values and a line of one measure (a line, since a temperature has no zero worth drawing bars from), with the rows below; a column suffix such as `_celsius` or `_pct` names its unit.
-- **Where a collection is kept:** `create_space` takes a `storage`, this computer when left out; `list_storages` lists this computer and each storage, with the number of Spaces on it and the default for new collections (`set_default_storage`; `add_examples` puts the examples there). A removed Space leaves its files, and the name stays taken (`conflict`). Sources in the apps: `list_sources` (with the last read and the last failure, kept with the source until a read succeeds), `add_source` (a photos or notes folder, or a CSV file whose first column names each row, picked with the node's folder listing, which also lists CSV files and counts photos and notes), `pull_source`, `remove_source` (the collection stays) and `show_source_files` (opens a registered source's own folder or file in the system's file manager, an argument list and no shell). Removing a collection stops its source; the files stay. Days and times kept as text (`2025-11-07 09:40:00`, as SQLite and files hold them) read as dates in the apps. A node keeps its data in `~/Oikome` (`C:\Users\<name>\Oikome` on Windows) unless `--root` or `OIKOME_ROOT` says otherwise: the owner's, in plain sight like a notes app's vault, and not in Documents, which iCloud and OneDrive often sync, which breaks a live database (cloud drives are added as encrypted places instead). First run suggests the account's first name for the data center ("Rosh's data center") when the system knows one. Home's cards are the owner's to arrange, in place on Home (`set_home_cards`, kept in `node.json`): recently added, a photo, a table's daily totals over two weeks, the latest readings, activity and places, each with the columns of twelve it spans (4 to 12). A card kept without a width takes the app's own, the last in its row stretching to the row's end; `node.json` from before cards had widths still reads. The node changes `node.json` one change at a time, each written through a temporary file of its own. This computer's storage is called *Local* and is always there; a place added later is removed with `remove_storage`, refused (`conflict`) while a collection is on it. Removing it forgets its credentials and the locations removed Spaces left on it, never its files, and new collections go to Local when it was the default.
+- **Where a collection is kept:** `create_space` takes a `storage`, this computer when left out; `list_storages` lists this computer and each storage, with the number of Spaces on it and the default for new collections (`set_default_storage`; `add_examples` puts the examples there). A removed Space leaves its files, and the name stays taken (`conflict`). Sources in the apps: `list_sources` (with the last read and the last failure, kept with the source until a read succeeds), `add_source` (a photos or notes folder, or a CSV file whose first column names each row, picked with the node's folder listing, which also lists CSV files and counts photos and notes), `pull_source`, `pause_source`, `set_source_every` (a minute, 5 or 30 minutes, an hour, a day, or only when asked), `list_source_runs` (the last 30 days of syncs), `remove_source` (the collection stays; the same file or folder added again, by its real path, goes back into it while it is there and no other source fills it, as `node.json` remembers) and `show_source_files` (opens a registered source's own folder or file in the system's file manager, an argument list and no shell). Removing a collection stops its source; the files stay. Days and times kept as text (`2025-11-07 09:40:00`, as SQLite and files hold them) read as dates in the apps. A node keeps its data in `~/Oikome` (`C:\Users\<name>\Oikome` on Windows) unless `--root` or `OIKOME_ROOT` says otherwise: the owner's, in plain sight like a notes app's vault, and not in Documents, which iCloud and OneDrive often sync, which breaks a live database (cloud drives are added as encrypted places instead). First run suggests the account's first name for the data center ("Rosh's data center") when the system knows one. Home's cards are the owner's to arrange, in place on Home (`set_home_cards`, kept in `node.json`): recently added, a photo, a table's daily totals over two weeks, the latest readings, activity and places, each with the columns of twelve it spans (4 to 12). A card kept without a width takes the app's own, the last in its row stretching to the row's end; `node.json` from before cards had widths still reads. The node changes `node.json` one change at a time, each written through a temporary file of its own. This computer's storage is called *Local* and is always there; a place added later is removed with `remove_storage`, refused (`conflict`) while a collection is on it. Removing it forgets its credentials and the locations removed Spaces left on it, never its files, and new collections go to Local when it was the default. A collection a source fills goes on Local by default; choosing another place for it asks first and says that the working copy stays on this computer and the place gets a copy after every sync (§7.5). Making a NAS or drive the default asks the same once.
   - The owner picks a place instead of typing one: Welcome and Settings offer this computer (its data folder, or another folder), the cloud drives and drives found on it (`find_places`), a NAS, or another folder. A web page cannot ask the system for a folder, so the node lists folders (`list_folders`, owner only, hidden ones left out) and the page browses them, as NAS and media server apps do.
   - `add_storage` takes what was picked and calls the node's own `add_storage`: files go in an `Oikome` folder inside a picked folder, a folder inside a cloud drive is a drive (always encrypted), a password goes to the system keychain, and the storage is checked before it is kept. The data center's own folder (identity, catalog, Activity) stays where the node runs.
 - **Recovery key:** the identity seed, shown to the owner as 56 Crockford Base32 characters in 14 groups. It is made of a version byte, the 32-byte seed and two BLAKE3 check bytes (`oikome-identity::recovery`).
@@ -971,7 +1099,71 @@ How each client reaches data (screens depend only on `NodeClient`):
 - They serve the owner's personal data center: onboarding, Spaces, sources, sharing, AI assistants, plugins and settings. Node operations (engines, logs, peers' internals) stay in the CLI. Members and family roles come later.
 - The UI is English; other languages arrive through i18n later.
 - Visual design: Apple-style minimal on a low-chroma cream palette. One crimson primary action per view; blue only for links and focus. Settings and lists are grouped inset rows; a task beside a list (a new share) opens as a side panel, not a modal; removing something sits behind a More (…) menu and is confirmed inline; a field in focus only darkens its border. Its tokens and rules move into `design/` with DESIGN.md.
-- **Storage.** The web app's onboarding shows where the data is kept; choosing a NAS (§7.5, phase 3.4a) moves into the apps with a storage screen. Cloud drives come through their sync folders (3.4b, always encrypted) and later over their API (3.4c); the apps offer each as it arrives. Credentials and keys are entered in the apps and kept by the node (§7.5). Browsing files already on a drive (as AList does) and serving Oikome over WebDAV are planned but not scheduled.
+- **Storage.** The web app's onboarding shows where the data is kept; choosing a NAS (§7.5, phase 3.4a) moves into the apps with a storage screen. Cloud drives come through their sync folders (3.4b, always encrypted) and later over their API (3.4c); the apps offer each as it arrives. Credentials and keys are entered in the apps and kept by the node (§7.5). Baidu Netdisk (3.4d) and object storage (3.4e) follow. Browsing files where they are comes with 3.9 (§7.7), and Save To with 3.10 (§7.8). Serving Oikome over WebDAV is planned but not scheduled.
+
+### 13.5 Devices: Pairing and Getting Online
+
+Nothing here is built yet. The phone and desktop apps arrive later (§14.1), and the web prototype draws the flows. This section sets what a device is to Oikome, how each kind pairs, and how it reaches the node.
+
+**Two kinds, by which way the data flows.**
+- **Devices that read** the data center: phones, tablets, another computer, and later perhaps a TV. Each runs an Oikome app and is paired. It gets a UCAN for its DID and is listed under Sharing › My devices. Removing it revokes the token.
+- **Devices that make data:** lights, plugs, sensors, appliances, robot vacuums, watches and scales. Oikome reads them and they read nothing, so they get no grant. Their data comes in as a source (§11), nearly always through something in between.
+- One thing can be both. A phone is a paired device, and its photos are a source. A watch with the app reads, while its heart rate comes in through the phone's health app.
+- Oikome reads devices and never controls them. It is not a smart-home hub: control and automation stay with Home Assistant or the maker's app.
+
+**Common devices.** Getting a device onto the home network is the job of its maker's app or the hub, never Oikome's.
+
+| Device | Gets online by | Usually paired by | To Oikome |
+|--------|----------------|-------------------|-----------|
+| Phone, tablet | Wi-Fi, cellular | An app: scan a code or sign in | Reads; scans a code (below) |
+| Another computer | Wi-Fi, Ethernet | Found on the network, or a code typed in | Reads; found and confirmed by six digits, or takes a code |
+| TV, projector | Wi-Fi, Ethernet | The TV shows a code that a phone scans or types, as YouTube and Netflix sign in | Reads, if a TV app is made; the TV shows a code and a paired phone scans it |
+| Watch | Bluetooth to the phone; some also Wi-Fi | Through the phone (Apple Watch, Wear OS) | Both: reads through the phone's pairing, and what it records comes through the phone's health app |
+| Earbuds, speakers | Bluetooth; speakers Wi-Fi | Pairing mode near the phone; the maker's app | Neither: nothing worth keeping, nothing to show |
+| Lights, plugs, switches, sensors | Zigbee, Thread, Wi-Fi, Bluetooth | A gateway set to let devices join (Hue: the bridge's button); Matter: the code on the box | Makes data, through a hub |
+| Fridge, washer, air conditioner, robot vacuum | Wi-Fi | The maker's app gives it the Wi-Fi password over Bluetooth or a temporary hotspot, then binds it to the maker's account. Matter 1.2 and later define these types too | Makes data, through a hub or the maker's cloud |
+| Camera, doorbell | Wi-Fi | The maker's app | Makes data; proposed to leave out for now (privacy, size) |
+| Scale, blood-pressure monitor | Bluetooth, Wi-Fi | The maker's app, synced to the phone's health app | Makes data, through the phone |
+| Meter, charger, solar inverter | Wi-Fi, Zigbee, a maker's gateway | The maker's app or gateway | Makes data, through a hub |
+
+**Pairing a device that reads.**
+
+Every way ends the same. The node issues a UCAN to the device's DID. The device can read Home and the collections it is given, read only, until the owner changes that. What differs is how the owner confirms it is the right device: a one-time secret carried by a code, valid for minutes and used once, or six digits shown on both screens.
+
+| Way | For | How | Status |
+|-----|-----|-----|--------|
+| Scan this computer | Phone, tablet | The app scans a QR code on this computer. The code holds the node's signed access record (§10: DID, address, certificate fingerprint) and the secret | Decided (2026-11-02); comes with the phone app |
+| Found on the network, digits compared | Another computer | The other computer opens "Join a data center" in its desktop app, and this one finds it by mDNS (§9). Both screens show six digits computed from both DIDs, so a device in between would show different ones. The owner clicks Pair | In the prototype; comes with the desktop app |
+| Pairing code | Another computer, anything with a keyboard | A code from this computer, typed or pasted on the other. It holds this computer's address and the secret, so no discovery is needed. Used when discovery fails, for example on a network that blocks multicast | In the prototype; comes with the desktop app |
+| The device shows, a phone scans | TV, car screen | The device shows a QR code. A paired phone scans it, and the owner approves on the phone | Proposed; no TV app is planned |
+| Through the phone | Watch | A watch app reads through the phone's pairing | Proposed; not planned |
+
+- **Not possible:** a web browser on another device. It would need an HTTPS page, the same reason as for phones (§13.4).
+- **Words in the apps:** Add a Device opens the flow, as Add Source and Add Place do. Pair is only the button that confirms matching digits.
+
+**How a paired device reaches the node.**
+- **Same network for now.** A paired device reaches the node's address directly. The phone app uses WebRTC, as the browser node does (§10). Another computer runs a node of its own and reaches this one as a peer, over Arrow Flight with TLS checked by DID (§9). Away from home there is no connection: no STUN, TURN or relay exists yet (§10, §17.5). The apps say so when adding a device.
+- **Security mode** (§17.4) does not stop pairing: mDNS then announces a random identifier rather than the DID, and the six digits still confirm the device.
+- **Away from home, later:** comes with NAT crossing, under §17.5's rule of no public services by default.
+
+**How data from devices that make it gets in.**
+
+| Through | Examples | Path | Status |
+|---------|----------|------|--------|
+| A home hub | Home Assistant, which also brings in Xiaomi devices through Xiaomi's own integration | Device → hub → Oikome. Oikome talks only to the hub at home, but the hub may reach some devices through their maker's cloud | The way for now (the prototype's smart-home source); the Home Assistant connector is not built |
+| The maker's cloud | SmartThings, Tuya, LG ThinQ | Device → maker's cloud → Oikome, with the owner's token. The data is on that cloud already | Only where the maker publishes an API (§11); not scheduled |
+| Directly | Matter devices shared to Oikome with a pairing code from Apple Home, Google Home or Home Assistant (Matter lets several controllers share a device). Devices with a local API: Hue Bridge, Shelly, ESPHome | Device → Oikome, through no one else | Undecided (below) |
+| The phone | Watch, scale, blood-pressure monitor | Device → phone's health app → Oikome | Today as an export file (Apple Health `export.xml`, §11.1) |
+
+**Open questions.**
+- What another computer becomes: a reader like a phone (the prototype's choice), a second copy of the data center, or a second place to manage it.
+- Which Owner operations a paired device may perform. This is decided with the phone app (§13.4).
+- Whether Oikome talks to Matter devices itself. Three options:
+  - **(A)** Only through hubs, as now.
+  - **(B)** A read-only Matter controller, added through a hub's "share device" and entirely local. This is the recommended next step, once its license and dependencies pass the dependency policy.
+  - **(C)** Its own hub with Zigbee, Z-Wave and Bluetooth radios. Not recommended: it would rebuild Home Assistant.
+- Whether one Devices page shows both kinds: readers with pairing and removal, and devices that make data with what they come through and which collection they fill.
+- A NAS or home server running Oikome is proposed not to count as a device. It is either the data center itself or a place collections are kept (§7.5).
 
 ---
 
@@ -988,11 +1180,18 @@ How each client reaches data (screens depend only on `NodeClient`):
 | **3.3 Multimodal** ✅ | Lance Locations through DuckDB's `lance` extension: vector, full-text and hybrid search, indexes, version sync (3.3a ✅); FTS5/`sqlite-vec` on transactional Spaces (3.3b ✅); DuckPGQ on Lance Spaces (3.3c ✅); capability checks | Vector + FTS query on a Lance Space and on a transactional Space; a subscribed Lance Space is searchable without rebuilding its index |
 | **3.4a NAS** ✅ | Storages registered per node (`oikome storage add`: WebDAV or a mounted folder); the writer pushes each snapshot, other nodes copy the newest complete one; one writing node per folder; credentials from the environment; transactional Spaces refused | An analytical Space (Iceberg and Lance) on a WebDAV NAS is written by one node and read by another, and the Lance copy is searched with the writer's index; a second node cannot bind it writable; a transactional Space on a NAS is rejected at DDL; a reader never reads a snapshot with missing files |
 | **3.4b Cloud drives** ✅ | Client-side encryption of every file and name on a storage; drives through their desktop client's sync folder (`--drive`, always encrypted); credentials and keys kept by the node (OS keychain, else a private file), entered once in the apps or on the command line | A Space on a drive's sync folder is written by one node and read by another with the same key; without the key the drive's files cannot be read (no content, table names or paths), and a wrong key is reported; credentials are in the keychain or the node's private file only, never the registry, SQL or logs, and the environment overrides them |
-| **3.4c Drives over their API** | OAuth sign-in and opendal drive services (Google Drive, Dropbox, OneDrive) for nodes without a desktop client, encrypted as in 3.4b | Set when 3.4c is planned |
+| **3.4c Drives over their API** | Google Drive and Dropbox through opendal (upgraded to the current release) for nodes without a desktop client, encrypted as in 3.4b. OAuth with PKCE, on a loopback port or with a pasted redirect, using the owner's own OAuth client. Tokens are kept and refreshed by the node and revoked on removal. Spaces need only the least permission. Large files use resumable or session uploads, added to opendal in Oikome's fork and contributed upstream. OneDrive stays on its sync folder (§7.5) | A Space on Google Drive and one on Dropbox, reached over the API, are written by one node and read by another with the key. A file larger than one upload request is stored and read back intact. Tokens are only in the keychain or the node's private file. An expired or revoked token asks for sign-in again, and a failed push does not fail the write |
+| **3.4d Baidu Netdisk** | An opendal `baidu-netdisk` service in Oikome's fork, proposed upstream (apache/opendal#8481) and used as a git dependency. OAuth sign-in, folders under `/apps/Oikome/`, encrypted. Refused calls are retried with backoff (§7.5) | A Space on Baidu Netdisk is written by one node and read by another with the key. A rate-limited call is retried without failing the push. The service passes opendal's behavior tests against a real account |
+| **3.4e Object storage** | S3-compatible services through opendal's `s3` (AWS S3, R2, B2, MinIO, and the OSS and COS endpoints). Keys are kept by the node. Encrypted by default, optional for a service the owner runs (§7.5) | A Space on MinIO (in CI) and one on a hosted service are written by one node and read by another. Without the key the hosted copy cannot be read. A large file is uploaded in parts and read by range |
 | **3.5 Connectors** ✅ | `Connector` contract (`oikome-connect`); upsert and cursor in one SQLite transaction; scheduled and on-demand pulls; tokens kept by the node; CSV and flomo connectors (export file; MCP written, run against flomo once a MAX account is at hand) | flomo memos land in `flomo.memos`; a second pull touches only changed memos; an edited memo is updated, not duplicated; a failed pull leaves data and cursor unchanged |
 | **3.6 Compute sharing** ✅ | `compute/<method>` UCAN abilities with `nb` limits, apart from data grants; only Oikome's own compute methods, offered by the executing node (first: `sql` in an isolated DuckDB); tasks over Arrow Flight `DoExchange`; per-peer quotas | Node B runs a task for node A within its quota; a task over its limits is refused; revoking the UCAN drops A's queued tasks; A's compute grant gives no access to B's Spaces, and a data grant does not let A run tasks |
+| **3.7 Security** | Security mode (§17.4) in the node, the API (`security_mode`, `set_security_mode`, owner only) and the apps' Settings › Security; the warnings of §17.3; the node key in the OS keychain; the browser node's key non-extractable; the first-run disk check; `SECURITY.md`. The relay part of §17.4 comes with NAT crossing | Every step below also works with security mode off. With it on: mDNS carries no DID, and a contact still finds the node on the local network; a contact's query is in Activity with its SQL and row count; a copy is kept sealed on the contact's node and deleted there when the share is revoked or ends; a borrowed task sends only the columns it reads, the lender keeps nothing after returning the result and signs a receipt, and both sides record what was sent; `--allow-http` is refused. In both modes, on macOS and Windows the node key moves into the keychain at the first start (checked by hand; tests use the file store) and stays an owner-only file elsewhere; a browser node's key cannot be exported; `SECURITY.md` says how to report a vulnerability |
+| **3.8 Public shares** | Shares to anyone (§13.4): query-only by default, limits per caller, callers by any DID including a wallet's (`did:pkh`); read-only public snapshots with a signed manifest on a storage or on IPFS or Arweave | Set when 3.8 is planned. Live queries by strangers wait for NAT crossing; public snapshots do not |
+| **3.9 Viewing in place** | In-place Spaces over folders on this computer and on storages (§7.7). They are read-only, with a table per CSV, Parquet or JSON file. The node keeps an index (files, text, thumbnails) as a cache, and previews use range reads. Whole-drive read access is asked for when needed. The folder sources of M2 move to in-place Spaces | A folder on this computer, one on a NAS and one on a drive are browsed and their CSV files queried, with nothing written to them. Search and thumbnails work from the index while the place is offline. Deleting the index and refreshing rebuilds it. A contact granted an in-place Space queries it and is cut off when the grant is revoked |
+| **3.10 Save To** | Save rules (§7.8): plain files or a new Space as the target, folder and name rules, once or continuing. A rule changes only the files it wrote | Photos saved once land as plain files in the rule's folders, under its names, and open in other apps. With a continuing rule, a new photo appears at the next run, unchanged files are not written again, and a file the rule did not write is never overwritten. A rule into a Space commits a snapshot each run |
+| **3.11 Saved Spaces shared** | A saved Space shared with contacts. Portfolios (order, cover, title, captions) are kept with the Space (§7.9). Shared with anyone through public shares (3.8), photos without their location data | A contact subscribed to a saved Space keeps reading it after its source folder is removed. A portfolio's order, cover and captions reach the contact. Revoking stops refreshes |
 
-No phase skipping (AGENT.md §4.1).
+No phase skipping (AGENT.md §4.1). Phases that need accounts (3.4c–3.4e, drives in 3.9, flomo's MCP from 3.5) are written first. Once all of them are written, they are run against real accounts together.
 
 ### 14.1 Apps Track
 
@@ -1006,6 +1205,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | **M2 Connect** | Sources screen and sync status, Home dashboard, built-in cards, dashboard plugins v1 (`plugin-sdk`, data contract, plugin grants), reference plugins | 3.5, M1c | A connector's data appears on Home; a plugin reads only what its grant allows and cannot reach the network |
 | **M3 Find** | Full-text and semantic search, photo and note views, AI Assistants screen, `oikome-mcp` | 3.3 ✅, M2 | An MCP client lists and searches only the Spaces granted to it; revoking the grant in the app cuts it off; Owner commands are not offered over MCP |
 | **M4 Extend** | Borrowed compute, third-party connector plugins, plugin directory; cloud-drive storage as 3.4b and 3.4c bring it (§7.5, §13.4) | 3.4b, 3.6, M3 | Set when M4 starts |
+| **M5 Pay** | Pricing in the apps (what, for how long or per query, query-only or copy); payment plugins with the order contract (§13.4); the buyer's side for contacts and strangers; orders in Activity | 3.8, M4 | Set when M5 starts |
 
 **Tests use a local node.** e2e starts `oikome serve` on a temporary data directory and writes its test data through the CLI or the API. There is no fake-data layer and no mock `NodeClient`. The API comes before the screens, and each screen arrives with the milestone whose data it shows: Sources and Home in M2, search and AI Assistants in M3.
 
@@ -1029,7 +1229,11 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | The keychain crates are young (1.x, 2025–2026) | Pinned exactly; tests use an in-memory or file store and never the machine's keychain; the keychain path was checked by hand on macOS |
 | macOS may ask again for keychain access after the binary is rebuilt (its signature changes) | Stated; signed release builds keep one signature |
 | The only key of an encrypted storage is lost | The writer still holds the Space on its disk; `export-key` lets the owner keep a copy; stated where the key is made |
-| Drive APIs change, rate-limit or expire tokens (3.4c) | Services are maintained in opendal and feature-gated; the sync-folder path needs no API; a failed upload leaves the previous snapshot readable |
+| Drive APIs change, rate-limit or expire tokens (3.4c, 3.4d) | opendal no longer runs its Dropbox and Aliyun Drive tests against the real services, so Oikome checks the drive services with real accounts itself. The sync-folder path needs no API. A failed upload leaves the previous snapshot readable, and refused calls are retried with backoff |
+| Google's `drive.readonly` is a restricted scope: a published app needs Google's verification, and while an OAuth client is in testing its refresh tokens expire after 7 days | Viewing a drive in place is asked for separately from keeping Spaces (`drive.file`). During testing the owner signs in again each week. Verification comes before release |
+| A Baidu upload needs every block's MD5 before it starts, and downloads without a membership are slow | `RemoteStore` hashes local files before uploading them. Baidu Netdisk is suggested for Save To and backups rather than for Spaces that are read often |
+| opendal does not take the Baidu Netdisk service, or takes it slowly | Oikome keeps using its fork, or moves the service into a crate of its own. Nothing else changes |
+| Save To writes into folders the owner also uses | A rule changes only the files it wrote, recorded with their BLAKE3, and deletes only if it says so |
 | Sync clients reorder uploads, create conflict copies or leave placeholders (3.4b) | Snapshot files are written after the files they name; readers take the newest complete snapshot; files no snapshot names are ignored |
 | A connector breaks when an app changes its API or export format | Connectors are isolated from each other; a failed pull changes nothing because data and cursor commit together; only official APIs and exports are used |
 | Data sent for remote compute cannot be proven deleted | Only to explicitly trusted peers; the input is a chosen query result, not a Space; documented as trust-based |
@@ -1089,7 +1293,7 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-01 | User-facing apps serve the owner's personal data center only: no node-operations or developer screens; members later; English UI, i18n later | The apps are for ordinary people using their data; operating the node stays in the CLI; the audience is global |
 | 2026-11-01 | Repository layout: `apps/` (thin shells), `packages/` (shared TypeScript), `plugins/`, `design/` and `e2e/` at the root beside `crates/`; root `package.json` (npm workspaces) beside `Cargo.toml`; a directory is created only when its work starts | Web, desktop and phone are peers, so `apps/` sits at the root rather than inside `web/`; shared screens avoid extracting them from one app later; directories for unbuilt features would only describe intent, which this document already does |
 | 2026-11-01 | `oikome-api`: one transport-free API with the caller as Owner or Principal; HTTP in `oikome-server --web`, desktop in process, MCP in `oikome-mcp` exposing Principal operations only; `packages/api` generated from it | One set of handlers for every client; the name covers plugins and MCP, not just Oikome's own apps, while the peer protocol keeps its own crates; an AI tool can never reach Owner commands |
-| 2026-11-01 | Desktop and phone apps on Tauri (later) | Its backend is Rust and links our crates directly, so the desktop app is a Full Node with a UI and no command line; Tauri 2 also targets iOS and Android; Apache-2.0 / MIT |
+| 2026-11-01 | Desktop and phone apps on Tauri 2 (later) | Its backend is Rust and links our crates directly, so the desktop app is a Full Node with a UI and no command line; the same framework also targets iOS and Android; Apache-2.0 / MIT |
 | 2026-11-01 | The apps offer local folders and NAS as storage; cloud drives as Locations stay undecided, with §7.5 and phase 3.4 unchanged until then | The product rule is that data stays at home, which conflicts with keeping it on a drive provider's servers; browsing existing drive files and serving WebDAV are planned separately |
 | 2026-11-02 | Storages: a NAS first (3.4a, WebDAV or a mounted folder); cloud drives step by step, each only once its files are encrypted on the client (3.4b onward). Settles the entry above | Data on a NAS stays at home; a drive provider can read what is uploaded, so encryption comes first |
 | 2026-11-02 | A Space on a storage is copied, not read in place: the writer keeps it on its disk and pushes each snapshot (files, then a snapshot file); readers copy the newest complete snapshot and read it like a subscription. `materialize()` dropped | DuckDB reads Iceberg as lists of local Parquet files and the `lance` extension attaches only local directories; Iceberg commits over WebDAV have no compare-and-swap; the subscription code already copies verified snapshots, so one mechanism serves Iceberg and Lance, and encryption later wraps each file |
@@ -1108,7 +1312,116 @@ The user-facing apps (§13.3, §13.4) run beside the core phases. They do not bl
 | 2026-11-02 | The web app starts with examples (one weekend in Lisbon: photos, notes, spending) and shows each collection as what it holds; no SQL workbench in the apps | A first screen with something in it shows what Oikome is for and gives every test the same data; owners are not database users, and their data arrives by importing |
 | 2026-11-02 | Web app on React 19 and Vite 7, served from a directory (`--web-root`) under a strict CSP | React's ecosystem and Tauri templates for the later apps; Vite 8 requires lightningcss (MPL-2.0); embedding the build waits for packaging |
 | 2026-11-01 | Visual design: Apple-style minimal, low-chroma cream palette, one crimson primary action per view, blue only for links and focus | Calm and familiar for ordinary users; color marks the one thing to do instead of decorating; every text pair is checked against WCAG contrast |
+| 2026-11-03 | A collection a source fills keeps its SQLite working copy on the node's disk; kept on a storage, it gets a published copy pushed there after every pull. The apps default these collections to Local and ask before any other place | SQLite needs a local filesystem, and a mounted SMB or NFS share is still a network one. Owners think "my photos are on the NAS"; publishing and pushing already exist, so the copy there is the same kind of second copy as for any Space on a storage |
+| 2026-11-04 | Activity keeps the owner's first steps (setting up, the examples, the recovery key) as the owner's lines, through this computer; setting up is kept past pruning, and a data center set up before gets them once from its settings | Activity is where the owner sees what happened to their data, and the first run is where that starts |
+| 2026-11-04 | Activity names each caller as the owner knows them: you, a person, a plugin, or unknown. A removed contact's or plugin's name is kept with the log as long as its lines; a name a caller gives itself is not shown | Whether someone is a contact is not who they are; a removed plugin's or contact's lines must still say who it was; a self-given name could be anyone's |
+| 2026-11-04 | Sources pause rather than stop; removing one asks first and keeps its collection, and the same file or folder added again goes back into it. Each source has a page with its recent syncs (30 days, kept in its Space, runs alike in a row kept as one) and how often it is read | Stop used to unregister the source, so it vanished and came back as a new collection; owners mean pause; a source read every minute would fill a history with "nothing new" |
+| 2026-11-04 | Security is stated as who can see what (§17). Defaults are sound rather than maximal. One switch per node, security mode, off by default, adds protection to the same features and never turns one off: local discovery without the DID, copies kept sealed and deleted when a share ends, borrowed tasks that send only the columns they read and leave nothing behind, a fuller Activity, a network key apart from the DID on relays. A third-party audit, managed relays, two-hop relaying, post-quantum key exchange and team-wide policy are left for later | Owners need to know exactly who can see their data. An open-source project can make the defaults safe for ordinary use and leave the costly guarantees for later, some as services. A mode that turned off sharing or borrowing would make owners choose between safety and the product; protection added to the same features does not |
+| 2026-11-04 | The owner may open chosen data to anyone, strangers included, within limits the owner sets (public shares, query-only by default). Deny by default still holds: a public share is the owner's explicit grant | Exchange is not only between people who know each other: owners publish knowledge to people they have never met. Limits per caller keep a stranger from taking more than was offered or wearing the node out |
+| 2026-11-04 | Oikome covers Web2 and Web3: wallets as identities (`did:pkh`), chains as sources, public snapshots on IPFS or Arweave. No token or chain of its own, no private data on a chain, and no wallet needed | Owning one's data is the point, not a chain. A token turns users into speculators, and in China token business is tightly restricted. What Web3 does bring (wallet identities, public verifiable data, on-chain data) fits the existing DID, connector and content-addressing pieces |
+| 2026-11-04 | Owners may charge for chosen data through payment plugins they pick (PayPal, Alipay, Web3 wallets and others), paid straight into their own accounts. Oikome never holds funds; a paid order is only the condition for a grant and a refund revokes it; payment plugins reach their service but read no data | Decentralized means no payment channel is chosen for the owner, and a platform that collects money and pays it out for others needs a payment licence. Keeping money and data in separate hands means neither can leak the other |
+| 2026-11-04 | Devices are told apart by which way the data flows (§13.5). Devices that read are paired: a phone or tablet scans a code; another computer is found on the network and confirmed by six matching digits, or takes a pairing code. Each gets a UCAN, read only until the owner changes it, and removing it revokes the token. Devices that make data come in as sources, through a home hub, the maker's cloud, the phone, or directly. Paired devices need the same network until NAT crossing. The apps say Add a Device, and Pair only for the confirming step | Pairing and removal use the grants and revocation the node already has, so nothing new has to be trusted. Appliances and sensors never read the data center, and Oikome reads devices rather than controlling them. Add matches the other Add actions and covers devices that need no pairing; Pair is the step where two screens are compared |
+| 2026-11-04 | Files are viewed where they are, through read-only in-place Spaces whose index is a cache on the node. A copy is made only by Save To, into plain files or a new Space, once or continuing. A saved Space is shared on its own, also as a portfolio. Sharing it with anyone goes through public shares (3.8), with photos' location data removed by default. Phases 3.9–3.11. Settles the 2026-11-01 entry on browsing drive files | The owner should see every place and app without copying. Copying is a choice, with a target and rules. A saved Space no longer depends on its source. Oikome views, picks, saves and shares, and editing stays in other software |
+| 2026-11-04 | Storages are sources as well as targets. Viewing a drive in place needs read access to the whole drive: it is asked for separately, used while testing, and goes through Google's verification before release. Keeping Spaces and Save To keep the least permission. 3.4c is Google Drive and Dropbox, after upgrading opendal to the current release. Large files go up through Google's resumable uploads and Dropbox's upload sessions, added to opendal's writers in Oikome's fork and contributed upstream. OneDrive stays on its sync folder | Viewing in place cannot work with only the files Oikome creates, and asking separately keeps the broad permission optional. Upload sessions are how both drives take large files, so readers see one file and every opendal user gains; parts on the drive would need reassembly on every read. opendal's `onedrive` needs read-write access to the whole drive, and 3.4d needs the current release |
+| 2026-11-04 | 3.4d: Baidu Netdisk is an opendal service written in Oikome's fork and proposed upstream (apache/opendal#8481), not a client inside Oikome. 3.4e: object storage through opendal's `s3`, encrypted by default | One service serves every opendal user, and Oikome's own code stays the VFS. If upstream declines, the fork or a crate of Oikome's own keeps it. One S3 service covers AWS, R2, B2, MinIO and the S3 endpoints of OSS and COS, and its range reads and multipart uploads suit video |
 
 ---
 
-*This document is the canonical architecture baseline for Oikome v3.0. All engineering implementation proceeds from this specification. v1 and v2 remain for historical context; where they conflict with v3, v3 wins.*
+## 17. Security
+
+Oikome keeps people's private data and moves it between them, so it has to say exactly what it protects, from whom, and what it does not. As an open-source project it aims at sound defaults that an ordinary owner can rely on without changing a setting, not at the strongest protection against every adversary. Owners who want less exposure turn on security mode (§17.4), which gives up some convenience. Stronger guarantees with a real cost are left for later (§17.6).
+
+### 17.1 What Is Protected
+
+| What | How | Where |
+|------|-----|-------|
+| Traffic between nodes | TLS by default; plaintext only with `--allow-http`. The certificate must carry the key of the DID the client expects: no CA, no host names. Every request is signed for the receiving node and accepted once | §9 |
+| Traffic with a browser | DTLS against the fingerprint in a record signed by the node's DID; every request signed by the browser's DID | §10 |
+| What a caller may read | Deny by default; the UCAN is verified before any capability; column grants and row policies inside the engine's SQL; ungranted tables do not exist; peers and Principals are read-only | §6, §13.4 |
+| Files on a storage | Sealed on the client (XChaCha20-Poly1305, names from a keyed hash): always on a cloud drive, on a NAS when chosen | §7.5 |
+| Passwords, tokens and storage keys | OS keychain, else an owner-only file; never in the registry, SQL, logs, snapshots or anything sent to a peer | §7.5, §11.4 |
+| Plugins | A sandboxed frame without network; reads only the collections granted to it | §13.4 |
+| The owner's oversight | Requests from peers, browsers and plugins, and the owner's first steps, are kept in Activity | §9 |
+
+### 17.2 Who Can See What
+
+| Who | Sees | Does not see |
+|-----|------|--------------|
+| A contact with a query share (`space/query`) | Result rows of the granted tables and columns | Anything else; anything after the share is revoked |
+| A contact with a copy share (`space/read`) | Whole tables, copied to their node | Nothing more. The copy stays after revocation (§5.3); with security mode on, their node deletes it, as long as it runs an unmodified Oikome |
+| A computer you borrow (§12) | The task and the input you send it | Your Spaces |
+| A contact you lend this computer to | Their own task's result | Your Spaces: a compute grant gives no data access |
+| An AI tool over MCP (M3) | The Spaces granted to it | Owner commands |
+| Anyone on the same local network | That an Oikome node is there and its address; with security mode off, also its DID | Traffic, which is encrypted |
+| A storage provider | Encrypted: how many snapshots and files there are and their rough sizes. An unencrypted NAS: everything | Contents and names of encrypted files |
+| A relay, once nodes cross NATs (§9) | IP addresses, which keys talk to each other, when and how much | Contents, which are encrypted end to end; with security mode on, which DIDs the keys belong to |
+| Someone with the computer or its disk | `~/Oikome` and the node key, unless the OS encrypts the disk | — |
+| A script running on the browser node's origin | The seed in IndexedDB (§10) | — |
+| A stranger with a public share (3.8) | What the owner made public, within the owner's limits per caller | Anything else; the owner's address, when served through a relay or a published snapshot |
+| A buyer (M5) | What they paid for, for its period | Anything else; nothing new after a refund |
+| A payment plugin (M5) | Orders: item, price, buyer's DID | Any data |
+| A payment service | The payment, as for any payment: amount, accounts, the item's name | The data that was bought |
+
+Out of scope: a compromised operating system or a tampered build of Oikome; someone who watches the network and infers who talks to whom from the traffic; quantum attacks (signatures and key exchange are not post-quantum).
+
+### 17.3 Defaults
+
+Always on, whatever the mode: TLS (`--allow-http` is for development), signed requests, UCAN checks, deny by default, the plugin sandbox, encryption on cloud drives and Activity.
+
+With security mode off (the default):
+
+- Local discovery (mDNS) is on.
+- A share may allow copying; the apps say that a copy cannot be taken back.
+- Borrowing compute is allowed; the apps say that the lender's computer sees what is sent to it.
+- Relays, once nodes cross NATs: the relays the build lists and any the owner adds. Addresses for private data are never published to a public DHT or DNS; they travel in invites and between contacts. A public share may be listed where people find it, if the owner chooses (§13.4).
+- On the first run the apps say so when the OS reports the disk unencrypted (FileVault on macOS, BitLocker on Windows).
+
+### 17.4 Security Mode
+
+One switch per node, off by default: Settings › Security in the apps, `oikome security on|off` on the command line, `security_mode` in `.oikome/node.json`.
+
+**Security mode never turns a feature off.** Every feature works with it on as with it off. It adds protection to how data moves and how it is analysed; where software alone cannot protect something, it makes the exposure visible and recorded.
+
+| | Off | On |
+|---|-----|----|
+| Local discovery | mDNS announces the node's DID and address | mDNS announces a random identifier that changes; the node says who it is only to a node that proves it is a contact |
+| Contacts' queries | In Activity: who, which Spaces, allowed or refused | Also the SQL as the owner's semantic layer ran it, and the number of rows returned |
+| Copy shares (`space/read`) | The copy stays on the contact's node after revocation (§5.3) | The copy is sealed on the contact's node under a key of its own. The contact's node deletes the copy and its key when it learns of the revocation at its next refresh, and in any case when the token ends. The share carries this requirement (UCAN `nb`), so the owner's mode decides, whatever the contact's |
+| Borrowing compute (§12) | The task's input is sent as the task needs it | Only the columns the task reads are sent. The lender's node runs the task in memory with external access off, deletes the input and the result once it has returned it, and signs a receipt. Both sides record what was sent (columns, rows, hash). The apps show whether the lender runs security mode too |
+| Relays, once nodes cross NATs | The DID's key is the network identity | A network key apart from the DID, changed regularly and bound to it by a signature only contacts see, so a relay cannot link the traffic to the identity |
+| Share and invite lifetime | Chosen by the owner, 1 to 366 days | 30 days unless the owner picks longer; the apps remind the owner before a share ends |
+| Keys and tokens on this computer | The node key in the OS keychain (3.7); invites and borrowed grants in owner-only files | Those files are also sealed with a key kept in the OS keychain |
+| Disk not encrypted | A warning on the first run | The warning stays on Home until the OS reports the disk encrypted |
+| Public shares (3.8) | Served as the owner set them | Served only through a relay or a published snapshot, never from the node's own address; strangers' queries are recorded with their SQL |
+| `--allow-http` (development) | Accepted | Refused |
+
+- **What it relies on.** Deleting a copy and discarding a borrowed task's input are done by the other node's Oikome. A modified build there could keep them, and nothing in software can prove otherwise. The apps say so where they offer a copy share or a borrowed computer.
+- Turning it on applies to what the node does next. It cannot undo copies already made or addresses peers have already seen.
+- The apps ask before turning it off.
+- It is set per node. A policy that sets it for a whole team comes with teams.
+
+### 17.5 Known Gaps
+
+| Gap | Plan | When |
+|-----|------|------|
+| The node key is an owner-only file | Kept in the OS keychain where there is one, as storage credentials are; the file remains for servers and containers | 3.7 |
+| The browser node's seed is readable by scripts of its origin | A non-extractable WebCrypto Ed25519 key (§10) | 3.7 |
+| Local discovery announces the DID on any network | With security mode on, a changing random identifier instead, and the DID only to contacts (§17.4) | 3.7 |
+| No published way to report a vulnerability | `SECURITY.md`: private reporting and supported versions; this section is the published threat model | 3.7 |
+| Relays and address lookup are not designed yet | No public services by default: with iroh, start from `Builder::empty()`; with libp2p, no public DHT or relays. The network key of §17.4 comes with them | With NAT crossing (not planned yet) |
+
+### 17.6 Left for Later
+
+Each has a real cost and is outside the open-source scope for now; some may be offered later as services.
+
+- A third-party security audit.
+- Managed relays with guaranteed capacity.
+- Relaying in two hops run by different operators, or over Tor, so that no single relay knows who talks to whom.
+- Post-quantum key exchange.
+- Hardware-backed keys. The Secure Enclave holds only P-256 keys, so it would wrap the seed rather than hold it.
+- Reproducible builds.
+- A team-wide policy that turns security mode on for every member.
+
+---
+
+*This document is the canonical architecture of Oikome (v3.0). All engineering implementation proceeds from this specification. Earlier versions (v1, v2) are kept only in the git history.*

@@ -15,13 +15,15 @@ Oikome 是一个 **AI Native 的多模态私域数据中心**，通常使用个�
 - **多模态**：文本、图片、音频、文件、向量和表格一样是一等数据。
 - **AI Native**：AI 工具和 Agent 通过 MCP 像其他应用一样接入，只看到授权给它的数据；数据存成 AI 能直接用的形式（文本、向量、检索索引）；视图和命名让 AI 知道数据的含义；向量化、推理等计算也跑在个人资源上。
 - **个人资源**：存储和算力来自个人，而不是平台的云：先用自己的机器，不够时通过算力共享用其他个人的机器。
-- **受信的数据交换**：数据只在互信的数据中心之间双向流动，授权可撤销。
+- **受信的数据交换**：数据在互信的数据中心之间双向流动，授权可撤销；所有者也可以把选定的数据公开给任何人（包括陌生人），在所有者设定的限制内访问（公开分享）。
+- **Web2 和 Web3**：数据来自人们在用的 App，也可以来自链（某个地址的交易和代币）；钱包可以作为身份（`did:pkh`）。不发币、不做链，私有数据不上链，使用 Oikome 不需要钱包。
+- **付费访问**：所有者可以对选定的数据收费，经所有者自己选的支付插件（PayPal、支付宝、Web3 钱包等）直接进所有者自己的账户；Oikome 不经手资金，付款只是发授权的前提。
 
 数据交换和算力共享用同一套信任机制（DID、对等关系、默认拒绝、UCAN 撤销），授权分开（数据：`space/query` / `space/read`；算力：`compute/<method>`），互不包含。
 
 底层是一个**去中心化的本地联邦查询语义层** —— 嵌入式、主权化、原生 P2P。
 
-Oikome 负责"谁能看什么、数据从哪来、存在哪、查询和任务发到哪"，**不负责"怎么算"**：计算交给可插拔的嵌入式引擎（分析型 DuckDB、事务型 SQLite，浏览器端由 JS 宿主提供），DataFusion 只作为联邦协调器合并多个引擎的 Arrow 结果。规范见 `oikome_architecture_v3.md`。
+Oikome 负责"谁能看什么、数据从哪来、存在哪、查询和任务发到哪"，**不负责"怎么算"**：计算交给可插拔的嵌入式引擎（分析型 DuckDB、事务型 SQLite，浏览器端由 JS 宿主提供），DataFusion 只作为联邦协调器合并多个引擎的 Arrow 结果。规范见 `docs/architecture.md`。
 
 - **核心语言**: Rust（WASM 可编译、内存安全）
 - **计算引擎**: DuckDB 1.5.6（分析型 Space；Lance Space 经 `lance` 扩展读写和检索、经 `duckpgq` 做图查询，扩展用 `oikome extensions install` 下载）、SQLite（事务型 Space；FTS5 全文检索，sqlite-vec 向量检索）
@@ -41,7 +43,7 @@ L1: 目录与存储层 (Space/Location 注册表, Iceberg 元数据, Parquet 写
 L2: 引擎抽象层 (QueryEngine trait: DuckDB | SQLite | 宿主引擎)
 L3: 联邦层 (DataFusion 协调器: 按引擎下推 SQL, 合并 Arrow 流)
 L4: 语义层 (<space>.<table> 命名, 语句分类路由, 视图 / UCAN 策略重写)
-L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官方 API、导出文件)
+L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官方 API、导出文件、链的公开 RPC)
 ```
 
 ### 设计原则（不可违背）
@@ -50,7 +52,7 @@ L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官
 2. **每个 Space 单写主**；写权限通过 UCAN 显式委托。
 3. **Space（逻辑）与 Location（物理）分离**：多个 Space 可绑定同一 Location，至多一个可写。
 4. **只有不可变文件跨网络**：P2P 只同步 Iceberg 快照和 Lance 版本；事务型 Space 通过发布 Parquet 快照对外共享。
-5. **默认拒绝**：无对等关系 = 无目录可见性 = 无查询权限。
+5. **默认拒绝**：无对等关系 = 无目录可见性 = 无查询权限。公开分享是所有者明确给任何人的授权；没有公开分享，陌生人什么都看不到。
 
 ---
 
@@ -62,6 +64,7 @@ L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官
 |---------|----------|
 | 本文件 (AGENT.md) | 中文 |
 | 开发计划 / 路线图 | 中文 |
+| 产品需求（`docs/prd.md`） | 英文 |
 | 代码注释 | 英文 |
 | 源代码标识符 | 英文 |
 | 提交信息 (Commit messages) | 英文，**只写一行**（如 `feat(semantic): add views and row/column policies`），不写正文、不加任何尾注 |
@@ -74,7 +77,7 @@ L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官
 每次开发会话开始前，Agent **必须**：
 
 1. 读取 `AGENT.md`（本文件）。
-2. 读取 `oikome_architecture_v3.md` 获取架构上下文（v1/v2 仅作历史参考，冲突时以 v3 为准）。
+2. 读取 `docs/architecture.md` 获取架构上下文；用户端（网页、以后的桌面和手机）的需求见 `docs/prd.md`，界面以 `docs/prototype/` 的原型为准。
 3. 检查当前 git 分支和状态。
 4. 审阅本次会话的任何待办任务/计划。
 
@@ -136,7 +139,7 @@ L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官
 
 项目遵循严格的分阶段路线图：
 
-v3 路线图（详见 `oikome_architecture_v3.md` §14）：
+v3 路线图（详见 `docs/architecture.md` §14）：
 
 | 阶段 | 目标 | 状态 |
 |-------|------|----------|
@@ -149,9 +152,16 @@ v3 路线图（详见 `oikome_architecture_v3.md` §14）：
 | 3.3 多模态 | Lance Location（经 DuckDB `lance` 扩展：向量、全文、大对象）、DuckPGQ、SQLite FTS5/sqlite-vec | ✅ 3.3a Lance Space；3.3b SQLite 全文和向量检索；3.3c DuckPGQ（只在 Lance Space 上） |
 | 3.4a NAS | 家里的 NAS（WebDAV 或挂载目录）存 Space：写入节点每次写入后推快照，其他节点拉最新的完整快照到本地副本；一个目录只有一个写入节点；SQLite 不放 NAS；密码由节点保管（见 3.4b） | ✅ |
 | 3.4b 网盘 | 客户端加密（每个文件和文件名加密后再上传）；网盘经桌面客户端的同步文件夹接入（iCloud Drive、Dropbox、OneDrive、Google Drive，`--drive` 必须加密）；凭据和密钥由节点保管（系统钥匙串，没有时用私有文件），用户在页面或命令行输入一次 | ✅ |
-| 3.4c 网盘 API | 没有桌面客户端的节点经 API 接网盘：OAuth 登录 + opendal 网盘服务（Google Drive、Dropbox、OneDrive），同样加密 | 待开始 |
+| 3.4c 网盘 API | 没有桌面客户端的节点经 API 接 Google Drive、Dropbox，同样加密：先把 opendal 升到最新版（0.59）；登录用 OAuth 授权码 + PKCE，回调本机固定端口，没有浏览器时粘贴回调地址；OAuth 应用用主人自己的；令牌由节点保管和刷新，删除存储时撤销；存 Space 只要最小权限；大文件用 Google 的 resumable upload 和 Dropbox 的 upload session，在 Oikome fork 的 opendal 里补上并贡献上游。OneDrive 继续走同步文件夹 | 待开始 |
+| 3.4d 百度网盘 | 在 Oikome fork 的 apache/opendal 里照 `aliyun-drive` 的结构写 `baidu-netdisk` 服务（上游 issue #8481），Oikome 用 git 依赖接入，同样加密：OAuth 登录；目录在 `/apps/Oikome/` 下；被限流时退避重试；统一实测后再向上游提 PR | 待开始 |
+| 3.4e 对象存储 | 兼容 S3 的服务经 opendal `s3` 接入（AWS S3、R2、B2、MinIO，以及阿里云 OSS、腾讯 COS 的 S3 兼容接口）：密钥由节点保管；默认加密，主人自己架的服务可以不加密；分片上传、按范围读 | 待开始 |
 | 3.5 数据接入 | `Connector` 合约（`oikome-connect`）、按来源主键 upsert + 游标同事务提交（游标在 Space 的隐藏表 `_oikome_source`）、定时和手动拉取、token 由节点保管；首批：CSV、flomo 导出文件、flomo MCP（代码已写，等 MAX 账号实测） | ✅ |
 | 3.6 算力共享 | `compute/<method>` UCAN 能力与 `nb` 限额（与数据授权分开）；只用 Oikome 已有的计算方式、由提供方逐个开放（第一种：`sql`，每个任务一个隔离的 DuckDB）；经 Arrow Flight `DoExchange` 请求-响应；按对端配额 | ✅ |
+| 3.7 安全 | 安全模式（架构 §17.4：开启后功能照常，只加保护）进节点、接口（`security_mode`、`set_security_mode`，仅所有者）和设置 › Security；§17.3 的提示；节点私钥放进系统钥匙串；浏览器节点私钥不可导出；首次运行检查磁盘加密；`SECURITY.md`。中继相关部分随跨 NAT 连接做 | 待开始 |
+| 3.8 公开分享 | 对任何人的分享（架构 §13.4）：默认只能查询、按调用方限额、任意 DID（含钱包 `did:pkh`）访问；带签名清单的只读公开快照，放存储或 IPFS / Arweave。陌生人的实时查询要等跨 NAT 连接 | 待开始 |
+| 3.9 原地查看 | 本机文件夹和各存储上的文件原地浏览、预览、查询，不复制：原地 Space 只读，每个 CSV / Parquet / JSON 文件一张表；节点保管的索引（文件、文字、缩略图）是缓存，删了能重建；预览按范围读；整盘读取权限按需申请；M2 的文件夹来源改成原地 Space | 待开始 |
+| 3.10 转存（Save To） | 主人主动转存，目标是普通文件或新 Space：目录规则和命名规则；一次性或持续；规则只改自己写过的文件 | 待开始 |
+| 3.11 分享转存的 Space | 转存出的 Space 分享给联系人，作品集（顺序、封面、标题、说明）随 Space 走；公开给任何人走公开分享（3.8），照片默认去掉位置信息 | 待开始 |
 
 用户端路线（与上面的核心阶段并行，互不阻塞；每个里程碑要等前置阶段完成，详见架构 §14.1）：
 
@@ -163,17 +173,18 @@ v3 路线图（详见 `oikome_architecture_v3.md` §14）：
 | M2 能接 | 接入页与同步状态、首页看板、内置卡片、看板插件 v1（`plugin-sdk`、数据契约、插件授权）、参考插件 | 3.5、M1c | 进行中（PR #11） |
 | M3 能找 | 全文和语义搜索、照片和笔记视图、AI 助手页、`oikome-mcp` | 3.3、M2 | 待开始 |
 | M4 能扩 | 借用算力、第三方接入插件、插件目录；网盘存储随 3.4b 及以后逐步提供 | 3.4b、3.6、M3 | 待开始 |
+| M5 付费 | 在页面上定价（内容、按时长或按次、只能查询或可复制）；支付插件与订单接口（架构 §13.4）；联系人和陌生人的购买流程；订单记入 Activity | 3.8、M4 | 待开始 |
 
 用户端测试一律连本地节点（临时数据目录，经命令行或接口写入测试数据），不做假数据层，也不做 mock 客户端；所以先做接口（M1b）再做页面（M1c），接入、首页看板、AI 助手等页面随 M2、M3 做。
 
-**规则**: 禁止跳阶段。每个阶段的退出标准必须达成后才能进入下一阶段。
+**规则**: 禁止跳阶段。每个阶段的退出标准必须达成后才能进入下一阶段。需要账号的阶段先写代码，全部写完后用真实账号统一实测，包括 3.4c–3.4e、3.9 里的网盘、3.5 的 flomo MCP。
 
 ### 4.2 任务执行协议
 
 每个任务的执行流程：
 
 1. **读取 AGENT.md**（本文件）。
-2. **读取相关架构章节** 于 `oikome_architecture_v3.md`。
+2. **读取相关架构章节** 于 `docs/architecture.md`。
 3. **沟通与设计** —— **开发代码前必须与用户充分沟通设计方案，经用户确认后方可进入实现阶段。禁止未经确认直接编码。**
 4. **制定计划** —— 如果任务跨多个文件或较为复杂，使用 Plan Mode 制定详细实现计划并获得用户批准。
 5. **先写测试** —— TDD 优先，尤其针对存储和查询引擎。
@@ -242,7 +253,6 @@ oikome/
 ├── deny.toml                   # cargo-deny 许可证白名单
 ├── LICENSE / NOTICE            # Apache-2.0 / 依赖归属
 ├── AGENT.md                    # 本文件
-├── oikome_architecture_v3.md  # 规范架构（v1/v2 为历史）
 ├── crates/
 │   ├── oikome-core/           # 错误、SpaceUri、SpaceKind/EngineKind/AccessMode
 │   ├── oikome-vfs/            # OpenDAL VFS；RemoteStore：Space 在存储（WebDAV、挂载目录）上的目录
@@ -277,7 +287,7 @@ oikome/
 ├── e2e/                        # Playwright：浏览器节点、网页接口和网页端的测试，浏览器节点测试页 harness/（@oikome/e2e）
 ├── third_party/                # 打了补丁的第三方代码（datafusion-federation，见 README）
 ├── .github/workflows/          # docker-e2e（三个 Docker 节点）、browser-e2e（无头 Chromium 跑浏览器节点）
-└── docs/                       # 用户和开发者文档（gitignored）
+└── docs/                       # architecture.md（规范架构）、prd.md（用户端 PRD）、prototype/（可点击的设计原型 prototype.html、翻译 i18n/、照片 lisbon/、设计参考 references/）
 ```
 
 计划中：`oikome-connect`（3.5），`oikome-cli`。
@@ -375,7 +385,7 @@ oikome/
 - **Ed25519**: 使用 `ed25519-dalek` crate 进行签名/验证。
 - **哈希**: 使用 `blake3` 进行内容寻址和校验和。
 - **随机数**: 使用 `rand::thread_rng()` 或 `getrandom`；WASM 中严禁 `Math.random()`。
-- **密钥存储**: 绝不记录私钥；存储于 OS 密钥链或加密 OPFS。存储的密码、token 和加密密钥由节点保管：macOS / Windows 存系统钥匙串，没有钥匙串的机器存 `.oikome/identity/storage_access.json`（0600，和节点私钥同级）；环境变量 `OIKOME_STORAGE_<NAME>_*` 优先，供部署用。测试只用内存或文件存储，不碰本机钥匙串。
+- **密钥存储**: 绝不记录私钥；存储于 OS 密钥链或加密 OPFS。存储的密码、token 和加密密钥由节点保管：macOS / Windows 存系统钥匙串，没有钥匙串的机器存 `.oikome/identity/storage_access.json`（0600，和节点私钥同级）；环境变量 `OIKOME_STORAGE_<NAME>_*` 优先，供部署用。测试只用内存或文件存储，不碰本机钥匙串。节点私钥目前是 0600 文件，3.7 起放进系统钥匙串；服务器和容器仍用 0600 文件。
 
 ### 7.2 UCAN 实现
 
@@ -386,9 +396,13 @@ oikome/
 
 ### 7.3 P2P 安全
 
-- 默认拒绝：无对等关系 = 无目录可见性 = 无查询权限。
+- 默认拒绝：无对等关系 = 无目录可见性 = 无查询权限。公开分享除外，它是所有者的明确授权。
 - 枚举抵抗：未授权表返回 "不存在"。
 - 每次 Arrow Flight RPC 携带 UCAN 元数据。
+
+### 7.4 不能做成可关闭的保护
+
+以下保护不受安全模式影响，也不能通过开关、配置项或环境变量关闭（架构 §17.3）：TLS（`--allow-http` 保留，只用于开发，开启安全模式时会被拒绝）、请求签名、UCAN 校验、默认拒绝、插件沙箱、网盘加密（网盘上的文件一律加密；NAS 上的加密继续作为可选项）、Activity 记录。安全模式只在这些之上加保护，不关闭任何功能（§17.4）。
 
 ---
 
@@ -402,7 +416,8 @@ oikome/
 
 ### 8.2 架构文档
 
-- `oikome_architecture_v3.md` 是规范原文；v1、v2 仅作历史参考。
+- `docs/architecture.md` 是规范原文；v1、v2 已删除，只留在 git 历史里。
+- 用户端的需求写在 `docs/prd.md`，界面以 `docs/prototype/prototype.html` 为准；三者改动时一起同步。
 - 任何架构偏离必须记录并获得批准。
 - 开发实践变更时更新 `AGENT.md`。
 
@@ -439,7 +454,7 @@ oikome/
 | 2025-05-30 | 初始 AGENT.md 创建 | 为分阶段实现建立开发协议 |
 | 2026-06-08 | 执行内核迁移到 DataFusion（v2） | 放弃自研优化器/执行器 |
 | 2026-09-27 | 转型为去中心化本地联邦查询语义层（v3）：计算交给 DuckDB/SQLite，DataFusion 只做联邦合并 | 自研 OLAP 超出团队范围；差异化在主权、联邦与 P2P，而非算子 |
-| 2026-10-30 | 定位改为 AI Native 的多模态私域数据中心（通常使用个人资源、支持受信的数据交换）：新增网盘接入（3.4）、数据接入（3.5）、算力共享（3.6），v3 各层不变；数据交换和算力共享同一信任机制、不同授权 | 数据和算力留在个人手里，个人之间互相调用而不交给大平台；架构见 `oikome_architecture_v3.md` §1、§7.5、§11、§12 |
+| 2026-10-30 | 定位改为 AI Native 的多模态私域数据中心（通常使用个人资源、支持受信的数据交换）：新增网盘接入（3.4）、数据接入（3.5）、算力共享（3.6），v3 各层不变；数据交换和算力共享同一信任机制、不同授权 | 数据和算力留在个人手里，个人之间互相调用而不交给大平台；架构见 `docs/architecture.md` §1、§7.5、§11、§12 |
 | 2026-10-31 | 3.2a 浏览器节点：duckdb-wasm 作本地引擎（SQLite 以后再做）；`HostEngine` 只存 id、JS 对象放线程本地表、结果用 Arrow IPC；DataFusion 去掉 compression/parquet 并给 datafusion-federation 0.5.5 打补丁；浏览器连 Full Node 定为 WebRTC 数据通道（3.2b） | 不改 `QueryEngine` 和 DataFusion；0.5.7 才修掉强制默认功能但要 DataFusion 55；浏览器无法按 DID 校验证书，WebRTC 能锁定 DID 签名过的指纹。见架构 §10 |
 | 2026-11-01 | 3.2b：Full Node 用 str0m（纯 Rust 加密）提供 WebRTC 端点，浏览器 WebRTC-direct 直连（不需要信令），服务端不校验浏览器的 DTLS 证书；请求是带 Flight 调用同样字段的信封，由 `serve_envelope` 走同一套认证、授权和语义层；浏览器里的协调器单任务执行（一个分区，`MergePartitionsExec` 代替会起任务的 `CoalescePartitionsExec`），chrono 开 `wasmbind` | 服务端不引入 C 加密库，也不要信令服务；浏览器靠签名的请求认证，和原生节点一样；DataFusion 54 合并分区会起 Tokio 任务、按 `std` 读时钟，在浏览器里都会 panic。见架构 §10 |
 | 2026-11-01 | 3.3c：图查询（DuckPGQ）只在 Lance Space 上；图定义存在目录里（`graphs.json`），DuckDB 里没有时先建图；只给主人、只读一个 Space | DuckPGQ 不支持在视图上建图，而 Iceberg 表在 DuckDB 里是视图；为每个快照复制成表的方案没有采用。见架构 §8 |
@@ -449,7 +464,7 @@ oikome/
 | 2026-10-30 | 3.1c：节点间默认 TLS，证书由节点 DID 密钥自签并按 DID 校验；明文 http 需 `--allow-http`；libp2p 只做发现，结果写入目录的 Peers 表，`PEER` 可不写 | DID 本来就是请求签名的身份，按它校验证书不需要 CA 和域名；发现结果放目录里，`serve` 和 `sql` 两个进程都能用。见架构 §3.4、§9 |
 | 2026-10-30 | 3.1b 快照订阅：只复制对方能看整张表的表，其余标 `restricted` 只能远程查；撤销只停止后续同步，已复制的文件收不回；VFS 接入推迟到 3.4 | 文件无法按列授权和行策略过滤；数据一旦复制就无法收回，写明而不是默认。见架构 §5.3、§9 |
 | 2026-10-30 | Lance 作为第三种 Location 格式，用于向量、全文和大对象；分析型 Space 不再用 DuckDB vss/fts | Lance 的索引存在数据集里、随版本同步，订阅方不用重建；表格数据仍用 Iceberg + Parquet。见 §7.6 |
-| 2026-11-01 | 用户端：只服务主人的个人私域数据中心，不做运维和开发者页面，成员以后做，界面统一英文（以后 i18n）；根目录新增 `apps/`（各端薄外壳）、`packages/`（共享 TypeScript）、`plugins/`、`design/`、`e2e/`，根目录 `package.json` 用 npm workspaces；目录等对应工作开始时才建；新 crate `oikome-api`（不含传输层，调用者分主人和 principal），HTTP 由 `oikome serve --web` 提供，桌面端进程内调用，以后 `oikome-mcp` 只暴露 principal 能做的操作；桌面和手机以后用 Tauri；存储位置只给本地文件夹和 NAS，网盘做存储位置待定 | 网页、桌面、手机是同一层的端，页面放共享包里各端复用；同一套处理逻辑服务所有端，AI 助手碰不到主人才有的命令；产品原则是数据不出家门，和把数据放在网盘服务商那里冲突，架构 §7.5 和 3.4 先不动，等决定。见架构 §13.3、§13.4、§14.1 |
+| 2026-11-01 | 用户端：只服务主人的个人私域数据中心，不做运维和开发者页面，成员以后做，界面统一英文（以后 i18n）；根目录新增 `apps/`（各端薄外壳）、`packages/`（共享 TypeScript）、`plugins/`、`design/`、`e2e/`，根目录 `package.json` 用 npm workspaces；目录等对应工作开始时才建；新 crate `oikome-api`（不含传输层，调用者分主人和 principal），HTTP 由 `oikome serve --web` 提供，桌面端进程内调用，以后 `oikome-mcp` 只暴露 principal 能做的操作；桌面和手机以后用 Tauri 2；存储位置只给本地文件夹和 NAS，网盘做存储位置待定 | 网页、桌面、手机是同一层的端，页面放共享包里各端复用；同一套处理逻辑服务所有端，AI 助手碰不到主人才有的命令；产品原则是数据不出家门，和把数据放在网盘服务商那里冲突，架构 §7.5 和 3.4 先不动，等决定。见架构 §13.3、§13.4、§14.1 |
 | 2026-11-01 | M1a：`web/` 拆到 `packages/node`（`@oikome/node`，导出 host、store、transport、wasm）和 `e2e/`（`@oikome/e2e`，测试页在 `harness/`）；根目录 npm workspaces 先只含 `packages/*` 和 `e2e`，`apps/*`、`plugins/*` 建了再加；测试服务器按 URL 前缀映射目录（`/pkg/`、`/node_modules/`、`/`），越界路径拒绝；wasm 构建和 remote 测试跟随 `CARGO_TARGET_DIR` | 只搬位置、不改行为，browser-e2e 的断言不变；外部依赖版本和 lockfile 里的完全一样。见架构 §13.3 |
 | 2026-11-02 | 3.4 拆成 3.4a NAS 和 3.4b 网盘：先做家里的 NAS（WebDAV 或挂载目录），网盘逐步支持、每种网盘先有客户端加密才开放。存储上的 Space 不在原处读：写入节点照常写本地、每次写入后推快照（先文件、后快照文件），其他节点拉最新的完整快照到本地副本，像订阅副本一样读；一个目录一个写入节点（记在 `oikome-space.json`，防误操作，不是访问控制）；密码只从环境变量 `OIKOME_STORAGE_<NAME>_PASSWORD` / `_TOKEN` 读，钥匙串随 3.5 做；推送失败不让写语句报错；`materialize()` 不做了 | 数据放 NAS 仍在家里；网盘服务商能读上传的内容，所以先加密。DuckDB 按本地 Parquet 文件列表读 Iceberg、`lance` 扩展只能挂本地目录，WebDAV 上的 Iceberg 提交没有原子的比较交换；订阅已有校验过的快照复制，一套做法同时管 Iceberg 和 Lance，以后加密只是包一层。见架构 §7.4、§7.5 |
 | 2026-11-02 | 3.6：算力指 CPU、GPU 这类资源；计算方式只用 Oikome 已有的（这是计算的标准），提供方逐个开放（`oikome compute offer`），第一种是 `sql`：每个任务一个内存中的 DuckDB，关外部访问、不装不载扩展、装好输入后锁配置、按限额设内存和超时、限制输出；不转发外部服务；请求-响应走 `DoExchange`，`oikome.compute_methods` 列出对方能用的方式；UCAN `compute/<method>` 带 `nb` 限额（时间、输入、输出、内存），委托只能收紧；`space/*` 和 `compute/*` 互不覆盖；按对端配额（默认同时 1 个、每小时 30 个），任务开始前重新校验授权，撤销后排队的任务被拒；SQL 在后端闭环，App 调 `compute_on_peer`，`oikome compute run` 只给开发测试 | 用已有的计算方式不必信任新代码；隔离的 DuckDB 碰不到提供方的 Space 和文件；配额是能防止对端占满机器的最简单记账。见架构 §12 |
@@ -463,10 +478,18 @@ oikome/
 | 2026-11-03 | 示例和用户数据像 Obsidian 的库一样是普通文件：示例每种一个（里斯本照片、Oikome 指南、以那次旅行结尾的三周花销、家里温湿度读数），第一次使用时写进所选文件夹（没选就是数据目录）的 `Examples/<名字>/`（照片加 `captions.csv`、Markdown 笔记、CSV 表格），每个文件夹是同名 Collection 的源，每分钟读一次，用任何应用改都会同步；新增 `photos-folder`、`notes-folder` 连接器，源名允许 `-`，读失败的原因记在源上；网页端新增 Sources 页（列出、添加、立即同步、停止、在访达中显示） | 用户希望数据看得见、改得了、放在自己选的目录里；源本来就是 §11 的机制，示例用它也就成了「接入的数据出现在 Home」的演示。见架构 §11、§13.4 |
 | 2026-11-02 | 网页端第一次进入就有示例（`add_examples`：里斯本的一个周末，照片、笔记、花销，只加一次，删了不再加）；Collection 按内容显示（图片列 → 照片、长文本 → 笔记、其余 → 表格），有 Home 和每个 Collection 的独立页面；新建时可选存储（`create_space` 的 `storage`、`list_storages`）；去掉 SQL 工作台，`run_sql` 只留给命令行和测试 | 新用户一进来就知道 Oikome 能存什么，测试也有同一份数据；普通用户不写 SQL，数据以后从「导入」进来。见架构 §13.4 |
 | 2026-11-02 | M1c：网页端用 React 19 + Vite 7（Vite 8 必须依赖 MPL-2.0 的 lightningcss，不符合依赖政策），页面由 `--web-root` 指定的目录提供，严格 CSP；界面用语 Collection、Contact、Share、Activity、Your ID（SQL 工作台后来从网页端去掉，见下一条）；恢复密钥是 Crockford Base32 分组码（14 组，带 2 字节校验），只能恢复到空节点（`oikome identity restore`，节点停止时执行）；手机配对改到手机 App 再做 | 手机浏览器需要 HTTPS 页面，本机回环服务给不了，公共来源和局域网自签证书都不采用；分组码不需要词表依赖、打错能发现。见架构 §13.4、§14.1 |
+| 2026-11-03 | 来源同步进来的资料库（事务型 SQLite）的工作副本始终在节点本地磁盘，挂载的 SMB/NFS 也不行；主人把它放到 NAS 或网盘时，每次拉取后自动发布快照并推过去，那里是只读的第二份副本（还没实现，`add_source` 目前只建在本地）；网页端默认放 Local，选其他位置先确认，并说明本机留工作副本 | SQLite 要靠本地文件系统的锁和共享内存，网络文件系统上不可靠；用户想的是「照片存在 NAS 上」，发布和推送都已有，那里就是和其他存储上的 Space 一样的第二份副本。见架构 §7.5、§11、§13.4 |
 | 2026-11-04 | Home 的 Arrange 按原型改成在 Home 原地编辑：卡片带虚线框、拖动排序（键盘用方向键）、拖右下角改宽度、减号移除、末尾 Add a Card；每张卡片存宽度（12 列中的 4–12 列），没存宽度的（第一次的排列、只有 id 的旧记录）用应用的默认宽度并让行尾那张补满整行；节点设置一次只改一处，临时文件各用各的；网页端补上原型的动效：换页上浮淡入、Home 数字滚动、柱子依次长出、折线从左描出、Bold 可点卡片悬停上浮、同步时图标旋转、首次读取的进度条、换风格时颜色渐变，数据刷新不重播，系统要求减少动态时全部关闭 | 用户对照原型指出动效缺失、Arrange 和原型不一致；两次保存同时写同一个临时文件，后一次会失败，连续调整卡片时就会遇到。见架构 §13.4 |
 | 2026-11-04 | 接受分享（M2c）：邀请码在 API 层生成（`oik1-` 加 base64url JSON：令牌、分享方的 Flight 地址、名字；监听全部地址时不写地址，靠发现），核心不变、命令行仍用令牌；收到的邀请先存在节点上（`.oikome/identity/invites.json`，0600），Sharing 页按原型的提示卡显示，接受或拒绝；接受时用 `create_space` 建远程 Space（不拼 SQL），名字取对方的、被占用就编号，分享方自动成为联系人；同一 Space 再次分享时替换原来的；分享给你的 Collection 显示来自谁、到哪天，可以 Leave；封面和计数也从对方读 | 邀请码里带上地址和名字，对方粘贴一次就能加上，不用手写 PEER 和 REMOTE；邀请码含令牌，按凭据保存；先存后选，刷新也不会丢，以后对方节点直接送达的邀请也能放进同一个列表。见架构 §13.4 |
 | 2026-11-04 | 借出算力（M2d）：Sharing 页的 Compute 卡片按原型做「Lend this computer」开关加 Change 对话框：借给哪些联系人、同时几个任务（1/2/4）、每小时几个（10/30/100），对应核心的每对端配额；暂停只撤回 `sql` 的开放，授权保留，恢复不用新邀请码；新借给的人得到一年的 `compute/sql` 授权和邀请码，被移出或删除联系人的授权撤销；对方用同一个 Add an Invite 接受，节点存下授权（`.oikome/identity/borrowed.json`，0600），列表里实时问对方是否在借（可用 / 暂不借给你 / 连不上 / 已结束）；Activity 把算力请求写成「跑了一个任务」「问了是否借给他」「被拒绝」 | 原型里的「核心数、每天几小时」核心并不管，界面只给核心真正执行的限额；没有借用方，邀请码就只能在命令行用，所以借用方先做到接受和查看可用，真正把任务交给对方随 M4 的借用算力做；对方停借和撤销都返回拒绝，按设计不区分。见架构 §12、§13.4 |
 | 2026-11-04 | 看板插件 v1（M2e）：插件是一个带 `oikome-plugin.json` 的网页文件夹（读什么：形态加所需列类型；卡片尺寸；入口页），装在 `.oikome/plugins/<id>/`，Oikome 自己的两个（按类别看花销、一年前的照片）编进节点；每个插件安装时生成自己的 DID，只对主人选的 Collection 有整库授权，应用经 `plugin_read` 以插件身份读，由节点授权决定；页面由服务端单独下发：CSP 全部连接、子框架、worker、表单为 none，`sandbox allow-scripts`，禁用设备，关 DNS 预取；Chromium 不认 CSP 的 `webrtc 'block'`，实测沙箱里仍能发 STUN 包，所以服务端把 SDK 注入成第一个脚本、先删掉 RTC 构造器，嵌套框架、worker、eval 都被挡；插件读取记入 Activity（同一插件同一 Collection 10 分钟记一次，拒绝每次都记）；新增 Plugins 页、Add a Card 的 From your plugins；另按原型统一了间距（卡片头、列表行、页面边距、两栏比例、对话框） | M2 的完成标准是插件只能读授权内的数据、连不上网络；授权交给节点而不是页面，页面出错也读不到别的；网络隔离逐条实测（fetch、图片、beacon、WebSocket、导航、弹窗、WebRTC），WebRTC 是 CSP 管不到的那一条。见架构 §13.4 |
+| 2026-11-04 | Activity 记下主人自己的第一步：建好数据中心、加示例、保存恢复密钥，写成「你 · 这台电脑」；「建好数据中心」这条不随 90 天清理；之前建的数据中心按设置里记的时间补记一次 | Activity 是主人看自己的数据发生了什么的地方，应该从第一次运行记起。见架构 §9 |
+| 2026-11-04 | Activity 按主人认识的方式写「谁」：你、人、插件或 Unknown；人的名字依次用联系人名、对方在邀请或借出算力里给的名字、移除时记下的名字；联系人或插件被移除时，名字记在访问日志旁的 `names` 表里，和记录保留一样久；请求里对方自报的名字不用 | 在不在联系人里不是身份；被移除的插件和联系人的记录仍要说清是谁；自报的名字谁都能冒用。见架构 §9、§13.4 |
+| 2026-11-04 | 来源可以暂停（`sources.json` 的 `paused`：到点不读，手动仍能读），同步频率可选 1、5、30 分钟、每小时、每天或手动；移除先确认，资料库保留，同一文件或文件夹再加回来（按真实路径，记在 `node.json`）回到原资料库；每个来源有详情页，同步记录存在资料库的隐藏表 `_oikome_source_runs` 里 30 天，连续相同的结果合成一行；更多菜单改成顶层弹出，不再被表格裁掉 | 原来的「停止」是注销来源，列表里消失、再加只能成新资料库，用户说的停止其实是暂停；每分钟读一次的来源会让记录被「没有新内容」刷满。见架构 §11、§13.4 |
+| 2026-11-04 | 设备按数据流向分两类（还没实现，随手机和桌面 App 做）。**读数据的设备**要配对：手机、平板扫这台电脑上的二维码；另一台电脑在同一网络里被 mDNS 发现，两边核对由双方 DID 算出的 6 位数字，或输入、粘贴配对码（发现不了时，比如网络不让组播）。配对后节点给设备的 DID 签一个 UCAN，默认只读，移除即撤销。**产生数据的设备**（灯、传感器、家电、扫地机、手表、体重秤）作为来源进来，经家里的中枢（Home Assistant）、厂商云（只用公开 API）、手机健康 App，或直接连。配对的设备暂时必须在同一网络（没有 STUN、TURN 和中继）；界面入口叫 Add a Device，只有核对数字后的确认按钮叫 Pair。待定：另一台电脑算什么；设备能做哪些管理操作；是否只读接入 Matter；是否做统一的 Devices 页 | 配对和移除复用节点已有的授权和撤销，不用信任新东西；家电和传感器从不读数据中心，Oikome 只读设备、不控制设备，不做智能家居中枢；Add 和其他 Add 一致，也能覆盖不需要配对的设备。见架构 §13.5 |
+| 2026-11-04 | 文档统一放进 `docs/`：架构文档 `oikome_architecture_v3.md` 改名为 `docs/architecture.md`，v1、v2 删除（只留在 git 历史里）；用户端 PRD 从 Claude Docs 搬到 `docs/prd.md`，并按架构文档和原型同步了一遍；仓库外的设计目录 `~/Documents/oikome-design/` 整个搬进 `docs/prototype/`，核对一致后删掉原目录，以后只改仓库里这份（`prototype.html`、`i18n/`、`lisbon/pick/` 照片、`references/`）；`.gitignore` 不再忽略 `docs/` | 文档太散：架构在根目录、PRD 在仓库外、原型没有版本管理，改了对不上；v3 就是现行架构，留版本号和旧版只会让人读错 |
+| 2026-11-04 | 原地查看 + 转存 + 分享：本机文件夹和各存储上的文件经只读的原地 Space 原地浏览、查询，索引是节点上的缓存；只有主人主动转存（Save To）才复制，目标是普通文件或新 Space，一次性或持续；转存出的 Space 单独分享，也可以作为作品集展示；公开给任何人走公开分享（3.8），照片默认去掉位置信息；新增 3.9–3.11；修图在别的软件里做 | 主人想看任意存储和应用的数据，不用先复制；复制是带目标和规则的主动选择；转存出的 Space 和源脱钩。见架构 §7.7–§7.9 |
+| 2026-11-04 | 存储既是来源也是目标：原地浏览网盘要整盘读取权限，单独申请，测试阶段先用，正式发布前过 Google 审核；存 Space 和转存只用最小权限；3.4c 只做 Google Drive、Dropbox，先把 opendal 升到最新版，大文件用两家的分段上传（在 fork 的 opendal 里补上、贡献上游，不在网盘上拆成多块存），OneDrive 继续走同步文件夹；3.4d 百度网盘写成 opendal 服务，放在 Oikome 的 fork 里，统一实测后向上游提 PR（apache/opendal#8481），不在 Oikome 里另写客户端；3.4e 对象存储经 opendal `s3`，默认加密 | 只能访问自己建的文件就做不了原地浏览，单独申请能让整盘权限可选；opendal 的 `onedrive` 要整盘读写，3.4d 也需要最新版；一个服务所有 opendal 用户都能用，上游不收就留在 fork 或挪成自己的 crate；一个 S3 服务覆盖 AWS、R2、B2、MinIO 和 OSS、COS 的 S3 接口。见架构 §7.5 |
 
 ---
 

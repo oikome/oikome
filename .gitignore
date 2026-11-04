@@ -1,7 +1,6 @@
 .worktrees/
 target/
 .idea
-docs
 .claude
 .DS_Store
 tests/oikome-local/

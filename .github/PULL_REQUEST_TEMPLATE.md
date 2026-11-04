@@ -13,7 +13,7 @@
 <!-- Select exactly one option. -->
 
 - [ ] No documentation update is required.
-- [ ] `oikome_architecture_v3.md` and/or `AGENT.md` are updated in this PR.
+- [ ] `docs/architecture.md` (and `docs/prd.md` for app changes) and/or `AGENT.md` are updated in this PR.
 - [ ] A follow-up is required (explain below).
 
 ## Validation

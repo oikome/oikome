@@ -46,9 +46,10 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    Api, ApiError, Caller, ContactInput, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef,
-    HomeCards, ListAccess, ListShares, NewSource, NewSpace, NewStorage, NodeName, ReadRows, Rows,
-    RunSql, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef,
+    AcceptInvite, Api, ApiError, BorrowedRef, Caller, ContactInput, DefaultStorage, DidRef, Empty,
+    ErrorCode, FolderRef, HomeCards, InviteCode, InviteRef, ListAccess, ListShares, NewSource,
+    NewSpace, NewStorage, NodeName, ReadRows, Rows, RunSql, SetLending, ShareRef, ShareSpace,
+    SourceRef, SpaceRef, SqlResult, StorageRef,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -420,6 +421,14 @@ impl WebState {
             "rename_contact" => json_op!(rename_contact, ContactInput),
             "remove_contact" => json_op!(remove_contact, DidRef),
             "share_space" => json_op!(share_space, ShareSpace),
+            "list_invites" => json_op!(list_invites, Empty),
+            "add_invite" => json_op!(add_invite, InviteCode),
+            "accept_invite" => json_op!(accept_invite, AcceptInvite),
+            "decline_invite" => json_op!(decline_invite, InviteRef),
+            "lending" => json_op!(lending, Empty),
+            "set_lending" => json_op!(set_lending, SetLending),
+            "list_borrowed" => json_op!(list_borrowed, Empty),
+            "stop_borrowing" => json_op!(stop_borrowing, BorrowedRef),
             "list_shares" => json_op!(list_shares, ListShares),
             "revoke_share" => json_op!(revoke_share, ShareRef),
             "list_access" => json_op!(list_access, ListAccess),

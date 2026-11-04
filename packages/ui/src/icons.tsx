@@ -14,6 +14,7 @@ export type IconName =
   | "collection"
   | "computer"
   | "copy"
+  | "cpu"
   | "download"
   | "drag"
   | "drive"
@@ -90,6 +91,14 @@ const PATHS: Record<IconName, ReactElement> = {
     <>
       <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
       <path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" />
+    </>
+  ),
+  // A chip with its pins: a computer's processor.
+  cpu: (
+    <>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+      <rect x="9.5" y="9.5" width="5" height="5" rx="0.5" />
+      <path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" />
     </>
   ),
   download: <path d="M12 4v11m-5-5l5 5 5-5M5 19.5h14" />,

@@ -50,6 +50,12 @@ function through(item: AccessItem): string {
 /** One line of the log, in words: "Sam read lisbon-photos". */
 export function sentence(item: AccessItem): string {
   const who = item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
+  // Using this computer, lent to them: no collection is read.
+  if (item.method === "do_exchange:oikome.compute" || item.method === "do_action:oikome.compute_methods") {
+    if (item.outcome === "denied") return s.turnedAwayCompute(who);
+    if (item.outcome === "failed") return s.taskFailed(who);
+    return item.method === "do_exchange:oikome.compute" ? s.ranTask(who) : s.checkedLending(who);
+  }
   const what = item.spaces.length > 0 ? item.spaces.join(", ") : s.yourData;
   if (item.outcome === "denied") return s.turnedAway(who, what);
   if (item.outcome === "failed") return s.failed(who, what);

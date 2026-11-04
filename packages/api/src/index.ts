@@ -122,7 +122,20 @@ storage: string | null,
 /**
  * One of the examples a new data center starts with (`add_examples`).
  */
-example: boolean, };
+example: boolean, 
+/**
+ * For a remote Space: the data center it is on (its DID)…
+ */
+fromDid: string | null, 
+/**
+ * …and what to call it: the contact's name, if it is a contact.
+ */
+fromName: string | null, 
+/**
+ * For a remote Space: when the share it was added with ends, in seconds
+ * since the Unix epoch.
+ */
+expiresAt: number | null, };
 
 /**
  * `create_space`: a new local Space.
@@ -389,14 +402,178 @@ export type ShareAccess = "query" | "copy";
 export type ShareStatus = "active" | "expired" | "revoked";
 
 /**
- * A share just made. `token` is shown this once: hand it to the contact,
- * who mounts the Space with it.
+ * A share just made. `invite` is shown this once: the contact adds it in
+ * Oikome (`add_invite`). `token` is the same grant alone, for `CREATE SPACE
+ * ... WITH TOKEN` on the command line.
  */
 export type NewShare = { id: string, space: string, did: string, access: ShareAccess, 
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, token: string, };
+expiresAt: number, token: string, 
+/**
+ * The invite code: the token, where this data center is reached and
+ * what it is called.
+ */
+invite: string, };
+
+/**
+ * `add_invite`: an invite code someone sent, as pasted.
+ */
+export type InviteCode = { invite: string, };
+
+/**
+ * `decline_invite`: an invite waiting here.
+ */
+export type InviteRef = { id: string, };
+
+/**
+ * `accept_invite`: an invite waiting here, and the name its collection
+ * takes (by default the one `Invite::name` suggests).
+ */
+export type AcceptInvite = { id: string, name?: string, };
+
+/**
+ * What an invite offers.
+ */
+export type InviteKind = "collection" | "compute";
+
+/**
+ * An invite from another data center, waiting to be accepted or
+ * declined: to a collection, or to use its computer.
+ */
+export type Invite = { id: string, kind: InviteKind, 
+/**
+ * The data center that sent it.
+ */
+fromDid: string, 
+/**
+ * Its contact name here, or else the name it goes by.
+ */
+fromName: string, 
+/**
+ * Whether it is a contact already (accepting adds it).
+ */
+fromContact: boolean, 
+/**
+ * The collection, by its name there; empty for a computer.
+ */
+space: string, access: ShareAccess, 
+/**
+ * For a computer: tasks at once and per hour, as the lender set them.
+ */
+concurrent: number | null, perHour: number | null, 
+/**
+ * Seconds since the Unix epoch.
+ */
+expiresAt: number, 
+/**
+ * The share has ended; it can only be declined.
+ */
+ended: boolean, 
+/**
+ * The name it takes here: the one it had when accepted before (which
+ * it replaces), else its own, or its own with a number when taken.
+ * Empty for a computer.
+ */
+name: string, 
+/**
+ * It renews a collection already here, of that name, or a computer
+ * already lent to you.
+ */
+renews: boolean, receivedAtMs: number, };
+
+/**
+ * An invite accepted: the collection added, or whose computer.
+ */
+export type AcceptedInvite = { kind: InviteKind, 
+/**
+ * The collection's name here, or the lender's name.
+ */
+name: string, };
+
+/**
+ * Lending this computer: whether it is lent now, to whom, and how much
+ * each may use.
+ */
+export type Lending = { 
+/**
+ * Oikome's computations are offered to the people below.
+ */
+on: boolean, 
+/**
+ * Tasks each may have running at once…
+ */
+concurrent: number, 
+/**
+ * …and start per hour.
+ */
+perHour: number, 
+/**
+ * The longest one task may run, in milliseconds.
+ */
+taskMs: number, people: Array<LentTo>, };
+
+/**
+ * Someone this computer is lent to.
+ */
+export type LentTo = { did: string, name: string | null, 
+/**
+ * When their grant ends, in seconds since the Unix epoch.
+ */
+expiresAt: number, };
+
+/**
+ * `set_lending`: lend this computer (or stop) to these contacts, each
+ * within these limits.
+ */
+export type SetLending = { on: boolean, 
+/**
+ * Contacts' DIDs; anyone left out stops being able to use it.
+ */
+people: Array<string>, 
+/**
+ * 1 to 8.
+ */
+concurrent: number, 
+/**
+ * 1 to 1000.
+ */
+perHour: number, };
+
+/**
+ * Lending saved, with an invite code (shown this once) for each person
+ * newly lent to.
+ */
+export type LendingSaved = { lending: Lending, invites: Array<LendInvite>, };
+
+/**
+ * The code to send someone newly lent to.
+ */
+export type LendInvite = { did: string, name: string, invite: string, };
+
+/**
+ * Whether a computer lent to you can be used now.
+ */
+export type BorrowStatus = "available" | "unavailable" | "unreachable" | "ended";
+
+/**
+ * A computer lent to you.
+ */
+export type Borrowed = { id: string, fromDid: string, fromName: string, concurrent: number | null, perHour: number | null, 
+/**
+ * The longest one task may run there, in milliseconds.
+ */
+taskMs: number | null, 
+/**
+ * Seconds since the Unix epoch.
+ */
+expiresAt: number, status: BorrowStatus, };
+
+/**
+ * `stop_borrowing`: a computer lent to you, by its id.
+ */
+export type BorrowedRef = { id: string, };
 
 /**
  * A share, as listed (never with its token).

@@ -811,6 +811,71 @@
   font: var(--text-small);
   color: var(--ink2);
 }
+/* Compute on Sharing: a switch and Change beside lending; a status and
+   More beside each computer lent to you. */
+.screen-compute__acts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.screen-lend-field {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.screen-lend-field > .oik-seg {
+  justify-self: start;
+}
+.screen-lend-field + .screen-help {
+  margin-top: var(--space-4);
+}
+.screen-lend-field > .oik-field__label {
+  padding: 0;
+}
+.screen-lend-people {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-lend-code {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* An invite waiting: the prototype's notice, a plain card that asks for a
+   choice rather than warning. */
+.screen-invites {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.screen-invites .screen-callout {
+  margin-bottom: 0;
+}
+.screen-callout--quiet {
+  border-color: var(--line);
+}
+.screen-callout--quiet .screen-callout__title {
+  color: var(--ink);
+}
+[data-theme="bold"] .screen-callout--quiet {
+  background: var(--raised);
+}
+.screen-callout__text p.screen-callout__meta {
+  font: 400 12px/16px var(--mono);
+  color: var(--ink3);
+}
+.screen-callout__text p.oik-error {
+  margin-top: var(--space-1);
+  font: var(--text-small);
+  color: var(--signal);
+}
 
 .screen-kpis {
   display: grid;
@@ -2469,6 +2534,13 @@ a.screen-lift:hover {
   }
   .screen-callout {
     flex-wrap: wrap;
+  }
+  /* An invite's choices go under what it is, at the right. */
+  .screen-invites .screen-callout__text {
+    flex: 1 1 calc(100% - 64px);
+  }
+  .screen-invites .screen-callout > .oik-button:first-of-type {
+    margin-left: auto;
   }
   .screen-share-pair {
     grid-template-columns: 1fr;

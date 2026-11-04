@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One collection on a page of its own: what is in it, shown as what it is
-// (photos, notes or a table), who can see it, and where it is kept.
+// (photos, notes or a table), who can see it, and where it is kept. One
+// shared with you says whom it is from, what you get and until when, and
+// can be left.
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Avatar,
   AvatarStack,
   Button,
   Card,
@@ -21,9 +24,9 @@ import type { SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf } from "../content";
 import type { Item, Shape } from "../content";
-import { countOf, itemDate, sharedNames } from "../covers";
+import { countOf, fromOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
-import { homeRelative, monthAndDay } from "../format";
+import { dateFromSeconds, homeRelative, monthAndDay } from "../format";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
@@ -52,11 +55,9 @@ export function Collection({ name }: { name: string }) {
 
   const list = spaces.data ?? [];
   const space = list.find((x) => x.name === name);
-  // What it holds, from the same first rows its cover reads.
-  const preview = useLoad(
-    async () => (space && space.kind !== "remote" ? loadPreview(client, space) : undefined),
-    [space?.name, space?.kind],
-  );
+  // What it holds, from the same first rows its cover reads; one shared
+  // with you is read from its owner's computer, which may be off.
+  const preview = useLoad(async () => (space ? loadPreview(client, space) : undefined), [space?.name, space?.kind]);
   const mine = list.filter((x) => x.kind !== "remote");
   const toneOf = collectionTones(list.map((x) => x.name));
   const names = sharedNames(shares.data).get(name) ?? [];
@@ -78,6 +79,7 @@ export function Collection({ name }: { name: string }) {
     );
   }
   const local = space.kind !== "remote";
+  const from = fromOf(space);
   const kind = preview.data?.shape.view;
   const place = storages.data?.find((x) => x.name === space.storage);
   const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
@@ -99,34 +101,38 @@ export function Collection({ name }: { name: string }) {
         label={
           local
             ? [kind ? s.kinds[kind] : null, space.example ? s.fromExampleShort : s.fromYouShort].filter(Boolean).join(" · ")
-            : s.fromElsewhere
+            : s.sharedWithYouFrom(from)
         }
         title={space.name}
       >
-        {local && (
+        {local ? (
           <Button variant="primary" onClick={() => setSharing(true)}>
             {s.share}
           </Button>
+        ) : (
+          <Button onClick={() => setConfirming(true)}>{s.leave}</Button>
         )}
         {source && (
           <Button icon="sync" disabled={sync.busy} spinning={sync.busy} onClick={syncNow}>
             {strings.sources.syncNow}
           </Button>
         )}
-        <Menu
-          label={strings.common.moreActions(space.name)}
-          items={[
-            ...(source
-              ? [
-                  {
-                    label: strings.sources.showFiles,
-                    onSelect: () => void sync.run(() => client.showSourceFiles({ source: source.name })),
-                  },
-                ]
-              : []),
-            { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
-          ]}
-        />
+        {local && (
+          <Menu
+            label={strings.common.moreActions(space.name)}
+            items={[
+              ...(source
+                ? [
+                    {
+                      label: strings.sources.showFiles,
+                      onSelect: () => void sync.run(() => client.showSourceFiles({ source: source.name })),
+                    },
+                  ]
+                : []),
+              { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
+            ]}
+          />
+        )}
       </ScreenHeader>
 
       {local ? (
@@ -170,7 +176,27 @@ export function Collection({ name }: { name: string }) {
           </div>
         </dl>
       ) : (
-        <p className="screen-lede">{s.fromElsewhere}</p>
+        <dl className="oik-card screen-facts">
+          <div>
+            <dt className="oik-label">{s.factHolds}</dt>
+            <dd>{countOf(preview.data) ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="oik-label">{s.factSharedBy}</dt>
+            <dd className="screen-facts__who">
+              <Avatar name={from} small />
+              <span>{from}</span>
+            </dd>
+          </div>
+          <div>
+            <dt className="oik-label">{s.factYouGet}</dt>
+            <dd>{s.youGetLive}</dd>
+          </div>
+          <div>
+            <dt className="oik-label">{s.factUntil}</dt>
+            <dd>{space.expiresAt != null ? dateFromSeconds(space.expiresAt) : "—"}</dd>
+          </div>
+        </dl>
       )}
 
       {sharing && (
@@ -186,16 +212,16 @@ export function Collection({ name }: { name: string }) {
       )}
       {confirming && (
         <ConfirmDialog
-          title={s.removeTitle(space.name)}
-          body={s.removeBody}
-          confirmLabel={s.removeYes}
+          title={local ? s.removeTitle(space.name) : s.leaveTitle(space.name)}
+          body={local ? s.removeBody : s.leaveBody(from)}
+          confirmLabel={local ? s.removeYes : s.leave}
           cancelLabel={strings.common.cancel}
           busy={remove.busy}
           error={remove.error}
           onConfirm={async () => {
             const done = await remove.run(() => client.dropSpace({ space: space.name }));
             if (done) {
-              toast(strings.toast.removed(space.name));
+              toast(local ? strings.toast.removed(space.name) : s.left(space.name));
               forgetPreviews(space.name);
               // The removed collection's page is gone: Back skips it.
               navigate("/collections", { replace: true });

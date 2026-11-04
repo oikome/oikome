@@ -116,7 +116,13 @@ function Root() {
     screen = <Collection key={name} name={name} />;
   } else if (path === "/sharing") {
     screen = (
-      <Sharing info={info} startAdding={query.get("add") === "1"} startSharing={query.get("share") === "1"} />
+      <Sharing
+        info={info}
+        startAdding={query.get("add") === "1"}
+        startSharing={query.get("share") === "1"}
+        startInviting={query.get("invite") === "1"}
+        startLending={query.get("lend") === "1"}
+      />
     );
   } else if (path === "/sources") {
     screen = <Sources startAdding={query.get("add") === "1"} />;

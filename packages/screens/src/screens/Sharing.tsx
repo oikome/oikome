@@ -2,27 +2,40 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Sharing: what you share and with whom, and your contacts. New Share opens
-// the same share dialog as a collection's Share button.
+// the same share dialog as a collection's Share button. An invite someone
+// sent is added here (Add an Invite) and waits at the top, as the
+// prototype's notice, until it is accepted or declined. Compute lends this
+// computer to contacts, and lists the computers lent to you.
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   Avatar,
   Button,
+  Checkbox,
   ConfirmDialog,
   CopyButton,
+  CopyField,
+  Dialog,
   ErrorText,
   Group,
   GroupPanel,
+  InsetWell,
   Menu,
   Row,
+  Segmented,
   SkeletonRows,
   Status,
+  Switch,
+  TextArea,
   TextField,
+  Tile,
   collectionTones,
   useToast,
 } from "@oikome/ui";
-import type { Contact, NodeInfo, Share } from "@oikome/client";
-import { useAction, useClient, useLoad } from "../data";
+import type { Borrowed, Contact, Invite, LendInvite, Lending, NodeInfo, Share, SpaceSummary } from "@oikome/client";
+import type { StatusKind } from "@oikome/ui";
+import type { Describe } from "../data";
+import { asSentence, useAction, useClient, useLoad } from "../data";
 import { dateFromSeconds, fullId, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { navigate } from "../router";
@@ -35,25 +48,38 @@ export function Sharing({
   info,
   startAdding = false,
   startSharing = false,
+  startInviting = false,
+  startLending = false,
 }: {
   info: NodeInfo;
   /** Opened to add a contact (?add=1), from a share that needs one first. */
   startAdding?: boolean;
   /** Opened to share something (?share=1), from the ⌘K palette. */
   startSharing?: boolean;
+  /** Opened to add an invite someone sent (?invite=1), from the palette. */
+  startInviting?: boolean;
+  /** Opened to lend this computer (?lend=1), from the palette. */
+  startLending?: boolean;
 }) {
   const client = useClient();
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const contacts = useLoad(() => client.listContacts(), []);
+  const invites = useLoad(() => client.listInvites(), []);
+  const lending = useLoad(() => client.lending(), []);
+  const borrowed = useLoad(() => client.listBorrowed(), []);
   const [composing, setComposing] = useState(startSharing);
+  const [inviting, setInviting] = useState(startInviting);
+  const [lendingOpen, setLendingOpen] = useState(startLending);
   useEffect(() => {
-    if (startSharing) {
-      setComposing(true);
-      // Drop ?share=1, so a reload does not open the dialog again.
+    if (startSharing || startInviting || startLending) {
+      setComposing(startSharing);
+      setInviting(startInviting);
+      setLendingOpen(startLending);
+      // Drop the ?share=1 kind of query, so a reload does not open the dialog again.
       navigate("/sharing", { replace: true });
     }
-  }, [startSharing]);
+  }, [startSharing, startInviting, startLending]);
   const stop = useAction();
   const toast = useToast();
 
@@ -65,6 +91,9 @@ export function Sharing({
     spaces.reload();
     shares.reload();
     contacts.reload();
+    invites.reload();
+    lending.reload();
+    borrowed.reload();
   };
   // The same colors as on Collections: built from the same list of names.
   const toneOf = collectionTones((spaces.data ?? []).map((space) => space.name));
@@ -72,10 +101,19 @@ export function Sharing({
   return (
     <>
       <ScreenHeader title={s.title} lede={s.lede}>
+        <Button onClick={() => setInviting(true)}>{s.addInvite}</Button>
         <Button variant="primary" icon="plus" onClick={() => setComposing(true)}>
           {s.newShare}
         </Button>
       </ScreenHeader>
+
+      {(invites.data ?? []).length > 0 && (
+        <div className="screen-invites" role="region" aria-label={s.invitesLabel}>
+          {invites.data!.map((invite) => (
+            <InviteNotice key={invite.id} invite={invite} onDone={reload} />
+          ))}
+        </div>
+      )}
 
       {[spaces.error, shares.error, contacts.error, stop.error]
         .filter(Boolean)
@@ -85,92 +123,103 @@ export function Sharing({
         ))}
 
       <div className="screen-dash screen-dash--start screen-dash--split">
-        <section className="oik-group" aria-labelledby="shared-by-you">
-          <header className="oik-group__head">
-            <h2 id="shared-by-you" className="oik-group__title">
-              {s.sharedByYou}
-            </h2>
-            {shares.data && (
-              <span className="screen-group-count">{s.counts(active.length, ended.length)}</span>
+        <div>
+          <section className="oik-group" aria-labelledby="shared-by-you">
+            <header className="oik-group__head">
+              <h2 id="shared-by-you" className="oik-group__title">
+                {s.sharedByYou}
+              </h2>
+              {shares.data && (
+                <span className="screen-group-count">{s.counts(active.length, ended.length)}</span>
+              )}
+            </header>
+            {!shares.data && !shares.error ? (
+              <ul className="oik-group__body">
+                <SkeletonRows count={2} />
+              </ul>
+            ) : active.length + ended.length === 0 ? (
+              <p className="screen-panel__empty">{s.nothingShared}</p>
+            ) : (
+              <div className="screen-table-in-card">
+                <table className="oik-table" aria-label={s.sharedByYou}>
+                  <thead>
+                    <tr>
+                      <th scope="col">{s.colCollection}</th>
+                      <th scope="col">{s.colWith}</th>
+                      <th scope="col">{s.colAccess}</th>
+                      <th scope="col">{s.colUntil}</th>
+                      <th scope="col">
+                        <span className="oik-visually-hidden">{s.stop}</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...active, ...ended].map((share) => {
+                      const name = share.contactName ?? strings.common.unknown;
+                      const on = share.status === "active";
+                      return (
+                        <tr key={share.id} className={on ? undefined : "screen-row-ended"}>
+                          <td className="screen-cell-mono" translate="no">
+                            {share.space}
+                          </td>
+                          <td>
+                            <span className="screen-cell-person">
+                              <Avatar name={name} small />
+                              {name}
+                            </span>
+                          </td>
+                          <td>
+                            {on ? (
+                              <Status kind={share.access === "copy" ? "run" : "ok"}>
+                                {share.access === "copy" ? s.accessCopyShort : s.accessViewShort}
+                              </Status>
+                            ) : (
+                              <Status kind="off">
+                                {share.status === "expired" ? s.expired : s.endedShort}
+                              </Status>
+                            )}
+                          </td>
+                          <td className="screen-cell-mono">{dateFromSeconds(share.expiresAt)}</td>
+                          <td className="screen-cell-action">
+                            {on && (
+                              <Button
+                                variant="quiet"
+                                disabled={stop.busy}
+                                aria-label={`${s.stop}: ${share.space}, ${name}`}
+                                onClick={async () => {
+                                  const done = await stop.run(() => client.revokeShare({ id: share.id }));
+                                  if (done) {
+                                    toast(strings.toast.stopped(share.space, name));
+                                    reload();
+                                  }
+                                }}
+                              >
+                                {s.stopShort}
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </header>
-          {!shares.data && !shares.error ? (
-            <ul className="oik-group__body">
-              <SkeletonRows count={2} />
-            </ul>
-          ) : active.length + ended.length === 0 ? (
-            <p className="screen-panel__empty">{s.nothingShared}</p>
-          ) : (
-            <div className="screen-table-in-card">
-              <table className="oik-table" aria-label={s.sharedByYou}>
-                <thead>
-                  <tr>
-                    <th scope="col">{s.colCollection}</th>
-                    <th scope="col">{s.colWith}</th>
-                    <th scope="col">{s.colAccess}</th>
-                    <th scope="col">{s.colUntil}</th>
-                    <th scope="col">
-                      <span className="oik-visually-hidden">{s.stop}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...active, ...ended].map((share) => {
-                    const name = share.contactName ?? strings.common.unknown;
-                    const on = share.status === "active";
-                    return (
-                      <tr key={share.id} className={on ? undefined : "screen-row-ended"}>
-                        <td className="screen-cell-mono" translate="no">
-                          {share.space}
-                        </td>
-                        <td>
-                          <span className="screen-cell-person">
-                            <Avatar name={name} small />
-                            {name}
-                          </span>
-                        </td>
-                        <td>
-                          {on ? (
-                            <Status kind={share.access === "copy" ? "run" : "ok"}>
-                              {share.access === "copy" ? s.accessCopyShort : s.accessViewShort}
-                            </Status>
-                          ) : (
-                            <Status kind="off">
-                              {share.status === "expired" ? s.expired : s.endedShort}
-                            </Status>
-                          )}
-                        </td>
-                        <td className="screen-cell-mono">{dateFromSeconds(share.expiresAt)}</td>
-                        <td className="screen-cell-action">
-                          {on && (
-                            <Button
-                              variant="quiet"
-                              disabled={stop.busy}
-                              aria-label={`${s.stop}: ${share.space}, ${name}`}
-                              onClick={async () => {
-                                const done = await stop.run(() => client.revokeShare({ id: share.id }));
-                                if (done) {
-                                  toast(strings.toast.stopped(share.space, name));
-                                  reload();
-                                }
-                              }}
-                            >
-                              {s.stopShort}
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+          </section>
+
+          <Compute
+            lending={lending.data}
+            borrowed={borrowed.data}
+            onLend={() => setLendingOpen(true)}
+            onChange={reload}
+          />
+        </div>
 
         <div>
           <Contacts
             contacts={contacts.data ?? []}
+            fromThem={(spaces.data ?? []).filter((space) => space.kind === "remote")}
+            lenders={(borrowed.data ?? []).map((b) => b.fromDid)}
             shares={active}
             me={info.did}
             startAdding={startAdding}
@@ -206,18 +255,441 @@ export function Sharing({
           onChange={reload}
         />
       )}
+      {lendingOpen && lending.data && contacts.data && (
+        <LendDialog
+          lending={lending.data}
+          contacts={contacts.data}
+          onClose={() => setLendingOpen(false)}
+          onSaved={reload}
+        />
+      )}
+      {inviting && (
+        <AddInvite
+          onClose={() => setInviting(false)}
+          onAdded={() => {
+            setInviting(false);
+            invites.reload();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/** An invite waiting here: who sent it and what for; accept or decline. */
+function InviteNotice({ invite, onDone }: { invite: Invite; onDone: () => void }) {
+  const client = useClient();
+  const toast = useToast();
+  const act = useAction();
+  const titleId = useId();
+  const from = invite.fromName;
+  const computer = invite.kind === "compute";
+  const meta = invite.ended
+    ? s.inviteEndedBody
+    : (computer
+        ? [
+            invite.concurrent != null ? s.tasksAtOnce(invite.concurrent) : null,
+            invite.perHour != null ? s.perHour(invite.perHour) : null,
+            s.inviteUntil(dateFromSeconds(invite.expiresAt)),
+          ]
+        : [
+            strings.collections.viewLive,
+            s.inviteUntil(dateFromSeconds(invite.expiresAt)),
+            invite.renews ? s.inviteRenews(invite.name) : invite.name !== invite.space ? s.inviteAs(invite.name) : null,
+          ]
+      )
+        .filter(Boolean)
+        .join(" · ");
+  const what = computer ? s.borrowedTitle(from) : invite.space;
+  // Words for a failed accept: the node's own when they are about the
+  // invite, else what to check.
+  const describe: Describe = (e) =>
+    e.code === "not_found"
+      ? s.inviteGone
+      : e.code === "invalid" && /invite/.test(e.message)
+        ? asSentence(e)
+        : s.acceptFailed(from);
+  return (
+    <section className="oik-card screen-callout screen-callout--quiet" aria-labelledby={titleId}>
+      <Tile icon={computer ? "cpu" : "person-plus"} tone="lavender" />
+      <div className="screen-callout__text">
+        <h2 id={titleId} className="screen-callout__title">
+          {invite.ended
+            ? computer
+              ? s.lendEnded(from)
+              : s.inviteEnded(from, invite.space)
+            : computer
+              ? s.lendsYou(from)
+              : s.invitedYou(from, invite.space)}
+        </h2>
+        <p className="screen-callout__meta">{meta}</p>
+        {act.error && <ErrorText>{act.error}</ErrorText>}
+      </div>
+      <Button
+        variant="quiet"
+        disabled={act.busy}
+        aria-label={invite.ended ? undefined : s.declineFor(what)}
+        onClick={async () => {
+          const left = await act.run(() => client.declineInvite({ id: invite.id }));
+          if (left) {
+            if (!invite.ended) toast(s.declined(from));
+            onDone();
+          }
+        }}
+      >
+        {invite.ended ? s.dismiss : s.decline}
+      </Button>
+      {!invite.ended && (
+        <Button
+          disabled={act.busy}
+          aria-label={s.acceptFor(what)}
+          onClick={async () => {
+            const added = await act.run(() => client.acceptInvite({ id: invite.id }), describe);
+            if (added) {
+              toast(added.kind === "compute" ? s.acceptedCompute(added.name) : s.accepted(added.name));
+              onDone();
+            }
+          }}
+        >
+          {s.accept}
+        </Button>
+      )}
+    </section>
+  );
+}
+
+const BORROW_STATUS: Record<Borrowed["status"], StatusKind> = {
+  available: "ok",
+  unavailable: "off",
+  unreachable: "idle",
+  ended: "off",
+};
+
+/** Lend this computer (a switch, and Change for whom and how much); computers lent to you. */
+function Compute({
+  lending,
+  borrowed,
+  onLend,
+  onChange,
+}: {
+  lending?: Lending;
+  borrowed?: Borrowed[];
+  onLend: () => void;
+  onChange: () => void;
+}) {
+  const client = useClient();
+  const toast = useToast();
+  const act = useAction();
+  const names = (lending?.people ?? []).map((p) => p.name ?? strings.common.unknown);
+  const meta = !lending
+    ? undefined
+    : names.length === 0
+      ? s.notLent
+      : [lending.on ? null : s.paused, s.lentTo(names), s.tasksAtOnce(lending.concurrent), s.perHour(lending.perHour)]
+          .filter(Boolean)
+          .join(" · ");
+  return (
+    <Group title={s.compute} footnote={s.computeFootnote}>
+      <Row
+        leading={<Tile icon="cpu" tone="sage" />}
+        title={s.lendRow}
+        meta={meta}
+        trailing={
+          <span className="screen-compute__acts">
+            <Button variant="quiet" onClick={onLend}>
+              {s.change}
+            </Button>
+            <Switch
+              label={s.lendSwitch}
+              checked={lending?.on ?? false}
+              disabled={!lending || act.busy}
+              onChange={async (on) => {
+                if (!lending) return;
+                // Nobody to lend to yet: choose first.
+                if (on && lending.people.length === 0) {
+                  onLend();
+                  return;
+                }
+                const saved = await act.run(() =>
+                  client.setLending({
+                    on,
+                    people: lending.people.map((p) => p.did),
+                    concurrent: lending.concurrent,
+                    perHour: lending.perHour,
+                  }),
+                );
+                if (saved) {
+                  toast(on ? s.lendOn : s.lendOff);
+                  onChange();
+                }
+              }}
+            />
+          </span>
+        }
+      />
+      {(borrowed ?? []).map((b) => (
+        <Row
+          key={b.id}
+          leading={<Tile icon="cpu" tone="lavender" />}
+          title={s.borrowedTitle(b.fromName)}
+          meta={s.lendsYouMeta(
+            [
+              b.concurrent != null ? s.tasksAtOnce(b.concurrent) : null,
+              b.perHour != null ? s.perHour(b.perHour) : null,
+              s.inviteUntil(dateFromSeconds(b.expiresAt)),
+            ].filter((part): part is string => part !== null),
+          )}
+          trailing={
+            <span className="screen-compute__acts">
+              <Status kind={BORROW_STATUS[b.status]}>{s.borrowStatus[b.status]}</Status>
+              <Menu
+                label={strings.common.moreActions(s.borrowedTitle(b.fromName))}
+                items={[
+                  {
+                    label: s.stopUsing,
+                    destructive: true,
+                    onSelect: async () => {
+                      const left = await act.run(() => client.stopBorrowing({ id: b.id }));
+                      if (left) {
+                        toast(s.stoppedUsing(b.fromName));
+                        onChange();
+                      }
+                    },
+                  },
+                ]}
+              />
+            </span>
+          }
+        />
+      ))}
+      {act.error && (
+        <GroupPanel>
+          <ErrorText>{act.error}</ErrorText>
+        </GroupPanel>
+      )}
+    </Group>
+  );
+}
+
+const AT_ONCE = ["1", "2", "4"];
+const EACH_HOUR = ["10", "30", "100"];
+
+/** Whom to lend this computer to, and how much each may use; then the codes to send. */
+function LendDialog({
+  lending,
+  contacts,
+  onClose,
+  onSaved,
+}: {
+  lending: Lending;
+  contacts: Contact[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const client = useClient();
+  const toast = useToast();
+  const save = useAction();
+  const [people, setPeople] = useState(() => new Set(lending.people.map((p) => p.did)));
+  const [atOnce, setAtOnce] = useState(String(lending.concurrent));
+  const [eachHour, setEachHour] = useState(String(lending.perHour));
+  const [codes, setCodes] = useState<LendInvite[]>();
+  // Values set elsewhere (the command line) are offered beside the usual ones.
+  const atOnceChoices = [...new Set([...AT_ONCE, atOnce])].sort((a, b) => Number(a) - Number(b));
+  const eachHourChoices = [...new Set([...EACH_HOUR, eachHour])].sort((a, b) => Number(a) - Number(b));
+
+  if (codes) {
+    return (
+      <Dialog
+        title={s.lendCodesTitle(codes.map((c) => c.name))}
+        closeLabel={strings.common.close}
+        onClose={onClose}
+        footer={
+          <Button variant="primary" onClick={onClose}>
+            {strings.common.done}
+          </Button>
+        }
+      >
+        {codes.map((code) => (
+          <div key={code.did} className="screen-lend-code">
+            {codes.length > 1 && <h3 className="oik-label">{code.name}</h3>}
+            <InsetWell>
+              <CopyField value={code.invite} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+            </InsetWell>
+          </div>
+        ))}
+        <p className="screen-help">{s.lendCodesBody}</p>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog
+      title={s.lendTitle}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button
+            variant="primary"
+            disabled={save.busy || contacts.length === 0}
+            onClick={async () => {
+              const saved = await save.run(() =>
+                client.setLending({
+                  on: people.size > 0,
+                  people: [...people],
+                  concurrent: Number(atOnce),
+                  perHour: Number(eachHour),
+                }),
+              );
+              if (!saved) return;
+              onSaved();
+              if (saved.invites.length > 0) {
+                setCodes(saved.invites);
+              } else {
+                toast(s.lendSaved);
+                onClose();
+              }
+            }}
+          >
+            {strings.common.save}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{s.lendBody}</p>
+      <fieldset className="screen-lend-field">
+        <legend className="oik-field__label">{s.lendTo}</legend>
+        {contacts.length === 0 ? (
+          <p className="screen-help">
+            {s.lendNeedsContact}{" "}
+            <Button
+              variant="text"
+              onClick={() => {
+                onClose();
+                navigate("/sharing?add=1");
+              }}
+            >
+              {s.addContact}
+            </Button>
+          </p>
+        ) : (
+          <ul className="screen-lend-people">
+            {contacts.map((contact) => (
+              <li key={contact.did}>
+                <Checkbox
+                  label={
+                    <span className="screen-cell-person">
+                      <Avatar name={contact.name} small />
+                      {contact.name}
+                    </span>
+                  }
+                  checked={people.has(contact.did)}
+                  onChange={(on) => {
+                    const next = new Set(people);
+                    if (on) next.add(contact.did);
+                    else next.delete(contact.did);
+                    setPeople(next);
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </fieldset>
+      <div className="screen-lend-field">
+        <span className="oik-field__label">{s.lendAtOnce}</span>
+        <Segmented
+          label={s.lendAtOnce}
+          value={atOnce}
+          onChange={setAtOnce}
+          options={atOnceChoices.map((v) => ({ value: v, label: s.tasks(Number(v)) }))}
+        />
+      </div>
+      <div className="screen-lend-field">
+        <span className="oik-field__label">{s.lendEachHour}</span>
+        <Segmented
+          label={s.lendEachHour}
+          value={eachHour}
+          onChange={setEachHour}
+          options={eachHourChoices.map((v) => ({ value: v, label: s.perHour(Number(v)) }))}
+        />
+      </div>
+      <p className="screen-help">{s.lendHint(Math.round(lending.taskMs / 1000))}</p>
+      {save.error && <ErrorText>{save.error}</ErrorText>}
+    </Dialog>
+  );
+}
+
+/** Paste an invite code someone sent; it then waits on Sharing. */
+function AddInvite({ onClose, onAdded }: { onClose: () => void; onAdded: (invite: Invite) => void }) {
+  const client = useClient();
+  const [code, setCode] = useState("");
+  const [problem, setProblem] = useState<string>();
+  const add = useAction();
+  // The node's words name what is wrong with the code; other failures get
+  // the general wording.
+  const describe: Describe = (e) => (e.code === "invalid" || e.code === "conflict" ? asSentence(e) : undefined);
+  return (
+    <Dialog
+      title={s.addInvite}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button type="submit" form="add-invite" variant="primary" disabled={add.busy}>
+            {s.addInviteYes}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="add-invite"
+        className="screen-form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!code.trim()) {
+            setProblem(s.inviteCodeRequired);
+            return;
+          }
+          const added = await add.run(() => client.addInvite({ invite: code }), describe);
+          if (added) onAdded(added);
+        }}
+      >
+        <TextArea
+          label={s.inviteCode}
+          name="invite-code"
+          hint={s.inviteCodeHint}
+          value={code}
+          onChange={(value) => {
+            setCode(value);
+            setProblem(undefined);
+            add.clear();
+          }}
+          error={problem ?? add.error}
+          mono
+          autoFocus
+        />
+      </form>
+    </Dialog>
   );
 }
 
 function Contacts({
   contacts,
+  fromThem,
+  lenders,
   shares,
   me,
   startAdding,
   onChange,
 }: {
   contacts: Contact[];
+  /** Collections shared with you, each from a data center. */
+  fromThem: SpaceSummary[];
+  /** Data centers that lend you their computer. */
+  lenders: string[];
   shares: Share[];
   /** This data center's own ID, which is never a contact. */
   me: string;
@@ -266,6 +738,8 @@ function Contacts({
         {contacts.length === 0 && !adding && <Row title={s.noContacts} muted />}
         {contacts.map((contact) => {
           const count = shares.filter((share) => share.did === contact.did).length;
+          const theirs = fromThem.filter((space) => space.fromDid === contact.did).map((space) => space.name);
+          const lends = lenders.includes(contact.did);
           if (editing === contact.did) {
             return (
               <GroupPanel key={contact.did}>
@@ -318,7 +792,13 @@ function Contacts({
               key={contact.did}
               leading={<Avatar name={contact.name} />}
               title={contact.name}
-              meta={count > 0 ? s.sharesCount(count) : s.noShares}
+              meta={[
+                count > 0 ? s.sharesCount(count) : theirs.length === 0 && !lends ? s.noShares : null,
+                theirs.length > 0 ? s.sharesWithYou(theirs) : null,
+                lends ? s.lendsYouShort : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
               trailing={
                 <Menu
                   label={strings.common.moreActions(contact.name)}

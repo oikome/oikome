@@ -29,6 +29,8 @@
 
 pub mod error;
 mod examples;
+mod invites;
+mod lending;
 mod places;
 mod sources;
 pub mod types;
@@ -185,8 +187,8 @@ pub struct Api {
     engines: Arc<EngineRegistry>,
     access_log: Option<AccessLog>,
     flight_url: Option<String>,
-    /// One change to the settings file at a time, so two at once (Home
-    /// arranged while the node is renamed) both land.
+    /// One change to the node's own files (settings, invites) at a time,
+    /// so two at once (Home arranged while the node is renamed) both land.
     settings_lock: Arc<std::sync::Mutex<()>>,
 }
 
@@ -492,6 +494,20 @@ impl Api {
                     .map(|l| format_name(&l.format))
                     .unwrap_or("unknown");
                 let storage = location.and_then(|l| l.storage).map(|b| b.storage);
+                // A remote Space: whose it is, and until when it is shared.
+                let from_did = (space.kind == oikome_core::SpaceKind::Remote)
+                    .then(|| space.uri.as_ref().map(|u| u.owner_did.clone()))
+                    .flatten();
+                let from_name = from_did
+                    .as_deref()
+                    .and_then(|did| self.catalog.get_contact(did))
+                    .map(|c| c.name);
+                let expires_at = from_did
+                    .is_some()
+                    .then(|| self.catalog.remote_token(&space.name).ok())
+                    .flatten()
+                    .and_then(|t| oikome_identity::Ucan::decode(t.expose()).ok())
+                    .map(|u| u.payload().exp);
                 SpaceSummary {
                     kind: match space.kind {
                         oikome_core::SpaceKind::Analytical => SpaceKind::Analytical,
@@ -504,6 +520,9 @@ impl Api {
                     shared_with: shared.get(&space.name).map_or(0, |d| d.len() as u32),
                     storage,
                     example: examples.contains(&space.name),
+                    from_did,
+                    from_name,
+                    expires_at,
                     name: space.name,
                 }
             })
@@ -1090,6 +1109,8 @@ impl Api {
                 revoked_shares += 1;
             }
         }
+        // Lending stops for them too.
+        self.stop_lending_to(&req.did)?;
         for grant in self.catalog.list_space_grants() {
             if grant.principal == req.did {
                 session.revoke_space(&grant.space, std::slice::from_ref(&req.did))?;
@@ -1221,6 +1242,12 @@ impl Api {
                 ShareAccess::Query
             },
             expires_at: issued.expires_at,
+            invite: invites::invite_code(
+                &issued.token,
+                self.flight_url.as_deref(),
+                &self.settings()?.name,
+                None,
+            ),
             token: issued.token,
         })
     }

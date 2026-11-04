@@ -168,6 +168,35 @@ export function Segmented({
   );
 }
 
+/**
+ * An on/off switch for something that takes effect at once (lending this
+ * computer); its knob slides as it changes.
+ */
+export function Switch({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      className={cx("oik-switch", checked && "oik-switch--on")}
+      onClick={() => onChange(!checked)}
+    />
+  );
+}
+
 /** A short tag beside a name: "Example", "Default". */
 export function Tag({ children }: { children: ReactNode }) {
   return <span className="oik-tag">{children}</span>;
@@ -489,12 +518,20 @@ export function TextField({
 
 export function TextArea({
   label,
+  name = "text",
+  hint,
+  error,
   value,
   onChange,
-}: {
-  label: string;
+  mono,
+  autoFocus,
+}: FieldProps & {
+  name?: string;
   value: string;
   onChange: (value: string) => void;
+  /** Codes and other text read by machines: monospace, no spellcheck. */
+  mono?: boolean;
+  autoFocus?: boolean;
 }) {
   const id = useId();
   return (
@@ -504,13 +541,17 @@ export function TextArea({
       </label>
       <textarea
         id={id}
-        name="statements"
+        name={name}
         autoComplete="off"
-        className="oik-textarea"
+        className={cx("oik-textarea", mono && "oik-input--mono")}
         value={value}
         spellCheck={false}
+        autoFocus={autoFocus}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => onChange(e.target.value)}
       />
+      {hint && <span className="oik-field__hint">{hint}</span>}
+      {error && <ErrorText>{error}</ErrorText>}
     </div>
   );
 }

@@ -436,9 +436,191 @@ async fn principals_cannot_use_owner_operations() {
         .await
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n
+        .api
+        .add_invite(
+            &principal,
+            InviteCode {
+                invite: "x.y.z".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
     // Who the node is, anyone may ask.
     let info = n.api.node_info(&principal, Empty {}).await.unwrap();
     assert!(info.did.starts_with("did:key:z"));
+}
+
+async fn share_for(n: &Api, did: &str, days: u32) -> NewShare {
+    n.share_space(
+        &OWNER,
+        ShareSpace {
+            space: "notes".into(),
+            did: did.to_string(),
+            allow_copy: None,
+            expires_in_days: Some(days),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+async fn add(n: &Node, invite: &str) -> Result<Invite, ApiError> {
+    n.api
+        .add_invite(
+            &OWNER,
+            InviteCode {
+                invite: invite.to_string(),
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+async fn an_invite_is_added_then_accepted_renewed_or_declined() {
+    // Rosh's data center, reached at an address of its own, shares notes with Sam.
+    let rosh = node();
+    let rosh_api = rosh.api.clone().with_flight_url("https://127.0.0.1:9");
+    rosh_api
+        .rename_node(
+            &OWNER,
+            NodeName {
+                name: "Rosh's data center".into(),
+            },
+        )
+        .await
+        .unwrap();
+    notes(&rosh).await;
+    let sam = node();
+    let sam_did = sam.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    rosh_api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: sam_did.clone(),
+                name: "Sam".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let made = share_for(&rosh_api, &sam_did, 30).await;
+    assert!(made.invite.starts_with("oik1-"));
+
+    // It is not for the one who made it, nor for anyone but Sam, and it
+    // has to be whole.
+    let e = add(&rosh, &made.invite).await.unwrap_err();
+    assert!(e.message.contains("one you made"), "{e}");
+    let other = node();
+    let e = add(&other, &made.invite).await.unwrap_err();
+    assert!(e.message.contains("another data center"), "{e}");
+    let e = add(&sam, &made.invite[..60]).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Sam adds it as a message wrapped it; the same code twice is one invite.
+    let wrapped = format!("{}\n  {}", &made.invite[..40], &made.invite[40..]);
+    let invite = add(&sam, &wrapped).await.unwrap();
+    assert_eq!(invite.from_name, "Rosh's data center");
+    assert!(!invite.from_contact);
+    assert_eq!(invite.space, "notes");
+    assert_eq!(invite.access, ShareAccess::Query);
+    assert_eq!(invite.expires_at, made.expires_at);
+    assert_eq!(invite.name, "notes");
+    assert!(!invite.renews && !invite.ended);
+    add(&sam, &made.invite).await.unwrap();
+    assert_eq!(
+        sam.api.list_invites(&OWNER, Empty {}).await.unwrap().len(),
+        1
+    );
+
+    // Accepted: notes is here, from Rosh, who is a contact now.
+    let added = sam
+        .api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: invite.id.clone(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(added.kind, InviteKind::Collection);
+    assert_eq!(added.name, "notes");
+    let space_of = |name: &str, spaces: Vec<SpaceSummary>| {
+        spaces.into_iter().find(|s| s.name == name).unwrap()
+    };
+    let notes = space_of(
+        "notes",
+        sam.api.list_spaces(&OWNER, Empty {}).await.unwrap(),
+    );
+    assert_eq!(notes.kind, SpaceKind::Remote);
+    assert_eq!(notes.from_did.as_deref(), Some(invite.from_did.as_str()));
+    assert_eq!(notes.from_name.as_deref(), Some("Rosh's data center"));
+    assert_eq!(notes.expires_at, Some(made.expires_at));
+    assert!(sam
+        .api
+        .list_invites(&OWNER, Empty {})
+        .await
+        .unwrap()
+        .is_empty());
+    let e = add(&sam, &made.invite).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+
+    // A new share of it renews the one here instead of adding another.
+    let again = share_for(&rosh_api, &sam_did, 60).await;
+    let renewal = add(&sam, &again.invite).await.unwrap();
+    assert!(renewal.renews && renewal.from_contact);
+    assert_eq!(renewal.name, "notes");
+    let renewed = sam
+        .api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: renewal.id,
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(renewed.name, "notes");
+    let notes = space_of(
+        "notes",
+        sam.api.list_spaces(&OWNER, Empty {}).await.unwrap(),
+    );
+    assert_eq!(notes.expires_at, Some(again.expires_at));
+    let remote: Vec<_> = sam
+        .api
+        .list_spaces(&OWNER, Empty {})
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|s| s.kind == SpaceKind::Remote)
+        .collect();
+    assert_eq!(remote.len(), 1);
+
+    // Declined: forgotten here.
+    let third = share_for(&rosh_api, &sam_did, 7).await;
+    let waiting = add(&sam, &third.invite).await.unwrap();
+    let left = sam
+        .api
+        .decline_invite(&OWNER, InviteRef { id: waiting.id })
+        .await
+        .unwrap();
+    assert!(left.is_empty());
+
+    // Invites hold tokens: only the owner may read the file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = sam
+            .catalog
+            .oikome_dir()
+            .join("identity")
+            .join("invites.json");
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 }
 
 #[tokio::test]
@@ -908,4 +1090,146 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
         .unwrap();
     let names: Vec<&str> = listing.folders.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["Oikome", "Photos"]);
+}
+
+#[tokio::test]
+async fn lending_this_computer_to_contacts_then_pausing_and_stopping() {
+    let rosh = node();
+    let rosh_api = rosh.api.clone().with_flight_url("https://127.0.0.1:9");
+    rosh_api
+        .rename_node(
+            &OWNER,
+            NodeName {
+                name: "Rosh's data center".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let sam = node();
+    let sam_did = sam.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    let lend = |on: bool, people: Vec<String>, concurrent: u32, per_hour: u32| SetLending {
+        on,
+        people,
+        concurrent,
+        per_hour,
+    };
+
+    // Not lent yet; lending is to contacts, within limits.
+    let lending = rosh_api.lending(&OWNER, Empty {}).await.unwrap();
+    assert!(!lending.on && lending.people.is_empty());
+    assert_eq!((lending.concurrent, lending.per_hour), (1, 30));
+    let e = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 2, 20))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+    rosh_api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: sam_did.clone(),
+                name: "Sam".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let e = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 0, 20))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Lent to Sam: a code for Sam, with the limits in it.
+    let saved = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 2, 20))
+        .await
+        .unwrap();
+    assert!(saved.lending.on);
+    assert_eq!((saved.lending.concurrent, saved.lending.per_hour), (2, 20));
+    assert_eq!(saved.lending.people.len(), 1);
+    assert_eq!(saved.lending.people[0].name.as_deref(), Some("Sam"));
+    assert_eq!(saved.invites.len(), 1);
+    let code = saved.invites[0].invite.clone();
+
+    // Sam adds it: Rosh's computer, 2 tasks at once, 20 an hour.
+    let invite = add(&sam, &code).await.unwrap();
+    assert_eq!(invite.kind, InviteKind::Compute);
+    assert_eq!(invite.from_name, "Rosh's data center");
+    assert_eq!((invite.concurrent, invite.per_hour), (Some(2), Some(20)));
+    let accepted = sam
+        .api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: invite.id,
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.kind, InviteKind::Compute);
+    assert_eq!(accepted.name, "Rosh's data center");
+    let e = add(&sam, &code).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    // Rosh's data center isn't running here, so it can't be reached.
+    let borrowed = sam.api.list_borrowed(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(borrowed.len(), 1);
+    assert_eq!(borrowed[0].from_name, "Rosh's data center");
+    assert_eq!(borrowed[0].task_ms, Some(30_000));
+    assert_eq!(borrowed[0].status, BorrowStatus::Unreachable);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = sam
+            .catalog
+            .oikome_dir()
+            .join("identity")
+            .join("borrowed.json");
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    // Paused and resumed without new codes; new limits for everyone.
+    let paused = rosh_api
+        .set_lending(&OWNER, lend(false, vec![sam_did.clone()], 4, 100))
+        .await
+        .unwrap();
+    assert!(!paused.lending.on);
+    assert_eq!(paused.lending.people.len(), 1);
+    assert_eq!(
+        (paused.lending.concurrent, paused.lending.per_hour),
+        (4, 100)
+    );
+    assert!(paused.invites.is_empty());
+    let resumed = rosh_api
+        .set_lending(&OWNER, lend(true, vec![sam_did.clone()], 4, 100))
+        .await
+        .unwrap();
+    assert!(resumed.lending.on && resumed.invites.is_empty());
+
+    // Removing Sam as a contact stops lending to Sam.
+    rosh_api
+        .remove_contact(
+            &OWNER,
+            DidRef {
+                did: sam_did.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let lending = rosh_api.lending(&OWNER, Empty {}).await.unwrap();
+    assert!(!lending.on && lending.people.is_empty());
+
+    // Sam stops using it.
+    let left = sam
+        .api
+        .stop_borrowing(
+            &OWNER,
+            BorrowedRef {
+                id: borrowed[0].id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(left.is_empty());
 }

@@ -564,6 +564,63 @@
   }
 }
 
+/* An on/off switch: the prototype's toggle, its knob sliding over 200 ms */
+.oik-switch {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background-color 200ms var(--ease);
+}
+.oik-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(20, 19, 16, 0.2);
+  transition: transform 200ms var(--ease);
+}
+.oik-switch--on {
+  background: var(--ink);
+}
+.oik-switch--on::after {
+  transform: translateX(14px);
+}
+.oik-switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+[data-theme="bold"] .oik-switch {
+  width: 44px;
+  height: 26px;
+  border: 2px solid #111;
+  background: #fff;
+}
+[data-theme="bold"] .oik-switch::after {
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #111;
+  box-sizing: border-box;
+  box-shadow: none;
+}
+[data-theme="bold"] .oik-switch--on {
+  background: #3ddc97;
+}
+[data-theme="bold"] .oik-switch--on::after {
+  transform: translateX(18px);
+}
+
 /* A few options side by side */
 .oik-seg {
   display: inline-flex;

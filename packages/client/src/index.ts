@@ -7,13 +7,22 @@
 // phone) and the desktop app will bring their own implementations.
 
 import type {
+  AcceptInvite,
+  AcceptedInvite,
   AccessItem,
   ApiError,
+  Borrowed,
+  BorrowedRef,
   Contact,
   ContactInput,
   DidRef,
   Empty,
   ErrorCode,
+  Invite,
+  InviteCode,
+  InviteRef,
+  Lending,
+  LendingSaved,
   ListAccess,
   ListShares,
   NewShare,
@@ -28,6 +37,7 @@ import type {
   Share,
   ShareRef,
   ShareSpace,
+  SetLending,
   SpaceRef,
   SpaceSummary,
   SqlDone,
@@ -91,6 +101,14 @@ export interface NodeClient {
   shareSpace(request: ShareSpace): Promise<NewShare>;
   listShares(request?: ListShares): Promise<Share[]>;
   revokeShare(request: ShareRef): Promise<RevokedShare>;
+  listInvites(): Promise<Invite[]>;
+  addInvite(request: InviteCode): Promise<Invite>;
+  acceptInvite(request: AcceptInvite): Promise<AcceptedInvite>;
+  declineInvite(request: InviteRef): Promise<Invite[]>;
+  lending(): Promise<Lending>;
+  setLending(request: SetLending): Promise<LendingSaved>;
+  listBorrowed(): Promise<Borrowed[]>;
+  stopBorrowing(request: BorrowedRef): Promise<Borrowed[]>;
   listAccess(request?: ListAccess): Promise<AccessItem[]>;
 }
 
@@ -289,6 +307,38 @@ export class HttpClient implements NodeClient {
 
   revokeShare(request: ShareRef): Promise<RevokedShare> {
     return this.#json("revoke_share", request);
+  }
+
+  listInvites(): Promise<Invite[]> {
+    return this.#json("list_invites", {});
+  }
+
+  addInvite(request: InviteCode): Promise<Invite> {
+    return this.#json("add_invite", request);
+  }
+
+  acceptInvite(request: AcceptInvite): Promise<AcceptedInvite> {
+    return this.#json("accept_invite", request);
+  }
+
+  declineInvite(request: InviteRef): Promise<Invite[]> {
+    return this.#json("decline_invite", request);
+  }
+
+  lending(): Promise<Lending> {
+    return this.#json("lending", {});
+  }
+
+  setLending(request: SetLending): Promise<LendingSaved> {
+    return this.#json("set_lending", request);
+  }
+
+  listBorrowed(): Promise<Borrowed[]> {
+    return this.#json("list_borrowed", {});
+  }
+
+  stopBorrowing(request: BorrowedRef): Promise<Borrowed[]> {
+    return this.#json("stop_borrowing", request);
   }
 
   listAccess(request: ListAccess = {}): Promise<AccessItem[]> {

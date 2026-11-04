@@ -119,6 +119,13 @@ pub struct SpaceSummary {
     pub storage: Option<String>,
     /// One of the examples a new data center starts with (`add_examples`).
     pub example: bool,
+    /// For a remote Space: the data center it is on (its DID)…
+    pub from_did: Option<String>,
+    /// …and what to call it: the contact's name, if it is a contact.
+    pub from_name: Option<String>,
+    /// For a remote Space: when the share it was added with ends, in seconds
+    /// since the Unix epoch.
+    pub expires_at: Option<u64>,
 }
 
 /// `create_space`: a new local Space.
@@ -448,8 +455,9 @@ pub enum ShareStatus {
     Revoked,
 }
 
-/// A share just made. `token` is shown this once: hand it to the contact,
-/// who mounts the Space with it.
+/// A share just made. `invite` is shown this once: the contact adds it in
+/// Oikome (`add_invite`). `token` is the same grant alone, for `CREATE SPACE
+/// ... WITH TOKEN` on the command line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct NewShare {
@@ -460,6 +468,182 @@ pub struct NewShare {
     /// Seconds since the Unix epoch.
     pub expires_at: u64,
     pub token: String,
+    /// The invite code: the token, where this data center is reached and
+    /// what it is called.
+    pub invite: String,
+}
+
+/// `add_invite`: an invite code someone sent, as pasted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteCode {
+    pub invite: String,
+}
+
+/// `decline_invite`: an invite waiting here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InviteRef {
+    pub id: String,
+}
+
+/// `accept_invite`: an invite waiting here, and the name its collection
+/// takes (by default the one `Invite::name` suggests).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct AcceptInvite {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// What an invite offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum InviteKind {
+    /// A collection, read where it is kept.
+    Collection,
+    /// The sender's computer, lent for Oikome's own computations.
+    Compute,
+}
+
+/// An invite from another data center, waiting to be accepted or
+/// declined: to a collection, or to use its computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Invite {
+    pub id: String,
+    pub kind: InviteKind,
+    /// The data center that sent it.
+    pub from_did: String,
+    /// Its contact name here, or else the name it goes by.
+    pub from_name: String,
+    /// Whether it is a contact already (accepting adds it).
+    pub from_contact: bool,
+    /// The collection, by its name there; empty for a computer.
+    pub space: String,
+    pub access: ShareAccess,
+    /// For a computer: tasks at once and per hour, as the lender set them.
+    pub concurrent: Option<u32>,
+    pub per_hour: Option<u32>,
+    /// Seconds since the Unix epoch.
+    pub expires_at: u64,
+    /// The share has ended; it can only be declined.
+    pub ended: bool,
+    /// The name it takes here: the one it had when accepted before (which
+    /// it replaces), else its own, or its own with a number when taken.
+    /// Empty for a computer.
+    pub name: String,
+    /// It renews a collection already here, of that name, or a computer
+    /// already lent to you.
+    pub renews: bool,
+    pub received_at_ms: u64,
+}
+
+/// An invite accepted: the collection added, or whose computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedInvite {
+    pub kind: InviteKind,
+    /// The collection's name here, or the lender's name.
+    pub name: String,
+}
+
+/// Lending this computer: whether it is lent now, to whom, and how much
+/// each may use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Lending {
+    /// Oikome's computations are offered to the people below.
+    pub on: bool,
+    /// Tasks each may have running at once…
+    pub concurrent: u32,
+    /// …and start per hour.
+    pub per_hour: u32,
+    /// The longest one task may run, in milliseconds.
+    pub task_ms: u64,
+    pub people: Vec<LentTo>,
+}
+
+/// Someone this computer is lent to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LentTo {
+    pub did: String,
+    pub name: Option<String>,
+    /// When their grant ends, in seconds since the Unix epoch.
+    pub expires_at: u64,
+}
+
+/// `set_lending`: lend this computer (or stop) to these contacts, each
+/// within these limits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetLending {
+    pub on: bool,
+    /// Contacts' DIDs; anyone left out stops being able to use it.
+    pub people: Vec<String>,
+    /// 1 to 8.
+    pub concurrent: u32,
+    /// 1 to 1000.
+    pub per_hour: u32,
+}
+
+/// Lending saved, with an invite code (shown this once) for each person
+/// newly lent to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LendingSaved {
+    pub lending: Lending,
+    pub invites: Vec<LendInvite>,
+}
+
+/// The code to send someone newly lent to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LendInvite {
+    pub did: String,
+    pub name: String,
+    pub invite: String,
+}
+
+/// Whether a computer lent to you can be used now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum BorrowStatus {
+    /// It is on and lends to you.
+    Available,
+    /// It answers, but doesn't lend to you now: lending is turned off
+    /// there, or stopped for you (it doesn't say which).
+    Unavailable,
+    /// It can't be reached: off, or not on this network.
+    Unreachable,
+    /// The grant ran out.
+    Ended,
+}
+
+/// A computer lent to you.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Borrowed {
+    pub id: String,
+    pub from_did: String,
+    pub from_name: String,
+    pub concurrent: Option<u32>,
+    pub per_hour: Option<u32>,
+    /// The longest one task may run there, in milliseconds.
+    pub task_ms: Option<u64>,
+    /// Seconds since the Unix epoch.
+    pub expires_at: u64,
+    pub status: BorrowStatus,
+}
+
+/// `stop_borrowing`: a computer lent to you, by its id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BorrowedRef {
+    pub id: String,
 }
 
 /// A share, as listed (never with its token).

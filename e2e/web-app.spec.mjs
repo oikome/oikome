@@ -16,8 +16,10 @@
 // `oikome serve --web --web-root apps/web/dist` on an empty data directory.
 // First run (a name already filled in, the recovery key, the examples it
 // leaves), the examples opened as photos, notes and a table, a collection of
-// one's own, a share with a contact (a second node) that is then stopped,
-// the contact's reads and refusal in Activity, and every screen at desktop
+// one's own, a share with a contact (a second data center, in a browser of
+// its own) who adds the invite, reads the collection and leaves it after
+// the share is stopped, the contact's reads and refusal in Activity, and
+// every screen at desktop
 // and phone width without sideways scrolling and with readable text (WCAG
 // AA). No fake data: everything goes through the node.
 
@@ -28,7 +30,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { auditContrast } from "./contrast.mjs";
-import { BIN, ENV, nodeSql, oikome } from "./node.mjs";
+import { BIN, ENV, oikome } from "./node.mjs";
 
 const WEB_ROOT = fileURLToPath(new URL("../apps/web/dist", import.meta.url));
 
@@ -37,11 +39,44 @@ test.describe.configure({ mode: "serial", timeout: 120_000 });
 let owner;
 let contact;
 let server;
+let contactServer;
 let base;
 let context;
 let page;
+let contactContext;
+/** Bob's page, on his own data center, from the share test on. */
+let bob;
+let bobBase;
 
 const loginLink = () => readFileSync(join(owner, ".oikome", "web", "login"), "utf8").trim();
+
+/** Start the data center at `root` with its web app; resolves once it can be logged in to. */
+async function serveWeb(root) {
+  const child = spawn(
+    BIN,
+    [
+      "--root",
+      root,
+      "serve",
+      "--listen",
+      "127.0.0.1:0",
+      "--p2p-listen",
+      "/ip4/127.0.0.1/tcp/0",
+      "--no-mdns",
+      "--web",
+      "--web-listen",
+      "127.0.0.1:0",
+      "--web-root",
+      WEB_ROOT,
+    ],
+    { stdio: ["ignore", "inherit", "inherit"], env: ENV },
+  );
+  for (let i = 0; !existsSync(join(root, ".oikome", "web", "login")); i++) {
+    if (i === 200 || child.exitCode !== null) throw new Error("the node did not start its web app");
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return child;
+}
 
 /** Call the node's API from the page, as the app does. */
 const api = (op, body = {}) =>
@@ -62,29 +97,7 @@ test.beforeAll(async ({ browser }) => {
   expect(existsSync(join(WEB_ROOT, "index.html")), "build apps/web first (npm run build)").toBe(true);
   owner = mkdtempSync(join(tmpdir(), "oikome-app-"));
   contact = mkdtempSync(join(tmpdir(), "oikome-app-contact-"));
-  server = spawn(
-    BIN,
-    [
-      "--root",
-      owner,
-      "serve",
-      "--listen",
-      "127.0.0.1:0",
-      "--p2p-listen",
-      "/ip4/127.0.0.1/tcp/0",
-      "--no-mdns",
-      "--web",
-      "--web-listen",
-      "127.0.0.1:0",
-      "--web-root",
-      WEB_ROOT,
-    ],
-    { stdio: ["ignore", "inherit", "inherit"], env: ENV },
-  );
-  for (let i = 0; !existsSync(join(owner, ".oikome", "web", "login")); i++) {
-    if (i === 200 || server.exitCode !== null) throw new Error("the node did not start its web app");
-    await new Promise((r) => setTimeout(r, 100));
-  }
+  server = await serveWeb(owner);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   page = await context.newPage();
@@ -93,7 +106,9 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async () => {
   await context?.close();
+  await contactContext?.close();
   server?.kill();
+  contactServer?.kill();
   for (const dir of [owner, contact]) if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -341,7 +356,11 @@ test("a place picked on this computer keeps new collections", async () => {
   }
 });
 
-test("a contact reads a shared collection until the share is stopped", async () => {
+test("a contact adds the invite in their own Oikome, reads it, and leaves it once the share stops", async ({
+  browser,
+}) => {
+  // Bob's data center, with a web app of its own.
+  contactServer = await serveWeb(contact);
   const did = oikome(contact, "identity").trim();
   await page.getByRole("link", { name: "Sharing" }).click();
   // With no contact yet, New Share offers to add one and opens the form.
@@ -362,29 +381,67 @@ test("a contact reads a shared collection until the share is stopped", async () 
   await newShare.getByLabel("Collection").selectOption("notes");
   await page.getByRole("button", { name: "Share notes with Bob" }).click();
   await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
-  const token = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
+  const invite = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
+  expect(invite).toMatch(/^oik1-/);
   await page.getByRole("button", { name: "Done" }).click();
   const shareRow = page.locator(".screen-table-in-card tr", { hasText: "Bob" });
   await expect(shareRow).toContainText("notes");
   await expect(shareRow).toContainText("View live");
 
-  const { flightUrl } = await api("node_info");
-  nodeSql(contact, `CREATE SPACE pub WITH PEER = '${flightUrl}', REMOTE = 'notes', TOKEN = '${token}'`);
-  expect(nodeSql(contact, "SELECT body FROM pub.memos ORDER BY id")).toEqual([
-    ["buy milk"],
-    ["call mum"],
-  ]);
+  // Bob, past his own first run, adds the invite on Sharing.
+  contactContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  bob = await contactContext.newPage();
+  bob.on("pageerror", (e) => console.error(`[contact page] ${e.message}`));
+  const contactLink = readFileSync(join(contact, ".oikome", "web", "login"), "utf8").trim();
+  bobBase = new URL(contactLink).origin;
+  await bob.goto(contactLink);
+  await expect(bob.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+  await bob.evaluate(async () => {
+    const call = (op, body) =>
+      fetch(`/api/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    await call("rename_node", { name: "Bob's" });
+    await call("confirm_recovery_key", {});
+  });
+  await bob.goto(`${bobBase}/sharing`);
+  await bob.getByRole("button", { name: "Add an Invite" }).click();
+  const adding = bob.getByRole("dialog", { name: "Add an Invite" });
+  // Half a code says so, in words.
+  await adding.getByLabel("Invite code").fill(invite.slice(0, 50));
+  await adding.getByRole("button", { name: "Add Invite" }).click();
+  await expect(adding).toContainText("That isn't a whole invite code");
+  // Pasted from a message that wrapped it.
+  await adding.getByLabel("Invite code").fill(`${invite.slice(0, 64)}\n${invite.slice(64)}`);
+  await adding.getByRole("button", { name: "Add Invite" }).click();
+  await expect(adding).toHaveCount(0);
+  const notice = bob.getByRole("region", { name: "Home invited you to \u201cnotes\u201d" });
+  await expect(notice).toContainText(/View live · until \w{3} \d+, \d{4}/);
+  await notice.getByRole("button", { name: "Accept: notes" }).click();
+  await expect(bob.locator(".oik-toasts")).toContainText("notes is in Shared With You.");
+  await expect(notice).toHaveCount(0);
+  // Home is one of Bob's contacts now, who shares notes with him.
+  await expect(bob.getByText("Shares notes with you")).toBeVisible();
 
+  // Under Shared With You, from Home; it reads from Home's data center.
+  await bob.getByRole("link", { name: "Collections" }).first().click();
+  const shared = bob.getByRole("region", { name: "Shared With You" });
+  await expect(shared).toContainText("From Home · View live");
+  await shared.getByRole("link", { name: /^notes/ }).click();
+  await expect(bob.getByText("Shared with you · from Home")).toBeVisible();
+  const rows = bob.getByRole("table", { name: "memos" });
+  await expect(rows.getByRole("cell", { name: "buy milk" })).toBeVisible();
+  await expect(rows.getByRole("cell", { name: "call mum" })).toBeVisible();
+
+  // Home stops sharing: Bob can't read it any more, and leaves it.
   await page.getByRole("button", { name: "Stop Sharing: notes, Bob" }).click();
   await expect(page.locator(".oik-toasts")).toContainText("Stopped sharing notes with Bob.");
   await expect(shareRow).toContainText("Ended");
-  let refused;
-  try {
-    nodeSql(contact, "SELECT body FROM pub.memos");
-  } catch (e) {
-    refused = e;
-  }
-  expect(String(refused?.stderr)).toMatch(/permission denied/);
+  await bob.reload();
+  await expect(bob.getByText(/can't be read right now/).first()).toBeVisible();
+  await bob.getByRole("button", { name: "Leave" }).click();
+  await bob.getByRole("dialog", { name: "Leave notes?" }).getByRole("button", { name: "Leave" }).click();
+  await expect(bob.locator(".oik-toasts")).toContainText("Left notes.");
+  await expect(bob).toHaveURL(`${bobBase}/collections`);
+  await expect(bob.getByRole("region", { name: "Shared With You" })).toHaveCount(0);
 });
 
 test("Activity shows the contact's reads and the refusal", async () => {
@@ -394,6 +451,54 @@ test("Activity shows the contact's reads and the refusal", async () => {
     const bob = page.locator("tbody tr", { hasText: "Bob" });
     await expect(bob.filter({ hasText: "read notes" }).first()).toBeVisible({ timeout: 1000 });
     await expect(bob.filter({ hasText: "was turned away from notes" }).first()).toBeVisible({
+      timeout: 1000,
+    });
+  }).toPass({ timeout: 20_000 });
+});
+
+test("Home lends this computer to Bob, who adds it and sees when lending is paused", async () => {
+  await page.goto(`${base}/sharing`);
+  await expect(page.getByText("Not lent to anyone")).toBeVisible();
+  await page.getByRole("button", { name: "Change" }).click();
+  const lend = page.getByRole("dialog", { name: "Lend This Computer" });
+  await lend.getByRole("checkbox", { name: /Bob/ }).check();
+  await lend.getByRole("radio", { name: "2 tasks" }).click();
+  await lend.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
+  const code = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByText("To Bob · 2 tasks at a time · 30 an hour")).toBeVisible();
+  const lending = page.getByRole("switch", { name: "Lend this computer" });
+  await expect(lending).toHaveAttribute("aria-checked", "true");
+
+  // Bob adds it in his Oikome: Home's computer is there for him.
+  await bob.goto(`${bobBase}/sharing`);
+  await bob.getByRole("button", { name: "Add an Invite" }).click();
+  await bob.getByRole("dialog", { name: "Add an Invite" }).getByLabel("Invite code").fill(code);
+  await bob.getByRole("button", { name: "Add Invite" }).click();
+  const notice = bob.getByRole("region", { name: "Home lends you their computer" });
+  await expect(notice).toContainText("2 tasks at a time · 30 an hour");
+  await notice.getByRole("button", { name: "Accept: Home's computer" }).click();
+  await expect(bob.locator(".oik-toasts")).toContainText("You can use Home's computer.");
+  const homes = bob.locator(".oik-row", { hasText: "Home's computer" });
+  await expect(homes).toContainText("Available");
+
+  // Paused at Home, without new codes: Bob sees it doesn't lend now.
+  await lending.click();
+  await expect(page.locator(".oik-toasts")).toContainText("Stopped lending this computer.");
+  await expect(page.getByText(/^Paused · To Bob/)).toBeVisible();
+  await bob.reload();
+  await expect(homes).toContainText("Not lending now");
+
+  // Home's Activity says what Bob asked, in words.
+  await page.getByRole("link", { name: "Activity" }).click();
+  await expect(async () => {
+    await page.reload();
+    const rows = page.locator("tbody tr", { hasText: "Bob" });
+    await expect(rows.filter({ hasText: "checked whether this computer lends to them" }).first()).toBeVisible({
+      timeout: 1000,
+    });
+    await expect(rows.filter({ hasText: "was turned away from this computer" }).first()).toBeVisible({
       timeout: 1000,
     });
   }).toPass({ timeout: 20_000 });
@@ -498,7 +603,7 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   // Home is a page of its own; Back leaves it.
   await page.goto(`${base}/activity`);
   await page.goto(`${base}/`);
-  await expect(page.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Home", exact: true })).toHaveAttribute("aria-current", "page");
   await page.goBack();
   await expect(page).toHaveURL(/\/activity$/);
 
@@ -524,7 +629,7 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   await page.goto(`${base}/collections/notes`);
   await page.locator(".screen-back").click();
   await expect(page).toHaveURL(/\/collections$/);
-  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("link", { name: "Home", exact: true }).click();
   await page.locator(".screen-memory").click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
   await expect(page.locator(".screen-back")).toHaveText("Home");

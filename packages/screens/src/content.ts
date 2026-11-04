@@ -223,7 +223,7 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
 }
 
 /** Rows a cover or Home reads: enough to pick the latest and fill a collage. */
-const PREVIEW_ROWS = 12;
+export const PREVIEW_ROWS = 12;
 /** The latest readings a cover draws: three days of hourly ones. */
 const SERIES_ROWS = 72;
 
@@ -235,7 +235,8 @@ const previews = new Map<string, Promise<Preview>>();
  * else is not read just for a cover: its owner's computer may be off.
  */
 export function loadPreview(client: NodeClient, space: SpaceSummary): Promise<Preview> {
-  if (space.kind === "remote") return Promise.resolve({ shape: { view: "table" }, items: [] });
+  // One shared with you is read from its owner's data center; when that is
+  // off, the read fails and its cover stays plain.
   let preview = previews.get(space.name);
   if (!preview) {
     preview = (async () => {

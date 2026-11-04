@@ -469,7 +469,11 @@ async fn naming_the_node_and_backing_up_its_recovery_key() {
 
     // Home's cards, as the owner arranged them; ids are checked, not read.
     assert_eq!(info.home_cards, None);
-    let cards = vec!["recent".to_string(), "totals:spending".to_string()];
+    let card = |id: &str, width| HomeCard {
+        id: id.into(),
+        width: Some(width),
+    };
+    let cards = vec![card("recent", 8), card("totals:spending", 4)];
     let info = n
         .api
         .set_home_cards(
@@ -486,12 +490,40 @@ async fn naming_the_node_and_backing_up_its_recovery_key() {
         .set_home_cards(
             &OWNER,
             HomeCards {
-                cards: vec!["<script>".into()],
+                cards: vec![card("<script>", 4)],
             },
         )
         .await
         .unwrap_err();
     assert_eq!(e.code, ErrorCode::Invalid);
+    let e = n
+        .api
+        .set_home_cards(
+            &OWNER,
+            HomeCards {
+                cards: vec![card("recent", 13)],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // Home kept before cards had widths still reads: each card takes the
+    // app's own width.
+    let path = n.catalog.oikome_dir().join("node.json");
+    let mut kept: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    kept["home_cards"] = serde_json::json!(["photo", "recent"]);
+    std::fs::write(&path, serde_json::to_vec(&kept).unwrap()).unwrap();
+    let info = n.api.node_info(&OWNER, Empty {}).await.unwrap();
+    let unsized_card = |id: &str| HomeCard {
+        id: id.into(),
+        width: None,
+    };
+    assert_eq!(
+        info.home_cards,
+        Some(vec![unsized_card("photo"), unsized_card("recent")])
+    );
 
     // The key decodes to this node's identity.
     let key = n.api.recovery_key(&OWNER, Empty {}).await.unwrap();

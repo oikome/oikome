@@ -256,6 +256,11 @@ html {
 body {
   margin: 0;
   background: var(--bg);
+  color: var(--ink);
+  /* A change of style fades rather than flashes. */
+  transition:
+    background-color 250ms var(--ease),
+    color 250ms var(--ease);
 }
 [data-theme="bold"] body {
   background-image:

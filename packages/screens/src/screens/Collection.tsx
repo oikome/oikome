@@ -109,7 +109,7 @@ export function Collection({ name }: { name: string }) {
           </Button>
         )}
         {source && (
-          <Button icon="sync" disabled={sync.busy} onClick={syncNow}>
+          <Button icon="sync" disabled={sync.busy} spinning={sync.busy} onClick={syncNow}>
             {strings.sources.syncNow}
           </Button>
         )}

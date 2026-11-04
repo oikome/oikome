@@ -48,18 +48,27 @@ pub struct NodeInfo {
     pub owner_name: String,
     /// The cards the owner arranged on Home, in order; `None` until they
     /// do (the apps choose), and for a principal.
-    pub home_cards: Option<Vec<String>>,
+    pub home_cards: Option<Vec<HomeCard>>,
     /// Where peers reach this node's Arrow Flight service (`https://ip:port`),
     /// when it is serving.
     pub flight_url: Option<String>,
 }
 
-/// `set_home_cards`: the cards on Home, in order, by the apps' own ids
-/// (such as `recent` or `totals:spending`).
+/// A card on Home: the apps' own id for it (such as `recent` or
+/// `totals:spending`) and how many of Home's twelve columns it spans;
+/// without a width, the app gives the card its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct HomeCard {
+    pub id: String,
+    pub width: Option<u8>,
+}
+
+/// `set_home_cards`: the cards on Home, in order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct HomeCards {
-    pub cards: Vec<String>,
+    pub cards: Vec<HomeCard>,
 }
 
 /// `rename_node`: the data center's name.

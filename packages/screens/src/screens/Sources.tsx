@@ -126,6 +126,7 @@ function Row({
           icon="sync"
           label={s.syncNowFor(placeName(source.place))}
           disabled={sync.busy}
+          spinning={sync.busy}
           onClick={async () => {
             const done = await sync.run(() => client.pullSource({ source: source.name }));
             forgetPreviews(source.name);
@@ -229,7 +230,13 @@ export function AddSource({
           </span>
           <Button onClick={() => setBrowsing(true)}>{csv ? s.chooseFile : s.chooseFolder}</Button>
         </div>
-        <p className="screen-help">{s.addHelp}</p>
+        {add.busy ? (
+          <span className="screen-progress" role="progressbar" aria-label={s.reading}>
+            <i />
+          </span>
+        ) : (
+          <p className="screen-help">{s.addHelp}</p>
+        )}
         {add.error && <ErrorText>{add.error}</ErrorText>}
       </Dialog>
       {browsing && (

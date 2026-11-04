@@ -209,6 +209,73 @@ test("the examples are files: edit one, sync it, and it shows", async () => {
   ).toBeVisible();
 });
 
+test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
+  await page.goto(`${base}/`);
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await expect(page.getByRole("button", { name: "Done" })).toBeVisible();
+  // The cards themselves, not the rows inside them (inert while arranging).
+  const cards = page.getByRole("list", { name: "Cards on Home" }).locator(":scope > [role='listitem']");
+  await expect(cards).toHaveCount(6);
+  await expect(cards.first()).toHaveAccessibleName("Recently added, 1 of 6");
+
+  // Dragged by the mouse: the photo goes before Recently Added.
+  const from = await cards.nth(1).boundingBox();
+  const to = await cards.nth(0).boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 - 20, from.y + 40, { steps: 3 });
+  await page.mouse.move(to.x + 40, to.y + 40, { steps: 12 });
+  await page.mouse.up();
+  await expect(cards.first()).toHaveAccessibleName("A photo, 1 of 6");
+
+  // The arrow keys move a focused card back.
+  await cards.first().focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(cards.first()).toHaveAccessibleName("Recently added, 1 of 6");
+
+  // Its corner sets how many of the twelve columns it spans.
+  const width = page.getByRole("slider", { name: "Width of Recently added" });
+  await expect(width).toHaveAttribute("aria-valuenow", "8");
+  await width.focus();
+  await page.keyboard.press("End");
+  await expect(width).toHaveAttribute("aria-valuenow", "12");
+
+  // Taken off, then put back from Add a Card.
+  await page.getByRole("button", { name: "Remove Places from Home" }).click();
+  await expect(cards).toHaveCount(5);
+  await page.getByRole("button", { name: "Add a Card" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a Card" });
+  await expect(dialog.getByText("On Home")).toHaveCount(5);
+  await dialog.getByRole("listitem").filter({ hasText: "Places" }).getByRole("button", { name: "Add" }).click();
+  await expect(dialog.getByText("On Home")).toHaveCount(6);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(cards).toHaveCount(6);
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("list", { name: "Cards on Home" })).toHaveCount(0);
+
+  // The node keeps each change.
+  const kept = [
+    "recent:12",
+    "photo:4",
+    "totals:spending:7",
+    "latest:home-climate:5",
+    "activity:7",
+    "places:5",
+  ];
+  await expect
+    .poll(async () => (await api("node_info")).homeCards?.map((card) => `${card.id}:${card.width}`))
+    .toEqual(kept);
+  await page.reload();
+  // The charts' cards come once their collections are read.
+  await expect
+    .poll(() =>
+      page
+        .locator(".screen-slot")
+        .evaluateAll((slots) => slots.map((slot) => getComputedStyle(slot).getPropertyValue("--span").trim())),
+    )
+    .toEqual(["12", "4", "7", "5", "7", "5"]);
+});
+
 test("a place picked on this computer keeps new collections", async () => {
   // The folder browser lists this computer's folders; a web page can't ask
   // the system for one.

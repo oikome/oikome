@@ -3,12 +3,11 @@
 //
 // Cards for Home made from what a collection holds: a day's totals over two
 // weeks (a table with a date and a number, such as spending), and the latest
-// of some readings (such as a home's temperatures). Arrange picks which
-// cards Home shows and in what order; the node keeps that.
+// of some readings (such as a home's temperatures). Arrange (arrange.tsx)
+// places them on Home.
 
 import { useMemo, useState } from "react";
 import type { PointerEvent } from "react";
-import { Button, Checkbox, Dialog, IconButton } from "@oikome/ui";
 import type { SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import type { Preview } from "./content";
@@ -102,7 +101,13 @@ export function TotalsCard({ space, className }: { space: SpaceSummary; classNam
           >
             {totals.values.map((v, i) => (
               <span key={i} className={i === hover ? "screen-totals__bar is-hover" : "screen-totals__bar"}>
-                <i style={{ height: max > 0 ? `${Math.max(v > 0 ? 2 : 0, (v / max) * 100)}%` : 0 }} />
+                <i
+                  style={{
+                    height: max > 0 ? `${Math.max(v > 0 ? 2 : 0, (v / max) * 100)}%` : 0,
+                    // The bars grow in turn, from the oldest day.
+                    animationDelay: `${i * 30}ms`,
+                  }}
+                />
               </span>
             ))}
             {hover !== undefined && (
@@ -168,71 +173,5 @@ export function LatestCard({
         </dl>
       )}
     </section>
-  );
-}
-
-export interface CardChoice {
-  id: string;
-  label: string;
-}
-
-/** Pick Home's cards and their order. */
-export function ArrangeDialog({
-  available,
-  order,
-  busy,
-  error,
-  onSave,
-  onClose,
-}: {
-  available: CardChoice[];
-  order: string[];
-  busy?: boolean;
-  error?: string;
-  onSave: (cards: string[]) => void;
-  onClose: () => void;
-}) {
-  // Shown cards first, in their order, then the rest.
-  const [list, setList] = useState<{ id: string; label: string; on: boolean }[]>(() => [
-    ...order.flatMap((id) => available.filter((c) => c.id === id).map((c) => ({ ...c, on: true }))),
-    ...available.filter((c) => !order.includes(c.id)).map((c) => ({ ...c, on: false })),
-  ]);
-  const move = (i: number, by: number) => {
-    const next = [...list];
-    const [item] = next.splice(i, 1);
-    next.splice(i + by, 0, item!);
-    setList(next);
-  };
-  return (
-    <Dialog
-      title={s.arrangeTitle}
-      closeLabel={strings.common.close}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button variant="primary" disabled={busy} onClick={() => onSave(list.filter((c) => c.on).map((c) => c.id))}>
-            {strings.common.save}
-          </Button>
-        </>
-      }
-    >
-      <p className="oik-dialog__text">{s.arrangeBody}</p>
-      <ul className="screen-arrange">
-        {list.map((card, i) => (
-          <li key={card.id} className="screen-arrange__row">
-            <Checkbox
-              label={card.label}
-              checked={card.on}
-              onChange={(on) => setList(list.map((c) => (c.id === card.id ? { ...c, on } : c)))}
-            />
-            <span className="screen-arrange__move">
-              <IconButton icon="up" label={s.moveUp(card.label)} disabled={i === 0} onClick={() => move(i, -1)} />
-            </span>
-          </li>
-        ))}
-      </ul>
-      {error && <p className="oik-dialog__text" role="alert">{error}</p>}
-    </Dialog>
   );
 }

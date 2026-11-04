@@ -396,7 +396,10 @@ function Shell({
             <Icon name="search" />
           </button>
         </div>
-        <div className="screen-page">{children}</div>
+        {/* Keyed by the page, so each page comes in as the prototype's do. */}
+        <div key={path} className="screen-page">
+          {children}
+        </div>
       </main>
       {searching && <Palette onClose={() => setSearching(false)} />}
     </div>

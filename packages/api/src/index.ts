@@ -63,7 +63,7 @@ ownerName: string,
  * The cards the owner arranged on Home, in order; `None` until they
  * do (the apps choose), and for a principal.
  */
-homeCards: Array<string> | null, 
+homeCards: Array<HomeCard> | null, 
 /**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
@@ -80,10 +80,16 @@ export type NodeName = {
 name: string, };
 
 /**
- * `set_home_cards`: the cards on Home, in order, by the apps' own ids
- * (such as `recent` or `totals:spending`).
+ * A card on Home: the apps' own id for it (such as `recent` or
+ * `totals:spending`) and how many of Home's twelve columns it spans;
+ * without a width, the app gives the card its own.
  */
-export type HomeCards = { cards: Array<string>, };
+export type HomeCard = { id: string, width: number | null, };
+
+/**
+ * `set_home_cards`: the cards on Home, in order.
+ */
+export type HomeCards = { cards: Array<HomeCard>, };
 
 /**
  * The node's recovery key, as 14 groups of 4 characters. Whoever has it

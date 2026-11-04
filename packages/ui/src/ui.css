@@ -551,6 +551,13 @@
     transform: rotate(360deg);
   }
 }
+/* A button whose work is running turns its glyph, and stays legible. */
+.oik-is-spinning .oik-icon {
+  animation: oik-spin 900ms linear infinite;
+}
+.oik-is-spinning:disabled {
+  opacity: 1;
+}
 @keyframes oik-beat {
   50% {
     transform: scale(0.6);

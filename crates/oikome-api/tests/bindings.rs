@@ -52,6 +52,7 @@ fn bindings() -> String {
         Empty,
         NodeInfo,
         NodeName,
+        HomeCard,
         HomeCards,
         RecoveryKey,
         SpaceKind,

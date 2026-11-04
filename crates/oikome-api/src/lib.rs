@@ -98,13 +98,41 @@ struct NodeSettings {
     #[serde(default)]
     storage_labels: BTreeMap<String, String>,
     /// The cards on Home, in order, once the owner arranged them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    home_cards: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "kept_cards"
+    )]
+    home_cards: Option<Vec<HomeCard>>,
 }
 
-/// At most this many cards on Home, each id this long.
+/// A card as `node.json` keeps it: with its width, or an id alone, as
+/// Home was kept before cards had widths.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum KeptCard {
+    Card(HomeCard),
+    Id(String),
+}
+
+fn kept_cards<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<HomeCard>>, D::Error> {
+    let kept = Option::<Vec<KeptCard>>::deserialize(d)?;
+    Ok(kept.map(|cards| {
+        cards
+            .into_iter()
+            .map(|card| match card {
+                KeptCard::Card(card) => card,
+                KeptCard::Id(id) => HomeCard { id, width: None },
+            })
+            .collect()
+    }))
+}
+
+/// At most this many cards on Home, each id this long, each spanning
+/// this many of its twelve columns.
 const MAX_HOME_CARDS: usize = 32;
 const MAX_CARD_ID: usize = 80;
+const CARD_WIDTHS: std::ops::RangeInclusive<u8> = 4..=12;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -157,6 +185,9 @@ pub struct Api {
     engines: Arc<EngineRegistry>,
     access_log: Option<AccessLog>,
     flight_url: Option<String>,
+    /// One change to the settings file at a time, so two at once (Home
+    /// arranged while the node is renamed) both land.
+    settings_lock: Arc<std::sync::Mutex<()>>,
 }
 
 impl std::fmt::Debug for Api {
@@ -245,6 +276,7 @@ impl Api {
             engines,
             access_log: None,
             flight_url: None,
+            settings_lock: Arc::default(),
         }
     }
 
@@ -293,14 +325,35 @@ impl Api {
         }
     }
 
-    /// Replace the settings file at once (temporary file, then rename).
+    /// Replace the settings file at once (a temporary file of this write's
+    /// own, then rename).
     fn save_settings(&self, settings: &NodeSettings) -> Result<(), ApiError> {
+        static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let path = self.settings_path();
         let bytes = serde_json::to_vec_pretty(settings).map_err(ApiError::internal)?;
-        let tmp = path.with_extension("json.tmp");
+        let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}-{n}.tmp", std::process::id()));
         std::fs::create_dir_all(self.catalog.oikome_dir()).map_err(ApiError::internal)?;
         std::fs::write(&tmp, bytes).map_err(ApiError::internal)?;
-        std::fs::rename(&tmp, &path).map_err(ApiError::internal)
+        std::fs::rename(&tmp, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            ApiError::internal(e)
+        })
+    }
+
+    /// Change the settings: read, change and write them as one step.
+    fn update_settings<T>(
+        &self,
+        change: impl FnOnce(&mut NodeSettings) -> T,
+    ) -> Result<T, ApiError> {
+        let _one = self
+            .settings_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut settings = self.settings()?;
+        let out = change(&mut settings);
+        self.save_settings(&settings)?;
+        Ok(out)
     }
 
     // ----- Node -----
@@ -356,9 +409,7 @@ impl Api {
                 "a name has 1 to {MAX_NODE_NAME_CHARS} characters"
             )));
         }
-        let mut settings = self.settings()?;
-        settings.name = name.to_string();
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| settings.name = name.to_string())?;
         self.node_info(caller, Empty {}).await
     }
 
@@ -371,21 +422,24 @@ impl Api {
     ) -> Result<NodeInfo, ApiError> {
         caller.require_owner()?;
         let ok = req.cards.len() <= MAX_HOME_CARDS
-            && req.cards.iter().all(|id| {
-                !id.is_empty()
-                    && id.len() <= MAX_CARD_ID
-                    && id
+            && req.cards.iter().all(|card| {
+                !card.id.is_empty()
+                    && card.id.len() <= MAX_CARD_ID
+                    && card
+                        .id
                         .chars()
                         .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_'))
+                    && card.width.is_none_or(|w| CARD_WIDTHS.contains(&w))
             });
         if !ok {
             return Err(ApiError::invalid(format!(
-                "up to {MAX_HOME_CARDS} cards, each named with letters, digits, ':', '-' or '_'"
+                "up to {MAX_HOME_CARDS} cards, each named with letters, digits, ':', '-' or '_' \
+                 and {} to {} columns wide",
+                CARD_WIDTHS.start(),
+                CARD_WIDTHS.end()
             )));
         }
-        let mut settings = self.settings()?;
-        settings.home_cards = Some(req.cards);
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| settings.home_cards = Some(req.cards))?;
         self.node_info(caller, Empty {}).await
     }
 
@@ -406,9 +460,7 @@ impl Api {
         _: Empty,
     ) -> Result<NodeInfo, ApiError> {
         caller.require_owner()?;
-        let mut settings = self.settings()?;
-        settings.recovery_key_saved_at_ms = Some(now_ms());
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| settings.recovery_key_saved_at_ms = Some(now_ms()))?;
         self.node_info(caller, Empty {}).await
     }
 
@@ -523,10 +575,8 @@ impl Api {
             session.remove_source(&req.space)?;
         }
         session.drop_space(&req.space).await?;
-        let mut settings = self.settings()?;
-        if settings.examples.contains(&req.space) {
-            settings.examples.retain(|name| name != &req.space);
-            self.save_settings(&settings)?;
+        if self.settings()?.examples.contains(&req.space) {
+            self.update_settings(|settings| settings.examples.retain(|name| name != &req.space))?;
         }
         Ok(Empty {})
     }
@@ -561,8 +611,9 @@ impl Api {
         _: Empty,
     ) -> Result<Vec<SpaceSummary>, ApiError> {
         caller.require_owner()?;
-        let mut settings = self.settings()?;
+        let settings = self.settings()?;
         if settings.examples_added_at_ms.is_none() {
+            let mut added = Vec::new();
             self.refresh()?;
             let session = self.session(None);
             let folder = self.examples_folder(&settings);
@@ -602,10 +653,12 @@ impl Api {
                 session
                     .add_source(example.name, config, Some(sources::EVERY), None)
                     .await?;
-                settings.examples.push(example.name.to_string());
+                added.push(example.name.to_string());
             }
-            settings.examples_added_at_ms = Some(now_ms());
-            self.save_settings(&settings)?;
+            self.update_settings(|settings| {
+                settings.examples.extend(added);
+                settings.examples_added_at_ms = Some(now_ms());
+            })?;
         }
         Ok(self
             .list_spaces(caller, Empty {})
@@ -747,14 +800,14 @@ impl Api {
                 oikome_node::SessionError::Store { .. } => ApiError::invalid(e.to_string()),
                 other => other.into(),
             })?;
-        let mut settings = self.settings()?;
-        settings
-            .storage_labels
-            .insert(name.clone(), label.to_string());
-        if req.make_default.unwrap_or(false) {
-            settings.default_storage = Some(name.clone());
-        }
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| {
+            settings
+                .storage_labels
+                .insert(name.clone(), label.to_string());
+            if req.make_default.unwrap_or(false) {
+                settings.default_storage = Some(name.clone());
+            }
+        })?;
         self.list_storages(caller, Empty {})
             .await?
             .into_iter()
@@ -774,9 +827,7 @@ impl Api {
         if let Some(name) = &req.storage {
             self.catalog.get_storage(name)?;
         }
-        let mut settings = self.settings()?;
-        settings.default_storage = req.storage;
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| settings.default_storage = req.storage)?;
         self.list_storages(caller, Empty {}).await
     }
 
@@ -808,12 +859,12 @@ impl Api {
             ));
         }
         self.session(None).remove_storage(&req.storage)?;
-        let mut settings = self.settings()?;
-        settings.storage_labels.remove(&req.storage);
-        if settings.default_storage.as_deref() == Some(req.storage.as_str()) {
-            settings.default_storage = None;
-        }
-        self.save_settings(&settings)?;
+        self.update_settings(|settings| {
+            settings.storage_labels.remove(&req.storage);
+            if settings.default_storage.as_deref() == Some(req.storage.as_str()) {
+                settings.default_storage = None;
+            }
+        })?;
         self.list_storages(caller, Empty {}).await
     }
 

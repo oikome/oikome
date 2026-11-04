@@ -19,12 +19,15 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   large?: boolean;
   icon?: IconName;
+  /** Turns its icon while the work it started runs, such as a sync. */
+  spinning?: boolean;
 }
 
 export function Button({
   variant = "secondary",
   large,
   icon,
+  spinning,
   className,
   children,
   type = "button",
@@ -33,7 +36,14 @@ export function Button({
   return (
     <button
       type={type}
-      className={cx("oik-button", `oik-button--${variant}`, large && "oik-button--lg", className)}
+      className={cx(
+        "oik-button",
+        `oik-button--${variant}`,
+        large && "oik-button--lg",
+        spinning && "oik-is-spinning",
+        className,
+      )}
+      aria-busy={spinning || undefined}
       {...rest}
     >
       {icon && <Icon name={icon} />}
@@ -46,12 +56,21 @@ export function IconButton({
   icon,
   label,
   filled,
+  spinning,
+  className,
   ...rest
-}: { icon: IconName; label: string; filled?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+}: {
+  icon: IconName;
+  label: string;
+  filled?: boolean;
+  /** Turns its glyph while the work it started runs, such as a sync. */
+  spinning?: boolean;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
-      className={cx("oik-icon-button", filled && "oik-icon-button--filled")}
+      className={cx("oik-icon-button", filled && "oik-icon-button--filled", spinning && "oik-is-spinning", className)}
+      aria-busy={spinning || undefined}
       aria-label={label}
       title={label}
       {...rest}

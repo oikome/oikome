@@ -979,7 +979,7 @@ a.screen-list__row:hover .screen-list__thumb {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  animation: screen-drift 16s ease-in-out infinite alternate;
+  animation: screen-drift 14s ease-in-out infinite alternate;
 }
 [data-theme="ink"] .screen-memory img,
 :root:not([data-theme]) .screen-memory img {
@@ -991,7 +991,7 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 @keyframes screen-drift {
   to {
-    transform: scale(1.07) translate(-1%, -1%);
+    transform: scale(1.08) translate(-1%, -1%);
   }
 }
 .screen-memory__cap {
@@ -1216,6 +1216,7 @@ a.screen-list__row:hover .screen-list__thumb {
   stroke-width: 2px;
   stroke-linejoin: round;
   stroke-linecap: round;
+  animation: screen-draw 800ms var(--ease) both;
 }
 [data-theme="bold"] .screen-series-cover__line path {
   stroke: #111;
@@ -1483,6 +1484,16 @@ a.screen-list__row:hover .screen-list__thumb {
   stroke-width: 2px;
   stroke-linejoin: round;
   stroke-linecap: round;
+  animation: screen-draw 900ms var(--ease) both;
+}
+/* A line is drawn from its first reading to its last. */
+@keyframes screen-draw {
+  from {
+    clip-path: inset(-10% 100% -10% 0);
+  }
+  to {
+    clip-path: inset(-10% 0 -10% 0);
+  }
 }
 [data-theme="bold"] .screen-series__line {
   stroke: #111;
@@ -1655,8 +1666,182 @@ a.screen-list__row:hover .screen-list__thumb {
 
 /* ----- Home cards: totals by day, latest readings, Arrange ----- */
 
-.screen-dash--cards {
-  grid-auto-flow: row dense;
+/* Home's cards, each in a slot as wide as its columns. Arrange edits them
+   in place: a dashed edge, a minus to take one off, a corner to widen. */
+.screen-cards {
+  position: relative;
+}
+.screen-slot {
+  position: relative;
+  display: grid;
+  grid-column: span var(--span, 4);
+  min-width: 0;
+  border-radius: var(--r-card);
+}
+.screen-slot__card {
+  display: grid;
+  min-width: 0;
+}
+.screen-slot__card > * {
+  min-width: 0;
+}
+.screen-cards.is-editing .screen-slot:not(.screen-slot--add) {
+  cursor: grab;
+  outline: 1px dashed var(--ink3);
+  outline-offset: 4px;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  animation: screen-jiggle 300ms var(--ease);
+}
+.screen-cards.is-editing .screen-slot:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 4px;
+}
+[data-theme="bold"] .screen-cards.is-editing .screen-slot:not(.screen-slot--add) {
+  outline: 2px dashed #111;
+  outline-offset: 5px;
+}
+.screen-slot.is-dragging {
+  z-index: 3;
+  cursor: grabbing;
+}
+.screen-slot.is-dragging .screen-slot__card > * {
+  box-shadow: var(--sh-pop);
+}
+/* A card that moved keeps its charts drawn and its edges where they were. */
+.screen-cards.is-settled .screen-totals__bar > i,
+.screen-cards.is-settled .screen-series__line,
+.screen-cards.is-settled .screen-series-cover__line path,
+.screen-cards.is-still .screen-slot,
+.screen-cards.is-still .screen-slot__remove,
+.screen-cards.is-still .screen-slot--add {
+  animation: none;
+}
+@keyframes screen-jiggle {
+  50% {
+    transform: scale(0.995);
+  }
+}
+.screen-slot__remove.oik-icon-button {
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  animation: oik-lift 200ms var(--ease) both;
+}
+.screen-slot__remove .oik-icon {
+  width: 14px;
+  height: 14px;
+}
+.screen-slot__size {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.screen-slot__size::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid var(--ink3);
+  border-bottom: 2px solid var(--ink3);
+}
+[data-theme="bold"] .screen-slot__size::after {
+  border-color: #111;
+}
+.screen-slot--add {
+  grid-column: span 4;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-2);
+  min-height: 140px;
+  border: var(--bw) dashed var(--line);
+  background: transparent;
+  color: var(--ink2);
+  font: var(--text);
+  font-weight: 500;
+  cursor: pointer;
+  animation: oik-lift 220ms var(--ease) both;
+  transition:
+    border-color 150ms var(--ease),
+    color 150ms var(--ease);
+}
+.screen-slot--add:hover {
+  border-color: var(--stroke-hover);
+  color: var(--ink);
+}
+.screen-slot--add .oik-icon {
+  width: 20px;
+  height: 20px;
+}
+[data-theme="bold"] .screen-slot--add {
+  border: 2px dashed #111;
+  color: #111;
+  font-weight: 700;
+}
+.screen-add-card__label {
+  margin: 0 0 var(--space-2);
+}
+.screen-add-card {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--bw) solid var(--line2);
+  border-radius: var(--r-btn);
+}
+[data-theme="bold"] .screen-add-card {
+  border: 2px solid #111;
+}
+.screen-add-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line2);
+}
+[data-theme="bold"] .screen-add-card__row {
+  border-bottom: 2px solid #111;
+}
+.screen-add-card__row:last-child {
+  border-bottom: 0;
+}
+.screen-add-card__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+/* Cards that open a page: Ink darkens the edge, Bold lifts the card. */
+a.screen-lift {
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 150ms var(--ease),
+    box-shadow 150ms var(--ease),
+    border-color 150ms var(--ease);
+}
+a.screen-lift:hover {
+  border-color: var(--stroke-hover);
+}
+[data-theme="bold"] a.screen-lift:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--sh-l);
+}
+[data-theme="bold"] a.screen-lift:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
 }
 .screen-totals__body {
   display: grid;
@@ -1687,7 +1872,14 @@ a.screen-list__row:hover .screen-list__thumb {
   width: min(100%, 10px);
   border-radius: 3px 3px 0 0;
   background: var(--ink);
+  transform-origin: bottom;
   transition: opacity 120ms var(--ease);
+  animation: screen-grow-y 700ms var(--ease) both;
+}
+@keyframes screen-grow-y {
+  from {
+    transform: scaleY(0);
+  }
 }
 [data-theme="bold"] .screen-totals__bar > i {
   width: 100%;
@@ -2187,8 +2379,12 @@ a.screen-list__row:hover .screen-list__thumb {
 /* ----- Narrower windows ----- */
 
 @media (max-width: 1100px) {
-  .screen-dash > [class*="screen-w"] {
+  .screen-dash > [class*="screen-w"],
+  .screen-cards > .screen-slot {
     grid-column: span 12;
+  }
+  .screen-slot__size {
+    display: none;
   }
   .screen-dash--split {
     grid-template-columns: minmax(0, 1fr);
@@ -2282,5 +2478,40 @@ a.screen-list__row:hover .screen-list__thumb {
   }
   .screen-onboarding__card {
     padding: var(--space-6) var(--space-4);
+  }
+}
+
+/* Work under way with no known end, such as a first read: a short bar
+   slides across, as in the prototype. */
+.screen-progress {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line2);
+}
+.screen-progress > i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink);
+  animation: screen-slide 1.4s var(--ease) infinite;
+}
+[data-theme="bold"] .screen-progress {
+  height: 10px;
+  border: 2px solid #111;
+  border-radius: 999px;
+  background: #fff;
+}
+[data-theme="bold"] .screen-progress > i {
+  background: #c8a2ff;
+}
+@keyframes screen-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
   }
 }

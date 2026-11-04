@@ -5,18 +5,19 @@
 // what came in last, a photo from what it keeps, and the one thing that
 // needs doing.
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Avatar, Button, Status, Tile, collectionTones, useToast } from "@oikome/ui";
 import type { IconName, TileTone } from "@oikome/ui";
-import type { AccessItem, NodeInfo, SpaceSummary, StorageSummary } from "@oikome/client";
+import type { AccessItem, HomeCard, NodeInfo, SpaceSummary, StorageSummary } from "@oikome/client";
 import { latest, loadPreview } from "../content";
 import type { Item, Preview } from "../content";
 import { itemDate } from "../covers";
-import { ArrangeDialog, LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
-import type { CardChoice } from "../cards";
-import { useAction } from "../data";
-import { useClient, useLoad } from "../data";
+import { AddCardDialog, CardGrid, settle } from "../arrange";
+import type { CardChoice } from "../arrange";
+import { LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
+import { useAction, useClient, useLoad } from "../data";
+import { useCountUp } from "../motion";
 import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -54,7 +55,11 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const sources = useLoad(() => client.listSources(), []);
   const log = useLoad(() => client.listAccess({ limit: 100 }), []);
   const [previews, setPreviews] = useState<Map<string, Preview>>();
-  const [arranging, setArranging] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  // The arrangement as last changed here, until the node has it.
+  const [placed, setPlaced] = useState<HomeCard[]>();
+  const saves = useRef<{ sending: boolean; next?: HomeCard[] }>({ sending: false });
   const arrange = useAction();
   const toast = useToast();
 
@@ -108,17 +113,29 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const photoFrom = all.find((r) => r.item === photo)?.space;
 
 
-  // Home's cards: the owner's arrangement, or a first one made from what is kept.
+  // Home's cards: the owner's arrangement, or a first one made from what is
+  // kept. Widths are columns of twelve; each row of the first one fills.
   const totals = mine.filter((space) => hasTotals(previews?.get(space.name)));
   const readings = mine.filter((space) => hasLatest(previews?.get(space.name)));
   const available: CardChoice[] = [
-    { id: "recent", label: s.cardRecent },
-    { id: "photo", label: s.cardPhoto },
-    ...totals.map((space) => ({ id: `totals:${space.name}`, label: s.cardTotals(space.name) })),
-    ...readings.map((space) => ({ id: `latest:${space.name}`, label: s.cardLatest(space.name) })),
-    { id: "activity", label: s.cardActivity },
-    { id: "places", label: s.cardPlaces },
+    { id: "recent", label: s.cardRecent, icon: "note", width: 8 },
+    { id: "photo", label: s.cardPhoto, icon: "photo", width: 4 },
+    ...totals.map((space): CardChoice => ({
+      id: `totals:${space.name}`,
+      label: s.cardTotals(space.name),
+      icon: "table",
+      width: 7,
+    })),
+    ...readings.map((space): CardChoice => ({
+      id: `latest:${space.name}`,
+      label: s.cardLatest(space.name),
+      icon: "activity",
+      width: 5,
+    })),
+    { id: "activity", label: s.cardActivity, icon: "person-plus", width: 7 },
+    { id: "places", label: s.cardPlaces, icon: "nas", width: 5 },
   ];
+  const choiceOf = (id: string) => available.find((card) => card.id === id);
   const first = [
     "recent",
     "photo",
@@ -126,14 +143,63 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     ...(readings[0] ? [`latest:${readings[0].name}`] : []),
     "activity",
     "places",
-  ];
-  const order = info.homeCards ?? first;
-  const shown = order.filter((id) => available.some((card) => card.id === id));
+  ].map((id): HomeCard => ({ id, width: null }));
+  const order: HomeCard[] = placed ?? info.homeCards ?? first;
+  const shown = settle(
+    order.flatMap((card) => {
+      const choice = choiceOf(card.id);
+      return choice ? [{ id: card.id, width: card.width, own: choice.width }] : [];
+    }),
+  );
   const spaceOf = (id: string) => mine.find((space) => space.name === id.slice(id.indexOf(":") + 1));
+
+  /**
+   * Keep a change at once, shown before the node answers. Changes go to the
+   * node one at a time, the newest last; one it turns down puts back what
+   * it has.
+   */
+  const save = async (cards: HomeCard[]) => {
+    setPlaced(cards);
+    saves.current.next = cards;
+    if (saves.current.sending) return;
+    saves.current.sending = true;
+    let kept: NodeInfo | undefined;
+    let next: HomeCard[] | undefined;
+    while ((next = saves.current.next)) {
+      const cards = next;
+      saves.current.next = undefined;
+      kept = await arrange.run(() => client.setHomeCards({ cards }));
+      if (!kept) {
+        saves.current.next = undefined;
+        break;
+      }
+    }
+    saves.current.sending = false;
+    if (kept) onInfo(kept);
+    setPlaced(undefined);
+  };
+  // A change the node turned down goes back, and says why.
+  const failed = arrange.error;
+  const clearFailure = arrange.clear;
+  useEffect(() => {
+    if (!failed) return;
+    toast(failed);
+    clearFailure();
+  }, [failed, toast, clearFailure]);
+
+  // Escape ends arranging, as Done does.
+  useEffect(() => {
+    if (!editing || adding) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEditing(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editing, adding]);
   const renderCard = (id: string): ReactNode => {
     if (id === "recent") {
       return (
-        <Panel className="screen-w8" title={s.recent} link={{ to: "/collections", label: s.allCollections }}>
+        <Panel title={s.recent} link={{ to: "/collections", label: s.allCollections }}>
                 {!previews ? (
                   <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
                 ) : recent.length === 0 ? (
@@ -152,7 +218,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
       return photo?.image && photoFrom ? (
               <Link
                 to={`/collections/${encodeURIComponent(photoFrom.name)}`}
-                className="oik-card screen-memory screen-w4"
+                className="oik-card screen-memory screen-lift"
               >
                 <img src={photo.image} alt="" decoding="async" />
                 <span className="screen-memory__cap">
@@ -162,7 +228,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
                 </span>
               </Link>
             ) : (
-              <Panel className="screen-w4" title={s.backedUp}>
+              <Panel title={s.backedUp}>
                 <p className="screen-panel__empty">
                   {info.recoveryKeySaved ? s.keySaved : strings.backup.bannerBody}
                 </p>
@@ -171,7 +237,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     }
     if (id === "activity") {
       return (
-        <Panel className="screen-w7" title={s.activity} link={{ to: "/activity", label: s.allActivity }}>
+        <Panel title={s.activity} link={{ to: "/activity", label: s.allActivity }}>
                 {!log.data ? (
                   <div className="screen-panel__skeleton oik-skel" aria-hidden="true" />
                 ) : log.data.length === 0 ? (
@@ -188,7 +254,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     }
     if (id === "places") {
       return (
-        <Panel className="screen-w5" title={strings.nav.places} link={{ to: "/settings", label: s.manage }}>
+        <Panel title={strings.nav.places} link={{ to: "/settings", label: s.manage }}>
                 <ul className="screen-list">
                   {places.map((place) => (
                     <PlaceRow key={place.name ?? ""} place={place} />
@@ -199,10 +265,8 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     }
     const space = spaceOf(id);
     if (!space) return null;
-    if (id.startsWith("totals:")) return <TotalsCard space={space} className="screen-w7" />;
-    if (id.startsWith("latest:")) {
-      return <LatestCard space={space} preview={previews?.get(space.name)} className="screen-w5" />;
-    }
+    if (id.startsWith("totals:")) return <TotalsCard space={space} />;
+    if (id.startsWith("latest:")) return <LatestCard space={space} preview={previews?.get(space.name)} />;
     return null;
   };
 
@@ -213,10 +277,20 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
         title={s.greeting(new Date().getHours())}
         lede={info.recoveryKeySaved ? s.allWell : s.allWellBut}
       >
-        <Button icon="sliders" onClick={() => setArranging(true)}>
-          {s.arrange}
-        </Button>
-        <Button variant="primary" icon="plus" onClick={() => navigate("/collections?new=1")}>
+        {editing ? (
+          <Button variant="primary" icon="check" onClick={() => setEditing(false)}>
+            {s.arrangeDone}
+          </Button>
+        ) : (
+          <Button icon="drag" disabled={!previews} onClick={() => setEditing(true)}>
+            {s.arrange}
+          </Button>
+        )}
+        <Button
+          variant={editing ? "secondary" : "primary"}
+          icon="plus"
+          onClick={() => navigate("/collections?new=1")}
+        >
           {strings.collections.newCollection}
         </Button>
       </ScreenHeader>
@@ -276,20 +350,23 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
 
       <div className="screen-kpis">
         <Figure
+          to="/collections"
           icon="collection"
           tone="rose"
           label={s.statItems}
-          value={items?.toLocaleString("en")}
+          count={items}
           note={s.inCollections(mine.length)}
         />
         <Figure
+          to="/activity"
           icon="person-plus"
           tone="sage"
           label={s.statReads}
-          value={reads?.toLocaleString("en")}
+          count={reads}
           note={shares.data ? s.activeShares(activeShares) : undefined}
         />
         <Figure
+          to="/settings"
           icon={preferred ? PLACE_ICONS[preferred.type] : "computer"}
           tone="lavender"
           label={s.statStored(preferred ? placeLabel(preferred) : strings.storage.thisComputer)}
@@ -304,28 +381,22 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
         />
       </div>
 
-      <div className="screen-dash screen-dash--cards">
-        {shown.map((id) => (
-          <Fragment key={id}>{renderCard(id)}</Fragment>
-        ))}
-      </div>
-      {arranging && (
-        <ArrangeDialog
-          available={available}
-          order={shown}
-          busy={arrange.busy}
-          error={arrange.error}
-          onClose={() => {
-            setArranging(false);
-            arrange.clear();
-          }}
-          onSave={async (cards) => {
-            const updated = await arrange.run(() => client.setHomeCards({ cards }));
-            if (updated) {
-              onInfo(updated);
-              setArranging(false);
-              toast(s.arranged);
-            }
+      <CardGrid
+        cards={shown}
+        editing={editing}
+        labelOf={(id) => choiceOf(id)?.label ?? id}
+        render={renderCard}
+        onChange={(cards) => void save(cards)}
+        onAdd={() => setAdding(true)}
+      />
+      {adding && (
+        <AddCardDialog
+          choices={available}
+          shown={shown.map((card) => card.id)}
+          onClose={() => setAdding(false)}
+          onAdd={(choice) => {
+            void save([...shown, { id: choice.id, width: choice.width }]);
+            toast(s.addedCard(choice.label));
           }}
         />
       )}
@@ -359,32 +430,39 @@ function Stage({
   );
 }
 
+/** A figure at the top of Home; it opens the page that says more. A count counts up as it arrives. */
 function Figure({
+  to,
   icon,
   tone,
   label,
   value,
+  count,
   note,
 }: {
+  to: string;
   icon: IconName;
   tone: TileTone;
   label: string;
-  value: string | undefined;
+  value?: string;
+  count?: number;
   note?: string;
 }) {
+  const counted = useCountUp(count);
+  const shown = counted !== undefined ? counted.toLocaleString("en") : value;
   return (
-    <div className="oik-card screen-figure">
-      <div className="screen-figure__top">
+    <Link to={to} className="oik-card screen-figure screen-lift">
+      <span className="screen-figure__top">
         <Tile icon={icon} tone={tone} />
         {note && <span className="screen-figure__note">{note}</span>}
-      </div>
+      </span>
       <span className="oik-label">{label}</span>
-      {value === undefined ? (
+      {shown === undefined ? (
         <span className="screen-figure__value oik-skel" aria-hidden="true" />
       ) : (
-        <span className="screen-figure__value">{value}</span>
+        <span className="screen-figure__value">{shown}</span>
       )}
-    </div>
+    </Link>
   );
 }
 

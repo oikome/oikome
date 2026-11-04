@@ -213,7 +213,8 @@ export function SeriesView({ table, shape }: { table: Table; shape: Shape }) {
         </div>
         <div className="screen-series__days" aria-hidden="true">
           {days.map((i) => (
-            <span key={i} style={{ left: `${x(i)}%` }}>
+            // A day near the right edge ends at its line, so it never runs off the card.
+            <span key={i} className={x(i) > 80 ? "is-end" : undefined} style={{ left: `${x(i)}%` }}>
               {times[i] !== undefined ? monthAndDay(times[i]!, asWritten) : ""}
             </span>
           ))}

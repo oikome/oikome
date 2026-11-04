@@ -116,11 +116,39 @@ export function numeric(field: Field): boolean {
   return DataType.isInt(field.type) || DataType.isFloat(field.type) || DataType.isDecimal(field.type);
 }
 
+/**
+ * The decimals a column of fractional numbers shows: the most any of its
+ * values has (up to 4), so the column's figures line up: 46.2, 40 and 31.75
+ * read 46.20, 40.00 and 31.75.
+ */
+function columnDecimals(table: Table, column: number): number {
+  let most = 0;
+  const vector = table.getChildAt(column);
+  for (let r = 0; r < table.numRows; r++) {
+    const v = vector?.get(r) as unknown;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    const text = String(v);
+    if (text.includes("e")) continue;
+    most = Math.max(most, text.split(".")[1]?.length ?? 0);
+  }
+  return Math.min(most, 4);
+}
+
 /** Rows of an Arrow table; empty cells show a dash. */
 export function RowsTable({ table, label }: { table: Table; label: string }) {
   const fields = table.schema.fields;
+  // Fractional columns share their decimals, with thousands grouped.
+  const formats = fields.map((field, c) => {
+    if (!DataType.isFloat(field.type)) return undefined;
+    const digits = columnDecimals(table, c);
+    return new Intl.NumberFormat("en", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  });
   const rows = Array.from({ length: table.numRows }, (_, r) =>
-    fields.map((field, c) => show(field, table.getChildAt(c)?.get(r))),
+    fields.map((field, c) => {
+      const value = table.getChildAt(c)?.get(r) as unknown;
+      const format = formats[c];
+      return format && typeof value === "number" && Number.isFinite(value) ? format.format(value) : show(field, value);
+    }),
   );
   return (
     <div className="oik-table-wrap">

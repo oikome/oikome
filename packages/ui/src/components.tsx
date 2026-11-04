@@ -107,18 +107,16 @@ export function Group({
   children: ReactNode;
 }) {
   return (
-    <>
-      <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
-        {(title || action) && (
-          <header className="oik-group__head">
-            {title && <h2 className="oik-group__title">{title}</h2>}
-            {action}
-          </header>
-        )}
-        <ul className="oik-group__body">{children}</ul>
-      </section>
+    <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
+      {(title || action) && (
+        <header className="oik-group__head">
+          {title && <h2 className="oik-group__title">{title}</h2>}
+          {action}
+        </header>
+      )}
+      <ul className="oik-group__body">{children}</ul>
       {footnote && <p className="oik-group__footnote">{footnote}</p>}
-    </>
+    </section>
   );
 }
 

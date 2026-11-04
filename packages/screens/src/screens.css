@@ -130,6 +130,7 @@
 }
 [data-theme="bold"] .screen-brand__name {
   font: 400 15px/20px var(--display);
+  letter-spacing: -0.01em;
   text-transform: uppercase;
 }
 .screen-brand__sub {
@@ -149,6 +150,7 @@
 }
 .screen-nav__item {
   position: relative;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -248,9 +250,6 @@
   width: 100%;
   font-weight: 700;
 }
-[data-theme="bold"] .screen-place[aria-pressed="true"] .oik-status {
-  box-shadow: var(--sh-s);
-}
 
 .screen-sidebar__foot {
   display: grid;
@@ -329,12 +328,12 @@
   display: grid;
   flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: var(--bw) solid var(--line);
   border-radius: 50%;
   background: var(--raised);
-  font: 600 12px/1 var(--font);
+  font: 600 11px/1 var(--font);
 }
 [data-theme="bold"] .screen-node__mark {
   border-color: #111;
@@ -386,7 +385,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  height: 52px;
+  height: 56px;
   padding: 0 var(--space-7);
   border-bottom: var(--bw) solid var(--line);
   background: var(--top-bg);
@@ -554,7 +553,7 @@
 .screen-page {
   box-sizing: border-box;
   max-width: 1240px;
-  padding: var(--space-7) var(--space-7) 72px;
+  padding: 28px var(--space-7) 64px;
   animation: screen-in 280ms var(--ease) both;
 }
 @keyframes screen-in {
@@ -571,7 +570,11 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
-  margin: 0 0 var(--space-6);
+  margin: 0 0 22px;
+}
+/* The prototype's 6 px from a page's label to its title (4 of them the gap). */
+.screen-header__text > .oik-label {
+  margin-bottom: 2px;
 }
 .screen-header__text {
   display: grid;
@@ -593,12 +596,8 @@
 }
 .screen-title--mono {
   font-family: var(--mono);
-  font-weight: 500;
   letter-spacing: -0.01em;
   text-transform: none;
-}
-[data-theme="bold"] .screen-title--mono {
-  font-weight: 700;
 }
 .screen-lede {
   max-width: 70ch;
@@ -666,9 +665,9 @@
 .screen-dash > [class*="screen-w"] {
   min-width: 0;
 }
-/* Two columns at the prototype's 1.55 : 1, for a table beside a list. */
+/* Two columns at the prototype's 7 : 5 of twelve, for a table beside a list. */
 .screen-dash--split {
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
 }
 .screen-dash--split > * {
   min-width: 0;
@@ -676,9 +675,18 @@
 .screen-dash .oik-group {
   margin-bottom: var(--space-4);
 }
-.screen-dash .oik-group__footnote {
-  margin-top: calc(-1 * var(--space-4) + var(--space-2));
-  margin-bottom: var(--space-4);
+/* Cards in rows, as the prototype's: each row's cards share their top and
+   bottom edges; the grid's gap is the only space between them. */
+.screen-dash--rows {
+  align-items: stretch;
+}
+.screen-dash--rows > .oik-group {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.screen-dash--rows > .oik-group > .oik-group__body {
+  flex: 1;
 }
 
 /* ----- Home ----- */
@@ -689,7 +697,7 @@
   gap: var(--space-6);
   align-items: center;
   margin-bottom: var(--space-4);
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-5) 22px;
 }
 [data-theme="ink"] .screen-hero,
 :root:not([data-theme]) .screen-hero {
@@ -706,11 +714,12 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  margin: var(--space-1) 0 2px;
-  font: 500 19px/26px var(--font);
+  margin: 6px 0 var(--space-1);
+  font: 500 20px/26px var(--font);
 }
 [data-theme="bold"] .screen-hero__title {
-  font: 400 20px/26px var(--display);
+  font: 400 24px/28px var(--display);
+  text-transform: uppercase;
 }
 .screen-hero__id,
 .screen-hero__meta {
@@ -821,16 +830,13 @@
 .screen-lend-field {
   display: grid;
   gap: var(--space-2);
-  margin: var(--space-5) 0 0;
+  margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
 }
 .screen-lend-field > .oik-seg {
   justify-self: start;
-}
-.screen-lend-field + .screen-help {
-  margin-top: var(--space-4);
 }
 .screen-lend-field > .oik-field__label {
   padding: 0;
@@ -896,15 +902,15 @@
   margin-bottom: var(--space-3);
 }
 .screen-figure__note {
-  font: var(--text-meta);
+  font: 500 11px/1 var(--mono);
   color: var(--ink2);
 }
 [data-theme="bold"] .screen-figure__note {
-  padding: 3px 8px;
+  padding: 3px 7px;
   border: 2px solid #111;
   border-radius: 999px;
   background: #3ddc97;
-  font: 700 11px/1 var(--font);
+  font: 700 11px/1 var(--mono);
   color: #111;
 }
 .screen-figure__value {
@@ -928,8 +934,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: 46px;
-  padding: var(--space-2) var(--space-4);
+  padding: 14px var(--space-4);
   border-bottom: var(--bw) solid var(--line2);
 }
 [data-theme="bold"] .screen-panel__head {
@@ -963,8 +968,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  min-height: 56px;
-  padding: var(--space-2) var(--space-4);
+  padding: 11px var(--space-4);
   box-sizing: border-box;
   color: inherit;
   text-decoration: none;
@@ -978,11 +982,11 @@ a.screen-list__row:hover {
 a.screen-list__row:active {
   background: var(--active);
 }
+/* A photo beside its row is a little larger than an icon's tile: 40 px, as the prototype's. */
 .screen-list__thumb {
   flex: none;
-  width: 34px;
-  height: 34px;
-  border: var(--bw) solid var(--line);
+  width: 40px;
+  height: 40px;
   border-radius: var(--r-btn);
   object-fit: cover;
 }
@@ -1624,6 +1628,9 @@ a.screen-list__row:hover .screen-list__thumb {
   white-space: nowrap;
   transform: translateX(4px);
 }
+.screen-series__days span.is-end {
+  transform: translateX(calc(-100% - 4px));
+}
 
 .screen-notes {
   columns: 2 320px;
@@ -1670,18 +1677,14 @@ a.screen-list__row:hover .screen-list__thumb {
 }
 .screen-table-in-card .oik-table th,
 .screen-table-in-card .oik-table td {
-  padding-left: 12px;
-  padding-right: 12px;
+  padding-left: var(--space-4);
+  padding-right: var(--space-4);
   vertical-align: middle;
 }
-.screen-table-in-card .oik-table :is(th, td):first-child {
-  padding-left: var(--space-4);
-}
-.screen-table-in-card .oik-table :is(th, td):last-child {
-  padding-right: var(--space-3);
-}
+/* On a card's head line, as tall as the line (the prototype's 20 px). */
 .screen-group-count {
   font: var(--text-meta);
+  line-height: 20px;
   color: var(--ink3);
 }
 .screen-cell-mono {
@@ -2055,12 +2058,17 @@ a.screen-lift:hover {
   color: var(--signal);
   white-space: normal;
 }
+/* The prototype's source rows: 14 px over and under two lines. */
 .screen-sources td {
   max-width: none;
+  padding-block: 14px;
 }
-.screen-source__when {
-  display: grid;
-  gap: 2px;
+/* Two lines in a cell that stays a table cell, so the row's line runs on unbroken. */
+.screen-source__when > span {
+  display: block;
+}
+.screen-source__when > span + span {
+  margin-top: 2px;
 }
 .screen-source__next {
   color: var(--ink3);
@@ -2135,6 +2143,7 @@ a.screen-lift:hover {
   min-width: 0;
 }
 .screen-facts__from a {
+  min-width: 0;
   overflow: hidden;
   color: inherit;
   text-overflow: ellipsis;
@@ -2149,6 +2158,7 @@ a.screen-lift:hover {
 
 .screen-log-table__when {
   width: 1%;
+  font-size: 12px;
   color: var(--ink);
   text-align: left !important;
   white-space: nowrap;
@@ -2691,4 +2701,18 @@ a.screen-lift:hover {
 .screen-add-card__none {
   color: var(--ink3);
   font-weight: 400;
+}
+
+/* Activity: each line opens what it means. */
+.screen-log-table__row {
+  cursor: pointer;
+}
+.screen-log-table__open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }

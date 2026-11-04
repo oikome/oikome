@@ -456,6 +456,23 @@ test("Activity shows the contact's reads and the refusal", async () => {
       timeout: 1000,
     });
   }).toPass({ timeout: 20_000 });
+
+  // The first run is there too, as the owner's own steps on this computer.
+  const mine = page.locator("tbody tr", { hasText: "You" });
+  await expect(mine.filter({ hasText: "set up this data center" })).toContainText("This computer");
+  // In the owner's words, not a stranger's.
+  await expect(page.getByRole("button", { name: "set up this data center", exact: true })).toBeVisible();
+  await expect(mine.filter({ hasText: "saved the recovery key" })).toHaveCount(1);
+  await expect(mine.filter({ hasText: "added the examples" })).toContainText("spending");
+  // The prototype's filter: only one's own steps.
+  await page.getByRole("radio", { name: "You" }).click();
+  await expect(page.locator("tbody tr", { hasText: "Bob" })).toHaveCount(0);
+  // A line opens what it means, and where to act on it.
+  await page.getByRole("button", { name: /added the examples/ }).click();
+  const line = page.getByRole("dialog", { name: /^You · / });
+  await expect(line).toContainText("plain files in your folder");
+  await line.getByRole("button", { name: "Open Collections" }).click();
+  await expect(page).toHaveURL(`${base}/collections`);
 });
 
 test("Home lends this computer to Bob, who adds it and sees when lending is paused", async () => {

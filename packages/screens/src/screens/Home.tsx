@@ -57,7 +57,10 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const plugins = useLoad(() => client.listPlugins(), []);
   // People's reads: a plugin's reads of its own cards are in Activity, not here.
   const access = useLoad(() => client.listAccess({ limit: 100 }), []);
-  const log = { ...access, data: access.data?.filter((item) => item.method !== "plugin_read") };
+  const log = {
+    ...access,
+    data: access.data?.filter((item) => item.method !== "plugin_read" && !item.method.startsWith("owner_")),
+  };
   const [previews, setPreviews] = useState<Map<string, Preview>>();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);

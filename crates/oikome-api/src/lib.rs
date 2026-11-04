@@ -51,8 +51,8 @@ use oikome_identity::{
     decode_recovery_key, encode_recovery_key, unix_now, Did, NodeIdentity, ENV_NODE_KEY,
 };
 use oikome_node::{
-    AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult, SessionConfig,
-    StorageCredentials,
+    AccessEntry, AccessLog, AccessQuery, EngineRegistry, OikomeSession, Outcome, QueryResult,
+    SessionConfig, StorageCredentials,
 };
 use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
@@ -108,7 +108,17 @@ struct NodeSettings {
         deserialize_with = "kept_cards"
     )]
     home_cards: Option<Vec<HomeCard>>,
+    /// The setting up of this data center is in Activity.
+    #[serde(default)]
+    setup_logged: bool,
 }
+
+/// The owner's own steps in Activity: setting up this data center, adding
+/// the examples, saving the recovery key. They are kept with the reads, as
+/// "You", through this computer.
+pub const OWNER_SETUP: &str = "owner_setup";
+pub const OWNER_EXAMPLES: &str = "owner_examples";
+pub const OWNER_KEY: &str = "owner_key";
 
 /// A card as `node.json` keeps it: with its width, or an id alone, as
 /// Home was kept before cards had widths.
@@ -370,7 +380,10 @@ impl Api {
     pub async fn node_info(&self, caller: &Caller, _: Empty) -> Result<NodeInfo, ApiError> {
         let owner = caller.require_owner().is_ok();
         let settings = if owner {
-            self.settings()?
+            let settings = self.settings()?;
+            // A data center set up before Activity said so says it now.
+            self.log_setup(&settings, true)?;
+            settings
         } else {
             NodeSettings::default()
         };
@@ -468,8 +481,51 @@ impl Api {
         _: Empty,
     ) -> Result<NodeInfo, ApiError> {
         caller.require_owner()?;
-        self.update_settings(|settings| settings.recovery_key_saved_at_ms = Some(now_ms()))?;
+        let at = now_ms();
+        self.update_settings(|settings| settings.recovery_key_saved_at_ms = Some(at))?;
+        self.log_owner(OWNER_KEY, Vec::new(), at);
         self.node_info(caller, Empty {}).await
+    }
+
+    /// Put one of the owner's own steps in Activity, at `at_ms`.
+    fn log_owner(&self, method: &str, spaces: Vec<String>, at_ms: u64) {
+        let (Some(log), Ok(did)) = (&self.access_log, self.node_did()) else {
+            return;
+        };
+        log.record(AccessEntry {
+            at_ms,
+            caller: Some(did),
+            method: method.to_string(),
+            spaces,
+            token_id: None,
+            outcome: Outcome::Allowed,
+            reason: None,
+        });
+    }
+
+    /// Put the setting up of this data center in Activity, once: when its
+    /// examples are added (the end of the first run), or, for one set up
+    /// before Activity said so, at the times its settings kept.
+    fn log_setup(&self, settings: &NodeSettings, backfill: bool) -> Result<(), ApiError> {
+        let Some(examples_at) = settings.examples_added_at_ms else {
+            return Ok(());
+        };
+        if settings.setup_logged || self.access_log.is_none() {
+            return Ok(());
+        }
+        // Set up before anything else it did: a key saved during the first
+        // run comes after.
+        let first = settings
+            .recovery_key_saved_at_ms
+            .map_or(examples_at, |key| key.min(examples_at));
+        self.log_owner(OWNER_SETUP, Vec::new(), first.saturating_sub(1));
+        self.log_owner(OWNER_EXAMPLES, settings.examples.clone(), examples_at);
+        if backfill {
+            if let Some(key) = settings.recovery_key_saved_at_ms {
+                self.log_owner(OWNER_KEY, Vec::new(), key);
+            }
+        }
+        self.update_settings(|settings| settings.setup_logged = true)
     }
 
     // ----- Spaces -----
@@ -684,6 +740,7 @@ impl Api {
                 settings.examples.extend(added);
                 settings.examples_added_at_ms = Some(now_ms());
             })?;
+            self.log_setup(&self.settings()?, false)?;
         }
         Ok(self
             .list_spaces(caller, Empty {})

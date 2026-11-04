@@ -84,7 +84,7 @@
 
   /* Ink: text at three strengths, all readable (WCAG AA) on white */
   --ink: #141310;
-  --ink2: rgba(20, 19, 16, 0.7);
+  --ink2: rgba(20, 19, 16, 0.62);
   --ink3: rgba(20, 19, 16, 0.6);
   --ink4: rgba(20, 19, 16, 0.32);
 
@@ -240,6 +240,23 @@
   --field-height: 40px;
 
   --focus-ring: 3px solid #111111;
+}
+
+/* Sizes include the border, as the prototype's: a 20 px tag is 20 px
+   whether its outline is 1 px (Ink) or 2 px (Bold). */
+*,
+::before,
+::after {
+  box-sizing: border-box;
+}
+
+/* Controls take the page's type, as the prototype's; a component sets its own. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
 }
 
 html {

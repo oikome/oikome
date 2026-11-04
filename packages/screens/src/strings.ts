@@ -604,6 +604,39 @@ export const strings = {
     viaContact: "Contact",
     viaNetwork: "Network",
     viaPlugin: "Plugin",
+    viaThisComputer: "This computer",
+    people: "People",
+    plugins: "Plugins",
+    you: "You",
+    setUp: (who: string) => `${who} set up this data center`,
+    addedExamples: (who: string, what: string) => `${who} added the examples ${what}`,
+    savedKey: (who: string) => `${who} saved the recovery key`,
+    readForCard: (who: string, what: string) => `${who} read ${what} for its card`,
+    turnedAwayTitle: "Turned away",
+    detailSetUp:
+      "You set up this data center on this computer. What it keeps is in your data folder, as plain files and its own records.",
+    detailExamples: (what: string) =>
+      `Oikome added ${what} so there is something to look at from the start. They are plain files in your folder; remove them whenever you like.`,
+    detailKey:
+      "You said the recovery key is stored somewhere safe. With it, this data center can be brought back on a new computer.",
+    detailPlugin: (who: string, what: string) =>
+      `The ${who} card read ${what} to draw itself on Home. It reads only the collections you chose for it, and can't reach the internet.`,
+    detailPluginRefused: (who: string, what: string) =>
+      `The ${who} card asked for ${what}, which you haven't let it read, so nothing was sent.`,
+    detailCompute: (who: string) =>
+      `${who} used this computer for one of Oikome's computations, on data they sent. It didn't read your collections.`,
+    detailComputeRefused: (who: string) =>
+      `${who} asked to use this computer, but it doesn't lend to them now, so nothing ran.`,
+    detailRead: (who: string, what: string) => `${who} opened ${what} through your share.`,
+    detailCopy: (who: string, what: string) => `${who}'s data center fetched the newest copy of ${what}.`,
+    detailRefused: (who: string, what: string) =>
+      `${who} asked for ${what}, but no share lets them read it now, so nothing was sent.`,
+    detailUnknown: (what: string, n: number) =>
+      `A computer you don't know asked for ${what}${n > 1 ? ` ${n} times` : ""}. Nobody gave it a share, so ${n > 1 ? "every request was" : "it was"} refused and nothing was sent.`,
+    goSharing: "Open Sharing",
+    goPlugins: "Open Plugins",
+    goSettings: "Open Settings",
+    goCollections: "Open Collections",
     colResult: "Result",
     title: "Activity",
     recent: "Recent",

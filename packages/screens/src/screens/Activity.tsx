@@ -1,21 +1,30 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Activity: who asked for your data, and whether they got it.
+// Activity: who asked for your data, and whether they got it, and the
+// owner's own first steps (setting up, the examples, the recovery key).
+// Each line opens what it means and where to act on it, as the prototype's.
 
 import { useEffect, useState } from "react";
-import { Avatar, Button, Card, EmptyState, ErrorText, Select, Status } from "@oikome/ui";
+import { Avatar, Button, Card, Dialog, EmptyState, ErrorText, Segmented, Status } from "@oikome/ui";
 import type { AccessItem } from "@oikome/client";
-import { useAction, useClient, useLoad } from "../data";
+import { useAction, useClient } from "../data";
 import { ago } from "../format";
 import { ScreenHeader } from "../parts";
+import { navigate } from "../router";
 import { strings } from "../strings";
 
 const s = strings.activity;
 const PAGE = 50;
 
+/** The owner's own steps, kept with the reads. */
+export function byOwner(item: AccessItem): boolean {
+  return item.method.startsWith("owner_");
+}
+
 /** Who it was, in the words the owner uses. */
 export function who(item: AccessItem): string {
+  if (byOwner(item)) return strings.common.you;
   return item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
 }
 
@@ -43,6 +52,7 @@ function Deed({ item }: { item: AccessItem }) {
 
 /** How it reached the data center. */
 function through(item: AccessItem): string {
+  if (byOwner(item)) return s.viaThisComputer;
   if (item.method === "plugin_read") return s.viaPlugin;
   if (item.shareId) return s.viaShare;
   return item.did ? s.viaContact : s.viaNetwork;
@@ -50,29 +60,74 @@ function through(item: AccessItem): string {
 
 /** One line of the log, in words: "Sam read lisbon-photos". */
 export function sentence(item: AccessItem): string {
-  const who = item.contactName ?? (item.did ? s.notAContact : strings.common.unknown);
+  const name = who(item);
   // Using this computer, lent to them: no collection is read.
   if (item.method === "do_exchange:oikome.compute" || item.method === "do_action:oikome.compute_methods") {
-    if (item.outcome === "denied") return s.turnedAwayCompute(who);
-    if (item.outcome === "failed") return s.taskFailed(who);
-    return item.method === "do_exchange:oikome.compute" ? s.ranTask(who) : s.checkedLending(who);
+    if (item.outcome === "denied") return s.turnedAwayCompute(name);
+    if (item.outcome === "failed") return s.taskFailed(name);
+    return item.method === "do_exchange:oikome.compute" ? s.ranTask(name) : s.checkedLending(name);
   }
   const what = item.spaces.length > 0 ? item.spaces.join(", ") : s.yourData;
+  if (item.method === "owner_setup") return s.setUp(name);
+  if (item.method === "owner_examples") return s.addedExamples(name, what);
+  if (item.method === "owner_key") return s.savedKey(name);
   // A plugin on Home, reading as itself.
   if (item.method === "plugin_read") {
-    return item.outcome === "allowed" ? s.read(who, what) : s.pluginRefused(who, what);
+    return item.outcome === "allowed" ? s.readForCard(name, what) : s.pluginRefused(name, what);
   }
-  if (item.outcome === "denied") return s.turnedAway(who, what);
-  if (item.outcome === "failed") return s.failed(who, what);
-  if (item.method === "do_action:oikome.snapshot") return s.copied(who, what);
-  if (item.method === "do_get") return s.read(who, what);
-  return s.browsed(who, what);
+  if (item.outcome === "denied") return s.turnedAway(name, what);
+  if (item.outcome === "failed") return s.failed(name, what);
+  if (item.method === "do_action:oikome.snapshot") return s.copied(name, what);
+  if (item.method === "do_get") return s.read(name, what);
+  return s.browsed(name, what);
+}
+
+/** What a line means, and where to act on it. */
+function detail(item: AccessItem): { body: string; go?: { to: string; label: string } } {
+  const name = who(item);
+  const what = item.spaces.join(", ");
+  switch (item.method) {
+    case "owner_setup":
+      return { body: s.detailSetUp, go: { to: "/settings", label: s.goSettings } };
+    case "owner_examples":
+      return { body: s.detailExamples(what), go: { to: "/collections", label: s.goCollections } };
+    case "owner_key":
+      return { body: s.detailKey, go: { to: "/settings", label: s.goSettings } };
+    case "plugin_read":
+      return {
+        body: item.outcome === "allowed" ? s.detailPlugin(name, what) : s.detailPluginRefused(name, what),
+        go: { to: "/plugins", label: s.goPlugins },
+      };
+    case "do_exchange:oikome.compute":
+    case "do_action:oikome.compute_methods":
+      return {
+        body: item.outcome === "allowed" ? s.detailCompute(name) : s.detailComputeRefused(name),
+        go: { to: "/sharing", label: s.goSharing },
+      };
+  }
+  if (item.outcome !== "allowed") {
+    return item.did
+      ? { body: s.detailRefused(name, what), go: { to: "/sharing", label: s.goSharing } }
+      : { body: s.detailUnknown(what, item.count) };
+  }
+  if (item.method === "do_action:oikome.snapshot") {
+    return { body: s.detailCopy(name, what), go: { to: "/sharing", label: s.goSharing } };
+  }
+  return { body: s.detailRead(name, what), go: { to: "/sharing", label: s.goSharing } };
+}
+
+type Filter = "all" | "people" | "plugins" | "you";
+
+function kindOf(item: AccessItem): Filter {
+  if (byOwner(item)) return "you";
+  if (item.method === "plugin_read") return "plugins";
+  return "people";
 }
 
 export function Activity() {
   const client = useClient();
-  const contacts = useLoad(() => client.listContacts(), []);
-  const [did, setDid] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [open, setOpen] = useState<AccessItem>();
   const [items, setItems] = useState<AccessItem[]>([]);
   const [more, setMore] = useState(false);
   const load = useAction();
@@ -80,7 +135,7 @@ export function Activity() {
   useEffect(() => {
     let current = true;
     load
-      .run(() => client.listAccess({ limit: PAGE, did: did || undefined }))
+      .run(() => client.listAccess({ limit: PAGE }))
       .then((page) => {
         if (current && page) {
           setItems(page);
@@ -91,21 +146,23 @@ export function Activity() {
       current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, did]);
+  }, [client]);
+  const shown = filter === "all" ? items : items.filter((item) => kindOf(item) === filter);
 
   return (
     <div className="screen-column screen-column--wide">
       <ScreenHeader title={s.title} lede={s.lede}>
-        {/* Filtering an empty log is pointless, unless a filter emptied it. */}
-        {(contacts.data?.length ?? 0) > 0 && (items.length > 0 || did !== "") && (
-          <Select
-            inline
+        {/* Filtering an empty log is pointless. */}
+        {items.length > 0 && (
+          <Segmented
             label={s.filterLabel}
-            value={did}
-            onChange={setDid}
+            value={filter}
+            onChange={(value) => setFilter(value as Filter)}
             options={[
-              { value: "", label: s.everyone },
-              ...(contacts.data ?? []).map((c) => ({ value: c.did, label: c.name })),
+              { value: "all", label: s.everyone },
+              { value: "people", label: s.people },
+              { value: "plugins", label: s.plugins },
+              { value: "you", label: s.you },
             ]}
           />
         )}
@@ -113,7 +170,7 @@ export function Activity() {
       {load.error && <ErrorText>{load.error}</ErrorText>}
       {/* A log with nothing in it at all gets the page's empty state; an empty
           result of a filter stays a row in the list. */}
-      {items.length === 0 && !load.busy && did === "" ? (
+      {items.length === 0 && !load.busy ? (
         <Card>
           <EmptyState icon="activity" title={s.emptyTitle} body={s.emptyBody} />
         </Card>
@@ -137,17 +194,18 @@ export function Activity() {
                       <span className="oik-skel oik-skel--line" aria-hidden="true" />
                     </td>
                   </tr>
-                ) : items.length === 0 ? (
+                ) : shown.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="screen-log-table__empty">
                       {s.empty}
                     </td>
                   </tr>
                 ) : (
-                  items.map((item) => (
+                  shown.map((item) => (
                     <tr
                       key={item.id}
-                      className={item.outcome === "allowed" ? undefined : "screen-log-table__refused"}
+                      className={item.outcome === "allowed" ? "screen-log-table__row" : "screen-log-table__row screen-log-table__refused"}
+                      onClick={() => setOpen(item)}
                     >
                       <td className="oik-num screen-log-table__when">{ago(item.atMs)}</td>
                       <td>
@@ -157,7 +215,10 @@ export function Activity() {
                         </span>
                       </td>
                       <td>
-                        <Deed item={item} />
+                        {/* The line opens what it means; a button, for the keyboard too. */}
+                        <button type="button" className="screen-log-table__open" onClick={() => setOpen(item)}>
+                          <Deed item={item} />
+                        </button>
                         {item.count > 1 && (
                           <span className="screen-log-table__times" title={s.times(item.count)}>
                             {" "}×{item.count}
@@ -179,13 +240,19 @@ export function Activity() {
           <p className="screen-footnote">{s.footnote}</p>
         </>
       )}
+      {open && (
+        <LineDetail
+          item={open}
+          onClose={() => setOpen(undefined)}
+        />
+      )}
       {more && (
         <Button
           disabled={load.busy}
           onClick={async () => {
             const last = items[items.length - 1];
             const page = await load.run(() =>
-              client.listAccess({ limit: PAGE, did: did || undefined, beforeId: last?.id }),
+              client.listAccess({ limit: PAGE, beforeId: last?.id }),
             );
             if (page) {
               setItems([...items, ...page]);
@@ -197,5 +264,36 @@ export function Activity() {
         </Button>
       )}
     </div>
+  );
+}
+
+/** One line of Activity, opened: who and when, what it means, and where to act on it. */
+function LineDetail({ item, onClose }: { item: AccessItem; onClose: () => void }) {
+  const { body, go } = detail(item);
+  const title = item.outcome === "allowed" ? `${who(item)} · ${ago(item.atMs)}` : s.turnedAwayTitle;
+  return (
+    <Dialog
+      title={title}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.close}</Button>
+          {go && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                onClose();
+                navigate(go.to);
+              }}
+            >
+              {go.label}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{body}</p>
+    </Dialog>
   );
 }

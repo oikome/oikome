@@ -201,7 +201,11 @@ fn clip(reason: Option<String>) -> Option<String> {
 
 fn prune(conn: &Connection) -> Result<(), rusqlite::Error> {
     let cutoff = now_ms().saturating_sub(RETENTION.as_millis() as u64) as i64;
-    conn.execute("DELETE FROM access WHERE at_ms < ?1", params![cutoff])?;
+    // The setting up of the data center stays; everything else goes in time.
+    conn.execute(
+        "DELETE FROM access WHERE at_ms < ?1 AND method <> 'owner_setup'",
+        params![cutoff],
+    )?;
     conn.execute(
         "DELETE FROM access WHERE caller IS NULL AND id <= (
              SELECT id FROM access WHERE caller IS NULL

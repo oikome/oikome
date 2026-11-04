@@ -576,6 +576,86 @@ expiresAt: number, status: BorrowStatus, };
 export type BorrowedRef = { id: string, };
 
 /**
+ * What a plugin reads, as its manifest says: one kind of collection.
+ */
+export type PluginShape = "table" | "photos" | "notes" | "series" | "any";
+
+/**
+ * A kind of column a plugin needs in what it reads.
+ */
+export type PluginColumn = "date" | "number" | "text" | "image" | "bool";
+
+/**
+ * A dashboard plugin: installed, or one of Oikome's own not added yet.
+ */
+export type Plugin = { 
+/**
+ * Lowercase letters, digits and `-`.
+ */
+id: string, name: string, 
+/**
+ * Who made it.
+ */
+by: string, version: string, description: string, 
+/**
+ * What it reads, in words ("A table of spending: a day, an amount and
+ * a category").
+ */
+reads: string, shape: PluginShape, 
+/**
+ * The kinds of column a collection needs for it: the apps offer only
+ * collections that have them.
+ */
+columns: Array<PluginColumn>, 
+/**
+ * Its card's first width, in Home's columns, and its height in pixels.
+ */
+width: number, height: number, 
+/**
+ * The page Home shows in its card, under `/plugins/<id>/`.
+ */
+entry: string, 
+/**
+ * One of Oikome's own.
+ */
+builtIn: boolean, installed: boolean, 
+/**
+ * The collections it may read (installed plugins only).
+ */
+collections: Array<string>, };
+
+/**
+ * `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on
+ * this computer (`path`), and the collections it may read.
+ */
+export type InstallPlugin = { builtIn?: string, path?: string, collections: Array<string>, };
+
+/**
+ * `inspect_plugin`: a folder on this computer that may hold a plugin.
+ */
+export type PluginFolder = { path: string, };
+
+/**
+ * `set_plugin_collections`: what an installed plugin may read now.
+ */
+export type PluginCollections = { id: string, collections: Array<string>, };
+
+/**
+ * `remove_plugin`: an installed plugin, by id.
+ */
+export type PluginRef = { id: string, };
+
+/**
+ * `plugin_read`: the rows of a collection, read as the plugin `plugin`;
+ * refused unless the plugin may read it.
+ */
+export type PluginRead = { plugin: string, space: string, 
+/**
+ * 1 to 1000; default 1000.
+ */
+limit?: number, };
+
+/**
  * A share, as listed (never with its token).
  */
 export type Share = { id: string, space: string, did: string, 

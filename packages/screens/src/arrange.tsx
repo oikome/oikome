@@ -13,6 +13,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from "reac
 import { Button, Dialog, Icon, IconButton, Tag, Tile } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import { EASE, reducedMotion } from "./motion";
+import { Link } from "./router";
 import { strings } from "./strings";
 
 const s = strings.home;
@@ -533,20 +534,35 @@ export function AddCardDialog({
         </Button>
       }
     >
-      <h3 className="oik-label screen-add-card__label">{s.fromOikome}</h3>
-      <ul className="screen-add-card">
-        {choices.map((choice) => (
-          <li key={choice.id} className="screen-add-card__row">
-            <Tile icon={choice.icon} tone="stone" />
-            <span className="screen-add-card__name">{choice.label}</span>
-            {shown.includes(choice.id) ? (
-              <Tag>{s.onHome}</Tag>
-            ) : (
-              <Button onClick={() => onAdd(choice)}>{s.add}</Button>
+      {[
+        { title: s.fromOikome, cards: choices.filter((c) => !c.id.startsWith("plugin:")) },
+        { title: s.fromPlugins, cards: choices.filter((c) => c.id.startsWith("plugin:")) },
+      ].map(({ title, cards }) => (
+        <section key={title} className="screen-add-card__group">
+          <h3 className="oik-label screen-add-card__label">{title}</h3>
+          <ul className="screen-add-card">
+            {cards.map((choice) => (
+              <li key={choice.id} className="screen-add-card__row">
+                <Tile icon={choice.icon} tone="stone" />
+                <span className="screen-add-card__name">{choice.label}</span>
+                {shown.includes(choice.id) ? (
+                  <Tag>{s.onHome}</Tag>
+                ) : (
+                  <Button onClick={() => onAdd(choice)}>{s.add}</Button>
+                )}
+              </li>
+            ))}
+            {cards.length === 0 && (
+              <li className="screen-add-card__row">
+                <span className="screen-add-card__name screen-add-card__none">{s.noPlugins}</span>
+                <Link to="/plugins" className="oik-link">
+                  {s.browsePlugins}
+                </Link>
+              </li>
             )}
-          </li>
-        ))}
-      </ul>
+          </ul>
+        </section>
+      ))}
     </Dialog>
   );
 }

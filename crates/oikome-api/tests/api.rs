@@ -1233,3 +1233,211 @@ async fn lending_this_computer_to_contacts_then_pausing_and_stopping() {
         .unwrap();
     assert!(left.is_empty());
 }
+
+#[tokio::test]
+async fn a_plugin_reads_only_what_its_owner_let_it() {
+    let n = node();
+    notes(&n).await;
+    sql(
+        &n,
+        "CREATE SPACE diary; CREATE TABLE diary.days (id BIGINT NOT NULL, entry VARCHAR); \
+         INSERT INTO diary.days VALUES (1, 'private')",
+    )
+    .await;
+    let read = |plugin: &str, space: &str| PluginRead {
+        plugin: plugin.into(),
+        space: space.into(),
+        limit: None,
+    };
+
+    // Oikome's own are offered; one is added, to read notes only.
+    let offered = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(offered
+        .iter()
+        .any(|p| p.id == "spending-by-category" && p.built_in && !p.installed));
+    let spending = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("spending-by-category".into()),
+                path: None,
+                collections: vec!["notes".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(spending.installed);
+    assert_eq!(spending.collections, vec!["notes".to_string()]);
+    let rows = n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "notes"))
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 3);
+    let e = n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+
+    // Its record claiming more changes nothing: the node's grants decide.
+    let record = n.catalog.oikome_dir().join("plugins.json");
+    let mut kept: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    kept[0]["collections"] = serde_json::json!(["notes", "diary"]);
+    std::fs::write(&record, serde_json::to_vec(&kept).unwrap()).unwrap();
+    let e = n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .unwrap_err();
+    // Without a grant there, the collection doesn't exist for the plugin.
+    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+    kept[0]["collections"] = serde_json::json!(["notes"]);
+    std::fs::write(&record, serde_json::to_vec(&kept).unwrap()).unwrap();
+
+    // Its page loads the bridge first; nothing outside its folder is served.
+    let page = String::from_utf8(n.api.plugin_file(&spending.id, "index.html").unwrap()).unwrap();
+    assert!(page.find("/plugins/sdk.js").unwrap() < page.find("main.js").unwrap());
+    assert!(n.api.plugin_file(&spending.id, "../plugins.json").is_none());
+    assert!(n.api.plugin_file(&spending.id, "main.js").is_some());
+    assert!(n.api.plugin_file("photo-memories", "index.html").is_none());
+
+    // One from a folder: looked at, then added.
+    let folder = tempfile::tempdir().unwrap();
+    let manifest = r#"{"id": "my-card", "name": "My card", "by": "Sam", "version": "0.1.0",
+        "reads": {"what": "Anything", "shape": "any"}, "card": {"width": 6, "height": 200}}"#;
+    std::fs::write(folder.path().join("oikome-plugin.json"), manifest).unwrap();
+    std::fs::write(
+        folder.path().join("index.html"),
+        "<html><head></head><body></body></html>",
+    )
+    .unwrap();
+    std::fs::create_dir(folder.path().join("img")).unwrap();
+    std::fs::write(folder.path().join("img").join("a.png"), [0u8; 4]).unwrap();
+    let path = folder.path().to_string_lossy().into_owned();
+    let seen = n
+        .api
+        .inspect_plugin(&OWNER, PluginFolder { path: path.clone() })
+        .await
+        .unwrap();
+    assert_eq!(
+        (seen.id.as_str(), seen.width, seen.installed),
+        ("my-card", 6, false)
+    );
+    let mine = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(path.clone()),
+                collections: vec!["diary".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        row_count(
+            &n.api
+                .plugin_read(&OWNER, read(&mine.id, "diary"))
+                .await
+                .unwrap()
+        ),
+        1
+    );
+    assert!(n.api.plugin_file("my-card", "img/a.png").is_some());
+
+    // Folders that aren't plugins, or hold what a plugin may not, are refused.
+    let bad = tempfile::tempdir().unwrap();
+    let bad_path = bad.path().to_string_lossy().into_owned();
+    let inspect = |path: String| n.api.inspect_plugin(&OWNER, PluginFolder { path });
+    assert_eq!(
+        inspect(bad_path.clone()).await.unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    std::fs::write(
+        bad.path().join("oikome-plugin.json"),
+        manifest.replace("my-card", "My Card"),
+    )
+    .unwrap();
+    std::fs::write(bad.path().join("index.html"), "").unwrap();
+    assert_eq!(
+        inspect(bad_path.clone()).await.unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    std::fs::write(bad.path().join("oikome-plugin.json"), manifest).unwrap();
+    std::fs::write(bad.path().join("run.exe"), "").unwrap();
+    assert_eq!(
+        inspect(bad_path.clone()).await.unwrap_err().code,
+        ErrorCode::Invalid
+    );
+    std::fs::remove_file(bad.path().join("run.exe")).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("/etc/hosts", bad.path().join("hosts.txt")).unwrap();
+        assert_eq!(
+            inspect(bad_path).await.unwrap_err().code,
+            ErrorCode::Invalid
+        );
+    }
+
+    // What it may read changes, and its reads follow.
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: spending.id.clone(),
+                collections: vec!["diary".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "notes"))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .is_ok());
+
+    // Removed: it reads nothing, its files go.
+    let left = n
+        .api
+        .remove_plugin(
+            &OWNER,
+            PluginRef {
+                id: spending.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(left
+        .iter()
+        .any(|p| p.id == "spending-by-category" && !p.installed));
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "diary"))
+        .await
+        .is_err());
+    assert!(n.api.plugin_file(&spending.id, "index.html").is_none());
+    assert!(!n
+        .catalog
+        .oikome_dir()
+        .join("plugins")
+        .join(&spending.id)
+        .exists());
+
+    // A principal can't add plugins.
+    let e = n
+        .api
+        .list_plugins(&Caller::Principal { did: did(9) }, Empty {})
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+}

@@ -40,16 +40,17 @@ use std::time::{Duration, Instant};
 
 use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
     AcceptInvite, Api, ApiError, BorrowedRef, Caller, ContactInput, DefaultStorage, DidRef, Empty,
-    ErrorCode, FolderRef, HomeCards, InviteCode, InviteRef, ListAccess, ListShares, NewSource,
-    NewSpace, NewStorage, NodeName, ReadRows, Rows, RunSql, SetLending, ShareRef, ShareSpace,
-    SourceRef, SpaceRef, SqlResult, StorageRef,
+    ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
+    NewSource, NewSpace, NewStorage, NodeName, PluginCollections, PluginFolder, PluginRead,
+    PluginRef, ReadRows, Rows, RunSql, SetLending, ShareRef, ShareSpace, SourceRef, SpaceRef,
+    SqlResult, StorageRef, PLUGIN_SDK,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -70,6 +71,20 @@ const TRUNCATED_HEADER: &str = "oikome-truncated";
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
      img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
      form-action 'self'";
+
+/// A plugin page runs only its own scripts and reaches nothing: no
+/// connections, frames, workers or forms. `sandbox` gives it an origin of
+/// its own (no cookies, no storage, no app API) even when opened on its
+/// own; the app embeds it, and only the app may.
+const PLUGIN_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; \
+     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; \
+     connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; \
+     object-src 'none'; media-src 'none'; manifest-src 'none'; base-uri 'none'; \
+     form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts";
+/// And no devices: camera, microphone, place, and the rest.
+const PLUGIN_PERMISSIONS_POLICY: &str = "camera=(), microphone=(), geolocation=(), \
+     display-capture=(), usb=(), serial=(), hid=(), bluetooth=(), payment=(), \
+     publickey-credentials-get=(), clipboard-read=(), clipboard-write=()";
 
 /// Where the login link is written, under the node's `.oikome/` directory.
 pub fn login_file(oikome_dir: &Path) -> PathBuf {
@@ -425,6 +440,18 @@ impl WebState {
             "add_invite" => json_op!(add_invite, InviteCode),
             "accept_invite" => json_op!(accept_invite, AcceptInvite),
             "decline_invite" => json_op!(decline_invite, InviteRef),
+            "list_plugins" => json_op!(list_plugins, Empty),
+            "inspect_plugin" => json_op!(inspect_plugin, PluginFolder),
+            "install_plugin" => json_op!(install_plugin, InstallPlugin),
+            "set_plugin_collections" => json_op!(set_plugin_collections, PluginCollections),
+            "remove_plugin" => json_op!(remove_plugin, PluginRef),
+            "plugin_read" => match parse::<PluginRead>(&body) {
+                Ok(request) => match api.plugin_read(&caller, request).await {
+                    Ok(rows) => arrow(rows),
+                    Err(e) => error(e),
+                },
+                Err(e) => error(e),
+            },
             "lending" => json_op!(lending, Empty),
             "set_lending" => json_op!(set_lending, SetLending),
             "list_borrowed" => json_op!(list_borrowed, Empty),
@@ -496,6 +523,10 @@ fn content_type(path: &Path) -> &'static str {
         "json" | "map" => "application/json",
         "svg" => "image/svg+xml",
         "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "md" => "text/plain; charset=utf-8",
         "ico" => "image/x-icon",
         "woff2" => "font/woff2",
         "txt" => "text/plain; charset=utf-8",
@@ -547,7 +578,48 @@ async fn serve_app_file(root: &Path, path: &str) -> Response {
             header::CACHE_CONTROL,
             HeaderValue::from_static("public, max-age=31536000, immutable"),
         );
+        // The app's fonts, for plugin pages too (their origin is their own).
+        if path.ends_with(".woff2") {
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("*"),
+            );
+        }
     }
+    response
+}
+
+/// A plugin's file, or the bridge every plugin page loads first, with the
+/// plugin's policy.
+fn serve_plugin_file(api: &Api, path: &str) -> Response {
+    let rest = &path["/plugins/".len()..];
+    let (body, file) = if rest == "sdk.js" {
+        (Some(PLUGIN_SDK.as_bytes().to_vec()), "sdk.js")
+    } else {
+        match rest.split_once('/') {
+            Some((id, file)) if !file.contains(['%', '\\', '\0']) => {
+                (api.plugin_file(id, file), file)
+            }
+            _ => (None, rest),
+        }
+    };
+    let Some(body) = body else {
+        return error(ApiError::not_found("not found"));
+    };
+    let mut response = respond(StatusCode::OK, content_type(Path::new(file)), body);
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(PLUGIN_CONTENT_SECURITY_POLICY),
+    );
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static(PLUGIN_PERMISSIONS_POLICY),
+    );
+    headers.insert(
+        HeaderName::from_static("x-dns-prefetch-control"),
+        HeaderValue::from_static("off"),
+    );
     response
 }
 
@@ -595,6 +667,7 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
         (&Method::GET, _) if path.starts_with("/api/") => {
             error(ApiError::not_found("API calls use POST"))
         }
+        (&Method::GET, _) if path.starts_with("/plugins/") => serve_plugin_file(&state.api, path),
         (&Method::GET, _) if state.web_root.is_some() => {
             let root = state
                 .web_root

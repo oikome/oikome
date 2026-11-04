@@ -24,7 +24,9 @@
 // AA). No fake data: everything goes through the node.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import dgram from "node:dgram";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -504,6 +506,115 @@ test("Home lends this computer to Bob, who adds it and sees when lending is paus
   }).toPass({ timeout: 20_000 });
 });
 
+test("plugins go on Home, read only what they may, and reach nothing", async () => {
+  // An outside server, and a stand-in for a STUN server, to hear anything that gets out.
+  const heard = [];
+  const outside = http.createServer((req, res) => {
+    heard.push(req.url);
+    res.end("ok");
+  });
+  await new Promise((r) => outside.listen(0, "127.0.0.1", r));
+  const udp = dgram.createSocket("udp4");
+  const packets = [];
+  udp.on("message", (m) => packets.push(m.length));
+  await new Promise((r) => udp.bind(0, "127.0.0.1", r));
+  const OUT = `http://127.0.0.1:${outside.address().port}`;
+  const probe = mkdtempSync(join(tmpdir(), "oikome-probe-"));
+  const said = [];
+  const listen = (m) => m.text().startsWith("PROBE ") && said.push(m.text().slice(6));
+  try {
+    // Oikome's own, added from Plugins: the collection that fits is chosen to start.
+    await page.goto(`${base}/plugins`);
+    await page.getByRole("button", { name: "Add Spending by category" }).click();
+    const adding = page.getByRole("dialog", { name: "Add Spending by category" });
+    await expect(adding.getByRole("checkbox", { name: "spending" })).toBeChecked();
+    await adding.getByRole("button", { name: "Add to Home" }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Spending by category is on Home.");
+    const row = page.locator("tbody tr", { hasText: "Spending by category" });
+    await expect(row).toContainText("spending");
+    await expect(row).toContainText("None");
+    await expect(row).toContainText("On Home");
+
+    // On Home, it shows where the money went (its frame loads when near the view).
+    await page.goto(`${base}/`);
+    await page.getByRole("region", { name: "Spending by category" }).scrollIntoViewIfNeeded();
+    const card = page.frameLocator('iframe[title="Spending by category"]');
+    await expect(card.getByText("in 30 days")).toBeVisible();
+    await expect(card.getByText("Food", { exact: true })).toBeVisible();
+
+    // The node lets it read nothing else.
+    expect((await api("plugin_read", { plugin: "spending-by-category", space: "lisbon-photos" })).code).toBe(
+      "permission_denied",
+    );
+
+    // A plugin from a folder that tries every way out, through its page.
+    writeFileSync(
+      join(probe, "oikome-plugin.json"),
+      JSON.stringify({ id: "probe", name: "Probe", by: "Test", version: "0.1.0", reads: { what: "Anything", shape: "any" } }),
+    );
+    writeFileSync(join(probe, "index.html"), '<!doctype html><html><head></head><body><script src="probe.js"></script></body></html>');
+    writeFileSync(
+      join(probe, "probe.js"),
+      `const say = (k, v) => console.log("PROBE " + k + " " + v);
+say("rtc", typeof RTCPeerConnection);
+try { new RTCPeerConnection({ iceServers: [{ urls: "stun:127.0.0.1:${udp.address().port}" }] }); } catch {}
+try { const f = document.createElement("iframe"); document.body.append(f); say("rtc-nested", typeof f.contentWindow.RTCPeerConnection); } catch { say("rtc-nested", "blocked"); }
+fetch("/api/node_info", { method: "POST" }).then((r) => say("fetch-api", r.status), () => say("fetch-api", "blocked"));
+fetch("${OUT}/fetch").then(() => say("fetch-out", "reached"), () => say("fetch-out", "blocked"));
+const img = new Image(); img.onload = () => say("img-out", "reached"); img.onerror = () => say("img-out", "blocked"); img.src = "${OUT}/img";
+try { say("cookie", document.cookie); } catch { say("cookie", "blocked"); }
+try { say("storage", localStorage.length); } catch { say("storage", "blocked"); }
+try { say("parent", parent.document.title); } catch { say("parent", "blocked"); }
+oikome.onData(({ collections }) => { say("data", collections.map((c) => c.name).join(",")); oikome.open("lisbon-photos"); });
+setTimeout(() => { location.href = "${OUT}/navigate"; }, 1000);`,
+    );
+    await api("install_plugin", { path: probe, collections: ["spending"] });
+    const { homeCards } = await api("node_info");
+    await api("set_home_cards", { cards: [...homeCards, { id: "plugin:probe", width: 4 }] });
+    page.on("console", listen);
+    await page.goto(`${base}/`);
+    await page.getByRole("region", { name: "Probe" }).scrollIntoViewIfNeeded();
+    await expect.poll(() => said.find((l) => l.startsWith("data ")), { timeout: 15_000 }).toBe("data spending");
+    await page.waitForTimeout(2000);
+    for (const line of [
+      "rtc undefined",
+      "rtc-nested blocked",
+      "fetch-api blocked",
+      "fetch-out blocked",
+      "img-out blocked",
+      "cookie blocked",
+      "storage blocked",
+      "parent blocked",
+    ]) {
+      expect(said).toContain(line);
+    }
+    expect(heard).toEqual([]);
+    expect(packets).toHaveLength(0);
+    // Its ask to open a collection it may not read was ignored.
+    expect(new URL(page.url()).pathname).toBe("/");
+    page.off("console", listen);
+
+    // Activity says which plugin read what.
+    await page.goto(`${base}/activity`);
+    await expect(
+      page.locator("tbody tr", { hasText: "Spending by category" }).filter({ hasText: "read spending" }).first(),
+    ).toContainText("Plugin");
+
+    // Removed from Plugins: it reads nothing any more.
+    await page.goto(`${base}/plugins`);
+    await page.getByRole("button", { name: "Settings: Probe" }).click();
+    await page.getByRole("dialog", { name: "Probe" }).getByRole("button", { name: "Remove Plugin" }).click();
+    await page.getByRole("dialog", { name: "Remove Probe?" }).getByRole("button", { name: "Remove" }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Removed Probe.");
+    expect((await api("plugin_read", { plugin: "probe", space: "spending" })).code).toBe("not_found");
+  } finally {
+    page.off("console", listen);
+    outside.close();
+    udp.close();
+    rmSync(probe, { recursive: true, force: true });
+  }
+});
+
 test("screens use words for people, also when something fails", async () => {
   // Engine words never reach the screens (PRD success criterion), nor SQL.
   const ENGINE = /\b(space|spaces|ucan|did|token|principal)\b/i;
@@ -539,6 +650,7 @@ test("screens use words for people, also when something fails", async () => {
     "/collections/home-climate",
     "/sources",
     "/sharing",
+    "/plugins",
     "/activity",
     "/settings",
   ]) {
@@ -648,6 +760,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/sources", "Sources"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
+    ["/plugins", "Plugins"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],
   ];

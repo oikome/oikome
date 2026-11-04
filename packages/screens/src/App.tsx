@@ -16,6 +16,7 @@ import { Palette } from "./palette";
 import { BackLink } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
+import { Plugins } from "./screens/Plugins";
 import { Sources } from "./screens/Sources";
 import { Collection } from "./screens/Collection";
 import { Collections } from "./screens/Collections";
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
   { to: "/collections", label: strings.nav.collections, icon: "collection" },
   { to: "/sources", label: strings.nav.sources, icon: "download" },
   { to: "/sharing", label: strings.nav.sharing, icon: "person-plus" },
+  { to: "/plugins", label: strings.nav.plugins, icon: "plugin" },
   { to: "/activity", label: strings.nav.activity, icon: "activity" },
 ];
 /** At the foot of the sidebar, as settings usually are. */
@@ -126,6 +128,8 @@ function Root() {
     );
   } else if (path === "/sources") {
     screen = <Sources startAdding={query.get("add") === "1"} />;
+  } else if (path === "/plugins") {
+    screen = <Plugins info={info} onInfo={setInfo} />;
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {

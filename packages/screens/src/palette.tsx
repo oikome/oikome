@@ -92,6 +92,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
       { key: "g:collections", group: s.pages, icon: "collection", title: strings.nav.collections, run: go("/collections") },
       { key: "g:sources", group: s.pages, icon: "download", title: strings.nav.sources, words: "files folders sync", run: go("/sources") },
       { key: "g:sharing", group: s.pages, icon: "person-plus", title: strings.nav.sharing, run: go("/sharing") },
+      { key: "g:plugins", group: s.pages, icon: "plugin", title: strings.nav.plugins, words: "cards dashboard home add", run: go("/plugins") },
       { key: "g:activity", group: s.pages, icon: "activity", title: strings.nav.activity, run: go("/activity") },
       { key: "g:settings", group: s.pages, icon: "sliders", title: strings.nav.settings, words: "storage recovery appearance", run: go("/settings") },
     );

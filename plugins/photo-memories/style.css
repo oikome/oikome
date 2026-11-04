@@ -1,0 +1,33 @@
+/* Photo memories: one photo filling the card, drifting slowly, its caption on a plate. */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--oik-raised, #fff); }
+body {
+  font: 400 14px/20px var(--oik-font, system-ui, sans-serif);
+  color: var(--oik-ink, #141310);
+  -webkit-font-smoothing: antialiased;
+}
+main { position: relative; height: 100%; overflow: hidden; }
+button.photo { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
+img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  animation: drift 14s ease-in-out infinite alternate;
+  transition: filter 500ms ease;
+}
+[data-theme="ink"] img { filter: grayscale(1); }
+[data-theme="ink"] button.photo:hover img, [data-theme="ink"] button.photo:focus-visible img { filter: none; }
+.plate {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 1px;
+  padding: 10px 12px; text-align: left;
+  border: 1px solid var(--oik-line, rgba(20, 19, 16, 0.13)); border-radius: 6px;
+  background: var(--oik-raised, #fff);
+}
+.label { font: 600 10.5px/14px var(--oik-font, system-ui, sans-serif); letter-spacing: 0.08em; text-transform: uppercase; color: var(--oik-ink3, #6e6e73); }
+.title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { font: 400 12px/16px var(--oik-mono, ui-monospace, monospace); color: var(--oik-ink3, #6e6e73); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { margin: 0; padding: 14px 16px; color: var(--oik-ink3, #6e6e73); }
+button.photo:focus-visible { outline: 2px solid var(--oik-ink, #141310); outline-offset: -4px; }
+[data-theme="bold"] .plate { border: 2px solid #111; border-radius: 12px; box-shadow: 3px 3px 0 #111; }
+[data-theme="bold"] .label { font: 400 11px/14px var(--oik-display, sans-serif); letter-spacing: 0.02em; color: #111; }
+[data-theme="bold"] .title { font-weight: 700; }
+@keyframes drift { to { transform: scale(1.08) translate(-1%, -1%); } }
+@media (prefers-reduced-motion: reduce) { img { animation: none; } }

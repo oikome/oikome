@@ -639,6 +639,109 @@ pub struct Borrowed {
     pub status: BorrowStatus,
 }
 
+/// What a plugin reads, as its manifest says: one kind of collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginShape {
+    /// Rows of values: spending, a reading list.
+    Table,
+    Photos,
+    Notes,
+    /// Readings over time, such as temperatures.
+    Series,
+    /// Any collection.
+    Any,
+}
+
+/// A kind of column a plugin needs in what it reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginColumn {
+    Date,
+    Number,
+    Text,
+    Image,
+    Bool,
+}
+
+/// A dashboard plugin: installed, or one of Oikome's own not added yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Plugin {
+    /// Lowercase letters, digits and `-`.
+    pub id: String,
+    pub name: String,
+    /// Who made it.
+    pub by: String,
+    pub version: String,
+    pub description: String,
+    /// What it reads, in words ("A table of spending: a day, an amount and
+    /// a category").
+    pub reads: String,
+    pub shape: PluginShape,
+    /// The kinds of column a collection needs for it: the apps offer only
+    /// collections that have them.
+    pub columns: Vec<PluginColumn>,
+    /// Its card's first width, in Home's columns, and its height in pixels.
+    pub width: u8,
+    pub height: u32,
+    /// The page Home shows in its card, under `/plugins/<id>/`.
+    pub entry: String,
+    /// One of Oikome's own.
+    pub built_in: bool,
+    pub installed: bool,
+    /// The collections it may read (installed plugins only).
+    pub collections: Vec<String>,
+}
+
+/// `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on
+/// this computer (`path`), and the collections it may read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct InstallPlugin {
+    #[serde(default)]
+    pub built_in: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    pub collections: Vec<String>,
+}
+
+/// `inspect_plugin`: a folder on this computer that may hold a plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginFolder {
+    pub path: String,
+}
+
+/// `set_plugin_collections`: what an installed plugin may read now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCollections {
+    pub id: String,
+    pub collections: Vec<String>,
+}
+
+/// `remove_plugin`: an installed plugin, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginRef {
+    pub id: String,
+}
+
+/// `plugin_read`: the rows of a collection, read as the plugin `plugin`;
+/// refused unless the plugin may read it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginRead {
+    pub plugin: String,
+    pub space: String,
+    /// 1 to 1000; default 1000.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
 /// `stop_borrowing`: a computer lent to you, by its id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

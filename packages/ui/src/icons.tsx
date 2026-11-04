@@ -22,6 +22,7 @@ export type IconName =
   | "folder"
   | "home"
   | "key"
+  | "lock"
   | "mark"
   | "minus"
   | "more"
@@ -29,6 +30,7 @@ export type IconName =
   | "note"
   | "person-plus"
   | "photo"
+  | "plugin"
   | "search"
   | "plus"
   | "sliders"
@@ -114,6 +116,15 @@ const PATHS: Record<IconName, ReactElement> = {
     </>
   ),
   minus: <path d="M6 12h12" />,
+  // A padlock: closed off.
+  lock: (
+    <>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="2" />
+      <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+    </>
+  ),
+  // A plug: something that fits in.
+  plugin: <path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0zM12 16v4.5" />,
   up: <path d="M6 15l6-6 6 6" />,
   sync: <path d="M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4" />,
   error: (

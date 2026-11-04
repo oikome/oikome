@@ -1,0 +1,21 @@
+{
+  "id": "spending-by-category",
+  "name": "Spending by category",
+  "by": "Oikome",
+  "version": "1.0.0",
+  "description": "Where the money went in the last 30 days of a spending table, by category, the biggest first.",
+  "reads": {
+    "what": "A table of spending: a day, an amount and a category",
+    "shape": "table",
+    "columns": [
+      "date",
+      "number",
+      "text"
+    ]
+  },
+  "card": {
+    "width": 5,
+    "height": 280
+  },
+  "entry": "index.html"
+}

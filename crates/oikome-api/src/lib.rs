@@ -32,10 +32,11 @@ mod examples;
 mod invites;
 mod lending;
 mod places;
+mod plugins;
 mod sources;
 pub mod types;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
@@ -58,6 +59,7 @@ use oikome_semantic::{split_statements, IssueUcanRequest};
 use serde::{Deserialize, Serialize};
 
 pub use error::{ApiError, ErrorCode};
+pub use plugins::PLUGIN_SDK;
 pub use types::*;
 
 /// Longest `run_sql` text, in bytes.
@@ -190,6 +192,9 @@ pub struct Api {
     /// One change to the node's own files (settings, invites) at a time,
     /// so two at once (Home arranged while the node is renamed) both land.
     settings_lock: Arc<std::sync::Mutex<()>>,
+    /// When each plugin last read each collection, so Activity says it once
+    /// in a while rather than at every look at Home.
+    plugin_reads: Arc<std::sync::Mutex<HashMap<(String, String), u64>>>,
 }
 
 impl std::fmt::Debug for Api {
@@ -279,6 +284,7 @@ impl Api {
             access_log: None,
             flight_url: None,
             settings_lock: Arc::default(),
+            plugin_reads: Arc::default(),
         }
     }
 
@@ -1323,11 +1329,14 @@ impl Api {
         let records = tokio::task::spawn_blocking(move || log.list(&query))
             .await
             .map_err(ApiError::internal)??;
+        // Contacts by their names, and plugins (which read as principals of
+        // their own) by theirs.
         let names: BTreeMap<String, String> = self
             .catalog
             .list_contacts()
             .into_iter()
             .map(|c| (c.did, c.name))
+            .chain(self.plugin_names())
             .collect();
         Ok(records
             .into_iter()

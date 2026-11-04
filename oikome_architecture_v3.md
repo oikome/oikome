@@ -863,8 +863,8 @@ oikome/
 │   ├── client/       NodeClient interface, data hooks, HTTP and browser-node implementations        [M1b]
 │   ├── node/         browser-node runtime: host, store, transport, wasm build                       [M1a ✅]
 │   ├── api/          TypeScript types generated from oikome-api                                     [M1b]
-│   └── plugin-sdk/   message bridge and theme tokens for plugin authors                             [M2]
-├── plugins/          official reference plugins: recent-notes, storage, smart-home, on-this-day     [M2]
+│   └── plugin-sdk/   the bridge every plugin page loads first (`sdk.js`) and its guide             [M2]
+├── plugins/          Oikome's own plugins, built into the node: spending-by-category, photo-memories [M2]
 ├── design/           PRODUCT.md, DESIGN.md, design.json                                             [later]
 └── e2e/              Playwright: browser-node tests and test page (harness/); later per client      [M1a ✅]
 ```
@@ -931,7 +931,7 @@ oikome/
   - Grants for AI tools are managed on the app's AI Assistants screen.
   - `oikome mcp`, when started by an AI client, is a thin bridge: it reaches the running node with that assistant's UCAN. It does not open the data directory, where it would contend for DuckDB and SQLite file locks.
   - The MCP SDK and its license are checked when M3 starts.
-- **Plugins** (M2) run sandboxed and talk to the app through `packages/plugin-sdk`. Each is a Principal with its own grants, and has no network access.
+- **Plugins** (M2) are cards on Home: a folder of web files with a manifest (`oikome-plugin.json`: id, name, maker, version, what it reads as a shape and the kinds of column it needs, card size, entry page). Installed ones are kept in `.oikome/plugins/<id>/` (Oikome's own are built into the node); each is a Principal with a DID made at install and whole-Space grants on exactly the collections the owner chose. The web server serves `/plugins/<id>/…` with a policy of its own: CSP `default-src 'none'` with `connect-src`, `frame-src`, `worker-src` and `form-action` `'none'`, `sandbox allow-scripts` (an opaque origin: no cookies, storage or app API), `frame-ancestors 'self'`, a Permissions-Policy denying devices, and DNS prefetch off; the app's own `frame-src 'self'` stops a plugin frame navigating elsewhere. CSP doesn't cover WebRTC (Chromium ignores `webrtc 'block'`; a sandboxed frame still sent STUN packets), so the server injects the bridge (`packages/plugin-sdk/sdk.js`) as the page's first script, which removes the `RTC*` constructors before plugin code runs; nested frames, workers and `eval` are blocked, so no fresh copy can be had. The app reads a plugin's collections through `plugin_read`, which runs as the plugin, so the node's grants decide (a record claiming more changes nothing), and posts the rows as plain values (dates ISO, images `data:` URLs, up to 1,000 rows and 32 MB) with the style to that frame alone; the frame may ask only to open one of its collections. Reads are in Activity as the plugin's (allowed ones at most once per 10 minutes per collection, refusals always). `list_plugins`, `inspect_plugin`, `install_plugin`, `set_plugin_collections`, `remove_plugin`.
 
 How each client reaches data (screens depend only on `NodeClient`):
 

@@ -18,6 +18,7 @@ import type {
   DidRef,
   Empty,
   ErrorCode,
+  InstallPlugin,
   Invite,
   InviteCode,
   InviteRef,
@@ -29,6 +30,11 @@ import type {
   NewSpace,
   NodeInfo,
   NodeName,
+  Plugin,
+  PluginCollections,
+  PluginFolder,
+  PluginRead,
+  PluginRef,
   ReadRows,
   RecoveryKey,
   RemovedContact,
@@ -109,6 +115,13 @@ export interface NodeClient {
   setLending(request: SetLending): Promise<LendingSaved>;
   listBorrowed(): Promise<Borrowed[]>;
   stopBorrowing(request: BorrowedRef): Promise<Borrowed[]>;
+  listPlugins(): Promise<Plugin[]>;
+  inspectPlugin(request: PluginFolder): Promise<Plugin>;
+  installPlugin(request: InstallPlugin): Promise<Plugin>;
+  setPluginCollections(request: PluginCollections): Promise<Plugin>;
+  removePlugin(request: PluginRef): Promise<Plugin[]>;
+  /** A collection's rows, read as the plugin; refused unless it may read them. */
+  pluginRead(request: PluginRead): Promise<RowsResult>;
   listAccess(request?: ListAccess): Promise<AccessItem[]>;
 }
 
@@ -339,6 +352,30 @@ export class HttpClient implements NodeClient {
 
   stopBorrowing(request: BorrowedRef): Promise<Borrowed[]> {
     return this.#json("stop_borrowing", request);
+  }
+
+  listPlugins(): Promise<Plugin[]> {
+    return this.#json("list_plugins", {});
+  }
+
+  inspectPlugin(request: PluginFolder): Promise<Plugin> {
+    return this.#json("inspect_plugin", request);
+  }
+
+  installPlugin(request: InstallPlugin): Promise<Plugin> {
+    return this.#json("install_plugin", request);
+  }
+
+  setPluginCollections(request: PluginCollections): Promise<Plugin> {
+    return this.#json("set_plugin_collections", request);
+  }
+
+  removePlugin(request: PluginRef): Promise<Plugin[]> {
+    return this.#json("remove_plugin", request);
+  }
+
+  async pluginRead(request: PluginRead): Promise<RowsResult> {
+    return this.#rows(await this.#post("plugin_read", request));
   }
 
   listAccess(request: ListAccess = {}): Promise<AccessItem[]> {

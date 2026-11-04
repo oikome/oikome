@@ -18,6 +18,7 @@ import type { CardChoice } from "../arrange";
 import { LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
 import { useAction, useClient, useLoad } from "../data";
 import { useCountUp } from "../motion";
+import { PluginCard } from "../plugins";
 import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -53,7 +54,10 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const shares = useLoad(() => client.listShares(), []);
   const storages = useLoad(() => client.listStorages(), []);
   const sources = useLoad(() => client.listSources(), []);
-  const log = useLoad(() => client.listAccess({ limit: 100 }), []);
+  const plugins = useLoad(() => client.listPlugins(), []);
+  // People's reads: a plugin's reads of its own cards are in Activity, not here.
+  const access = useLoad(() => client.listAccess({ limit: 100 }), []);
+  const log = { ...access, data: access.data?.filter((item) => item.method !== "plugin_read") };
   const [previews, setPreviews] = useState<Map<string, Preview>>();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -115,6 +119,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
 
   // Home's cards: the owner's arrangement, or a first one made from what is
   // kept. Widths are columns of twelve; each row of the first one fills.
+  const installed = (plugins.data ?? []).filter((plugin) => plugin.installed);
   const totals = mine.filter((space) => hasTotals(previews?.get(space.name)));
   const readings = mine.filter((space) => hasLatest(previews?.get(space.name)));
   const available: CardChoice[] = [
@@ -134,6 +139,12 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     })),
     { id: "activity", label: s.cardActivity, icon: "person-plus", width: 7 },
     { id: "places", label: s.cardPlaces, icon: "nas", width: 5 },
+    ...installed.map((plugin): CardChoice => ({
+      id: `plugin:${plugin.id}`,
+      label: plugin.name,
+      icon: "plugin",
+      width: plugin.width,
+    })),
   ];
   const choiceOf = (id: string) => available.find((card) => card.id === id);
   const first = [
@@ -143,6 +154,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     ...(readings[0] ? [`latest:${readings[0].name}`] : []),
     "activity",
     "places",
+    ...installed.map((plugin) => `plugin:${plugin.id}`),
   ].map((id): HomeCard => ({ id, width: null }));
   const order: HomeCard[] = placed ?? info.homeCards ?? first;
   const shown = settle(
@@ -263,6 +275,10 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
               </Panel>
       );
     }
+    if (id.startsWith("plugin:")) {
+      const plugin = installed.find((p) => `plugin:${p.id}` === id);
+      return plugin ? <PluginCard plugin={plugin} /> : null;
+    }
     const space = spaceOf(id);
     if (!space) return null;
     if (id.startsWith("totals:")) return <TotalsCard space={space} />;
@@ -282,7 +298,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
             {s.arrangeDone}
           </Button>
         ) : (
-          <Button icon="drag" disabled={!previews} onClick={() => setEditing(true)}>
+          <Button icon="drag" disabled={!previews || !plugins.data} onClick={() => setEditing(true)}>
             {s.arrange}
           </Button>
         )}

@@ -43,6 +43,7 @@ function Deed({ item }: { item: AccessItem }) {
 
 /** How it reached the data center. */
 function through(item: AccessItem): string {
+  if (item.method === "plugin_read") return s.viaPlugin;
   if (item.shareId) return s.viaShare;
   return item.did ? s.viaContact : s.viaNetwork;
 }
@@ -57,6 +58,10 @@ export function sentence(item: AccessItem): string {
     return item.method === "do_exchange:oikome.compute" ? s.ranTask(who) : s.checkedLending(who);
   }
   const what = item.spaces.length > 0 ? item.spaces.join(", ") : s.yourData;
+  // A plugin on Home, reading as itself.
+  if (item.method === "plugin_read") {
+    return item.outcome === "allowed" ? s.read(who, what) : s.pluginRefused(who, what);
+  }
   if (item.outcome === "denied") return s.turnedAway(who, what);
   if (item.outcome === "failed") return s.failed(who, what);
   if (item.method === "do_action:oikome.snapshot") return s.copied(who, what);

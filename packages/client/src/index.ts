@@ -11,6 +11,11 @@ import type {
   AcceptedInvite,
   AccessItem,
   ApiError,
+  Assistant,
+  AssistantCollections,
+  AssistantConnected,
+  AssistantRef,
+  ConnectAssistant,
   Borrowed,
   BorrowedRef,
   Contact,
@@ -35,11 +40,14 @@ import type {
   PluginFolder,
   PluginRead,
   PluginRef,
+  ReadRow,
   ReadRows,
   RecoveryKey,
   RemovedContact,
   RevokedShare,
   RunSql,
+  Search,
+  SearchResults,
   Share,
   ShareRef,
   ShareSpace,
@@ -105,6 +113,8 @@ export interface NodeClient {
   findPlaces(): Promise<FoundPlace[]>;
   listFolders(request?: FolderRef): Promise<FolderListing>;
   readRows(request: ReadRows): Promise<RowsResult>;
+  readRow(request: ReadRow): Promise<RowsResult>;
+  search(request: Search): Promise<SearchResults>;
   runSql(request: RunSql): Promise<SqlResult>;
   listContacts(): Promise<Contact[]>;
   addContact(request: ContactInput): Promise<Contact>;
@@ -129,6 +139,12 @@ export interface NodeClient {
   /** A collection's rows, read as the plugin; refused unless it may read them. */
   pluginRead(request: PluginRead): Promise<RowsResult>;
   listAccess(request?: ListAccess): Promise<AccessItem[]>;
+  listAssistants(): Promise<Assistant[]>;
+  /** Connect an assistant; the answer holds its token, shown this once. */
+  connectAssistant(request: ConnectAssistant): Promise<AssistantConnected>;
+  setAssistantCollections(request: AssistantCollections): Promise<Assistant>;
+  endAssistantAccess(request: AssistantRef): Promise<Assistant>;
+  removeAssistant(request: AssistantRef): Promise<Assistant[]>;
 }
 
 /** A failed call: the node's error code and message, or `network`. */
@@ -304,6 +320,14 @@ export class HttpClient implements NodeClient {
     return this.#rows(await this.#post("read_rows", request));
   }
 
+  async readRow(request: ReadRow): Promise<RowsResult> {
+    return this.#rows(await this.#post("read_row", request));
+  }
+
+  search(request: Search): Promise<SearchResults> {
+    return this.#json("search", request);
+  }
+
   async runSql(request: RunSql): Promise<SqlResult> {
     const response = await this.#post("run_sql", request);
     if (response.headers.get("content-type")?.startsWith(ARROW_STREAM)) {
@@ -394,6 +418,26 @@ export class HttpClient implements NodeClient {
 
   async pluginRead(request: PluginRead): Promise<RowsResult> {
     return this.#rows(await this.#post("plugin_read", request));
+  }
+
+  listAssistants(): Promise<Assistant[]> {
+    return this.#json("list_assistants", {});
+  }
+
+  connectAssistant(request: ConnectAssistant): Promise<AssistantConnected> {
+    return this.#json("connect_assistant", request);
+  }
+
+  setAssistantCollections(request: AssistantCollections): Promise<Assistant> {
+    return this.#json("set_assistant_collections", request);
+  }
+
+  endAssistantAccess(request: AssistantRef): Promise<Assistant> {
+    return this.#json("end_assistant_access", request);
+  }
+
+  removeAssistant(request: AssistantRef): Promise<Assistant[]> {
+    return this.#json("remove_assistant", request);
   }
 
   listAccess(request: ListAccess = {}): Promise<AccessItem[]> {

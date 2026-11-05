@@ -16,6 +16,7 @@
 //! through which peers query this node's Spaces with UCANs, the owner's web
 //! API (§13.4), and the `oikome` binary.
 
+pub mod mcp;
 pub mod replay;
 pub mod service;
 pub mod web;

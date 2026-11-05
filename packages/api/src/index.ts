@@ -353,7 +353,13 @@ export type TableSummary = { name: string, kind: RelationKind,
  * How many rows it has; `None` for another node's Space, which is not
  * asked just to count.
  */
-rows: number | null, };
+rows: number | null, 
+/**
+ * The columns that name one of its rows, in key order, for `read_row`
+ * (each item of a collection a source fills has a link of its own);
+ * empty when it has none or is not read by key.
+ */
+key: Array<string>, };
 
 /**
  * `read_rows`: a page of a table or view, as an Arrow IPC stream.
@@ -367,6 +373,74 @@ limit?: number,
  * Rows to skip.
  */
 offset?: number, };
+
+/**
+ * `read_row`: one row of a collection a source fills, by its primary key.
+ */
+export type ReadRow = { space: string, table: string, 
+/**
+ * Each key column as text, in key order (as a search hit gives it).
+ */
+key: Array<string>, };
+
+/**
+ * `search`: what the owner's collections hold. The query is plain words,
+ * and a row matches when every word is in its text: a word of three or
+ * more characters anywhere inside words, case and accents aside.
+ */
+export type Search = { query: string, 
+/**
+ * Only this collection; every one of the owner's when left out.
+ */
+collection?: string, 
+/**
+ * Most hits, 1 to 100; default 30.
+ */
+limit?: number, };
+
+/**
+ * What a search found, best first, and the collections it did not search.
+ */
+export type SearchResults = { hits: Array<SearchHit>, skipped: Array<SearchSkipped>, };
+
+/**
+ * A row a search found.
+ */
+export type SearchHit = { collection: string, table: string, 
+/**
+ * The row's primary key, each column as text (for `read_row`); `null`
+ * when its table has none.
+ */
+key: Array<string> | null, 
+/**
+ * The column the excerpt is from.
+ */
+column: string, 
+/**
+ * That column around the first match, on one line, cut with `…`.
+ */
+excerpt: string, 
+/**
+ * Where the words are in `excerpt`, in UTF-16 code units, as
+ * JavaScript counts a string.
+ */
+marks: Array<SearchMark>, };
+
+/**
+ * A stretch of a search excerpt that matched.
+ */
+export type SearchMark = { start: number, end: number, };
+
+/**
+ * A collection a search did not look in, and why.
+ */
+export type SearchSkipped = { collection: string, reason: SearchSkip, 
+/**
+ * What went wrong, for `failed`.
+ */
+message: string | null, };
+
+export type SearchSkip = "shared_with_you" | "failed";
 
 /**
  * `run_sql`: the owner's statements, separated by `;`, run in one session.
@@ -689,6 +763,65 @@ export type PluginRead = { plugin: string, space: string,
 limit?: number, };
 
 /**
+ * The app an AI assistant connects from (M3d).
+ */
+export type AssistantApp = "claude_code" | "other";
+
+/**
+ * An AI assistant the owner connected (M3d): it reads only the
+ * collections given, as itself, and every read shows up in Activity.
+ */
+export type Assistant = { id: string, 
+/**
+ * The identity it reads as: its lines in Activity are by this DID.
+ */
+did: string, name: string, app: AssistantApp, 
+/**
+ * The collections it may read; none once its access ended.
+ */
+collections: Array<string>, connectedAtMs: number, 
+/**
+ * When it last reached this data center; `null` until it first does.
+ */
+lastUsedMs: number | null, 
+/**
+ * When its access ended; it can't reach this data center again.
+ */
+endedAtMs: number | null, };
+
+/**
+ * `connect_assistant`: a new assistant, by name, and what it may read.
+ */
+export type ConnectAssistant = { name: string, app: AssistantApp, collections: Array<string>, };
+
+/**
+ * What `connect_assistant` returns: the assistant, and the token it
+ * reaches this data center with, shown this once (only its hash is kept).
+ */
+export type AssistantConnected = { assistant: Assistant, token: string, };
+
+/**
+ * `set_assistant_collections`: what a connected assistant may read now.
+ */
+export type AssistantCollections = { id: string, collections: Array<string>, };
+
+/**
+ * `end_assistant_access`, `remove_assistant`: an assistant, by id.
+ */
+export type AssistantRef = { id: string, };
+
+/**
+ * A collection an assistant may read, as it is told about it.
+ */
+export type ReadableCollection = { name: string, tables: Array<ReadableTable>, };
+
+/**
+ * A table of a collection an assistant may read: the columns it sees,
+ * how many rows, and the key it reads a row by (`read_row`).
+ */
+export type ReadableTable = { name: string, columns: Array<string>, rows: number | null, key: Array<string>, };
+
+/**
  * A share, as listed (never with its token).
  */
 export type Share = { id: string, space: string, did: string, 
@@ -754,7 +887,7 @@ export type AccessOutcome = "allowed" | "denied" | "failed";
 /**
  * Who sent a request, as the owner knows them.
  */
-export type AccessWho = "you" | "person" | "plugin" | "unknown";
+export type AccessWho = "you" | "person" | "plugin" | "assistant" | "unknown";
 
 /**
  * One request a peer or a browser sent this node.
@@ -775,6 +908,11 @@ name: string | null, method: string, spaces: Array<string>,
  */
 shareId: string | null, outcome: AccessOutcome, reason: string | null, 
 /**
- * Requests merged into this item (failed authentications in one minute).
+ * Requests merged into this item (failed authentications in one
+ * minute; an assistant's reads of one collection in one minute).
  */
-count: number, };
+count: number, 
+/**
+ * What it asked for, where that says more: an assistant's search words.
+ */
+detail: string | null, };

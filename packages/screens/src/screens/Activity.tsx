@@ -17,13 +17,15 @@ import { strings } from "../strings";
 const s = strings.activity;
 const PAGE = 50;
 
-/** Who it was, by name: you, a person, a plugin, or a computer with no name here. */
+/** Who it was, by name: you, a person, an assistant, a plugin, or a computer with no name here. */
 export function who(item: AccessItem): string {
   switch (item.who) {
     case "you":
       return strings.common.you;
     case "plugin":
       return item.name ?? s.removedPlugin;
+    case "assistant":
+      return item.name ?? s.removedAssistant;
     case "person":
       return item.name ?? s.unknown;
     case "unknown":
@@ -61,6 +63,7 @@ function Deed({ item }: { item: AccessItem }) {
 function through(item: AccessItem): string {
   if (item.who === "you") return s.viaThisComputer;
   if (item.who === "plugin") return s.viaPlugin;
+  if (item.who === "assistant") return s.viaAssistant;
   if (item.shareId) return s.viaShare;
   if (lends(item)) return s.viaLending;
   return s.viaNetwork;
@@ -83,6 +86,11 @@ export function sentence(item: AccessItem): string {
   if (item.method === "plugin_read") {
     return item.outcome === "allowed" ? s.readForCard(name, what) : s.pluginRefused(name, what);
   }
+  // An AI assistant, searching and reading as itself.
+  if (item.outcome === "allowed" && item.method === "assistant_search") {
+    return s.searched(name, what, item.detail ?? "");
+  }
+  if (item.outcome === "allowed" && item.method === "assistant_read") return s.readRows(name, what, item.count);
   if (item.outcome === "denied") return s.turnedAway(name, what);
   if (item.outcome === "failed") return s.failed(name, what);
   if (item.method === "do_action:oikome.snapshot") return s.copied(name, what);
@@ -106,6 +114,17 @@ function detail(item: AccessItem): { body: string; go?: { to: string; label: str
         body: item.outcome === "allowed" ? s.detailPlugin(name, what) : s.detailPluginRefused(name, what),
         go: { to: "/plugins", label: s.goPlugins },
       };
+    case "assistant_search":
+    case "assistant_read":
+      return {
+        body:
+          item.outcome !== "allowed"
+            ? s.detailAssistantRefused(name, what)
+            : item.method === "assistant_search"
+              ? s.detailSearched(name, what, item.detail ?? "")
+              : s.detailAssistantRead(name, what, item.count),
+        go: { to: "/assistants", label: s.goAssistants },
+      };
     case "do_exchange:oikome.compute":
     case "do_action:oikome.compute_methods":
       return {
@@ -124,11 +143,13 @@ function detail(item: AccessItem): { body: string; go?: { to: string; label: str
   return { body: s.detailRead(name, what), go: { to: "/sharing", label: s.goSharing } };
 }
 
-type Filter = "all" | "people" | "plugins" | "you";
+type Filter = "all" | "people" | "assistants" | "plugins" | "you";
 
 /** The filter a line shows under; a computer with no name here only under Everyone. */
 function kindOf(item: AccessItem): Filter | undefined {
-  return ({ you: "you", person: "people", plugin: "plugins", unknown: undefined } as const)[item.who];
+  return ({ you: "you", person: "people", assistant: "assistants", plugin: "plugins", unknown: undefined } as const)[
+    item.who
+  ];
 }
 
 export function Activity() {
@@ -172,6 +193,7 @@ export function Activity() {
             options={[
               { value: "all", label: s.everyone },
               { value: "people", label: s.people },
+              { value: "assistants", label: s.assistants },
               { value: "plugins", label: s.plugins },
               { value: "you", label: s.you },
             ]}
@@ -230,7 +252,8 @@ export function Activity() {
                         <button type="button" className="screen-log-table__open" onClick={() => setOpen(item)}>
                           <Deed item={item} />
                         </button>
-                        {item.count > 1 && (
+                        {/* An assistant's reads say how many in their words. */}
+                        {item.count > 1 && item.method !== "assistant_read" && (
                           <span className="screen-log-table__times" title={s.times(item.count)}>
                             {" "}×{item.count}
                           </span>

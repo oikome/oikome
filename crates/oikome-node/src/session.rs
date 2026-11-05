@@ -22,7 +22,7 @@ use futures::TryStreamExt;
 use oikome_catalog::{LocationFormat, OikomeCatalog, Space};
 use oikome_core::{AccessMode, CreateSpaceRequest, EngineKind, RemoteMode, SpaceKind};
 use oikome_engine::name::quote_ident;
-use oikome_engine::{Capabilities, QualifiedName, QueryEngine, RecordBatchStream, TxHandle};
+use oikome_engine::{Capabilities, QualifiedName, QueryEngine, RecordBatchStream, TxHandle, Value};
 use oikome_federation::{BoundSpace, BoundTable, Coordinator};
 use oikome_semantic::{
     apply_access_control, bind_search_tables, classify, collect_spaces, inline_views, parse_single,
@@ -534,6 +534,44 @@ impl OikomeSession {
             .as_ref()
             .filter(|open| open.space == space)
             .map(|open| open.engine.clone())
+    }
+
+    /// A query with bound parameters (`?1`, `?2`, ...) on one local Space,
+    /// routed and access-controlled as [`Self::sql`] routes a query: what a
+    /// principal reads a row by, its key's values kept out of the SQL text.
+    pub(crate) async fn query_params(
+        &self,
+        sql: &str,
+        params: &[Value],
+    ) -> Result<QueryResult, SessionError> {
+        let OikomeStatement::Sql(stmt) = parse_single(sql)? else {
+            return Err(SessionError::Unsupported(
+                "only a query takes parameters".to_string(),
+            ));
+        };
+        let routed = self.route(*stmt, sql)?;
+        let StatementClass::Query { spaces } = routed.class.clone() else {
+            return Err(SessionError::Unsupported(
+                "only a query takes parameters".to_string(),
+            ));
+        };
+        let mut names = spaces.iter();
+        let (Some(name), None) = (names.next(), names.next()) else {
+            return Err(SessionError::Unsupported(
+                "a query with parameters reads one Space".to_string(),
+            ));
+        };
+        let space = self.space(name)?;
+        if space.kind == SpaceKind::Remote {
+            return Err(SessionError::Unsupported(
+                "a query with parameters reads a Space kept here".to_string(),
+            ));
+        }
+        self.check_search(&routed, &spaces).await?;
+        let engine = self.bind(&space).await?;
+        let (schema, stream) = engine.query(&routed.text, params).await?;
+        let batches = stream.try_collect().await?;
+        Ok(QueryResult::Batches { schema, batches })
     }
 
     pub(crate) async fn run_query(

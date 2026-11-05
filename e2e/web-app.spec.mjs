@@ -268,6 +268,228 @@ test("the examples are files: edit one, sync it, and it shows", async () => {
   await api("add_source", { kind: "notes", path: join(owner, "Examples", "oikome-guide") });
 });
 
+test("⌘K searches what the collections hold, and a hit opens that one on its own", async () => {
+  await page.goto(`${base}/`);
+  const palette = page.getByRole("dialog", { name: "Search" });
+  const box = palette.getByRole("combobox", { name: "Search" });
+  // ⌘K is listened for once the app's frame is on the page.
+  await expect(page.getByRole("button", { name: /Search everything/ })).toBeVisible();
+  await page.keyboard.press("Control+k");
+  await expect(palette).toBeVisible();
+
+  // A photo by its caption, accents aside, shown with its picture.
+  await box.fill("belem");
+  const pasteis = palette.getByRole("group", { name: "Photos" }).getByRole("option", { name: /Pastéis de Belém/ });
+  await expect(pasteis.locator("mark")).toHaveText("Belém");
+  await expect.poll(() => pasteis.locator("img").evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+  await pasteis.click();
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=[^&]+&item=/);
+  const photo = page.getByRole("dialog", { name: "Pastéis de Belém" });
+  await expect(photo.getByRole("img", { name: "Pastéis de Belém" })).toBeVisible();
+  await expect(photo).toContainText("Taken");
+  await expect(photo).toContainText("Kept on");
+  // Its address opens it again; closing it leaves its collection.
+  await page.reload();
+  await expect(photo).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(photo).toHaveCount(0);
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
+
+  // Searching in one collection: its notes only, the note in full.
+  await page.goto(`${base}/collections/oikome-guide`);
+  await page.getByRole("button", { name: "Search in here" }).click();
+  await expect(palette.getByText("in oikome-guide", { exact: true })).toBeVisible();
+  await box.fill("welcome");
+  const notes = palette.getByRole("group", { name: "Notes" });
+  await expect(notes.getByRole("option").first()).toContainText("Welcome to Oikome");
+  await expect(palette.getByRole("group", { name: "Pages" })).toHaveCount(0);
+  await notes.getByRole("option").first().click();
+  const note = page.getByRole("dialog", { name: "Note" });
+  await expect(note).toContainText("Welcome to Oikome.");
+  await note.getByRole("button", { name: "Close" }).click();
+  await expect(note).toHaveCount(0);
+  await expect(page).toHaveURL(/\/collections\/oikome-guide$/);
+
+  // A row of a table, field by field; the column it matched in is named.
+  await page.keyboard.press("Control+k");
+  await box.fill("airport");
+  const metro = palette.getByRole("group", { name: "Rows" }).getByRole("option", { name: /Metro to the airport/ });
+  await expect(metro).toContainText("spending");
+  await metro.click();
+  const row = page.getByRole("dialog", { name: "Row" });
+  await expect(row).toContainText("Metro to the airport");
+  await expect(row).toContainText("1.85");
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/\/collections\/spending$/);
+
+  // A table with no key opens its collection; nothing found says so.
+  await page.keyboard.press("Control+k");
+  await box.fill("milk");
+  await palette.getByRole("group", { name: "Rows" }).getByRole("option", { name: /buy milk/ }).click();
+  await expect(page).toHaveURL(/\/collections\/notes$/);
+  await page.keyboard.press("Control+k");
+  await box.fill("zzqxv");
+  await expect(palette.getByText("Nothing matches “zzqxv”.")).toBeVisible();
+  await page.keyboard.press("Escape");
+});
+
+test("a photo opens large and the arrow keys move through them; a note opens in full with its tags", async () => {
+  await page.goto(`${base}/collections/lisbon-photos`);
+  const links = page.locator(".screen-photo__link");
+  await expect(links).toHaveCount(6);
+  const titles = await page.locator(".screen-photo__title").allTextContents();
+
+  // Opened over the page, which stays where it was.
+  const fifth = page.getByRole("link", { name: `Open ${titles[4]}` });
+  await fifth.scrollIntoViewIfNeeded();
+  const y = await page.evaluate(() => window.scrollY);
+  await fifth.click();
+  let photo = page.getByRole("dialog", { name: titles[4] });
+  await expect(photo).toContainText("5 of 6 · ← → to move");
+  await expect(photo).toContainText("Who can see this");
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=photos&item=/);
+  expect(await page.evaluate(() => window.scrollY)).toBe(y);
+
+  await page.keyboard.press("ArrowRight");
+  photo = page.getByRole("dialog", { name: titles[5] });
+  await expect(photo).toContainText("6 of 6");
+  await expect(photo.getByRole("button", { name: "Next" })).toBeDisabled();
+  await photo.getByRole("button", { name: "Previous" }).click();
+  await expect(page.getByRole("dialog", { name: titles[4] })).toContainText("5 of 6");
+  // Moving kept one step in history: closing goes back to the page as it was.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
+  expect(await page.evaluate(() => window.scrollY)).toBe(y);
+
+  // A note with a line of tags: the tags show as tags, the note in full.
+  const tram = join(owner, "Examples", "oikome-guide", "10 Tram.md");
+  writeFileSync(tram, "Took the 28 up to Graça, then walked down.\n\n#lisbon #trams\n");
+  await api("pull_source", { source: "oikome-guide" });
+  await page.goto(`${base}/collections/oikome-guide`);
+  const card = page.locator(".screen-note").filter({ hasText: "Took the 28" });
+  await expect(card.locator(".oik-tag")).toHaveText(["#lisbon", "#trams"]);
+  await expect(card.locator(".screen-note__text")).toHaveText("Took the 28 up to Graça, then walked down.");
+  await card.getByRole("link").click();
+  const note = page.getByRole("dialog", { name: "Note" });
+  await expect(note).toContainText("Took the 28 up to Graça, then walked down.");
+  await expect(note.locator(".oik-tag")).toHaveText(["#lisbon", "#trams"]);
+  await expect(note).toContainText(/\d+ of 8/);
+  await note.getByRole("button", { name: "Close" }).click();
+  await expect(page).toHaveURL(/\/collections\/oikome-guide$/);
+  rmSync(tram);
+  await api("pull_source", { source: "oikome-guide" });
+});
+
+/** One MCP request from outside the browser, as an AI assistant sends it. */
+let rpc = 0;
+async function mcp(endpoint, token, method, params = {}, { modern = true, headers = {}, id = true } = {}) {
+  const meta = {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { name: "e2e", version: "1" },
+    "io.modelcontextprotocol/clientCapabilities": {},
+  };
+  const body = { jsonrpc: "2.0", method, params: modern ? { ...params, _meta: meta } : params };
+  if (id) body.id = ++rpc;
+  const sent = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+  if (token) sent.authorization = `Bearer ${token}`;
+  if (modern) {
+    sent["mcp-protocol-version"] = "2026-07-28";
+    sent["mcp-method"] = method;
+    if (method === "tools/call") sent["mcp-name"] = params.name;
+  }
+  const res = await fetch(endpoint, { method: "POST", headers: { ...sent, ...headers }, body: JSON.stringify(body) });
+  const text = await res.text();
+  return { status: res.status, body: text ? JSON.parse(text) : null };
+}
+
+test("an AI assistant connects over MCP, reads only what it is given, and is cut off at once", async () => {
+  await page.goto(`${base}/assistants`);
+  await expect(page.getByRole("heading", { name: "AI Assistants", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Connect an Assistant" }).click();
+  const dialog = page.getByRole("dialog", { name: "Connect an Assistant" });
+  await dialog.getByRole("button", { name: "Next", exact: true }).click();
+  await dialog.getByRole("checkbox", { name: "oikome-guide" }).check();
+  await dialog.getByRole("button", { name: "Next: Connect" }).click();
+  // The command to paste, with its key, shown this once.
+  const command = (await dialog.locator(".oik-copy__value").textContent()).trim();
+  expect(command).toMatch(
+    /^claude mcp add --transport http oikome http:\/\/127\.0\.0\.1:\d+\/mcp --header "Authorization: Bearer oik_[A-Za-z0-9_-]+"$/,
+  );
+  const endpoint = command.split(" ")[6];
+  const token = command.match(/Bearer (oik_[A-Za-z0-9_-]+)/)[1];
+  await expect(dialog).toContainText("Waiting for Claude Code…");
+
+  // A client of the handshake era: initialize, then on without a session.
+  const hello = await mcp(endpoint, token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } }, { modern: false });
+  expect(hello.status).toBe(200);
+  expect(hello.body.result.protocolVersion).toBe("2025-06-18");
+  expect((await mcp(endpoint, token, "notifications/initialized", {}, { modern: false, id: false })).status).toBe(202);
+  const legacy = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
+  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read_row"]);
+  // The page sees it arrive.
+  await expect(dialog).toContainText("Claude Code is connected", { timeout: 10_000 });
+  await dialog.getByRole("button", { name: "Done" }).click();
+
+  // A client of this revision: discovery, then the three tools and no more.
+  const found = await mcp(endpoint, token, "server/discover");
+  expect(found.body.result.supportedVersions).toContain("2026-07-28");
+  expect(found.body.result.resultType).toBe("complete");
+  const call = (name, args = {}) => mcp(endpoint, token, "tools/call", { name, arguments: args });
+  const listed = await call("list_collections");
+  expect(listed.body.result.structuredContent.collections.map((c) => c.name)).toEqual(["oikome-guide"]);
+  const welcome = await call("search", { query: "welcome" });
+  const hits = welcome.body.result.structuredContent.hits;
+  expect(hits.length).toBeGreaterThan(0);
+  expect(hits.every((h) => h.collection === "oikome-guide")).toBe(true);
+  expect((await call("search", { query: "belem" })).body.result.structuredContent.hits).toEqual([]);
+  const elsewhere = await call("search", { query: "belem", collection: "lisbon-photos" });
+  expect(elsewhere.body.result.isError).toBe(true);
+  expect(elsewhere.body.result.content[0].text).toBe("there is no collection lisbon-photos");
+  const row = await call("read_row", { collection: hits[0].collection, table: hits[0].table, key: hits[0].key });
+  expect(row.body.result.structuredContent.fields.note).toMatch(/Welcome to Oikome/);
+  const owners = await call("run_sql", { sql: "SELECT 1" });
+  expect(owners.body.error.code).toBe(-32602);
+
+  // Refused: a web page, no key or another, a stream, headers that differ from the body.
+  expect((await mcp(endpoint, token, "tools/list", {}, { headers: { origin: "https://example.com" } })).status).toBe(403);
+  expect((await mcp(endpoint, null, "tools/list")).status).toBe(401);
+  expect((await mcp(endpoint, "oik_someone-else", "tools/list")).status).toBe(401);
+  expect((await fetch(endpoint, { headers: { authorization: `Bearer ${token}` } })).status).toBe(405);
+  const mismatch = await mcp(endpoint, token, "tools/list", {}, { headers: { "mcp-method": "tools/call" } });
+  expect(mismatch.status).toBe(400);
+  expect(mismatch.body.error.code).toBe(-32020);
+
+  // Given the photos on the page, it sees them, and a photo comes as an image.
+  await page.reload();
+  await page.getByRole("switch", { name: "Claude Code can read: lisbon-photos" }).click();
+  await expect(page.getByRole("switch", { name: "Claude Code can read: lisbon-photos" })).toHaveAttribute("aria-checked", "true");
+  const photos = (await call("search", { query: "belem" })).body.result.structuredContent.hits;
+  const photo = photos.find((h) => h.collection === "lisbon-photos");
+  expect(photo).toBeTruthy();
+  const picture = await call("read_row", { collection: photo.collection, table: photo.table, key: photo.key });
+  expect(picture.body.result.content.some((c) => c.type === "image" && c.mimeType.startsWith("image/"))).toBe(true);
+
+  // What it searched and read, on its page and in Activity.
+  await page.reload();
+  await expect(page.getByText("Claude Code searched oikome-guide for “welcome”").first()).toBeVisible();
+  await page.goto(`${base}/activity`);
+  await page.getByRole("radio", { name: "Assistants" }).click();
+  await expect(page.getByText("searched oikome-guide for “welcome”").first()).toBeVisible();
+  await expect(page.getByText("was turned away from lisbon-photos").first()).toBeVisible();
+
+  // Its access ended: the very next request is refused; removed, it's gone.
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Edit Claude Code" }).click();
+  await page.getByRole("button", { name: "End Access" }).click();
+  await page.getByRole("dialog", { name: "End Claude Code's access?" }).getByRole("button", { name: "End Access" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Ended Claude Code's access.");
+  expect((await call("list_collections")).status).toBe(401);
+  await page.getByRole("button", { name: "Remove Claude Code" }).click();
+  await page.getByRole("dialog", { name: "Remove Claude Code?" }).getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("No assistant is connected yet.", { exact: false })).toBeVisible();
+});
+
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
   await page.goto(`${base}/`);
   await page.getByRole("button", { name: "Arrange" }).click();
@@ -710,6 +932,7 @@ test("screens use words for people, also when something fails", async () => {
     "/sources",
     "/sources/spending",
     "/sharing",
+    "/assistants",
     "/plugins",
     "/activity",
     "/settings",
@@ -821,6 +1044,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/sources/spending", "spending.csv"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
+    ["/assistants", "AI Assistants"],
     ["/plugins", "Plugins"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],

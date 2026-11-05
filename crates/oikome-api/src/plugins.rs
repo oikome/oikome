@@ -575,6 +575,8 @@ impl Api {
                     token_id: None,
                     outcome,
                     reason,
+                    detail: None,
+                    merge: false,
                 });
             }
         };

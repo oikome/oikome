@@ -5251,6 +5251,8 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "base64 0.22.1",
+ "blake3",
+ "getrandom 0.3.4",
  "iceberg",
  "oikome-catalog",
  "oikome-connect",

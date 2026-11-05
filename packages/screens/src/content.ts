@@ -33,6 +33,8 @@ export interface Shape {
 
 /** An item of content as covers and Home show it. */
 export interface Item {
+  /** Its row in the table it was read from. */
+  row: number;
   image?: string;
   text?: string;
   detail?: string;
@@ -202,6 +204,7 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
     const iso = typeof raw === "string" ? isoTime(raw) : undefined;
     const when = iso ? iso.ms : raw;
     return {
+      row: r,
       image: bytes instanceof Uint8Array ? imageSrc(bytes) : undefined,
       text: shape.view === "series" ? reading(r) : text(shape.text, r),
       detail: text(shape.detail, r),
@@ -281,6 +284,30 @@ export function forgetPreviews(name?: string) {
 export function chronological(items: Item[]): Item[] {
   if (!items.some((item) => item.when !== undefined)) return items;
   return [...items].sort((a, b) => (a.when ?? 0) - (b.when ?? 0));
+}
+
+/** A tag: `#` and a word, after a space or at the start of a line. */
+const TAG = /(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_\-/]*)/gu;
+/** A line of tags and nothing else, as notes apps write them. */
+const TAG_LINE = /^\s*(?:#[\p{L}\p{N}][\p{L}\p{N}_\-/]*\s*)+$/u;
+
+/** The tags of a note, each once, in the order written. */
+export function tagsOf(text: string | undefined): string[] {
+  if (!text) return [];
+  return [...new Set(Array.from(text.matchAll(TAG), (m) => m[1]!))];
+}
+
+/**
+ * A note's text without its lines of tags only, which are shown as tags;
+ * tags inside a sentence stay where they are.
+ */
+export function withoutTagLines(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  return text
+    .split("\n")
+    .filter((line) => !TAG_LINE.test(line))
+    .join("\n")
+    .trim();
 }
 
 /** The newest item, by its date; the first one when there are no dates. */

@@ -17,7 +17,7 @@
 //! its queued tasks; B's compute grant gives no access to A's Spaces, and a
 //! data grant does not let B run tasks.
 
-mod common;
+use crate::common;
 
 use std::time::Duration;
 

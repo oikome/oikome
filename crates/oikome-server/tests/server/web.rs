@@ -15,7 +15,7 @@
 //! The owner's web API over HTTP (M1b): the one-time login link, the
 //! session cookie and the checks every request goes through.
 
-mod common;
+use crate::common;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

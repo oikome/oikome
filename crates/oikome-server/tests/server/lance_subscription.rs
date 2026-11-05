@@ -17,9 +17,9 @@
 //! searches without building any index.
 //!
 //! Needs DuckDB's `lance` extension, downloaded once into the target
-//! directory: `cargo test -p oikome-server --test lance_subscription -- --ignored`.
+//! directory: `cargo t --test server -- lance_subscription:: --ignored`.
 
-mod common;
+use crate::common;
 
 use std::path::PathBuf;
 

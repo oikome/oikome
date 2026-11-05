@@ -18,7 +18,7 @@
 //! The NAS is a WebDAV server in this process (`dav-server`, with Basic
 //! authentication and a password made up per test) or a plain folder.
 //! The test marked `#[ignore]` needs the `lance` extension
-//! (`cargo test -p oikome-node --test storage -- --ignored`).
+//! (`cargo t --test node -- storage:: --ignored`).
 
 use std::convert::Infallible;
 use std::path::{Path, PathBuf};

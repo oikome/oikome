@@ -16,7 +16,7 @@
 //! the same authentication, authorization and semantic layer as Arrow
 //! Flight calls (§10).
 
-mod common;
+use crate::common;
 
 use arrow_array::{Array, Int64Array};
 use common::{strings, Node};

@@ -1,97 +1,97 @@
-# AGENT.zh.md — Oikome 开发协作协议
+# AGENT.md — Oikome Development Collaboration Protocol
 
-> **目的**: 定义人类开发者与 AI Agent 在 Oikome 项目中的协作规则。
-> **文档语言**: 所有协作文档（本文件、开发计划、Issue、PR 描述）使用 **中文**。
-> **代码语言**: 所有源代码、注释和标识符使用 **英文**。
-> **许可证**: Apache-2.0（为后续 Apache 基金会捐赠做准备）。
-
----
-
-## 1. 项目概览
-
-Oikome 是一个 **AI Native 的多模态私域数据中心**，通常使用个人资源，支持受信的数据交换。
-
-- **私域**：数据归所有者（个人、家庭或小团队），存在自己控制的存储上（本地硬盘、NAS、网盘），由数据接入从各个 App 接进来。
-- **多模态**：文本、图片、音频、文件、向量和表格一样是一等数据。
-- **AI Native**：AI 工具和 Agent 通过 MCP 像其他应用一样接入，只看到授权给它的数据；数据存成 AI 能直接用的形式（文本、向量、检索索引）；视图和命名让 AI 知道数据的含义；向量化、推理等计算也跑在个人资源上。
-- **个人资源**：存储和算力来自个人，而不是平台的云：先用自己的机器，不够时通过算力共享用其他个人的机器。
-- **受信的数据交换**：数据在互信的数据中心之间双向流动，授权可撤销；所有者也可以把选定的数据公开给任何人（包括陌生人），在所有者设定的限制内访问（公开分享）。
-- **Web2 和 Web3**：数据来自人们在用的 App，也可以来自链（某个地址的交易和代币）；钱包可以作为身份（`did:pkh`）。不发币、不做链，私有数据不上链，使用 Oikome 不需要钱包。
-- **付费访问**：所有者可以对选定的数据收费，经所有者自己选的支付插件（PayPal、支付宝、Web3 钱包等）直接进所有者自己的账户；Oikome 不经手资金，付款只是发授权的前提。
-
-数据交换和算力共享用同一套信任机制（DID、对等关系、默认拒绝、UCAN 撤销），授权分开（数据：`space/query` / `space/read`；算力：`compute/<method>`），互不包含。
-
-底层是一个**去中心化的本地联邦查询语义层** —— 嵌入式、主权化、原生 P2P。
-
-Oikome 负责"谁能看什么、数据从哪来、存在哪、查询和任务发到哪"，**不负责"怎么算"**：计算交给可插拔的嵌入式引擎（分析型 DuckDB、事务型 SQLite，浏览器端由 JS 宿主提供），DataFusion 只作为联邦协调器合并多个引擎的 Arrow 结果。规范见 `docs/architecture.md`。
-
-- **核心语言**: Rust（WASM 可编译、内存安全）
-- **计算引擎**: DuckDB 1.5.6（分析型 Space；Lance Space 经 `lance` 扩展读写和检索、经 `duckpgq` 做图查询，扩展用 `oikome extensions install` 下载）、SQLite（事务型 Space；FTS5 全文检索，sqlite-vec 向量检索）
-- **联邦协调**: Apache DataFusion + `datafusion-federation`（仅合并，不读文件）
-- **目录系统**: Apache Iceberg（分析型 Space）+ `.oikome/` 下的 Space/Location 注册表
-- **存储格式**: Apache Parquet（分析型、P2P 同步单元）、SQLite 文件（事务型）、Lance（向量 / 全文 / 大对象，3.3）
-- **内存格式**: Apache Arrow
-- **网络传输**: Arrow Flight (gRPC)，TLS 证书绑定节点 DID；libp2p 只用于节点发现（mDNS）；浏览器经 WebRTC 数据通道连 Full Node（str0m，DTLS 指纹由 DID 签名的接入记录担保）
-- **密码学**: ed25519-dalek + Blake3（3.1）
-- **浏览器端**: `oikome-wasm`（wasm-bindgen）+ duckdb-wasm（OPFS）+ IndexedDB + WebRTC（`packages/node/src/transport.js`）；联邦查询在浏览器里单任务执行（`Coordinator::single_task`）；构建见 `packages/node/scripts/build.sh`（仓库根目录 `npm run build`）（`wasm` profile；需要能编译 wasm32 的 clang，macOS 用 Homebrew LLVM）
-
-### 架构分层（自底向上）
-
-```
-L0: 身份与网络层 (DID, UCAN, libp2p, Arrow Flight, 快照同步, 算力共享)
-L1: 目录与存储层 (Space/Location 注册表, Iceberg 元数据, Parquet 写路径, VFS: 本地盘 / NAS / S3 / 网盘)
-L2: 引擎抽象层 (QueryEngine trait: DuckDB | SQLite | 宿主引擎)
-L3: 联邦层 (DataFusion 协调器: 按引擎下推 SQL, 合并 Arrow 流)
-L4: 语义层 (<space>.<table> 命名, 语句分类路由, 视图 / UCAN 策略重写)
-L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官方 API、导出文件、链的公开 RPC)
-```
-
-### 设计原则（不可违背）
-
-1. **计算外包**：不实现扫描、Join、聚合或索引算法；引擎做不到就换引擎或配置引擎，不写算子。
-2. **每个 Space 单写主**；写权限通过 UCAN 显式委托。
-3. **Space（逻辑）与 Location（物理）分离**：多个 Space 可绑定同一 Location，至多一个可写。
-4. **只有不可变文件跨网络**：P2P 只同步 Iceberg 快照和 Lance 版本；事务型 Space 通过发布 Parquet 快照对外共享。
-5. **默认拒绝**：无对等关系 = 无目录可见性 = 无查询权限。公开分享是所有者明确给任何人的授权；没有公开分享，陌生人什么都看不到。
+> **Purpose**: Defines the rules for collaboration between human developers and AI agents on the Oikome project.
+> **Document language**: Collaboration documents (this file, issues, PR descriptions) are in **English**; plans and replies to the user are in **Chinese**.
+> **Code language**: All source code, comments and identifiers are in **English**.
+> **License**: Apache-2.0 (in preparation for a later donation to the Apache Software Foundation).
 
 ---
 
-## 2. 沟通规则
+## 1. Project Overview
 
-### 2.1 语言策略
+Oikome is an **AI-native, multimodal private data center** that usually runs on personal resources and supports trusted data exchange.
 
-| 上下文 | 语言 |
+- **Private**: data belongs to its owner (a person, a family or a small team), lives on storage the owner controls (local disk, NAS, cloud drives), and is brought in from apps by connectors.
+- **Multimodal**: text, images, audio, files and vectors are first-class data, just like tables.
+- **AI-native**: AI tools and agents connect through MCP like any other app and see only the data granted to them; data is stored in forms AI can use directly (text, vectors, search indexes); views and names tell AI what the data means; computation such as embedding and inference also runs on personal resources.
+- **Personal resources**: storage and compute come from individuals, not from a platform's cloud: first one's own machines, and when they are not enough, other individuals' machines through compute sharing.
+- **Trusted data exchange**: data flows in both directions between data centers that trust each other, under revocable grants; the owner can also open chosen data to anyone (strangers included), accessed within limits the owner sets (public shares).
+- **Web2 and Web3**: data comes from the apps people use, and can also come from chains (an address's transactions and tokens); a wallet can serve as an identity (`did:pkh`). No token, no chain of its own, no private data on a chain, and no wallet is needed to use Oikome.
+- **Paid access**: the owner can charge for chosen data, paid through a payment plugin the owner picks (PayPal, Alipay, Web3 wallets, etc.) straight into the owner's own account; Oikome never handles funds, and payment is only the precondition for issuing a grant.
+
+Data exchange and compute sharing use the same trust mechanism (DID, peer relationships, deny by default, UCAN revocation), with separate authorization (data: `space/query` / `space/read`; compute: `compute/<method>`); neither includes the other.
+
+Underneath is a **decentralized local federated query semantic layer** — embedded, sovereign, P2P-native.
+
+Oikome is responsible for "who can see what, where data comes from, where it is stored, and where queries and tasks are sent", **not for "how to compute"**: computation is delegated to pluggable embedded engines (DuckDB for analytics, SQLite for transactions; in the browser, provided by the JS host), and DataFusion acts only as the federation coordinator that merges the Arrow results of several engines. The spec is `docs/architecture.md`.
+
+- **Core language**: Rust (compiles to WASM, memory-safe)
+- **Compute engines**: DuckDB 1.5.6 (analytical Spaces; Lance Spaces are read, written and searched through the `lance` extension, graph queries go through `duckpgq`, extensions are downloaded with `oikome extensions install`), SQLite (transactional Spaces; FTS5 full-text search, sqlite-vec vector search)
+- **Federation coordination**: Apache DataFusion + `datafusion-federation` (merges only, reads no files)
+- **Catalog system**: Apache Iceberg (analytical Spaces) + the Space/Location registry under `.oikome/`
+- **Storage formats**: Apache Parquet (analytical, the P2P sync unit), SQLite files (transactional), Lance (vector / full-text / large objects, 3.3)
+- **In-memory format**: Apache Arrow
+- **Network transport**: Arrow Flight (gRPC), TLS certificates bound to the node DID; libp2p only for node discovery (mDNS); browsers connect to a Full Node over a WebRTC data channel (str0m, DTLS fingerprint vouched for by a DID-signed access record)
+- **Cryptography**: ed25519-dalek + Blake3 (3.1)
+- **Browser side**: `oikome-wasm` (wasm-bindgen) + duckdb-wasm (OPFS) + IndexedDB + WebRTC (`packages/node/src/transport.js`); federated queries run as a single task in the browser (`Coordinator::single_task`); build with `packages/node/scripts/build.sh` (`npm run build` at the repository root) (`wasm` profile; needs a clang that can compile wasm32, Homebrew LLVM on macOS)
+
+### Architecture Layers (Bottom Up)
+
+```
+L0: Identity and network layer (DID, UCAN, libp2p, Arrow Flight, snapshot sync, compute sharing)
+L1: Catalog and storage layer (Space/Location registry, Iceberg metadata, Parquet write path, VFS: local disk / NAS / S3 / cloud drives)
+L2: Engine abstraction layer (QueryEngine trait: DuckDB | SQLite | host engine)
+L3: Federation layer (DataFusion coordinator: pushes SQL down per engine, merges Arrow streams)
+L4: Semantic layer (<space>.<table> naming, routing by statement class, view / UCAN policy rewriting)
+L5: Interface layer (SQL API, HTTP, WASM, CLI, MCP) + connectors (Connector: apps' official APIs, export files, chains' public RPC)
+```
+
+### Design Principles (Inviolable)
+
+1. **Compute is delegated**: do not implement scan, join, aggregation or index algorithms; if an engine cannot do something, switch engines or configure the engine; do not write operators.
+2. **Single write master per Space**; write permission is delegated explicitly through UCAN.
+3. **Space (logical) and Location (physical) are separate**: several Spaces may bind the same Location, at most one of them writable.
+4. **Only immutable files cross the network**: P2P syncs only Iceberg snapshots and Lance versions; transactional Spaces are shared externally by publishing Parquet snapshots.
+5. **Deny by default**: no peer relationship = no catalog visibility = no query permission. A public share is the owner's explicit grant to anyone; without a public share, a stranger sees nothing.
+
+---
+
+## 2. Communication Rules
+
+### 2.1 Language Policy
+
+| Context | Language |
 |---------|----------|
-| 本文件 (AGENT.md) | 中文 |
-| 开发计划 / 路线图 | 中文 |
-| 产品需求（`docs/prd.md`） | 英文 |
-| 代码注释 | 英文 |
-| 源代码标识符 | 英文 |
-| 提交信息 (Commit messages) | 英文，**只写一行**（如 `feat(semantic): add views and row/column policies`），不写正文、不加任何尾注 |
-| Issue / PR 描述 | 英文 |
-| API 文档 (docstrings) | 英文 |
-| 面向用户的文档 | 英文 |
+| This file (AGENT.md) | English |
+| Development plans / roadmap | Roadmap (in this file): English; plans shown to the user: Chinese |
+| Product requirements (`docs/prd.md`) | English |
+| Code comments | English |
+| Source code identifiers | English |
+| Commit messages | English, **one line only** (e.g. `feat(semantic): add views and row/column policies`), no body and no trailers of any kind |
+| Issue / PR descriptions | English |
+| API docs (docstrings) | English |
+| User-facing docs | English |
 
-### 2.2 Agent 启动协议
+### 2.2 Agent Startup Protocol
 
-每次开发会话开始前，Agent **必须**：
+Before each development session starts, the agent **must**:
 
-1. 读取 `AGENT.md`（本文件）。
-2. 读取 `docs/architecture.md` 获取架构上下文；用户端（网页、以后的桌面和手机）的需求见 `docs/prd.md`，界面以 `docs/prototype/` 的原型为准。
-3. 检查当前 git 分支和状态。
-4. 审阅本次会话的任何待办任务/计划。
+1. Read `AGENT.md` (this file).
+2. Read `docs/architecture.md` for architecture context; requirements for the user-facing apps (web, later desktop and phone) are in `docs/prd.md`, and the prototype in `docs/prototype/` is authoritative for the interface.
+3. Check the current git branch and status.
+4. Review any pending tasks/plans for this session.
 
-**本地工具链**：`rust-toolchain.toml` 固定 stable；首次构建 `oikome-engine-duckdb` 会从源码编译 DuckDB（约 7 分钟），之后走增量缓存。
+**Local toolchain**: `rust-toolchain.toml` pins stable. DuckDB is not compiled: builds link the official prebuilt libduckdb, downloaded once into `target/duckdb-download/` (`DUCKDB_DOWNLOAD_LIB=1` in `.cargo/config.toml`). On macOS, tests and a locally built `oikome` find it through `DYLD_LIBRARY_PATH` set to that download's directory.
 
 ---
 
-## 3. Apache 基金会合规要求
+## 3. Apache Foundation Compliance Requirements
 
-为确保项目具备捐赠给 Apache 软件基金会的资格，所有代码 **必须** 遵守以下规定：
+To keep the project eligible for donation to the Apache Software Foundation, all code **must** follow these rules:
 
-### 3.1 许可证头
+### 3.1 License Header
 
-每个源文件都必须包含标准的 Apache-2.0 头：
+Every source file must include the standard Apache-2.0 header:
 
 ```rust
 // Copyright 2025 The Oikome Authors
@@ -109,389 +109,389 @@ L5: 接口层 (SQL API, HTTP, WASM, CLI, MCP) + 数据接入 (Connector: App 官
 // limitations under the License.
 ```
 
-### 3.2 依赖策略
+### 3.2 Dependency Policy
 
-- **仅允许宽松许可证**: Apache-2.0, MIT, BSD-2/3-Clause, ISC
-- **禁止**: GPL, LGPL, AGPL, SSPL, 专有软件, "非商业" 许可证
-- **优先选择**: 同等功能下优先 Apache-2.0 而非 MIT
-- **文档化**: 在 `NOTICE` 文件中记录所有依赖及其归属信息
-- **自动检查**: `cargo deny check licenses`（规则见 `deny.toml`）；新增依赖后必须通过
+- **Permissive licenses only**: Apache-2.0, MIT, BSD-2/3-Clause, ISC
+- **Forbidden**: GPL, LGPL, AGPL, SSPL, proprietary software, "non-commercial" licenses
+- **Preferred**: for equal functionality, prefer Apache-2.0 over MIT
+- **Documentation**: record all dependencies and their attribution in the `NOTICE` file
+- **Automated check**: `cargo deny check licenses` (rules in `deny.toml`); must pass after adding a dependency
 
-### 3.3 治理规范
+### 3.3 Governance
 
-- 提交要少：按路线图阶段或完整功能合并提交，不按子步骤拆分
-- 不接受匿名贡献；所有作者身份必须可识别
-- 禁止从 Stack Overflow 或其他来源复制代码而不验证许可证
-- 仓库中禁止包含二进制 blob
-- PR 正文按 `.github/PULL_REQUEST_TEMPLATE.md` 写（Summary、Related issue、Documentation impact、Validation、Checklist）；标题用一行 Conventional Commits
+- Keep commits few: combine commits by roadmap phase or complete feature, not split by sub-step
+- No anonymous contributions; every author's identity must be identifiable
+- Do not copy code from Stack Overflow or other sources without verifying its license
+- No binary blobs in the repository
+- Write PR bodies following `.github/PULL_REQUEST_TEMPLATE.md` (Summary, Related issue, Documentation impact, Validation, Checklist); the title is one Conventional Commits line
 
-### 3.4 行为准则
+### 3.4 Code of Conduct
 
-- 所有沟通中使用包容性和专业语言
-- 建设性批评；禁止人身攻击
-- 尊重不同的背景和技能水平
+- Use inclusive and professional language in all communication
+- Constructive criticism; no personal attacks
+- Respect different backgrounds and skill levels
 
 ---
 
-## 4. 开发工作流
+## 4. Development Workflow
 
-### 4.1 分阶段实现
+### 4.1 Phased Implementation
 
-项目遵循严格的分阶段路线图：
+The project follows a strict phased roadmap:
 
-v3 路线图（详见 `docs/architecture.md` §14）：
+v3 roadmap (details in `docs/architecture.md` §14):
 
-| 阶段 | 目标 | 状态 |
+| Phase | Goal | Status |
 |-------|------|----------|
-| 3.0-A 引擎 | `QueryEngine` 抽象、DuckDB/SQLite 引擎、Space/Location 目录、单 Space 查询整条下推 | ✅ |
-| 3.0-B 联邦 | DataFusion 协调器 + `datafusion-federation`、跨 Space join、快照 pinning | ✅ |
-| 3.0-C 语义层 | 视图、列授权与行策略（SQL 改写）、principal 只读 + 默认拒绝、枚举抵抗 | ✅ |
-| 3.0-D 发布 | `PUBLISH SPACE`：SQLite → Iceberg 快照（覆盖式）、定时发布 | ✅ |
-| 3.1 网络 | DID/UCAN、Arrow Flight 远端表、libp2p 发现、快照订阅 | ✅（3.1a 远程查询、3.1b 快照订阅、3.1c 节点发现与加密传输、3.1d 三个 Docker 节点在 CI 跑通） |
-| 3.2 浏览器 | WASM 核心 + 宿主引擎桥（duckdb-wasm）；经 Full Node 的联邦查询走 WebRTC 数据通道 | ✅ 3.2a 本地查询；3.2b WebRTC 与联邦查询 |
-| 3.3 多模态 | Lance Location（经 DuckDB `lance` 扩展：向量、全文、大对象）、DuckPGQ、SQLite FTS5/sqlite-vec | ✅ 3.3a Lance Space；3.3b SQLite 全文和向量检索；3.3c DuckPGQ（只在 Lance Space 上） |
-| 3.4a NAS | 家里的 NAS（WebDAV 或挂载目录）存 Space：写入节点每次写入后推快照，其他节点拉最新的完整快照到本地副本；一个目录只有一个写入节点；SQLite 不放 NAS；密码由节点保管（见 3.4b） | ✅ |
-| 3.4b 网盘 | 客户端加密（每个文件和文件名加密后再上传）；网盘经桌面客户端的同步文件夹接入（iCloud Drive、Dropbox、OneDrive、Google Drive，`--drive` 必须加密）；凭据和密钥由节点保管（系统钥匙串，没有时用私有文件），用户在页面或命令行输入一次 | ✅ |
-| 3.4c 网盘 API | 没有桌面客户端的节点经 API 接 Google Drive、Dropbox，同样加密：先把 opendal 升到最新版（0.59）；登录用 OAuth 授权码 + PKCE，回调本机固定端口，没有浏览器时粘贴回调地址；OAuth 应用用主人自己的；令牌由节点保管和刷新，删除存储时撤销；存 Space 只要最小权限；大文件用 Google 的 resumable upload 和 Dropbox 的 upload session，在 Oikome fork 的 opendal 里补上并贡献上游。OneDrive 继续走同步文件夹 | 待开始 |
-| 3.4d 百度网盘 | 在 Oikome fork 的 apache/opendal 里照 `aliyun-drive` 的结构写 `baidu-netdisk` 服务（上游 issue #8481），Oikome 用 git 依赖接入，同样加密：OAuth 登录；目录在 `/apps/Oikome/` 下；被限流时退避重试；统一实测后再向上游提 PR | 待开始 |
-| 3.4e 对象存储 | 兼容 S3 的服务经 opendal `s3` 接入（AWS S3、R2、B2、MinIO，以及阿里云 OSS、腾讯 COS 的 S3 兼容接口）：密钥由节点保管；默认加密，主人自己架的服务可以不加密；分片上传、按范围读 | 待开始 |
-| 3.5 数据接入 | `Connector` 合约（`oikome-connect`）、按来源主键 upsert + 游标同事务提交（游标在 Space 的隐藏表 `_oikome_source`）、定时和手动拉取、token 由节点保管；首批：CSV、flomo 导出文件、flomo MCP（代码已写，等 MAX 账号实测） | ✅ |
-| 3.6 算力共享 | `compute/<method>` UCAN 能力与 `nb` 限额（与数据授权分开）；只用 Oikome 已有的计算方式、由提供方逐个开放（第一种：`sql`，每个任务一个隔离的 DuckDB）；经 Arrow Flight `DoExchange` 请求-响应；按对端配额 | ✅ |
-| 3.7 安全 | 安全模式（架构 §17.4：开启后功能照常，只加保护）进节点、接口（`security_mode`、`set_security_mode`，仅所有者）和设置 › Security；§17.3 的提示；节点私钥放进系统钥匙串；浏览器节点私钥不可导出；首次运行检查磁盘加密；`SECURITY.md`。中继相关部分随跨 NAT 连接做 | 待开始 |
-| 3.8 公开分享 | 对任何人的分享（架构 §13.4）：默认只能查询、按调用方限额、任意 DID（含钱包 `did:pkh`）访问；带签名清单的只读公开快照，放存储或 IPFS / Arweave。陌生人的实时查询要等跨 NAT 连接 | 待开始 |
-| 3.9 原地查看 | 本机文件夹和各存储上的文件原地浏览、预览、查询，不复制：原地 Space 只读，每个 CSV / Parquet / JSON 文件一张表；节点保管的索引（文件、文字、缩略图）是缓存，删了能重建；预览按范围读；整盘读取权限按需申请；M2 的文件夹来源改成原地 Space | 待开始 |
-| 3.10 转存（Save To） | 主人主动转存，目标是普通文件或新 Space：目录规则和命名规则；一次性或持续；规则只改自己写过的文件 | 待开始 |
-| 3.11 分享转存的 Space | 转存出的 Space 分享给联系人，作品集（顺序、封面、标题、说明）随 Space 走；公开给任何人走公开分享（3.8），照片默认去掉位置信息 | 待开始 |
+| 3.0-A Engines | `QueryEngine` abstraction, DuckDB/SQLite engines, Space/Location catalog, single-Space queries pushed down whole | ✅ |
+| 3.0-B Federation | DataFusion coordinator + `datafusion-federation`, cross-Space join, snapshot pinning | ✅ |
+| 3.0-C Semantic layer | Views, column grants and row policies (SQL rewriting), principals read-only + deny by default, enumeration resistance | ✅ |
+| 3.0-D Publishing | `PUBLISH SPACE`: SQLite → Iceberg snapshot (overwrite), scheduled publishing | ✅ |
+| 3.1 Network | DID/UCAN, Arrow Flight remote tables, libp2p discovery, snapshot subscription | ✅ (3.1a remote queries, 3.1b snapshot subscription, 3.1c node discovery and encrypted transport, 3.1d three Docker nodes passing in CI) |
+| 3.2 Browser | WASM core + host engine bridge (duckdb-wasm); federated queries through a Full Node over a WebRTC data channel | ✅ 3.2a local queries; 3.2b WebRTC and federated queries |
+| 3.3 Multimodal | Lance Locations (through DuckDB's `lance` extension: vectors, full text, large objects), DuckPGQ, SQLite FTS5/sqlite-vec | ✅ 3.3a Lance Spaces; 3.3b SQLite full-text and vector search; 3.3c DuckPGQ (on Lance Spaces only) |
+| 3.4a NAS | Spaces on a NAS at home (WebDAV or a mounted folder): the writing node pushes a snapshot after each write, other nodes pull the newest complete snapshot into a local copy; one writing node per folder; SQLite not on a NAS; passwords kept by the node (see 3.4b) | ✅ |
+| 3.4b Cloud drives | Client-side encryption (every file and file name encrypted before upload); drives connected through their desktop client's sync folder (iCloud Drive, Dropbox, OneDrive, Google Drive; `--drive` must be encrypted); credentials and keys kept by the node (OS keychain, a private file when there is none), entered once by the user in the UI or on the command line | ✅ |
+| 3.4c Drive APIs | Nodes without a desktop client reach Google Drive and Dropbox through their APIs, encrypted the same way: first upgrade opendal to the latest release (0.59); sign-in uses the OAuth authorization code + PKCE, with the callback on a fixed local port, or pasting the callback URL when there is no browser; the OAuth app is the owner's own; tokens are kept and refreshed by the node and revoked when the storage is removed; storing Spaces needs only the least permission; large files use Google's resumable upload and Dropbox's upload session, added in Oikome's fork of opendal and contributed upstream. OneDrive stays on its sync folder | Not started |
+| 3.4d Baidu Netdisk | Write a `baidu-netdisk` service in Oikome's fork of apache/opendal, following the structure of `aliyun-drive` (upstream issue #8481), used by Oikome as a git dependency, encrypted the same way: OAuth sign-in; folders under `/apps/Oikome/`; back off and retry when rate-limited; open the upstream PR after the combined real-account testing | Not started |
+| 3.4e Object storage | S3-compatible services through opendal `s3` (AWS S3, R2, B2, MinIO, and the S3-compatible endpoints of Alibaba Cloud OSS and Tencent COS): keys kept by the node; encrypted by default, a service the owner runs may be unencrypted; multipart upload, range reads | Not started |
+| 3.5 Connectors | `Connector` contract (`oikome-connect`), upsert by the source's primary key + cursor committed in the same transaction (cursor in the Space's hidden table `_oikome_source`), scheduled and manual pulls, tokens kept by the node; first batch: CSV, flomo export file, flomo MCP (code written, waiting for a real test with a MAX account) | ✅ |
+| 3.6 Compute sharing | `compute/<method>` UCAN capabilities with `nb` limits (separate from data grants); only Oikome's existing compute methods, opened one by one by the provider (first: `sql`, an isolated DuckDB per task); request-response over Arrow Flight `DoExchange`; per-peer quotas | ✅ |
+| 3.7 Security | Security mode (architecture §17.4: when on, features work as usual, it only adds protection) in the node, the API (`security_mode`, `set_security_mode`, owner only) and Settings › Security; the warnings of §17.3; the node private key in the OS keychain; the browser node's private key non-extractable; disk encryption check on first run; `SECURITY.md`. The relay-related parts come with cross-NAT connections | Not started |
+| 3.8 Public shares | Shares to anyone (architecture §13.4): query-only by default, limits per caller, access by any DID (including a wallet's `did:pkh`); read-only public snapshots with a signed manifest, on a storage or on IPFS / Arweave. Live queries by strangers wait for cross-NAT connections | Not started |
+| 3.9 Viewing in place | Files in local folders and on each storage are browsed, previewed and queried in place, without copying: in-place Spaces are read-only, one table per CSV / Parquet / JSON file; the index the node keeps (files, text, thumbnails) is a cache and can be rebuilt if deleted; previews use range reads; read access to the whole drive is requested when needed; M2's folder sources become in-place Spaces | Not started |
+| 3.10 Save To | The owner saves on purpose, to plain files or a new Space: folder rules and naming rules; once or continuing; a rule changes only the files it wrote itself | Not started |
+| 3.11 Sharing saved Spaces | A saved Space is shared with contacts, its portfolio (order, cover, title, captions) travels with the Space; sharing with anyone goes through public shares (3.8), photos without location data by default | Not started |
 
-用户端路线（与上面的核心阶段并行，互不阻塞；每个里程碑要等前置阶段完成，详见架构 §14.1）：
+User-facing track (in parallel with the core phases above, neither blocks the other; each milestone waits for its prerequisite phases to finish, details in architecture §14.1):
 
-| 里程碑 | 目标 | 前置 | 状态 |
+| Milestone | Goal | Prerequisites | Status |
 |-------|------|------|----------|
-| M1a 目录拆分 | `web/` 拆到 `packages/node` 和 `e2e/`，根目录 `package.json` 用 npm workspaces；browser-e2e 原样通过 | 3.2 | ✅ |
-| M1b 接口 | `oikome-api`（资料库、表与行、SQL、联系人、分享与收回、访问记录）、整个资料库的授权（`GRANT SELECT ON SPACE`）、访问记录、`oikome serve --web` 与 `oikome web open`、`packages/api`、`packages/client`（HTTP 实现）；恢复密钥和手机配对在 M1c 之前单独设计 | 3.0–3.2、M1a | ✅ |
-| M1c 能用 | `packages/ui`、`packages/screens`、`apps/web`（React 19 + Vite 7）：首次启动与恢复密钥、Collections、分享与联系人、Activity、SQL 工作台、设置，桌面和手机两套布局；`--web-root`；`oikome identity restore`。手机配对改到手机 App 再做 | M1b | ✅ |
-| M2 能接 | 接入页与同步状态、首页看板、内置卡片、看板插件 v1（`plugin-sdk`、数据契约、插件授权）、参考插件 | 3.5、M1c | 进行中（PR #11） |
-| M3 能找 | 全文和语义搜索、照片和笔记视图、AI 助手页、`oikome-mcp` | 3.3、M2 | 待开始 |
-| M4 能扩 | 借用算力、第三方接入插件、插件目录；网盘存储随 3.4b 及以后逐步提供 | 3.4b、3.6、M3 | 待开始 |
-| M5 付费 | 在页面上定价（内容、按时长或按次、只能查询或可复制）；支付插件与订单接口（架构 §13.4）；联系人和陌生人的购买流程；订单记入 Activity | 3.8、M4 | 待开始 |
+| M1a Layout split | `web/` split into `packages/node` and `e2e/`, root `package.json` with npm workspaces; browser-e2e passes unchanged | 3.2 | ✅ |
+| M1b API | `oikome-api` (collections, tables and rows, SQL, contacts, sharing and revoking, access log), whole-Space grants (`GRANT SELECT ON SPACE`), access log, `oikome serve --web` and `oikome web open`, `packages/api`, `packages/client` (HTTP implementation); the recovery key and phone pairing are designed separately before M1c | 3.0–3.2, M1a | ✅ |
+| M1c Usable | `packages/ui`, `packages/screens`, `apps/web` (React 19 + Vite 7): first launch and recovery key, Collections, sharing and contacts, Activity, SQL workbench, settings, desktop and phone layouts; `--web-root`; `oikome identity restore`. Phone pairing moves to the phone app | M1b | ✅ |
+| M2 Connect | Sources screen and sync status, Home dashboard, built-in cards, dashboard plugins v1 (`plugin-sdk`, data contract, plugin grants), reference plugins | 3.5, M1c | In progress (PR #11) |
+| M3 Find | Full-text and semantic search, photo and note views, AI Assistants screen, `oikome-mcp` | 3.3, M2 | Not started |
+| M4 Extend | Borrowed compute, third-party connector plugins, plugin directory; cloud-drive storage offered step by step with 3.4b and later | 3.4b, 3.6, M3 | Not started |
+| M5 Pay | Pricing in the UI (content, by duration or per use, query-only or copyable); payment plugins and order API (architecture §13.4); purchase flow for contacts and strangers; orders recorded in Activity | 3.8, M4 | Not started |
 
-用户端测试一律连本地节点（临时数据目录，经命令行或接口写入测试数据），不做假数据层，也不做 mock 客户端；所以先做接口（M1b）再做页面（M1c），接入、首页看板、AI 助手等页面随 M2、M3 做。
+User-facing tests always connect to a local node (temporary data directory, test data written through the command line or the API), with no fake-data layer and no mock client; so the API (M1b) comes before the screens (M1c), and screens such as Sources, the Home dashboard and the AI assistant come with M2 and M3.
 
-**规则**: 禁止跳阶段。每个阶段的退出标准必须达成后才能进入下一阶段。需要账号的阶段先写代码，全部写完后用真实账号统一实测，包括 3.4c–3.4e、3.9 里的网盘、3.5 的 flomo MCP。
+**Rule**: No skipping phases. A phase's exit criteria must be met before moving to the next phase. Phases that need accounts are written first, and once all of them are written they are tested together against real accounts, including 3.4c–3.4e, the cloud drives in 3.9, and 3.5's flomo MCP.
 
-### 4.2 任务执行协议
+### 4.2 Task Execution Protocol
 
-每个任务的执行流程：
+Each task follows this flow:
 
-1. **读取 AGENT.md**（本文件）。
-2. **读取相关架构章节** 于 `docs/architecture.md`。
-3. **沟通与设计** —— **开发代码前必须与用户充分沟通设计方案，经用户确认后方可进入实现阶段。禁止未经确认直接编码。**
-4. **制定计划** —— 如果任务跨多个文件或较为复杂，使用 Plan Mode 制定详细实现计划并获得用户批准。
-5. **先写测试** —— TDD 优先，尤其针对存储和查询引擎。
-6. **实现** —— 使用地道、简洁的 Rust 代码。
-7. **运行测试** —— 单元测试、集成测试和相关基准测试。
-8. **验证 Apache 合规** —— 许可证头、依赖检查。
-9. **请求代码审阅** —— 合并前必须经过审阅。
+1. **Read AGENT.md** (this file).
+2. **Read the relevant architecture sections** in `docs/architecture.md`.
+3. **Communicate and design** — **before writing code, discuss the design fully with the user; implementation starts only after the user confirms it. Coding without confirmation is forbidden.**
+4. **Make a plan** — if the task spans several files or is complex, use Plan Mode to write a detailed implementation plan and get the user's approval.
+5. **Write tests first** — TDD first, especially for storage and query engines.
+6. **Implement** — with idiomatic, concise Rust.
+7. **Run tests** — unit tests, integration tests and relevant benchmarks.
+8. **Verify Apache compliance** — license headers, dependency checks.
+9. **Request code review** — review is required before merging.
 
-### 4.3 Skills 使用规范
+### 4.3 Skills Usage Rules
 
-Claude Code 提供多种 skills 用于规范开发流程。以下规范按强制执行（MUST）和推荐使用（SHOULD）两级分类。
+Claude Code provides various skills to standardize the development process. The rules below are in two levels: mandatory (MUST) and recommended (SHOULD).
 
-#### 强制使用（MUST）—— 不满足条件禁止 proceeding
+#### Mandatory (MUST) — do not proceed unless the condition is met
 
-| 触发条件 | 必须调用的 Skill | 说明 |
+| Trigger | Required Skill | Notes |
 |---------|----------------|------|
-| 创建新功能、组件或模块前 | `superpowers:brainstorming` | 先探索需求、设计约束和可行方案 |
-| 多步骤实现任务（跨文件或复杂逻辑） | `superpowers:writing-plans` | 制定详细实现计划，经用户确认后方可执行 |
-| 执行已书面化的计划 | `superpowers:executing-plans` | 分阶段执行，含审阅检查点 |
-| 功能开发（可能修改多个文件） | `superpowers:using-git-worktrees` | 使用隔离的 git worktree，避免污染主分支 |
-| 实现任何功能或 bug 修复 | `superpowers:test-driven-development` | 先写测试，后写实现代码 |
-| 遇到 bug、测试失败或意外行为 | `superpowers:systematic-debugging` | 系统化调试，禁止凭直觉猜测修复 |
-| 声称任务完成、测试通过或准备合并前 | `superpowers:verification-before-completion` | 运行验证命令并确认输出，证据先于断言 |
+| Before creating a new feature, component or module | `superpowers:brainstorming` | First explore requirements, design constraints and feasible options |
+| Multi-step implementation tasks (across files or complex logic) | `superpowers:writing-plans` | Write a detailed implementation plan; execute only after the user confirms it |
+| Executing a written plan | `superpowers:executing-plans` | Execute in stages, with review checkpoints |
+| Feature development (may change several files) | `superpowers:using-git-worktrees` | Use an isolated git worktree so the main branch is not polluted |
+| Implementing any feature or bug fix | `superpowers:test-driven-development` | Write tests first, then the implementation code |
+| Hitting a bug, test failure or unexpected behavior | `superpowers:systematic-debugging` | Debug systematically; no fixes based on guesswork |
+| Before claiming a task is done, tests pass or it is ready to merge | `superpowers:verification-before-completion` | Run verification commands and confirm the output; evidence before assertions |
 
-#### 推荐使用（SHOULD）—— 根据场景判断
+#### Recommended (SHOULD) — judge by situation
 
-| 场景 | 推荐 Skill |
+| Situation | Recommended Skill |
 |------|-----------|
-| 研究 Iceberg / Parquet / Arrow 规范等外部技术细节 | `deep-research` |
-| 存在 2+ 独立任务可并行处理 | `superpowers:dispatching-parallel-agents` |
-| 子代理可独立执行实现子任务 | `superpowers:subagent-driven-development` |
-| 完成任务后请求代码审查 | `superpowers:requesting-code-review` |
-| 处理代码审查反馈 | `superpowers:receiving-code-review` |
-| 开发分支完成后决定如何集成 | `superpowers:finishing-a-development-branch` |
-| 审查当前 diff 的正确性和效率问题 | `code-review` |
-| 简化代码、提升复用和效率 | `simplify` |
-| 运行应用验证变更实际生效 | `run` / `verify` |
-| Phase 2+ 涉及安全相关的代码 | `security-review` |
+| Researching external technical details such as the Iceberg / Parquet / Arrow specs | `deep-research` |
+| 2+ independent tasks that can be handled in parallel | `superpowers:dispatching-parallel-agents` |
+| Subagents can carry out implementation subtasks independently | `superpowers:subagent-driven-development` |
+| Requesting code review after finishing a task | `superpowers:requesting-code-review` |
+| Handling code review feedback | `superpowers:receiving-code-review` |
+| Deciding how to integrate a finished development branch | `superpowers:finishing-a-development-branch` |
+| Reviewing the current diff for correctness and efficiency issues | `code-review` |
+| Simplifying code, improving reuse and efficiency | `simplify` |
+| Running the app to verify a change actually works | `run` / `verify` |
+| Security-related code in Phase 2+ | `security-review` |
 
-#### 不适用（NOT APPLICABLE）
+#### Not applicable (NOT APPLICABLE)
 
-以下 skills 与 Oikome 项目无关，**禁止**使用：
+The following skills are unrelated to the Oikome project and **must not** be used:
 
-- 前端/UI 类：`frontend-design`, `impeccable`, `design-taste-frontend`, `baseline-ui`, `high-end-visual-design`, `minimalist-ui`, `industrial-brutalist-ui`, `ui-ux-pro-max`, `fixing-accessibility`, `fixing-metadata`, `fixing-motion-performance`, `gpt-taste`, `image-to-code`, `imagegen-frontend-web`, `imagegen-frontend-mobile`, `redesign-existing-projects`, `stitch-design-taste`, `brandkit`
-- Figma 类：`figma:figma-use`, `figma:figma-generate-design`, `figma:figma-generate-diagram`, `figma:figma-generate-library`, `figma:figma-implement-design`, `figma:figma-code-connect`, `figma:figma-create-design-system-rules`, `figma:figma-use-figjam`
-- 其他：`claude-api`, `init`, `keybindings-help`
+- Frontend/UI: `frontend-design`, `impeccable`, `design-taste-frontend`, `baseline-ui`, `high-end-visual-design`, `minimalist-ui`, `industrial-brutalist-ui`, `ui-ux-pro-max`, `fixing-accessibility`, `fixing-metadata`, `fixing-motion-performance`, `gpt-taste`, `image-to-code`, `imagegen-frontend-web`, `imagegen-frontend-mobile`, `redesign-existing-projects`, `stitch-design-taste`, `brandkit`
+- Figma: `figma:figma-use`, `figma:figma-generate-design`, `figma:figma-generate-diagram`, `figma:figma-generate-library`, `figma:figma-implement-design`, `figma:figma-code-connect`, `figma:figma-create-design-system-rules`, `figma:figma-use-figjam`
+- Other: `claude-api`, `init`, `keybindings-help`
 
 ---
 
-### 4.4 代码质量标准
+### 4.4 Code Quality Standards
 
-- **Rust 惯用法**: 遵循 `rustfmt` 和 `clippy`（CI 中禁止警告）。
-- **错误处理**: 使用 `thiserror` 或 `snafu` 实现结构化错误；生产代码禁止 `unwrap()`。
-- **文档**: 每个公共 API 必须有 rustdoc 注释。
-- **Unsafe 代码**: 最小化使用；每个 `unsafe` 块必须有安全注释说明不变量。
-- **测试**: 核心模块覆盖率目标 >80%（存储、目录、执行）。
-- **基准测试**: 性能关键路径使用 `criterion.rs`。
+- **Rust idioms**: follow `rustfmt` and `clippy` (no warnings allowed in CI).
+- **Error handling**: use `thiserror` or `snafu` for structured errors; no `unwrap()` in production code.
+- **Documentation**: every public API must have rustdoc comments.
+- **Unsafe code**: keep it minimal; every `unsafe` block must have a safety comment stating its invariants.
+- **Testing**: coverage target >80% for core modules (storage, catalog, execution).
+- **Benchmarks**: use `criterion.rs` for performance-critical paths.
 
-### 4.4 模块组织
+### 4.4 Module Organization
 
 ```
 oikome/
-├── Cargo.toml                  # 工作区根；所有共享依赖版本在 [workspace.dependencies] 统一锁定
-├── Cargo.lock                  # 已提交（duckdb 精确锁版）
+├── Cargo.toml                  # workspace root; all shared dependency versions locked together in [workspace.dependencies]
+├── Cargo.lock                  # committed (duckdb locked to an exact version)
 ├── rust-toolchain.toml         # stable + rustfmt + clippy
-├── deny.toml                   # cargo-deny 许可证白名单
-├── LICENSE / NOTICE            # Apache-2.0 / 依赖归属
-├── AGENT.md                    # 本文件
+├── deny.toml                   # cargo-deny license allowlist
+├── LICENSE / NOTICE            # Apache-2.0 / dependency attribution
+├── AGENT.md                    # this file
 ├── crates/
-│   ├── oikome-core/           # 错误、SpaceUri、SpaceKind/EngineKind/AccessMode
-│   ├── oikome-vfs/            # OpenDAL VFS；RemoteStore：Space 在存储（WebDAV、挂载目录）上的目录
-│   ├── oikome-connect/        # 数据接入：Connector 合约、CSV、flomo（导出文件、MCP）
-│   ├── oikome-catalog/        # Iceberg Catalog + Space/Location 注册表 + 快照解析
-│   ├── oikome-storage/        # Parquet 写路径、Compaction
-│   ├── oikome-engine/         # QueryEngine trait、TableSource、BlockingWorker
-│   ├── oikome-engine-duckdb/  # 分析型引擎（bundled DuckDB）
-│   ├── oikome-engine-sqlite/  # 事务型引擎（SQLite 行 → Arrow）
-│   ├── oikome-semantic/       # Oikome 语句解析、语句分类、视图展开与权限改写
-│   ├── oikome-federation/     # DataFusion 协调器、EngineSqlExecutor
-│   ├── oikome-node/           # OikomeSession、EngineRegistry、路由、订阅副本
-│   ├── oikome-identity/       # DID、UCAN 签发 / 委托 / 撤销、请求签名
-│   ├── oikome-network/        # 节点间协议、PeerClient、FlightEngine
-│   ├── oikome-discovery/      # libp2p 节点发现（mDNS、交换 Flight 端点），写入 Peers 表
-│   ├── oikome-protocol/       # 节点间协议类型与请求摘要、WebRTC 接入记录与分帧（原生和浏览器共用）
-│   ├── oikome-webrtc/         # 浏览器用的 WebRTC 端点（str0m）：会话、DTLS 证书、接入记录
-│   ├── oikome-wasm/           # 浏览器节点：BrowserNode、HostEngine（duckdb-wasm）、RemoteEngine、JS 接口
-│   ├── oikome-api/            # 对上层的统一接口（不含传输层），调用者分主人和 principal；生成 packages/api 的类型
-│   └── oikome-server/         # Arrow Flight 服务、主人的网页接口（serve --web）、oikome 命令行
-├── tests/                      # oikome-tests（TPC-H Q1–Q5）+ tools/data-gen + e2e/（Docker 节点端到端脚本）
-├── docker/                     # 节点镜像（oikome.Dockerfile）与三节点 compose
-├── package.json                # npm workspaces：packages/*、e2e
+│   ├── oikome-core/           # errors, SpaceUri, SpaceKind/EngineKind/AccessMode
+│   ├── oikome-vfs/            # OpenDAL VFS; RemoteStore: a Space's folder on a storage (WebDAV, mounted folder)
+│   ├── oikome-connect/        # connectors: Connector contract, CSV, flomo (export file, MCP)
+│   ├── oikome-catalog/        # Iceberg Catalog + Space/Location registry + snapshot resolution
+│   ├── oikome-storage/        # Parquet write path, Compaction
+│   ├── oikome-engine/         # QueryEngine trait, TableSource, BlockingWorker
+│   ├── oikome-engine-duckdb/  # analytical engine (bundled DuckDB)
+│   ├── oikome-engine-sqlite/  # transactional engine (SQLite rows → Arrow)
+│   ├── oikome-semantic/       # Oikome statement parsing, statement classification, view expansion and permission rewriting
+│   ├── oikome-federation/     # DataFusion coordinator, EngineSqlExecutor
+│   ├── oikome-node/           # OikomeSession, EngineRegistry, routing, subscribed copies
+│   ├── oikome-identity/       # DID, UCAN issue / delegate / revoke, request signing
+│   ├── oikome-network/        # inter-node protocol, PeerClient, FlightEngine
+│   ├── oikome-discovery/      # libp2p node discovery (mDNS, exchanging Flight endpoints), written to the Peers table
+│   ├── oikome-protocol/       # inter-node protocol types and request digests, WebRTC access records and framing (shared by native and browser)
+│   ├── oikome-webrtc/         # WebRTC endpoint for browsers (str0m): sessions, DTLS certificate, access records
+│   ├── oikome-wasm/           # browser node: BrowserNode, HostEngine (duckdb-wasm), RemoteEngine, JS interface
+│   ├── oikome-api/            # unified interface for the layers above (no transport), callers are owner or principal; generates the types in packages/api
+│   └── oikome-server/         # Arrow Flight service, the owner's web API (serve --web), the oikome command line
+├── tests/                      # oikome-tests (TPC-H Q1–Q5) + tools/data-gen + e2e/ (end-to-end scripts for Docker nodes)
+├── docker/                     # node image (oikome.Dockerfile) and three-node compose
+├── package.json                # npm workspaces: packages/*, e2e
 ├── apps/
-│   └── web/                    # 网页端（React + Vite），由 oikome serve --web --web-root apps/web/dist 提供
+│   └── web/                    # web app (React + Vite), served by oikome serve --web --web-root apps/web/dist
 ├── packages/
-│   ├── api/                    # 由 oikome-api 生成的接口类型（@oikome/api）
-│   ├── client/                 # NodeClient 接口和 HTTP 实现（@oikome/client）
-│   ├── screens/                # 所有页面与界面文案，各端共用（@oikome/screens）
-│   ├── ui/                     # 设计系统：token 与组件（@oikome/ui）
-│   └── node/                   # 浏览器节点的 JS 宿主（duckdb-wasm、IndexedDB、WebRTC）和 wasm 构建脚本（@oikome/node）
-├── e2e/                        # Playwright：浏览器节点、网页接口和网页端的测试，浏览器节点测试页 harness/（@oikome/e2e）
-├── third_party/                # 打了补丁的第三方代码（datafusion-federation，见 README）
-├── .github/workflows/          # docker-e2e（三个 Docker 节点）、browser-e2e（无头 Chromium 跑浏览器节点）
-└── docs/                       # architecture.md（规范架构）、prd.md（用户端 PRD）、prototype/（可点击的设计原型 prototype.html、翻译 i18n/、照片 lisbon/、设计参考 references/）
+│   ├── api/                    # API types generated from oikome-api (@oikome/api)
+│   ├── client/                 # NodeClient interface and HTTP implementation (@oikome/client)
+│   ├── screens/                # all screens and UI text, shared by every client (@oikome/screens)
+│   ├── ui/                     # design system: tokens and components (@oikome/ui)
+│   └── node/                   # JS host for the browser node (duckdb-wasm, IndexedDB, WebRTC) and wasm build script (@oikome/node)
+├── e2e/                        # Playwright: tests for the browser node, web API and web app; browser node test page in harness/ (@oikome/e2e)
+├── third_party/                # patched third-party code (datafusion-federation, see README)
+├── .github/workflows/          # docker-e2e (three Docker nodes), browser-e2e (headless Chromium running the browser node)
+└── docs/                       # architecture.md (canonical architecture), prd.md (user-facing PRD), prototype/ (clickable design prototype prototype.html, translations i18n/, photos lisbon/, design references references/)
 ```
 
-计划中：`oikome-connect`（3.5），`oikome-cli`。
+Planned: `oikome-connect` (3.5), `oikome-cli`.
 
-用户端计划中（目录等对应工作开始时才建，结构见架构 §13.3）：
-- crate：`oikome-mcp`（M3）。
-- 根目录：`apps/` 的 desktop、mobile（以后）、`packages/plugin-sdk`（M2）、`plugins/`（M2）、`design/`（以后）。`apps/*`、`plugins/*` 建了再加进 workspaces。
-- M1a 已把 `web/` 拆到 `packages/node` 和 `e2e/`，根目录加了 `package.json`。
+Planned for the user-facing apps (directories etc. are created only when the matching work starts; layout in architecture §13.3):
+- crate: `oikome-mcp` (M3).
+- Root: desktop and mobile (later) under `apps/`, `packages/plugin-sdk` (M2), `plugins/` (M2), `design/` (later). `apps/*` and `plugins/*` are added to workspaces once created.
+- M1a has already split `web/` into `packages/node` and `e2e/`, and added `package.json` at the root.
 
 ---
 
-## 5. 命名规范
+## 5. Naming Conventions
 
-### 5.1 代码标识符
+### 5.1 Code Identifiers
 
-| 项目 | 规范 | 示例 |
+| Item | Convention | Example |
 |------|------------|---------|
-| Crate 名称 | `kebab-case`，前缀 `oikome-` | `oikome-catalog` |
-| 模块名称 | `snake_case` | `iceberg_catalog` |
-| 类型名称 | `PascalCase` | `SchemaRegistry` |
-| 函数名称 | `snake_case` | `commit_snapshot` |
-| 常量 | `SCREAMING_SNAKE_CASE` | `DEFAULT_ROW_GROUP_SIZE` |
-| 错误类型 | `PascalCase` + `Error` 后缀 | `CatalogError` |
-| Trait 名称 | `PascalCase` | `SpaceResolver` |
-| 泛型参数 | 单个大写字母 | `T`, `K`, `V` |
+| Crate names | `kebab-case`, prefix `oikome-` | `oikome-catalog` |
+| Module names | `snake_case` | `iceberg_catalog` |
+| Type names | `PascalCase` | `SchemaRegistry` |
+| Function names | `snake_case` | `commit_snapshot` |
+| Constants | `SCREAMING_SNAKE_CASE` | `DEFAULT_ROW_GROUP_SIZE` |
+| Error types | `PascalCase` + `Error` suffix | `CatalogError` |
+| Trait names | `PascalCase` | `SpaceResolver` |
+| Generic parameters | Single uppercase letter | `T`, `K`, `V` |
 
-### 5.2 领域专用术语
+### 5.2 Domain Terms
 
-代码中使用以下精确拼写：
+Use these exact spellings in code:
 
-| 概念 | 代码标识符 | 说明 |
+| Concept | Code identifier | Notes |
 |---------|-----------------|---------|
-| Space | `Space` | 主权单元（逻辑），SQL 限定名 `<space>.<table>` |
-| Location | `Location` | 物理存放位置（Iceberg namespace、SQLite 文件或 Lance 数据集），可被多个 Space 绑定 |
-| SpaceKind | `SpaceKind` | `Analytical`（Iceberg + Parquet）/ `Transactional`（SQLite） |
-| Engine | `QueryEngine` / `EngineKind` | 计算引擎（DuckDB / SQLite / 宿主） |
-| Node | `Node` | 对等实体 |
-| Catalog | `Catalog` | 本地元数据注册表 |
-| Snapshot | `Snapshot` | 不可变的 Iceberg 快照 |
-| Manifest | `Manifest` | 文件清单 |
-| UCAN | `Ucan` / `UCAN` | 能力令牌 |
-| DID | `Did` / `DID` | 去中心化身份 |
-| VFS | `Vfs` / `VFS` | 虚拟文件系统 |
-| OPFS | `Opfs` / `OPFS` | 源私有文件系统 |
-| CID | `Cid` / `CID` | 内容标识符 |
-| FTS | `Fts` / `FTS` | 全文搜索 |
+| Space | `Space` | Sovereignty unit (logical), SQL qualified name `<space>.<table>` |
+| Location | `Location` | Physical residency (Iceberg namespace, SQLite file or Lance dataset), can be bound by several Spaces |
+| SpaceKind | `SpaceKind` | `Analytical` (Iceberg + Parquet) / `Transactional` (SQLite) |
+| Engine | `QueryEngine` / `EngineKind` | Compute engine (DuckDB / SQLite / host) |
+| Node | `Node` | Peer entity |
+| Catalog | `Catalog` | Local metadata registry |
+| Snapshot | `Snapshot` | Immutable Iceberg snapshot |
+| Manifest | `Manifest` | File manifest |
+| UCAN | `Ucan` / `UCAN` | Capability token |
+| DID | `Did` / `DID` | Decentralized identity |
+| VFS | `Vfs` / `VFS` | Virtual file system |
+| OPFS | `Opfs` / `OPFS` | Origin private file system |
+| CID | `Cid` / `CID` | Content identifier |
+| FTS | `Fts` / `FTS` | Full-text search |
 
 ---
 
-## 6. 测试策略
+## 6. Testing Strategy
 
-### 6.1 测试层级
+### 6.1 Test Levels
 
 ```
-单元测试         → 按模块，快速，Mock 依赖
-集成测试         → 跨 crate，真实 I/O（临时文件）
-基准测试         → criterion.rs，追踪性能回归
-一致性测试       → TPC-H 查询验证 SQL 正确性
-端到端测试       → 基于 Docker 的多节点场景；浏览器节点和用户端用 Playwright（e2e/）
+Unit tests          → per module, fast, mocked dependencies
+Integration tests   → across crates, real I/O (temporary files)
+Benchmarks          → criterion.rs, track performance regressions
+Conformance tests   → TPC-H queries verify SQL correctness
+End-to-end tests    → Docker-based multi-node scenarios; Playwright (e2e/) for the browser node and user-facing apps
 ```
 
-### 6.2 测试数据
+### 6.2 Test Data
 
-- 单元测试使用确定性合成数据。
-- TPC-H 集成测试使用 SF 0.001，数据由 `cargo run -p test-data-gen -- --scale-factor 0.001 --force` 生成到 `tests/oikome-local`（gitignored，不提交）。
-- 需要网络的测试（如 DuckDB `sqlite` 扩展）标记 `#[ignore]`，用 `--features sqlite-scanner-tests -- --ignored` 单独运行。
-- 用户端（网页、桌面、手机）测试连本地节点：e2e 用临时数据目录起 `oikome serve`，经命令行或接口写入测试数据；不做假数据层和 mock `NodeClient`。
-- 测试中禁止使用真实用户数据。
+- Unit tests use deterministic synthetic data.
+- TPC-H integration tests use SF 0.001; the data is generated by `cargo run -p test-data-gen -- --scale-factor 0.001 --force` into `tests/oikome-local` (gitignored, not committed).
+- Tests that need the network (e.g. the DuckDB `sqlite` extension) are marked `#[ignore]` and run separately with `--features sqlite-scanner-tests -- --ignored`.
+- User-facing (web, desktop, phone) tests connect to a local node: e2e starts `oikome serve` with a temporary data directory and writes test data through the command line or the API; no fake-data layer and no mock `NodeClient`.
+- Real user data must not be used in tests.
 
-### 6.2.1 本地构建目录
+### 6.2.1 Local Build Directory
 
-`target/` 不会自己变小：每换一种 package 和 feature 的组合（`-p a` 和 `-p b`、测试和二进制），Cargo 都会另编一份依赖和测试程序，旧的一直留着，每个测试程序都链接了 DuckDB、DataFusion 和 Lance。2026-11-02 曾因此涨到 183 GB，把磁盘占满。
+`target/` does not shrink by itself: for every new combination of packages and features (`-p a` vs `-p b`, tests vs binaries), Cargo compiles another copy of the dependencies and test programs, the old ones stay, and every test program links DuckDB, DataFusion and Lance. On 2026-11-02 it grew to 183 GB this way and filled the disk.
 
-- 编译和测试优先用 `--workspace`，再用 `--test`、`--lib`、`--bin` 过滤，而不是每次换 `-p`，这样依赖的 feature 组合保持一致。
-- `target/` 上限 30 GB：`cargo trim`（`.cargo/config.toml` 的别名，需要 `cargo install cargo-sweep`）会删掉最老的产物，直到低于上限。每个 git worktree 有自己的 `target/`，上限按目录算，所以各自都要执行。每个阶段开始前和跑全量验证前执行一次。
-- 开发用的 debug 配置只保留行号调试信息（依赖和本仓库的 crate 都是），报错栈仍有文件和行号；需要用调试器看变量时，临时在命令上加 `--config profile.dev.debug=true`。
+- For builds and tests, prefer `--workspace`, then filter with `--test`, `--lib`, `--bin`, rather than switching `-p` each time, so the dependencies' feature combination stays the same. `.cargo/config.toml` has aliases for the fixed forms: `cargo node` (builds `oikome`), `cargo t --test api` (runs one test file; `cargo t --lib -- <name>` runs unit tests by name), `cargo lint` (clippy on all targets, warnings as errors).
+- With consistent usage and merged tests, `target/` is usually around 20 GB and needs no routine cleaning. Above 40 GB, or after upgrading Rust (all artifacts of the old version become invalid), run `cargo clean`; the cost is a full rebuild next time (ten-odd minutes to 40 minutes). Do not use `cargo sweep --maxsize` or `--time`: it counts the incremental compilation cache toward the total but never deletes it, so it deletes dependencies still in use instead (on 2026-11-04 it deleted everything not used in the last 80 minutes, and DataFusion and Lance both had to be rebuilt), and dependencies in constant use were compiled early, so by time they look "old" too. Before a full verification run, check the size of `target/`; above 40 GB, tell the user and let the user decide whether to clean. Each git worktree has its own `target/`.
+- The debug profile for development keeps only line-number debug info (for both dependencies and this repository's crates), so error stacks still have files and line numbers; when you need a debugger to inspect variables, temporarily add `--config profile.dev.debug=true` to the command.
 
-### 6.3 CI 要求
+### 6.3 CI Requirements
 
 - `cargo fmt --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --workspace`
-- `cargo doc --no-deps`（确保无断链）
-- 许可证头检查（通过 `apache-skywalking-eyes` 或类似工具）
-- 依赖许可证审计 (`cargo deny check licenses`)
-- 浏览器节点：`.github/workflows/browser-e2e.yml`，构建 wasm 和 `oikome` 后用 Playwright 在无头 Chromium 里跑 `e2e/`（其中 `remote.spec.mjs` 自己起 `oikome serve --webrtc-listen`）
-- 网络端到端：`.github/workflows/docker-e2e.yml`，三个 Docker 节点加一个 WebDAV 服务（rclone，充当 NAS）跑 `tests/e2e/docker_nodes.sh`（推送 `feat/**`、`ci/**` 和向 `main` 提 PR 时触发）
+- `cargo doc --no-deps` (ensure no broken links)
+- License header check (via `apache-skywalking-eyes` or a similar tool)
+- Dependency license audit (`cargo deny check licenses`)
+- Browser node: `.github/workflows/browser-e2e.yml`, builds wasm and `oikome`, then runs `e2e/` with Playwright in headless Chromium (`remote.spec.mjs` starts its own `oikome serve --webrtc-listen`)
+- Network end-to-end: `.github/workflows/docker-e2e.yml`, three Docker nodes plus a WebDAV service (rclone, acting as a NAS) run `tests/e2e/docker_nodes.sh` (triggered on pushes to `feat/**` and `ci/**` and on PRs to `main`)
 
 ---
 
-## 7. 安全与密码学规范
+## 7. Security and Cryptography Rules
 
-### 7.1 密码学使用
+### 7.1 Use of Cryptography
 
-- **Ed25519**: 使用 `ed25519-dalek` crate 进行签名/验证。
-- **哈希**: 使用 `blake3` 进行内容寻址和校验和。
-- **随机数**: 使用 `rand::thread_rng()` 或 `getrandom`；WASM 中严禁 `Math.random()`。
-- **密钥存储**: 绝不记录私钥；存储于 OS 密钥链或加密 OPFS。存储的密码、token 和加密密钥由节点保管：macOS / Windows 存系统钥匙串，没有钥匙串的机器存 `.oikome/identity/storage_access.json`（0600，和节点私钥同级）；环境变量 `OIKOME_STORAGE_<NAME>_*` 优先，供部署用。测试只用内存或文件存储，不碰本机钥匙串。节点私钥目前是 0600 文件，3.7 起放进系统钥匙串；服务器和容器仍用 0600 文件。
+- **Ed25519**: use the `ed25519-dalek` crate for signing/verification.
+- **Hashing**: use `blake3` for content addressing and checksums.
+- **Randomness**: use `rand::thread_rng()` or `getrandom`; `Math.random()` is strictly forbidden in WASM.
+- **Key storage**: never log private keys; store them in the OS keychain or encrypted OPFS. Stored passwords, tokens and encryption keys are kept by the node: in the system keychain on macOS / Windows, and on machines without a keychain in `.oikome/identity/storage_access.json` (0600, beside the node private key); the environment variables `OIKOME_STORAGE_<NAME>_*` take precedence, for deployments. Tests use only in-memory or file stores and never touch the machine's keychain. The node private key is currently a 0600 file and moves into the system keychain from 3.7; servers and containers still use a 0600 file.
 
-### 7.2 UCAN 实现
+### 7.2 UCAN Implementation
 
-- JWT 格式，标准声明 (`iss`, `aud`, `att`, `exp`, `prf`)。
-- 任何能力检查前必须先验证签名。
-- 过期时短路处理；已撤销令牌不继续处理。
-- CRL（证书撤销列表）通过 P2P 传播。
+- JWT format, standard claims (`iss`, `aud`, `att`, `exp`, `prf`).
+- Signatures must be verified before any capability check.
+- Short-circuit on expiry; revoked tokens are not processed further.
+- The CRL (certificate revocation list) is propagated over P2P.
 
-### 7.3 P2P 安全
+### 7.3 P2P Security
 
-- 默认拒绝：无对等关系 = 无目录可见性 = 无查询权限。公开分享除外，它是所有者的明确授权。
-- 枚举抵抗：未授权表返回 "不存在"。
-- 每次 Arrow Flight RPC 携带 UCAN 元数据。
+- Deny by default: no peer relationship = no catalog visibility = no query permission. Public shares are the exception: they are the owner's explicit grant.
+- Enumeration resistance: unauthorized tables return "does not exist".
+- Every Arrow Flight RPC carries UCAN metadata.
 
-### 7.4 不能做成可关闭的保护
+### 7.4 Protections That Cannot Be Made Switchable
 
-以下保护不受安全模式影响，也不能通过开关、配置项或环境变量关闭（架构 §17.3）：TLS（`--allow-http` 保留，只用于开发，开启安全模式时会被拒绝）、请求签名、UCAN 校验、默认拒绝、插件沙箱、网盘加密（网盘上的文件一律加密；NAS 上的加密继续作为可选项）、Activity 记录。安全模式只在这些之上加保护，不关闭任何功能（§17.4）。
-
----
-
-## 8. 文档要求
-
-### 8.1 代码文档
-
-- 每个公共函数、结构体、枚举和 trait 必须有 rustdoc。
-- 文档注释中尽可能包含示例。
-- 记录 panic 条件和安全不变量。
-
-### 8.2 架构文档
-
-- `docs/architecture.md` 是规范原文；v1、v2 已删除，只留在 git 历史里。
-- 用户端的需求写在 `docs/prd.md`，界面以 `docs/prototype/prototype.html` 为准；三者改动时一起同步。
-- 任何架构偏离必须记录并获得批准。
-- 开发实践变更时更新 `AGENT.md`。
-
-### 8.3 用户文档
-
-- API 参考从 rustdoc 生成。
-- Docker、NAS 和浏览器嵌入的部署指南。
-- Web3 集成教程（DApp 后端、社交 PDS、链上分析）。
+The following protections are not affected by security mode and cannot be turned off by a switch, configuration option or environment variable (architecture §17.3): TLS (`--allow-http` remains, for development only, and is refused when security mode is on), request signing, UCAN verification, deny by default, the plugin sandbox, cloud-drive encryption (files on a cloud drive are always encrypted; encryption on a NAS stays optional), Activity logging. Security mode only adds protection on top of these and turns off no feature (§17.4).
 
 ---
 
-## 9. 提交与审阅清单
+## 8. Documentation Requirements
 
-标记任何任务完成前：
+### 8.1 Code Documentation
 
-- [ ] 代码无警告编译通过 (`cargo build`)
-- [ ] 所有测试通过 (`cargo test`)
-- [ ] Clippy 无警告 (`cargo clippy`)
-- [ ] 格式化通过 (`cargo fmt`)
-- [ ] 所有新文件包含许可证头
-- [ ] 无新增许可证不兼容的依赖
-- [ ] 文档已更新（rustdoc + 如有 API 变更则更新用户文档）
-- [ ] 基准测试已运行（如触及性能关键代码）
-- [ ] CHANGELOG.md 已更新（如为面向用户的变更）
+- Every public function, struct, enum and trait must have rustdoc.
+- Include examples in doc comments wherever possible.
+- Document panic conditions and safety invariants.
+
+### 8.2 Architecture Documentation
+
+- `docs/architecture.md` is the canonical text; v1 and v2 are deleted and remain only in git history.
+- Requirements for the user-facing apps are in `docs/prd.md`, and `docs/prototype/prototype.html` is authoritative for the interface; when one of the three changes, keep all three in sync.
+- Any architectural deviation must be recorded and approved.
+- Update `AGENT.md` when development practices change.
+
+### 8.3 User Documentation
+
+- API reference generated from rustdoc.
+- Deployment guides for Docker, NAS and browser embedding.
+- Web3 integration tutorials (DApp backends, social PDS, on-chain analytics).
 
 ---
 
-## 10. 决策日志
+## 9. Commit and Review Checklist
 
-记录重要的架构或流程决策：
+Before marking any task complete:
 
-| 日期 | 决策 | 理由 |
+- [ ] Code compiles without warnings (`cargo build`)
+- [ ] All tests pass (`cargo test`)
+- [ ] No Clippy warnings (`cargo clippy`)
+- [ ] Formatting passes (`cargo fmt`)
+- [ ] All new files include the license header
+- [ ] No new dependencies with incompatible licenses
+- [ ] Documentation updated (rustdoc + user docs if the API changed)
+- [ ] Benchmarks run (if performance-critical code was touched)
+- [ ] CHANGELOG.md updated (for user-facing changes)
+
+---
+
+## 10. Decision Log
+
+Records important architecture or process decisions:
+
+| Date | Decision | Rationale |
 |------|----------|-----------|
-| 2025-05-30 | 初始 AGENT.md 创建 | 为分阶段实现建立开发协议 |
-| 2026-06-08 | 执行内核迁移到 DataFusion（v2） | 放弃自研优化器/执行器 |
-| 2026-09-27 | 转型为去中心化本地联邦查询语义层（v3）：计算交给 DuckDB/SQLite，DataFusion 只做联邦合并 | 自研 OLAP 超出团队范围；差异化在主权、联邦与 P2P，而非算子 |
-| 2026-10-30 | 定位改为 AI Native 的多模态私域数据中心（通常使用个人资源、支持受信的数据交换）：新增网盘接入（3.4）、数据接入（3.5）、算力共享（3.6），v3 各层不变；数据交换和算力共享同一信任机制、不同授权 | 数据和算力留在个人手里，个人之间互相调用而不交给大平台；架构见 `docs/architecture.md` §1、§7.5、§11、§12 |
-| 2026-10-31 | 3.2a 浏览器节点：duckdb-wasm 作本地引擎（SQLite 以后再做）；`HostEngine` 只存 id、JS 对象放线程本地表、结果用 Arrow IPC；DataFusion 去掉 compression/parquet 并给 datafusion-federation 0.5.5 打补丁；浏览器连 Full Node 定为 WebRTC 数据通道（3.2b） | 不改 `QueryEngine` 和 DataFusion；0.5.7 才修掉强制默认功能但要 DataFusion 55；浏览器无法按 DID 校验证书，WebRTC 能锁定 DID 签名过的指纹。见架构 §10 |
-| 2026-11-01 | 3.2b：Full Node 用 str0m（纯 Rust 加密）提供 WebRTC 端点，浏览器 WebRTC-direct 直连（不需要信令），服务端不校验浏览器的 DTLS 证书；请求是带 Flight 调用同样字段的信封，由 `serve_envelope` 走同一套认证、授权和语义层；浏览器里的协调器单任务执行（一个分区，`MergePartitionsExec` 代替会起任务的 `CoalescePartitionsExec`），chrono 开 `wasmbind` | 服务端不引入 C 加密库，也不要信令服务；浏览器靠签名的请求认证，和原生节点一样；DataFusion 54 合并分区会起 Tokio 任务、按 `std` 读时钟，在浏览器里都会 panic。见架构 §10 |
-| 2026-11-01 | 3.3c：图查询（DuckPGQ）只在 Lance Space 上；图定义存在目录里（`graphs.json`），DuckDB 里没有时先建图；只给主人、只读一个 Space | DuckPGQ 不支持在视图上建图，而 Iceberg 表在 DuckDB 里是视图；为每个快照复制成表的方案没有采用。见架构 §8 |
-| 2026-11-01 | 3.3b：事务型 Space 支持 FTS5 和 sqlite-vec 0.1.9；`CREATE VIRTUAL TABLE` 由 Oikome 自己读（只认 fts5、vec0，括号里原样交给 SQLite）；含 `MATCH` 的语句改用 SQLite 方言解析；检索只给主人、只在一个 Space 里；`PUBLISH` 跳过虚拟表 | sqlparser 读不了模块参数，通用方言没有 `MATCH`，自定义方言会改变其他语句的解析；见架构 §8 |
-| 2026-11-01 | 3.3a：DuckDB 升到 1.5.6；Lance Space（`FORMAT = 'lance'`）整体挂到 DuckDB，读写、建索引、三种检索都交给 `lance` 扩展；检索只给主人和订阅副本、只在一个 Space 里；读最新版本，订阅用 `lance-table` 列出一个版本的文件（索引一起过去）；不加 `MODES` 声明，按格式和语句检查能力；扩展只由 `oikome extensions install` 下载；DuckDB 每条语句用新连接（扩展按连接缓存数据集） | 扩展不能按版本读、也不能列出版本文件；检索会绕过列授权和行策略；见架构 §7.6、§8、§9 |
-| 2026-10-30 | 3.1d：网络阶段的完成标准在 GitHub Actions 上用三个 Docker 节点验证（其中一个只靠 mDNS 发现） | 本机没有容器环境；CI 每次推送都跑，Docker 桥接网络也能验证本机防火墙挡住的 mDNS |
-| 2026-10-30 | 3.1c：节点间默认 TLS，证书由节点 DID 密钥自签并按 DID 校验；明文 http 需 `--allow-http`；libp2p 只做发现，结果写入目录的 Peers 表，`PEER` 可不写 | DID 本来就是请求签名的身份，按它校验证书不需要 CA 和域名；发现结果放目录里，`serve` 和 `sql` 两个进程都能用。见架构 §3.4、§9 |
-| 2026-10-30 | 3.1b 快照订阅：只复制对方能看整张表的表，其余标 `restricted` 只能远程查；撤销只停止后续同步，已复制的文件收不回；VFS 接入推迟到 3.4 | 文件无法按列授权和行策略过滤；数据一旦复制就无法收回，写明而不是默认。见架构 §5.3、§9 |
-| 2026-10-30 | Lance 作为第三种 Location 格式，用于向量、全文和大对象；分析型 Space 不再用 DuckDB vss/fts | Lance 的索引存在数据集里、随版本同步，订阅方不用重建；表格数据仍用 Iceberg + Parquet。见 §7.6 |
-| 2026-11-01 | 用户端：只服务主人的个人私域数据中心，不做运维和开发者页面，成员以后做，界面统一英文（以后 i18n）；根目录新增 `apps/`（各端薄外壳）、`packages/`（共享 TypeScript）、`plugins/`、`design/`、`e2e/`，根目录 `package.json` 用 npm workspaces；目录等对应工作开始时才建；新 crate `oikome-api`（不含传输层，调用者分主人和 principal），HTTP 由 `oikome serve --web` 提供，桌面端进程内调用，以后 `oikome-mcp` 只暴露 principal 能做的操作；桌面和手机以后用 Tauri 2；存储位置只给本地文件夹和 NAS，网盘做存储位置待定 | 网页、桌面、手机是同一层的端，页面放共享包里各端复用；同一套处理逻辑服务所有端，AI 助手碰不到主人才有的命令；产品原则是数据不出家门，和把数据放在网盘服务商那里冲突，架构 §7.5 和 3.4 先不动，等决定。见架构 §13.3、§13.4、§14.1 |
-| 2026-11-01 | M1a：`web/` 拆到 `packages/node`（`@oikome/node`，导出 host、store、transport、wasm）和 `e2e/`（`@oikome/e2e`，测试页在 `harness/`）；根目录 npm workspaces 先只含 `packages/*` 和 `e2e`，`apps/*`、`plugins/*` 建了再加；测试服务器按 URL 前缀映射目录（`/pkg/`、`/node_modules/`、`/`），越界路径拒绝；wasm 构建和 remote 测试跟随 `CARGO_TARGET_DIR` | 只搬位置、不改行为，browser-e2e 的断言不变；外部依赖版本和 lockfile 里的完全一样。见架构 §13.3 |
-| 2026-11-02 | 3.4 拆成 3.4a NAS 和 3.4b 网盘：先做家里的 NAS（WebDAV 或挂载目录），网盘逐步支持、每种网盘先有客户端加密才开放。存储上的 Space 不在原处读：写入节点照常写本地、每次写入后推快照（先文件、后快照文件），其他节点拉最新的完整快照到本地副本，像订阅副本一样读；一个目录一个写入节点（记在 `oikome-space.json`，防误操作，不是访问控制）；密码只从环境变量 `OIKOME_STORAGE_<NAME>_PASSWORD` / `_TOKEN` 读，钥匙串随 3.5 做；推送失败不让写语句报错；`materialize()` 不做了 | 数据放 NAS 仍在家里；网盘服务商能读上传的内容，所以先加密。DuckDB 按本地 Parquet 文件列表读 Iceberg、`lance` 扩展只能挂本地目录，WebDAV 上的 Iceberg 提交没有原子的比较交换；订阅已有校验过的快照复制，一套做法同时管 Iceberg 和 Lance，以后加密只是包一层。见架构 §7.4、§7.5 |
-| 2026-11-02 | 3.6：算力指 CPU、GPU 这类资源；计算方式只用 Oikome 已有的（这是计算的标准），提供方逐个开放（`oikome compute offer`），第一种是 `sql`：每个任务一个内存中的 DuckDB，关外部访问、不装不载扩展、装好输入后锁配置、按限额设内存和超时、限制输出；不转发外部服务；请求-响应走 `DoExchange`，`oikome.compute_methods` 列出对方能用的方式；UCAN `compute/<method>` 带 `nb` 限额（时间、输入、输出、内存），委托只能收紧；`space/*` 和 `compute/*` 互不覆盖；按对端配额（默认同时 1 个、每小时 30 个），任务开始前重新校验授权，撤销后排队的任务被拒；SQL 在后端闭环，App 调 `compute_on_peer`，`oikome compute run` 只给开发测试 | 用已有的计算方式不必信任新代码；隔离的 DuckDB 碰不到提供方的 Space 和文件；配额是能防止对端占满机器的最简单记账。见架构 §12 |
-| 2026-11-02 | 3.5：接入只做进程内 Rust 代码（第三方接入作为 M4 插件），登记在节点上（`sources.json`，命令行和以后的接入页调用同一组函数），不加 SQL 语句；游标存在 Space 的隐藏表里，和数据同一个事务提交；flomo 导出没有 id，用创建时间加同一秒内的序号做主键；flomo MCP 运行时发现工具、从不删除，等有账号再实测；HTML 用 html5ever 的 tokenizer 解析（scraper 的选择器是 MPL-2.0） | 接入和存储一样是带凭据的节点配置；「数据和游标一起变」就是一个 SQLite 事务；需要账号的路径先写代码、不做模拟服务，功能齐全后统一实测。见架构 §11 |
-| 2026-11-02 | 3.4b：网盘先走同步文件夹，走 API 放 3.4c；网盘上的每个文件整文件加密（XChaCha20-Poly1305 分段、文件名用带密钥的哈希），一个存储一把随机密钥，另一节点用 `export-key` 导出的密钥读取；凭据由用户在页面（现在是命令行标准输入）输入一次，节点存进系统钥匙串，没有钥匙串时存 0600 私有文件，环境变量优先，替代 3.4a 的「只从环境变量读」 | 同步文件夹不需要 OAuth 应用就能覆盖主流网盘；整文件加密同时盖住数据、索引、快照和文件名；普通用户不该自己设环境变量，页面直接调用节点的 `add_storage` / `set_storage_secret` / `export_storage_key`。见架构 §7.5 |
-| 2026-11-01 | 用户端测试连本地节点（临时数据目录、经命令行或接口写入测试数据），不做假数据和 mock 客户端；M1 改为先做接口（M1b）再做页面（M1c），各页面随有数据的里程碑做 | 只有一条测试链路，不用先测假数据再换真实数据测一遍；页面从一开始就走真实接口，不会和接口对不上。见架构 §14.1 |
-| 2026-11-01 | M1b：新 crate `oikome-api`（不含传输层，主人和 principal 两种调用者，接口层不拼 SQL）；`oikome serve --web` 只监听本机，一次性登录链接写进只有主人能读的 `.oikome/web/login`，由 `oikome web open` 打开，不打印；整个资料库的授权 `GRANT SELECT ON SPACE` 单独存放，视图展开后只读本 Space 才算在内；访问记录存 `.oikome/access_log.sqlite`，后台线程写，认证失败按分钟合并；注册表写入加文件锁并先重新读取；Space 名字在目录层校验；类型用 ts-rs 生成到 `packages/api` | 网页端开始在 serve 进程里写注册表，`oikome sql` 收回的令牌不能被覆盖；分享按资料库，新建的表也要包含，而视图可能跨 Space；令牌留在终端记录里不安全。见架构 §6.1、§9、§13.4 |
-| 2026-11-03 | 网页端换成两套风格：Ink（默认，白底墨色、细线无投影、数据用 IBM Plex Mono、状态用墨色字形、只在需要处理时用深玫红）和 Bold（新粗野主义），在 Settings › Appearance 切换、按浏览器保存；字体随应用打包（OFL）；侧栏列出各存储位置，可点选查看任一处的容量（`list_storages` 返回本机和文件夹的可用 / 总空间）；按钮不加下划线 | 用户要更精致、有格调、和普通 dashboard 拉开差距，并以后支持多风格看板；只能看一处容量不够。见架构 §13.4、设计 skill 的 style-library.md |
-| 2026-11-02 | 存储在网页端可选可加：Welcome 和 Settings 里选「这台电脑（数据目录或另选文件夹）/ 找到的网盘和外接盘 / NAS / 其他文件夹」，节点列出文件夹供网页浏览（`list_folders`、`find_places`），`add_storage` 接到节点已有的 `add_storage`（密码进钥匙串、先检查再保存，选中文件夹里建 `Oikome`，网盘内的文件夹按网盘加密），选中的成为新 Collection 的默认（`set_default_storage`），示例也放那里 | 用户要在第一步就能选位置；网页拿不到系统的文件夹选择框，NAS 和媒体服务器的网页端都由服务端列目录；数据中心自己的目录（身份、目录、访问记录）仍在本机。见架构 §13.4 |
-| 2026-11-03 | 默认数据目录改为家目录下的 `Oikome`（macOS/Linux `~/Oikome`，Windows `C:\Users\<名字>\Oikome`），`--root`/`OIKOME_ROOT` 照旧可改 | 用户第一次用就看到自己的、显眼的文件夹；不放「文稿」是因为 iCloud/OneDrive 常同步它，会弄坏正在用的数据库；不放隐藏的应用数据目录是因为文件是用户的。见架构 §13.4 |
-| 2026-11-03 | 示例和用户数据像 Obsidian 的库一样是普通文件：示例每种一个（里斯本照片、Oikome 指南、以那次旅行结尾的三周花销、家里温湿度读数），第一次使用时写进所选文件夹（没选就是数据目录）的 `Examples/<名字>/`（照片加 `captions.csv`、Markdown 笔记、CSV 表格），每个文件夹是同名 Collection 的源，每分钟读一次，用任何应用改都会同步；新增 `photos-folder`、`notes-folder` 连接器，源名允许 `-`，读失败的原因记在源上；网页端新增 Sources 页（列出、添加、立即同步、停止、在访达中显示） | 用户希望数据看得见、改得了、放在自己选的目录里；源本来就是 §11 的机制，示例用它也就成了「接入的数据出现在 Home」的演示。见架构 §11、§13.4 |
-| 2026-11-02 | 网页端第一次进入就有示例（`add_examples`：里斯本的一个周末，照片、笔记、花销，只加一次，删了不再加）；Collection 按内容显示（图片列 → 照片、长文本 → 笔记、其余 → 表格），有 Home 和每个 Collection 的独立页面；新建时可选存储（`create_space` 的 `storage`、`list_storages`）；去掉 SQL 工作台，`run_sql` 只留给命令行和测试 | 新用户一进来就知道 Oikome 能存什么，测试也有同一份数据；普通用户不写 SQL，数据以后从「导入」进来。见架构 §13.4 |
-| 2026-11-02 | M1c：网页端用 React 19 + Vite 7（Vite 8 必须依赖 MPL-2.0 的 lightningcss，不符合依赖政策），页面由 `--web-root` 指定的目录提供，严格 CSP；界面用语 Collection、Contact、Share、Activity、Your ID（SQL 工作台后来从网页端去掉，见下一条）；恢复密钥是 Crockford Base32 分组码（14 组，带 2 字节校验），只能恢复到空节点（`oikome identity restore`，节点停止时执行）；手机配对改到手机 App 再做 | 手机浏览器需要 HTTPS 页面，本机回环服务给不了，公共来源和局域网自签证书都不采用；分组码不需要词表依赖、打错能发现。见架构 §13.4、§14.1 |
-| 2026-11-03 | 来源同步进来的资料库（事务型 SQLite）的工作副本始终在节点本地磁盘，挂载的 SMB/NFS 也不行；主人把它放到 NAS 或网盘时，每次拉取后自动发布快照并推过去，那里是只读的第二份副本（还没实现，`add_source` 目前只建在本地）；网页端默认放 Local，选其他位置先确认，并说明本机留工作副本 | SQLite 要靠本地文件系统的锁和共享内存，网络文件系统上不可靠；用户想的是「照片存在 NAS 上」，发布和推送都已有，那里就是和其他存储上的 Space 一样的第二份副本。见架构 §7.5、§11、§13.4 |
-| 2026-11-04 | Home 的 Arrange 按原型改成在 Home 原地编辑：卡片带虚线框、拖动排序（键盘用方向键）、拖右下角改宽度、减号移除、末尾 Add a Card；每张卡片存宽度（12 列中的 4–12 列），没存宽度的（第一次的排列、只有 id 的旧记录）用应用的默认宽度并让行尾那张补满整行；节点设置一次只改一处，临时文件各用各的；网页端补上原型的动效：换页上浮淡入、Home 数字滚动、柱子依次长出、折线从左描出、Bold 可点卡片悬停上浮、同步时图标旋转、首次读取的进度条、换风格时颜色渐变，数据刷新不重播，系统要求减少动态时全部关闭 | 用户对照原型指出动效缺失、Arrange 和原型不一致；两次保存同时写同一个临时文件，后一次会失败，连续调整卡片时就会遇到。见架构 §13.4 |
-| 2026-11-04 | 接受分享（M2c）：邀请码在 API 层生成（`oik1-` 加 base64url JSON：令牌、分享方的 Flight 地址、名字；监听全部地址时不写地址，靠发现），核心不变、命令行仍用令牌；收到的邀请先存在节点上（`.oikome/identity/invites.json`，0600），Sharing 页按原型的提示卡显示，接受或拒绝；接受时用 `create_space` 建远程 Space（不拼 SQL），名字取对方的、被占用就编号，分享方自动成为联系人；同一 Space 再次分享时替换原来的；分享给你的 Collection 显示来自谁、到哪天，可以 Leave；封面和计数也从对方读 | 邀请码里带上地址和名字，对方粘贴一次就能加上，不用手写 PEER 和 REMOTE；邀请码含令牌，按凭据保存；先存后选，刷新也不会丢，以后对方节点直接送达的邀请也能放进同一个列表。见架构 §13.4 |
-| 2026-11-04 | 借出算力（M2d）：Sharing 页的 Compute 卡片按原型做「Lend this computer」开关加 Change 对话框：借给哪些联系人、同时几个任务（1/2/4）、每小时几个（10/30/100），对应核心的每对端配额；暂停只撤回 `sql` 的开放，授权保留，恢复不用新邀请码；新借给的人得到一年的 `compute/sql` 授权和邀请码，被移出或删除联系人的授权撤销；对方用同一个 Add an Invite 接受，节点存下授权（`.oikome/identity/borrowed.json`，0600），列表里实时问对方是否在借（可用 / 暂不借给你 / 连不上 / 已结束）；Activity 把算力请求写成「跑了一个任务」「问了是否借给他」「被拒绝」 | 原型里的「核心数、每天几小时」核心并不管，界面只给核心真正执行的限额；没有借用方，邀请码就只能在命令行用，所以借用方先做到接受和查看可用，真正把任务交给对方随 M4 的借用算力做；对方停借和撤销都返回拒绝，按设计不区分。见架构 §12、§13.4 |
-| 2026-11-04 | 看板插件 v1（M2e）：插件是一个带 `oikome-plugin.json` 的网页文件夹（读什么：形态加所需列类型；卡片尺寸；入口页），装在 `.oikome/plugins/<id>/`，Oikome 自己的两个（按类别看花销、一年前的照片）编进节点；每个插件安装时生成自己的 DID，只对主人选的 Collection 有整库授权，应用经 `plugin_read` 以插件身份读，由节点授权决定；页面由服务端单独下发：CSP 全部连接、子框架、worker、表单为 none，`sandbox allow-scripts`，禁用设备，关 DNS 预取；Chromium 不认 CSP 的 `webrtc 'block'`，实测沙箱里仍能发 STUN 包，所以服务端把 SDK 注入成第一个脚本、先删掉 RTC 构造器，嵌套框架、worker、eval 都被挡；插件读取记入 Activity（同一插件同一 Collection 10 分钟记一次，拒绝每次都记）；新增 Plugins 页、Add a Card 的 From your plugins；另按原型统一了间距（卡片头、列表行、页面边距、两栏比例、对话框） | M2 的完成标准是插件只能读授权内的数据、连不上网络；授权交给节点而不是页面，页面出错也读不到别的；网络隔离逐条实测（fetch、图片、beacon、WebSocket、导航、弹窗、WebRTC），WebRTC 是 CSP 管不到的那一条。见架构 §13.4 |
-| 2026-11-04 | Activity 记下主人自己的第一步：建好数据中心、加示例、保存恢复密钥，写成「你 · 这台电脑」；「建好数据中心」这条不随 90 天清理；之前建的数据中心按设置里记的时间补记一次 | Activity 是主人看自己的数据发生了什么的地方，应该从第一次运行记起。见架构 §9 |
-| 2026-11-04 | Activity 按主人认识的方式写「谁」：你、人、插件或 Unknown；人的名字依次用联系人名、对方在邀请或借出算力里给的名字、移除时记下的名字；联系人或插件被移除时，名字记在访问日志旁的 `names` 表里，和记录保留一样久；请求里对方自报的名字不用 | 在不在联系人里不是身份；被移除的插件和联系人的记录仍要说清是谁；自报的名字谁都能冒用。见架构 §9、§13.4 |
-| 2026-11-04 | 来源可以暂停（`sources.json` 的 `paused`：到点不读，手动仍能读），同步频率可选 1、5、30 分钟、每小时、每天或手动；移除先确认，资料库保留，同一文件或文件夹再加回来（按真实路径，记在 `node.json`）回到原资料库；每个来源有详情页，同步记录存在资料库的隐藏表 `_oikome_source_runs` 里 30 天，连续相同的结果合成一行；更多菜单改成顶层弹出，不再被表格裁掉 | 原来的「停止」是注销来源，列表里消失、再加只能成新资料库，用户说的停止其实是暂停；每分钟读一次的来源会让记录被「没有新内容」刷满。见架构 §11、§13.4 |
-| 2026-11-04 | 设备按数据流向分两类（还没实现，随手机和桌面 App 做）。**读数据的设备**要配对：手机、平板扫这台电脑上的二维码；另一台电脑在同一网络里被 mDNS 发现，两边核对由双方 DID 算出的 6 位数字，或输入、粘贴配对码（发现不了时，比如网络不让组播）。配对后节点给设备的 DID 签一个 UCAN，默认只读，移除即撤销。**产生数据的设备**（灯、传感器、家电、扫地机、手表、体重秤）作为来源进来，经家里的中枢（Home Assistant）、厂商云（只用公开 API）、手机健康 App，或直接连。配对的设备暂时必须在同一网络（没有 STUN、TURN 和中继）；界面入口叫 Add a Device，只有核对数字后的确认按钮叫 Pair。待定：另一台电脑算什么；设备能做哪些管理操作；是否只读接入 Matter；是否做统一的 Devices 页 | 配对和移除复用节点已有的授权和撤销，不用信任新东西；家电和传感器从不读数据中心，Oikome 只读设备、不控制设备，不做智能家居中枢；Add 和其他 Add 一致，也能覆盖不需要配对的设备。见架构 §13.5 |
-| 2026-11-04 | 文档统一放进 `docs/`：架构文档 `oikome_architecture_v3.md` 改名为 `docs/architecture.md`，v1、v2 删除（只留在 git 历史里）；用户端 PRD 从 Claude Docs 搬到 `docs/prd.md`，并按架构文档和原型同步了一遍；仓库外的设计目录 `~/Documents/oikome-design/` 整个搬进 `docs/prototype/`，核对一致后删掉原目录，以后只改仓库里这份（`prototype.html`、`i18n/`、`lisbon/pick/` 照片、`references/`）；`.gitignore` 不再忽略 `docs/` | 文档太散：架构在根目录、PRD 在仓库外、原型没有版本管理，改了对不上；v3 就是现行架构，留版本号和旧版只会让人读错 |
-| 2026-11-04 | 原地查看 + 转存 + 分享：本机文件夹和各存储上的文件经只读的原地 Space 原地浏览、查询，索引是节点上的缓存；只有主人主动转存（Save To）才复制，目标是普通文件或新 Space，一次性或持续；转存出的 Space 单独分享，也可以作为作品集展示；公开给任何人走公开分享（3.8），照片默认去掉位置信息；新增 3.9–3.11；修图在别的软件里做 | 主人想看任意存储和应用的数据，不用先复制；复制是带目标和规则的主动选择；转存出的 Space 和源脱钩。见架构 §7.7–§7.9 |
-| 2026-11-04 | 存储既是来源也是目标：原地浏览网盘要整盘读取权限，单独申请，测试阶段先用，正式发布前过 Google 审核；存 Space 和转存只用最小权限；3.4c 只做 Google Drive、Dropbox，先把 opendal 升到最新版，大文件用两家的分段上传（在 fork 的 opendal 里补上、贡献上游，不在网盘上拆成多块存），OneDrive 继续走同步文件夹；3.4d 百度网盘写成 opendal 服务，放在 Oikome 的 fork 里，统一实测后向上游提 PR（apache/opendal#8481），不在 Oikome 里另写客户端；3.4e 对象存储经 opendal `s3`，默认加密 | 只能访问自己建的文件就做不了原地浏览，单独申请能让整盘权限可选；opendal 的 `onedrive` 要整盘读写，3.4d 也需要最新版；一个服务所有 opendal 用户都能用，上游不收就留在 fork 或挪成自己的 crate；一个 S3 服务覆盖 AWS、R2、B2、MinIO 和 OSS、COS 的 S3 接口。见架构 §7.5 |
+| 2025-05-30 | Initial AGENT.md created | Establish a development protocol for phased implementation |
+| 2026-06-08 | Execution core migrated to DataFusion (v2) | Give up the self-built optimizer/executor |
+| 2026-09-27 | Pivot to a decentralized local federated query semantic layer (v3): computation delegated to DuckDB/SQLite, DataFusion only does the federated merge | Self-built OLAP is beyond the team's scope; the differentiation is sovereignty, federation and P2P, not operators |
+| 2026-10-30 | Repositioned as an AI-native, multimodal private data center (usually running on personal resources, supporting trusted data exchange): added cloud drives (3.4), connectors (3.5), compute sharing (3.6), v3 layers unchanged; data exchange and compute sharing use the same trust mechanism with different authorization | Data and compute stay in individuals' hands, and individuals call on each other instead of handing them to big platforms; see `docs/architecture.md` §1, §7.5, §11, §12 for the architecture |
+| 2026-10-31 | 3.2a browser node: duckdb-wasm as the local engine (SQLite later); `HostEngine` stores only an id, JS objects live in a thread-local table, results use Arrow IPC; DataFusion drops compression/parquet, and datafusion-federation 0.5.5 is patched; browsers reach a Full Node over a WebRTC data channel (3.2b) | `QueryEngine` and DataFusion stay unchanged; only 0.5.7 fixes the forced default features, but it needs DataFusion 55; browsers cannot verify a certificate by DID, while WebRTC can pin a DID-signed fingerprint. See architecture §10 |
+| 2026-11-01 | 3.2b: the Full Node provides the WebRTC endpoint with str0m (pure-Rust crypto), browsers connect directly with WebRTC-direct (no signaling needed), and the server does not verify the browser's DTLS certificate; requests are envelopes with the same fields as a Flight call, served by `serve_envelope` through the same authentication, authorization and semantic layer; the coordinator in the browser runs as a single task (one partition, `MergePartitionsExec` instead of `CoalescePartitionsExec`, which spawns tasks), chrono with `wasmbind` enabled | No C crypto library in the server and no signaling service; browsers are authenticated by signed requests, the same as native nodes; DataFusion 54 spawns Tokio tasks to merge partitions and reads the clock through `std`, both of which panic in the browser. See architecture §10 |
+| 2026-11-01 | 3.3c: graph queries (DuckPGQ) only on Lance Spaces; graph definitions stored in the catalog (`graphs.json`), and a graph is created first when DuckDB does not have it; owner only, within one Space | DuckPGQ does not support building graphs over views, and Iceberg tables are views in DuckDB; the approach of copying them into tables for every snapshot was not adopted. See architecture §8 |
+| 2026-11-01 | 3.3b: transactional Spaces support FTS5 and sqlite-vec 0.1.9; `CREATE VIRTUAL TABLE` is read by Oikome itself (only fts5 and vec0 are recognized, the contents of the parentheses are passed to SQLite as written); statements containing `MATCH` are parsed with the SQLite dialect instead; search only for the owner, within one Space; `PUBLISH` skips virtual tables | sqlparser cannot read module arguments, the generic dialect has no `MATCH`, and a custom dialect would change how other statements are parsed; see architecture §8 |
+| 2026-11-01 | 3.3a: DuckDB upgraded to 1.5.6; Lance Spaces (`FORMAT = 'lance'`) attached to DuckDB as a whole, with reading, writing, index building and all three kinds of search handed to the `lance` extension; search only for the owner and subscribed copies, within one Space; reads use the latest version, and subscription lists one version's files with `lance-table` (indexes go along); no `MODES` declaration, capabilities checked by format and statement; extensions downloaded only by `oikome extensions install`; DuckDB uses a new connection for every statement (the extension caches datasets per connection) | The extension cannot read by version or list a version's files; search bypasses column grants and row policies; see architecture §7.6, §8, §9 |
+| 2026-10-30 | 3.1d: the network phase's exit criteria are verified on GitHub Actions with three Docker nodes (one of them found only through mDNS) | No container environment on the local machine; CI runs on every push, and the Docker bridge network also verifies mDNS, which the local firewall blocks |
+| 2026-10-30 | 3.1c: TLS between nodes by default, certificates self-signed with the node's DID key and verified by DID; plaintext http needs `--allow-http`; libp2p only for discovery, with results written to the catalog's Peers table, `PEER` optional | The DID is already the identity requests are signed with, so verifying certificates by it needs no CA or domain names; with discovery results in the catalog, both the `serve` and `sql` processes can use them. See architecture §3.4, §9 |
+| 2026-10-30 | 3.1b snapshot subscription: only tables the other side may see in full are copied, the rest are marked `restricted` and can only be queried remotely; revocation only stops later syncs, files already copied cannot be taken back; VFS integration postponed to 3.4 | Files cannot be filtered by column grants and row policies; once data is copied it cannot be taken back, so this is stated rather than left implicit. See architecture §5.3, §9 |
+| 2026-10-30 | Lance as a third Location format, for vectors, full text and large objects; analytical Spaces no longer use DuckDB vss/fts | Lance indexes live in the dataset and sync with its versions, so subscribers need not rebuild them; tabular data still uses Iceberg + Parquet. See §7.6 |
+| 2026-11-01 | User-facing apps: serve only the owner's personal private data center, no operations or developer screens, members later, UI in English throughout (i18n later); new root directories `apps/` (a thin shell per client), `packages/` (shared TypeScript), `plugins/`, `design/`, `e2e/`, root `package.json` with npm workspaces; directories are created only when the matching work starts; new crate `oikome-api` (no transport, callers are owner or principal), HTTP provided by `oikome serve --web`, the desktop app calls it in process, and later `oikome-mcp` exposes only what a principal can do; desktop and phone later on Tauri 2; storage locations only local folders and NAS, cloud drives as storage locations undecided | Web, desktop and phone are clients on the same layer, and the screens live in shared packages reused by each client; one set of handling logic serves every client, and AI assistants cannot reach commands only the owner has; the product principle is that data does not leave home, which conflicts with putting data with a cloud drive provider, so architecture §7.5 and 3.4 stay unchanged until it is decided. See architecture §13.3, §13.4, §14.1 |
+| 2026-11-01 | M1a: `web/` split into `packages/node` (`@oikome/node`, exporting host, store, transport, wasm) and `e2e/` (`@oikome/e2e`, test pages in `harness/`); the root npm workspaces at first contain only `packages/*` and `e2e`, with `apps/*` and `plugins/*` added once created; the test server maps directories by URL prefix (`/pkg/`, `/node_modules/`, `/`) and rejects out-of-bounds paths; the wasm build and remote tests follow `CARGO_TARGET_DIR` | Only moves things, no behavior change, browser-e2e's assertions unchanged; external dependency versions exactly as in the lockfile. See architecture §13.3 |
+| 2026-11-02 | 3.4 split into 3.4a NAS and 3.4b cloud drives: a NAS at home first (WebDAV or a mounted folder), cloud drives supported step by step, each opened only once it has client-side encryption. A Space on a storage is not read in place: the writing node writes locally as usual and pushes a snapshot after each write (files first, then the snapshot file), other nodes pull the newest complete snapshot into a local copy and read it like a subscribed copy; one writing node per folder (recorded in `oikome-space.json`, to prevent mistakes, not access control); passwords read only from the environment variables `OIKOME_STORAGE_<NAME>_PASSWORD` / `_TOKEN`, the keychain comes with 3.5; a failed push does not make the write statement fail; `materialize()` dropped | Data on a NAS still stays at home; a cloud drive provider can read uploaded content, so encryption comes first. DuckDB reads Iceberg as a list of local Parquet files, the `lance` extension can only attach local directories, and Iceberg commits over WebDAV have no atomic compare-and-swap; subscription already copies verified snapshots, so one approach serves both Iceberg and Lance, and encryption later just wraps a layer around it. See architecture §7.4, §7.5 |
+| 2026-11-02 | 3.6: compute means resources such as CPU and GPU; compute methods are only the ones Oikome already has (this is the standard for computation), opened one by one by the provider (`oikome compute offer`), the first being `sql`: one in-memory DuckDB per task, with external access off, no extensions installed or loaded, configuration locked once the inputs are loaded, memory and timeout set by the limits, output limited; no forwarding to external services; request-response over `DoExchange`, with `oikome.compute_methods` listing the methods the other side can use; UCAN `compute/<method>` with `nb` limits (time, input, output, memory), which delegation can only tighten; `space/*` and `compute/*` do not cover each other; per-peer quotas (by default 1 at a time, 30 per hour), authorization re-checked before a task starts, queued tasks refused after revocation; SQL stays closed-loop in the backend, apps call `compute_on_peer`, and `oikome compute run` is only for development and testing | Using existing compute methods means no new code has to be trusted; an isolated DuckDB cannot reach the provider's Spaces and files; quotas are the simplest accounting that keeps a peer from taking over the machine. See architecture §12 |
+| 2026-11-02 | 3.5: connectors are only in-process Rust code (third-party connectors as M4 plugins), registered on the node (`sources.json`; the command line and the future Sources screen call the same set of functions), no new SQL statements; the cursor is stored in a hidden table of the Space and committed in the same transaction as the data; flomo exports have no id, so the creation time plus a sequence number within the same second is the primary key; flomo MCP discovers tools at run time and never deletes, to be tested once there is an account; HTML parsed with html5ever's tokenizer (scraper's selectors are MPL-2.0) | A connector, like a storage, is node configuration with credentials; "data and cursor change together" is one SQLite transaction; paths that need an account are written first without mock services, and tested together once the features are complete. See architecture §11 |
+| 2026-11-02 | 3.4b: cloud drives go through sync folders first, the API is in 3.4c; every file on a drive is encrypted whole (XChaCha20-Poly1305 in segments, file names as a keyed hash), one random key per storage, and another node reads with the key exported by `export-key`; credentials are entered once by the user in the UI (for now, on the command line's standard input), and the node stores them in the system keychain, or in a 0600 private file when there is no keychain, with environment variables taking precedence; this replaces 3.4a's "read only from environment variables" | Sync folders cover the mainstream drives without an OAuth app; whole-file encryption covers data, indexes, snapshots and file names at once; ordinary users should not have to set environment variables themselves, and the UI calls the node's `add_storage` / `set_storage_secret` / `export_storage_key` directly. See architecture §7.5 |
+| 2026-11-01 | User-facing tests connect to a local node (temporary data directory, test data written through the command line or the API), with no fake data and no mock client; M1 changed to the API first (M1b), then the screens (M1c), and each screen is built with the milestone that has its data | Only one test chain, no testing with fake data first and then all over again with real data; screens use the real API from the start, so they cannot drift from it. See architecture §14.1 |
+| 2026-11-01 | M1b: new crate `oikome-api` (no transport, two kinds of callers, owner and principal; the API layer does not build SQL); `oikome serve --web` listens only on this machine, a one-time login link is written to `.oikome/web/login`, readable only by the owner, opened by `oikome web open`, never printed; whole-Space grants `GRANT SELECT ON SPACE` are stored separately, and a view counts only if after expansion it reads only this Space; the access log is stored in `.oikome/access_log.sqlite`, written by a background thread, with failed authentications merged per minute; registry writes take a file lock and re-read first; Space names are validated at the catalog layer; types generated into `packages/api` with ts-rs | The web app starts writing the registry inside the serve process, and a token revoked by `oikome sql` must not be overwritten; sharing is per collection and must include tables created later too, while views may span Spaces; a token left in the terminal history is unsafe. See architecture §6.1, §9, §13.4 |
+| 2026-11-03 | The web app switches to two styles: Ink (default: black ink on white, hairlines without shadows, data in IBM Plex Mono, states as ink glyphs, deep crimson only where something needs handling) and Bold (neo-brutalism), switched in Settings › Appearance and saved per browser; fonts bundled with the app (OFL); the sidebar lists each storage location, and clicking one shows its capacity (`list_storages` returns free / total space for this computer and the folders); no underlines on buttons | The user wanted it more refined and stylish, set apart from ordinary dashboards, with multi-style dashboards supported later; seeing the capacity of only one place was not enough. See architecture §13.4 and the design skill's style-library.md |
+| 2026-11-02 | Storage can be chosen and added in the web app: Welcome and Settings offer "this computer (the data directory or another folder) / cloud drives and external drives found / NAS / another folder", the node lists folders for the web page to browse (`list_folders`, `find_places`), `add_storage` calls the node's existing `add_storage` (password into the keychain, checked before saving, an `Oikome` folder created in the chosen folder, a folder inside a cloud drive encrypted as a drive), the chosen one becomes the default for new Collections (`set_default_storage`), and the examples go there too | The user wanted to choose the location in the very first step; a web page cannot get the system's folder picker, and the web UIs of NAS and media servers also have the server list directories; the data center's own directory (identity, catalog, access log) stays on this machine. See architecture §13.4 |
+| 2026-11-03 | The default data directory becomes `Oikome` in the home directory (`~/Oikome` on macOS/Linux, `C:\Users\<name>\Oikome` on Windows), still changeable with `--root`/`OIKOME_ROOT` | Users see their own, visible folder the first time they use it; not in "Documents" because iCloud/OneDrive often sync it, which would corrupt databases in use; not in a hidden app-data directory because the files are the user's. See architecture §13.4 |
+| 2026-11-03 | Examples and user data are plain files, like an Obsidian vault: one example of each kind (photos of Lisbon, an Oikome guide, three weeks of spending ending with that trip, a home's temperature and humidity readings), written on first use into `Examples/<name>/` of the chosen folder (the data directory if none was chosen) (photos plus `captions.csv`, Markdown notes, CSV tables); each folder is the source of the Collection of the same name, read once a minute, and edits made with any app are synced; new `photos-folder` and `notes-folder` connectors, source names may contain `-`, and the reason a read failed is recorded on the source; the web app gets a Sources page (list, add, sync now, stop, show in Finder) | The user wants data that is visible, editable and kept in a folder they choose; sources are already the §11 mechanism, so using them for the examples also makes the examples a demo of "connected data appears on Home". See architecture §11, §13.4 |
+| 2026-11-02 | The web app has examples on the first visit (`add_examples`: a weekend in Lisbon, photos, notes, spending, added only once, not added again once deleted); a Collection is shown by its content (image column → photos, long text → notes, anything else → table), with Home and a separate page for each Collection; a storage can be chosen at creation (`create_space`'s `storage`, `list_storages`); the SQL workbench removed, `run_sql` kept only for the command line and tests | New users see right away what Oikome can store, and tests have the same data; ordinary users don't write SQL, and data will come in later through "Import". See architecture §13.4 |
+| 2026-11-02 | M1c: the web app uses React 19 + Vite 7 (Vite 8 requires lightningcss, which is MPL-2.0 and does not meet the dependency policy), pages are served from the directory given by `--web-root`, strict CSP; UI terms Collection, Contact, Share, Activity, Your ID (the SQL workbench was later removed from the web app, see the next entry); the recovery key is a grouped Crockford Base32 code (14 groups, with a 2-byte checksum), restorable only into an empty node (`oikome identity restore`, run while the node is stopped); phone pairing moved to the phone app | A phone browser needs an HTTPS page, which the local loopback server cannot provide, and neither a public origin nor a self-signed LAN certificate was adopted; the grouped code needs no word-list dependency and catches typos. See architecture §13.4, §14.1 |
+| 2026-11-03 | The working copy of a collection filled by a source (transactional SQLite) is always on the node's local disk, not even on a mounted SMB/NFS share; when the owner puts it on a NAS or cloud drive, a snapshot is published and pushed there automatically after every pull, a read-only second copy (not implemented yet; `add_source` currently creates it only locally); the web app defaults to Local, asks for confirmation before any other place, and explains that the working copy stays on this machine | SQLite relies on the local file system's locks and shared memory, which are unreliable on network file systems; what users have in mind is "my photos are on the NAS", and publishing and pushing already exist, so the copy there is a second copy like any other Space on a storage. See architecture §7.5, §11, §13.4 |
+| 2026-11-04 | Home's Arrange changed to match the prototype, editing in place on Home: cards get a dashed outline, drag to reorder (arrow keys on the keyboard), drag the bottom-right corner to change width, a minus to remove, Add a Card at the end; each card stores its width (4–12 of 12 columns), and cards without a stored width (the first arrangement, old records with only an id) use the app's default width, with the last card in a row filling the rest of the row; node settings change one thing at a time, each with its own temporary file; the web app gains the prototype's motion: pages rise and fade in on change, Home numbers roll, bars grow one after another, lines draw from the left, Bold's clickable cards lift on hover, the icon spins while syncing, a progress bar on the first read, colors transition when switching styles; data refreshes do not replay them, and all are off when the system asks for reduced motion | The user, comparing with the prototype, pointed out the missing motion and that Arrange did not match the prototype; two saves at once wrote the same temporary file and the later one failed, which happened when adjusting cards in quick succession. See architecture §13.4 |
+| 2026-11-04 | Accepting shares (M2c): invite codes generated at the API layer (`oik1-` plus base64url JSON: token, the sharer's Flight address, name; no address when listening on all addresses, relying on discovery), core unchanged, the command line still uses tokens; received invites are first stored on the node (`.oikome/identity/invites.json`, 0600) and shown on the Sharing page as the prototype's prompt cards, to accept or decline; accepting creates a remote Space with `create_space` (no SQL built), named with the sharer's name, numbered if taken, and the sharer automatically becomes a contact; sharing the same Space again replaces the previous share; a Collection shared with you shows whom it is from and until what day, and can be left (Leave); cover and counts are also read from the sharer | With the address and name in the invite code, the other side adds it by pasting once, without writing PEER and REMOTE by hand; the invite code contains a token, so it is stored as a credential; storing first and choosing later means nothing is lost on refresh, and invites delivered directly by the other node later can go into the same list. See architecture §13.4 |
+| 2026-11-04 | Lending compute (M2d): the Compute card on the Sharing page follows the prototype with a "Lend this computer" switch plus a Change dialog: which contacts to lend to, how many tasks at once (1/2/4), how many per hour (10/30/100), mapping to the core's per-peer quota; pausing only withdraws the `sql` offer, grants are kept, and resuming needs no new invite code; someone newly lent to gets a one-year `compute/sql` grant and an invite code, and those removed from it or deleted as contacts have their grants revoked; the other side accepts with the same Add an Invite, the node stores the grant (`.oikome/identity/borrowed.json`, 0600), and the list asks the other side live whether it is lending (available / not lending to you right now / can't reach / ended); Activity writes compute requests as "ran a task", "asked whether it is lent to them", "was refused" | The prototype's "number of cores, hours per day" are not controlled by the core, so the UI offers only limits the core actually enforces; without a borrower side the invite code could only be used on the command line, so the borrower side first gets as far as accepting and seeing availability, and actually handing tasks to the other side comes with M4's borrowed compute; the other side pausing and revoking both return a refusal, not told apart by design. See architecture §12, §13.4 |
+| 2026-11-04 | Dashboard plugins v1 (M2e): a plugin is a folder of web files with `oikome-plugin.json` (what it reads: a shape plus the column types it needs; card size; entry page), installed in `.oikome/plugins/<id>/`, and Oikome's own two (spending by category, photos from a year ago) are built into the node; each plugin gets its own DID at install and has whole-Space grants only on the Collections the owner chose, the app reads as the plugin through `plugin_read`, and the node's grants decide; the pages are served separately by the server: CSP with all connections, child frames, workers and forms set to none, `sandbox allow-scripts`, devices disabled, DNS prefetch off; Chromium does not honor CSP `webrtc 'block'`, and testing showed STUN packets could still be sent from inside the sandbox, so the server injects the SDK as the first script, which deletes the RTC constructors first, and nested frames, workers and eval are all blocked; plugin reads are recorded in Activity (once per 10 minutes for the same plugin and Collection, every refusal recorded); new Plugins page and From your plugins in Add a Card; also unified spacing per the prototype (card headers, list rows, page margins, two-column proportions, dialogs) | M2's exit criterion is that a plugin can read only data within its grant and cannot reach the network; authorization is left to the node rather than the page, so even a broken page cannot read anything else; network isolation was tested item by item (fetch, images, beacon, WebSocket, navigation, pop-ups, WebRTC), and WebRTC is the one that CSP cannot govern. See architecture §13.4 |
+| 2026-11-04 | Activity records the owner's own first steps: setting up the data center, adding the examples, saving the recovery key, written as "You · This computer"; the "set up the data center" line is not removed by the 90-day cleanup; data centers set up earlier get these recorded once, using the time stored in settings | Activity is where the owner sees what happened to their data, and it should start from the first run. See architecture §9 |
+| 2026-11-04 | Activity writes "who" the way the owner knows them: you, a person, a plugin or Unknown; a person's name is, in order, the contact name, the name they gave in an invite or when lending compute, then the name recorded at removal; when a contact or plugin is removed, its name is recorded in the `names` table beside the access log and kept as long as the records; names callers give themselves in requests are not used | Being in contacts or not is not identity; the records of removed plugins and contacts must still say who it was; anyone can impersonate a self-given name. See architecture §9, §13.4 |
+| 2026-11-04 | Sources can be paused (`paused` in `sources.json`: not read when due, can still be read manually), and sync frequency can be 1, 5 or 30 minutes, hourly, daily or manual; removal asks first and keeps the collection, and adding the same file or folder again (by its real path, recorded in `node.json`) goes back to the original collection; each source has a detail page, sync records are kept for 30 days in the collection's hidden table `_oikome_source_runs`, with consecutive identical results merged into one row; the More menu becomes a top-level popover, no longer clipped by the table | The old "Stop" unregistered the source: it vanished from the list, and adding it again could only create a new collection; what users meant by stop was actually pause; a source read every minute would flood the records with "nothing new". See architecture §11, §13.4 |
+| 2026-11-04 | Devices are split into two kinds by which way data flows (not implemented yet, comes with the phone and desktop apps). **Devices that read data** must pair: phones and tablets scan a QR code on this computer; another computer is found by mDNS on the same network, and both sides check 6 digits computed from both DIDs, or enter or paste a pairing code (when discovery fails, e.g. the network does not allow multicast). After pairing, the node signs a UCAN for the device's DID, read-only by default, revoked on removal. **Devices that produce data** (lights, sensors, appliances, robot vacuums, watches, scales) come in as sources, through a home hub (Home Assistant), the maker's cloud (public APIs only), the phone's health app, or a direct connection. Paired devices must be on the same network for now (no STUN, TURN or relay); the UI entry is called Add a Device, and only the confirm button after checking the digits is called Pair. Undecided: what another computer counts as; which management operations a device can perform; whether to integrate Matter read-only; whether to have a unified Devices page | Pairing and removal reuse the node's existing grants and revocation, so nothing new has to be trusted; appliances and sensors never read the data center, and Oikome only reads devices, never controls them, and is not a smart-home hub; Add is consistent with the other Adds and also covers devices that need no pairing. See architecture §13.5 |
+| 2026-11-04 | All docs moved into `docs/`: the architecture document `oikome_architecture_v3.md` renamed to `docs/architecture.md`, v1 and v2 deleted (kept only in git history); the user-facing PRD moved from Claude Docs to `docs/prd.md` and synced once against the architecture document and the prototype; the design directory outside the repository, `~/Documents/oikome-design/`, moved whole into `docs/prototype/`, the original directory deleted after checking they matched, and from now on only the copy in the repository is edited (`prototype.html`, `i18n/`, photos in `lisbon/pick/`, `references/`); `.gitignore` no longer ignores `docs/` | The docs were too scattered: the architecture at the root, the PRD outside the repository, the prototype without version control, so changes did not line up; v3 is the current architecture, and keeping the version number and old versions only leads to misreading |
+| 2026-11-04 | Viewing in place + Save To + sharing: files in local folders and on each storage are browsed and queried in place through read-only in-place Spaces, with the index as a cache on the node; only when the owner chooses to save (Save To) is anything copied, to plain files or a new Space, once or continuing; a saved Space is shared on its own and can also be shown as a portfolio; sharing with anyone goes through public shares (3.8), photos without location data by default; added 3.9–3.11; photo editing is done in other software | The owner wants to see the data in any storage and app without copying it first; copying is a deliberate choice with a target and rules; a saved Space is decoupled from its source. See architecture §7.7–§7.9 |
+| 2026-11-04 | Storages are both sources and targets: viewing a cloud drive in place needs read access to the whole drive, requested separately, used first during testing, and put through Google's review before the official release; storing Spaces and Save To use only the least permission; 3.4c does only Google Drive and Dropbox, first upgrading opendal to the latest release, with large files using both drives' chunked uploads (added in the forked opendal and contributed upstream, not stored as several parts on the drive), and OneDrive stays on its sync folder; 3.4d writes Baidu Netdisk as an opendal service, kept in Oikome's fork, with a PR upstream after the combined real-account testing (apache/opendal#8481), no separate client written inside Oikome; 3.4e object storage through opendal `s3`, encrypted by default | With access only to the files it created itself, viewing in place is impossible, and requesting separately keeps whole-drive access optional; opendal's `onedrive` needs whole-drive read-write access, and 3.4d also needs the latest release; one service is usable by every opendal user, and if upstream does not take it, it stays in the fork or moves into a crate of its own; one S3 service covers AWS, R2, B2, MinIO and the S3 endpoints of OSS and COS. See architecture §7.5 |
 
 ---
 
-*本文档是活文档。实践演变时更新它。*
-*所有 Agent 每次开发会话前 **必须** 读取本文件。*
+*This is a living document. Update it as practices evolve.*
+*All agents **must** read this file before every development session.*

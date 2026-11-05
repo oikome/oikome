@@ -15,7 +15,7 @@
 //! Nodes talking to each other over Arrow Flight (3.1a exit criteria):
 //! a UCAN-gated federated query, and revocation cutting access.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 

@@ -15,7 +15,7 @@
 //! Subscription (3.1b): copying another node's Space with `space/read` and
 //! querying the copy locally.
 
-mod common;
+use crate::common;
 
 use common::{ints, strings, Node};
 

@@ -15,7 +15,7 @@
 //! Discovery (3.1c): nodes find each other's Flight endpoints by DID, and
 //! remote Spaces work without a PEER address.
 
-mod common;
+use crate::common;
 
 use std::time::Duration;
 
@@ -176,7 +176,7 @@ async fn an_owner_that_moved_is_found_at_its_new_address() {
 /// mDNS needs multicast on the host's network, which CI containers often
 /// lack, and a host firewall that lets the test binary receive it (the
 /// macOS application firewall blocks new unsigned binaries). Run by hand:
-/// `cargo test -p oikome-server --test discovery -- --ignored`.
+/// `cargo t --test server -- discovery:: --ignored`.
 #[tokio::test]
 #[ignore]
 async fn nodes_on_the_same_network_find_each_other_with_mdns() {

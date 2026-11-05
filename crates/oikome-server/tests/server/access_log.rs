@@ -16,7 +16,7 @@
 //! peer request is recorded with its caller, Spaces and token, refusals
 //! included; a whole-Space grant lets a peer copy tables created after it.
 
-mod common;
+use crate::common;
 
 use std::time::Duration;
 

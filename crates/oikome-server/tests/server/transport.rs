@@ -15,7 +15,7 @@
 //! Transport between nodes (3.1c): TLS pinned to the owner's DID, and
 //! plaintext only where a node allows it.
 
-mod common;
+use crate::common;
 
 use common::{ints, Node};
 

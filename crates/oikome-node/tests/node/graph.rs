@@ -17,7 +17,7 @@
 //!
 //! Tests marked `#[ignore]` need the `lance` and `duckpgq` extensions; they
 //! download them once into the target directory
-//! (`cargo test -p oikome-node --test graph -- --ignored`).
+//! (`cargo t --test node -- graph:: --ignored`).
 
 use std::path::PathBuf;
 use std::sync::Arc;

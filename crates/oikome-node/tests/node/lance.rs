@@ -16,7 +16,7 @@
 //! through DuckDB's `lance` extension.
 //!
 //! Tests marked `#[ignore]` need the extension; they download it once into
-//! the target directory (`cargo test -p oikome-node --test lance -- --ignored`).
+//! the target directory (`cargo t --test node -- lance:: --ignored`).
 
 use std::path::PathBuf;
 use std::sync::Arc;

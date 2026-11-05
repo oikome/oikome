@@ -1,6 +1,9 @@
 # Only line tables, for dependencies and for the workspace's own crates:
 # backtraces keep file and line, and the dozens of test binaries (each links
-# DuckDB, DataFusion and Lance) stay a fraction of their size.
+# DuckDB, DataFusion and Lance) stay a fraction of their size. Dropping them
+# for dependencies too was tried on 2026-11-04: it saved about 1 GB of
+# libraries and nothing on the test binaries (on macOS the line tables stay
+# out of the linked binary), not worth losing their lines in backtraces.
 [profile.dev]
 debug = "line-tables-only"
 
@@ -22,14 +25,14 @@ rustflags = ["-C", "symbol-mangling-version=v0"]
 rustflags = ["-C", "symbol-mangling-version=v0", "--cfg", 'getrandom_backend="wasm_js"']
 
 [alias]
-# `cargo sweep` is cargo-sweep's own subcommand, so an alias with that name
-# would call itself. `cargo sweep-old` removes artifacts unused for 30 days.
-sweep-old = "sweep --time 30"
-# Keep target/ under 30 GB by removing the oldest artifacts. Each new mix of
-# packages and features (`-p a` vs `-p b`, tests vs binaries) builds and
-# keeps another copy of the dependencies and test binaries, so target/ only
-# grows, and every git worktree has a target/ of its own; run this when it is
-# large (needs `cargo install cargo-sweep`).
-trim = "sweep --maxsize 30GB"
+# The one shape of each job (AGENT.md §6.2.1): always over the whole workspace,
+# narrowed with --bin, --test, --lib or a name filter, never with -p, so every
+# run resolves dependency features the same way and reuses one set of builds.
+#   cargo node                  the `oikome` binary
+#   cargo t --test api          one test file; `cargo t --lib -- sources` unit tests by name
+#   cargo lint                  clippy over every target, warnings as errors
+node = "build --workspace --bin oikome"
+t = "test --workspace"
+lint = "clippy --workspace --all-targets -- -D warnings"
 
 check-tests = "test --no-run"

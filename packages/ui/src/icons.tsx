@@ -7,6 +7,7 @@ import type { ReactElement } from "react";
 
 export type IconName =
   | "activity"
+  | "ai"
   | "back"
   | "check"
   | "chevron"
@@ -43,6 +44,7 @@ export type IconName =
 
 const PATHS: Record<IconName, ReactElement> = {
   activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
+  ai: <path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 10.9 10.1 9z" />,
   drive: <path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 11.6 3.5 3.5 0 0 0 7 18.5z" />,
   folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
   home: <path d="M4 10.75 12 4.5l8 6.25V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z" />,

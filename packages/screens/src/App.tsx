@@ -16,6 +16,7 @@ import { Palette } from "./palette";
 import { BackLink } from "./parts";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
+import { Assistants } from "./screens/Assistants";
 import { Plugins } from "./screens/Plugins";
 import { SourceDetail } from "./screens/SourceDetail";
 import { placeName, Sources } from "./screens/Sources";
@@ -48,6 +49,7 @@ const NAV: NavItem[] = [
   { to: "/collections", label: strings.nav.collections, icon: "collection" },
   { to: "/sources", label: strings.nav.sources, icon: "download" },
   { to: "/sharing", label: strings.nav.sharing, icon: "person-plus" },
+  { to: "/assistants", label: strings.nav.assistants, icon: "ai" },
   { to: "/plugins", label: strings.nav.plugins, icon: "plugin" },
   { to: "/activity", label: strings.nav.activity, icon: "activity" },
 ];
@@ -116,7 +118,7 @@ function Root() {
     } catch {
       // A malformed address names no collection; the page says so.
     }
-    screen = <Collection key={name} name={name} />;
+    screen = <Collection key={name} name={name} item={{ table: query.get("table"), key: query.getAll("item") }} />;
   } else if (path === "/sharing") {
     screen = (
       <Sharing
@@ -132,6 +134,8 @@ function Root() {
   } else if (path.startsWith("/sources/")) {
     const name = decodeSafe(path.slice("/sources/".length));
     screen = <SourceDetail key={name} name={name} />;
+  } else if (path === "/assistants") {
+    screen = <Assistants startConnecting={query.get("connect") === "1"} />;
   } else if (path === "/plugins") {
     screen = <Plugins info={info} onInfo={setInfo} />;
   } else if (path === "/activity") {

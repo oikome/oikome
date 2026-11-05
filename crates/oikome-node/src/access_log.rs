@@ -97,6 +97,13 @@ pub struct AccessEntry {
     pub outcome: Outcome,
     /// Why it was refused or failed; never shown to the caller.
     pub reason: Option<String>,
+    /// What it asked for, where that says more (an assistant's search
+    /// words); shown to the owner only.
+    pub detail: Option<String>,
+    /// Counted into the line before when that is the same request (caller,
+    /// method and Spaces) in the same minute: an assistant reading row
+    /// after row is one line with a count.
+    pub merge: bool,
 }
 
 /// A stored row.
@@ -111,8 +118,10 @@ pub struct AccessRecord {
     pub token_id: Option<String>,
     pub outcome: Outcome,
     pub reason: Option<String>,
-    /// Requests merged into this row (failed authentications); 1 otherwise.
+    /// Requests merged into this row (failed authentications, merged
+    /// reads); 1 otherwise.
     pub count: u64,
+    pub detail: Option<String>,
 }
 
 /// Which rows [`AccessLog::list`] returns, newest first.
@@ -175,6 +184,15 @@ fn open_connection(path: &Path) -> Result<Connection, rusqlite::Error> {
              at_ms  INTEGER NOT NULL
          );",
     )?;
+    // Logs from before M3d have no `detail`.
+    let has_detail: bool = conn.query_row(
+        "SELECT count(*) > 0 FROM pragma_table_info('access') WHERE name = 'detail'",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_detail {
+        conn.execute("ALTER TABLE access ADD COLUMN detail TEXT", [])?;
+    }
     Ok(conn)
 }
 
@@ -233,14 +251,24 @@ fn prune(conn: &Connection) -> Result<(), rusqlite::Error> {
 
 /// The writer thread: insert entries until every sender is gone.
 fn write_loop(conn: Connection, rx: Receiver<AccessEntry>) {
-    // Failed authentications of the current minute: method -> (row, minute).
+    // Failed authentications of the current minute by method, and merged
+    // requests by caller, method and Spaces -> (row, minute).
     let mut merged: std::collections::HashMap<String, (i64, u64)> = Default::default();
     let mut writes = 0u64;
     for entry in rx {
         let result = (|| -> Result<(), rusqlite::Error> {
-            if entry.caller.is_none() {
+            let key = match (&entry.caller, entry.merge) {
+                (None, _) => Some(entry.method.clone()),
+                (Some(caller), true) => Some(format!(
+                    "{}\u{0}{caller}\u{0}{}",
+                    entry.method,
+                    encode_spaces(&entry.spaces)
+                )),
+                (Some(_), false) => None,
+            };
+            if let Some(key) = &key {
                 let minute = entry.at_ms / 60_000;
-                if let Some(&(id, m)) = merged.get(&entry.method) {
+                if let Some(&(id, m)) = merged.get(key) {
                     if m == minute {
                         let changed = conn.execute(
                             "UPDATE access SET count = count + 1 WHERE id = ?1",
@@ -253,8 +281,8 @@ fn write_loop(conn: Connection, rx: Receiver<AccessEntry>) {
                 }
             }
             conn.execute(
-                "INSERT INTO access (at_ms, caller, method, spaces, token_id, outcome, reason)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO access (at_ms, caller, method, spaces, token_id, outcome, reason, detail)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     entry.at_ms as i64,
                     entry.caller,
@@ -263,13 +291,11 @@ fn write_loop(conn: Connection, rx: Receiver<AccessEntry>) {
                     entry.token_id,
                     entry.outcome.as_str(),
                     clip(entry.reason.clone()),
+                    clip(entry.detail.clone()),
                 ],
             )?;
-            if entry.caller.is_none() {
-                merged.insert(
-                    entry.method.clone(),
-                    (conn.last_insert_rowid(), entry.at_ms / 60_000),
-                );
+            if let Some(key) = key {
+                merged.insert(key, (conn.last_insert_rowid(), entry.at_ms / 60_000));
             }
             writes += 1;
             if writes.is_multiple_of(PRUNE_EVERY) {
@@ -356,7 +382,7 @@ impl AccessLog {
         let limit = query.limit.clamp(1, MAX_LIST_ROWS);
         let space = query.space.as_ref().map(|s| format!(",{s},"));
         let mut stmt = conn.prepare(
-            "SELECT id, at_ms, caller, method, spaces, token_id, outcome, reason, count
+            "SELECT id, at_ms, caller, method, spaces, token_id, outcome, reason, count, detail
              FROM access
              WHERE (?1 IS NULL OR id < ?1)
                AND (?2 IS NULL OR caller = ?2)
@@ -377,6 +403,7 @@ impl AccessLog {
                     outcome: Outcome::parse(&row.get::<_, String>(6)?),
                     reason: row.get(7)?,
                     count: row.get::<_, i64>(8)?.max(1) as u64,
+                    detail: row.get(9)?,
                 })
             },
         )?;
@@ -406,6 +433,8 @@ pub fn entry_now(method: &str) -> AccessEntry {
         token_id: None,
         outcome: Outcome::Failed,
         reason: None,
+        detail: None,
+        merge: false,
     }
 }
 
@@ -512,6 +541,46 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("failed authentications were not merged into one row");
+    }
+
+    #[test]
+    fn an_assistants_reads_merge_per_minute_and_its_words_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = AccessLog::open(dir.path()).unwrap();
+        let at_ms = 60_000 * 1_000_000;
+        log.record(AccessEntry {
+            at_ms,
+            method: "assistant_search".into(),
+            detail: Some("Pessoa".into()),
+            ..entry(Some("did:key:a"), &["notes"], Outcome::Allowed)
+        });
+        let read = |space: &str| AccessEntry {
+            at_ms,
+            method: "assistant_read".into(),
+            merge: true,
+            ..entry(Some("did:key:a"), &[space], Outcome::Allowed)
+        };
+        for _ in 0..3 {
+            log.record(read("notes"));
+        }
+        log.record(read("photos"));
+        // The searches, the notes read three times, the photos once.
+        for _ in 0..200 {
+            let rows = wait_for(&log, 3);
+            let notes = rows
+                .iter()
+                .find(|r| r.method == "assistant_read" && r.spaces == ["notes"]);
+            if rows.len() == 3 && notes.is_some_and(|r| r.count == 3) {
+                let search = rows
+                    .iter()
+                    .find(|r| r.method == "assistant_search")
+                    .unwrap();
+                assert_eq!(search.detail.as_deref(), Some("Pessoa"));
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("an assistant's reads were not merged per collection and minute");
     }
 
     #[test]

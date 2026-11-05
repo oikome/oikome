@@ -128,7 +128,7 @@ test("the owner creates a space, writes rows and reads them back", async () => {
   expect(written.kind).toBe("done");
 
   expect(await client.listTables({ space: "notes" })).toEqual([
-    { name: "memos", kind: "table", rows: 2 },
+    { name: "memos", kind: "table", rows: 2, key: [] },
   ]);
   const page = await client.readRows({ space: "notes", table: "memos" });
   expect(page.truncated).toBe(false);
@@ -137,6 +137,18 @@ test("the owner creates a space, writes rows and reads them back", async () => {
   const counted = await client.runSql({ sql: "SELECT count(*) AS n FROM notes.memos" });
   expect(counted.kind).toBe("rows");
   expect(Number(counted.table.get(0).n)).toBe(2);
+});
+
+test("the owner searches what the collections hold", async () => {
+  const found = await client.search({ query: "MILK" });
+  expect(found.skipped).toEqual([]);
+  expect(found.hits).toEqual([
+    expect.objectContaining({ collection: "notes", table: "memos", excerpt: "buy milk", key: null }),
+  ]);
+  const [mark] = found.hits[0].marks;
+  expect(found.hits[0].excerpt.slice(mark.start, mark.end)).toBe("milk");
+  expect((await client.search({ query: "milk", collection: "notes" })).hits).toHaveLength(1);
+  expect((await client.search({ query: "bread" })).hits).toEqual([]);
 });
 
 test("a contact reads a shared space until the share is revoked", async () => {

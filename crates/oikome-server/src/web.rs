@@ -56,7 +56,7 @@ use oikome_api::{
     PluginRead, PluginRef, ReadRow, ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery,
     ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
-use oikome_api::{FileRef, ListFiles, ViewInPlace};
+use oikome_api::{FileRef, ListFiles, SetNetwork, ViewInPlace};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
@@ -486,6 +486,8 @@ impl WebState {
             },
             "lending" => json_op!(lending, Empty),
             "set_lending" => json_op!(set_lending, SetLending),
+            "network" => json_op!(network, Empty),
+            "set_network" => json_op!(set_network, SetNetwork),
             "list_borrowed" => json_op!(list_borrowed, Empty),
             "stop_borrowing" => json_op!(stop_borrowing, BorrowedRef),
             "use_borrowed" => json_op!(use_borrowed, UseBorrowed),

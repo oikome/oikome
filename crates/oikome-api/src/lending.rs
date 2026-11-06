@@ -32,6 +32,7 @@ use oikome_semantic::{ComputeLimits, IssueComputeRequest};
 use serde::{Deserialize, Serialize};
 
 use crate::invites::{grant_of, invite_code, now_secs, read_private, Lends, What};
+use crate::network::lend_key;
 use crate::{
     Api, ApiError, BorrowStatus, Borrowed, BorrowedRef, Caller, Empty, LendInvite, Lending,
     LendingSaved, LentTo, SetLending, UseBorrowed,
@@ -64,16 +65,16 @@ pub(crate) struct Held {
 }
 
 /// A grant this node made to use it.
-struct Lent {
-    id: String,
-    did: String,
-    expires_at: u64,
+pub(crate) struct Lent {
+    pub(crate) id: String,
+    pub(crate) did: String,
+    pub(crate) expires_at: u64,
 }
 
 impl Api {
     /// Grants to use this computer that still work: every capability is a
     /// compute one on this node, and the token is neither revoked nor over.
-    fn lent(&self) -> Result<Vec<Lent>, ApiError> {
+    pub(crate) fn lent(&self) -> Result<Vec<Lent>, ApiError> {
         let node = format!("node://{}", self.node_did()?);
         let revoked = self.catalog.revoked_ucans();
         let now = now_secs();
@@ -95,6 +96,14 @@ impl Api {
                 expires_at: u.expires_at,
             })
             .collect())
+    }
+
+    /// Whether Oikome's computations are offered (to whoever is lent to).
+    pub(crate) fn lending_on(&self) -> bool {
+        self.catalog
+            .offered_compute()
+            .iter()
+            .any(|m| m == METHOD_SQL)
     }
 
     /// Whether this computer is lent, to whom, and how much each may use.
@@ -170,7 +179,7 @@ impl Api {
             concurrent: req.concurrent,
             per_hour: req.per_hour,
         };
-        let mut invites = Vec::new();
+        let mut issued_to = Vec::new();
         for did in &people {
             session.set_compute_quota(did, req.concurrent, req.per_hour)?;
             if lent.iter().any(|g| &g.did == did) {
@@ -187,26 +196,35 @@ impl Api {
                 },
                 lifetime_secs: LEND_DAYS * 86_400,
             })?;
-            invites.push(LendInvite {
-                did: did.clone(),
-                name: self
-                    .catalog
-                    .get_contact(did)
-                    .map(|c| c.name)
-                    .unwrap_or_default(),
-                invite: invite_code(
-                    &issued.token,
-                    self.flight_url.as_deref(),
-                    &from,
-                    Some(lends),
-                ),
-            });
+            issued_to.push((did.clone(), issued.token));
         }
         if req.on && !people.is_empty() {
             session.offer_compute(METHOD_SQL)?;
         } else {
             session.withdraw_compute(METHOD_SQL)?;
         }
+        // Asked only when lending is on: then the people lent to reach it.
+        let keys: Vec<String> = people.iter().map(|d| lend_key(d)).collect();
+        self.reach_for(req.reach.filter(|_| req.on), &keys).await?;
+        let record = self.address_record();
+        let invites = issued_to
+            .into_iter()
+            .map(|(did, token)| LendInvite {
+                name: self
+                    .catalog
+                    .get_contact(&did)
+                    .map(|c| c.name)
+                    .unwrap_or_default(),
+                invite: invite_code(
+                    &token,
+                    self.flight_url.as_deref(),
+                    &from,
+                    Some(lends),
+                    record.clone(),
+                ),
+                did,
+            })
+            .collect();
         Ok(LendingSaved {
             lending: self.lending(caller, Empty {}).await?,
             invites,

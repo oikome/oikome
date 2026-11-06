@@ -34,6 +34,7 @@ mod examples;
 mod in_place;
 mod invites;
 mod lending;
+mod network;
 mod places;
 mod plugins;
 mod search;
@@ -122,6 +123,18 @@ struct NodeSettings {
     /// in place now (3.9); done once.
     #[serde(default)]
     folders_in_place: bool,
+    /// What to do when something needs this computer reached from outside
+    /// its network (3.12).
+    #[serde(default)]
+    reach_policy: ReachPolicy,
+    /// Shares (`share:<id>`) and lending (`lend:<did>`) the owner allowed
+    /// to be reached from outside, one at a time; each ends with its share
+    /// or lending.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    reach_for: Vec<String>,
+    /// The owner turned off helping contacts meet here.
+    #[serde(default)]
+    help_contacts_off: bool,
 }
 
 /// The owner's own steps in Activity: setting up this data center, adding
@@ -218,6 +231,8 @@ pub struct Api {
     plugin_reads: Arc<std::sync::Mutex<HashMap<(String, String), u64>>>,
     /// Summaries worked out on a lent computer, kept for a while.
     totals: Arc<std::sync::Mutex<HashMap<borrowing::KeptKey, borrowing::Kept>>>,
+    /// The node's peer-to-peer layer, in the serving process (3.12).
+    network: Option<Arc<dyn oikome_network::NodeNetwork>>,
 }
 
 impl std::fmt::Debug for Api {
@@ -309,7 +324,15 @@ impl Api {
             settings_lock: Arc::default(),
             plugin_reads: Arc::default(),
             totals: Arc::default(),
+            network: None,
         }
+    }
+
+    /// Reach peers and be reached across networks through `network` (the
+    /// serving process's peer-to-peer layer).
+    pub fn with_network(mut self, network: Arc<dyn oikome_network::NodeNetwork>) -> Self {
+        self.network = Some(network);
+        self
     }
 
     /// Read access history from `log`; without one, `list_access` is empty.
@@ -1213,6 +1236,7 @@ impl Api {
         }
         let contact = self.catalog.remove_contact(&req.did)?;
         self.remember_name(&contact.did, &contact.name);
+        self.update_reach();
         Ok(RemovedContact {
             contact: contact_of(contact),
             revoked_shares,
@@ -1226,6 +1250,7 @@ impl Api {
     /// are not shares), newest first.
     fn shares(&self) -> Result<Vec<Share>, ApiError> {
         let prefix = format!("space://{}/", self.node_did()?);
+        let settings = self.settings()?;
         let revoked = self.catalog.revoked_ucans();
         let names: BTreeMap<String, String> = self
             .catalog
@@ -1262,7 +1287,10 @@ impl Api {
             } else {
                 ShareStatus::Active
             };
+            let reach_outside = status == ShareStatus::Active
+                && network::allowed(&settings, &network::share_key(&ucan.id));
             shares.push(Share {
+                reach_outside,
                 contact_name: names.get(&ucan.audience).cloned(),
                 id: ucan.id,
                 space,
@@ -1334,6 +1362,8 @@ impl Api {
                 return Err(e.into());
             }
         };
+        self.reach_for(req.reach, &[network::share_key(&issued.id)])
+            .await?;
         Ok(NewShare {
             id: issued.id,
             space: req.space,
@@ -1349,6 +1379,7 @@ impl Api {
                 self.flight_url.as_deref(),
                 &self.settings()?.name,
                 None,
+                self.address_record(),
             ),
             token: issued.token,
         })
@@ -1395,6 +1426,7 @@ impl Api {
         if grant_removed {
             session.revoke_space(&share.space, std::slice::from_ref(&share.did))?;
         }
+        self.update_reach();
         Ok(RevokedShare {
             id: share.id.clone(),
             grant_removed,

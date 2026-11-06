@@ -76,6 +76,8 @@ async function serveWeb(root) {
       "--p2p-listen",
       "/ip4/127.0.0.1/tcp/0",
       "--no-mdns",
+      // Never the router of the computer the tests run on.
+      "--no-port-mapping",
       "--web",
       "--web-listen",
       "127.0.0.1:0",
@@ -669,6 +671,17 @@ test("a contact adds the invite in their own Oikome, reads it, and leaves it onc
   await expect(newShare).toBeVisible();
   await newShare.getByLabel("Collection").selectOption("notes");
   await page.getByRole("button", { name: "Share notes with Bob" }).click();
+  // First, whether Bob may reach it from outside this network: asked, this once.
+  const asked = page.getByRole("dialog", { name: "Let people reach this computer from outside your network?" });
+  await expect(asked).toContainText(
+    "To share notes with Bob wherever they are, Oikome needs to open a port on your router.",
+  );
+  await expect(asked).toContainText("Oikome's own pages and your AI assistants stay on this computer only.");
+  await expect(asked).toContainText(
+    "The port stays open while you share notes with Bob, and closes when nothing needs it.",
+  );
+  await asked.getByRole("button", { name: "Deny" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Bob can reach notes only on your network.");
   await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
   const invite = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   expect(invite).toMatch(/^oik1-/);
@@ -676,6 +689,7 @@ test("a contact adds the invite in their own Oikome, reads it, and leaves it onc
   const shareRow = page.locator(".screen-table-in-card tr", { hasText: "Bob" });
   await expect(shareRow).toContainText("notes");
   await expect(shareRow).toContainText("View live");
+  await expect(shareRow).toContainText("Bob can reach this only on your network.");
 
   // Bob, past his own first run, adds the invite on Sharing.
   contactContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -770,6 +784,15 @@ test("Home lends this computer to Bob, who adds it and sees when lending is paus
   await lend.getByRole("checkbox", { name: /Bob/ }).check();
   await lend.getByRole("radio", { name: "2 tasks" }).click();
   await lend.getByRole("button", { name: "Save" }).click();
+  // Allowed this once; the router of a test run is never asked, so it says it didn't open.
+  const asked = page.getByRole("dialog", { name: "Let people reach this computer from outside your network?" });
+  await expect(asked).toContainText(
+    "The port stays open while you lend this computer to Bob, and closes when nothing needs it.",
+  );
+  await asked.getByRole("button", { name: "Allow" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText(
+    "Your router didn't open the port. Turn on UPnP in its settings, then try again.",
+  );
   await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
   const code = (await page.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   await page.getByRole("button", { name: "Done" }).click();
@@ -817,6 +840,10 @@ test("Bob lends Home his computer: big summaries of what he may see go there, th
   const lend = bob.getByRole("dialog", { name: "Lend This Computer" });
   await lend.getByRole("checkbox", { name: /Home/ }).check();
   await lend.getByRole("button", { name: "Save" }).click();
+  await bob
+    .getByRole("dialog", { name: "Let people reach this computer from outside your network?" })
+    .getByRole("button", { name: "Deny" })
+    .click();
   await expect(bob.getByRole("heading", { name: /This Invite Code$/ })).toBeVisible();
   const code = (await bob.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
   await bob.getByRole("button", { name: "Done" }).click();
@@ -909,6 +936,62 @@ test("Bob lends Home his computer: big summaries of what he may see go there, th
   // Back as it was for what follows (a plugin picks the one collection that fits it).
   await api("set_home_cards", { cards: homeCards });
   await api("drop_space", { space: "ledger" });
+});
+
+test("Settings › Network says what the port is open for, and Don't ask again stops the question", async () => {
+  // Lending was paused and the notes share stopped: what was allowed for them ended with them.
+  await page.goto(`${base}/settings`);
+  const network = page.getByRole("region", { name: "Network" });
+  await expect(network).toContainText("Reachable from outside");
+  await expect(network).toContainText("Only on your network");
+  await expect(network).toContainText("Nothing now");
+  await expect(network.getByLabel("When Oikome needs to be reached from outside")).toHaveValue("ask");
+
+  // Shared again, allowed with Don't ask again: the answer becomes the rule.
+  await page.goto(`${base}/sharing`);
+  await page.getByRole("button", { name: "New Share" }).click();
+  await page.getByRole("dialog", { name: "New Share" }).getByLabel("Collection").selectOption("spending");
+  await page.getByRole("button", { name: "Share spending with Bob" }).click();
+  const asked = page.getByRole("dialog", { name: "Let people reach this computer from outside your network?" });
+  await asked.getByRole("checkbox", { name: "Don't ask again" }).check();
+  await asked.getByRole("button", { name: "Allow" }).click();
+  await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  const spending = page.locator(".screen-table-in-card tr", { hasText: "spending" });
+  await expect(spending).not.toContainText("only on your network");
+
+  // Not asked any more.
+  await page.getByRole("button", { name: "New Share" }).click();
+  await page.getByRole("dialog", { name: "New Share" }).getByLabel("Collection").selectOption("notes");
+  await page.getByRole("button", { name: "Share notes with Bob" }).click();
+  await expect(page.getByRole("heading", { name: "Send Bob This Invite Code" })).toBeVisible();
+  await expect(asked).toHaveCount(0);
+  await page.getByRole("button", { name: "Done" }).click();
+
+  // Settings says what it is open for, why it isn't reached, and changes it back.
+  await page.goto(`${base}/settings`);
+  await expect(network).toContainText("Your router didn't allow it");
+  await expect(network).toContainText("Turn on UPnP in your router's settings");
+  await expect(network).toContainText("sharing spending with Bob");
+  await expect(network).toContainText("sharing notes with Bob");
+  const policy = network.getByLabel("When Oikome needs to be reached from outside");
+  await expect(policy).toHaveValue("always");
+  await policy.selectOption("ask");
+  await expect(page.locator(".oik-toasts")).toContainText("Saved.");
+  await expect(network).toContainText("Nothing now");
+  const help = network.getByRole("switch", { name: "Help my contacts reach each other" });
+  await expect(help).toHaveAttribute("aria-checked", "true");
+  await help.click();
+  await expect(help).toHaveAttribute("aria-checked", "false");
+  await help.click();
+  await expect(help).toHaveAttribute("aria-checked", "true");
+
+  // The shares made meanwhile stop, so the tests after start from a clean slate.
+  for (const share of await api("list_shares")) {
+    if (share.status === "active" && ["spending", "notes"].includes(share.space)) {
+      await api("revoke_share", { id: share.id });
+    }
+  }
 });
 
 test("a folder is viewed where it is: browsed, opened, queried, offline, and shared to view", async () => {

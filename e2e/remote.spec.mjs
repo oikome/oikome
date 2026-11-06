@@ -59,6 +59,8 @@ test.beforeAll(async () => {
       "--p2p-listen",
       "/ip4/127.0.0.1/tcp/0",
       "--no-mdns",
+      // Never the router of the computer the tests run on.
+      "--no-port-mapping",
       "--webrtc-listen",
       "127.0.0.1:0",
     ],

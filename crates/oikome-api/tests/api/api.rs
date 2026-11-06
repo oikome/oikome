@@ -101,6 +101,7 @@ async fn share(n: &Node, contact: &str, days: Option<u32>) -> NewShare {
                 did: contact.to_string(),
                 allow_copy: None,
                 expires_in_days: days,
+                reach: None,
             },
         )
         .await
@@ -225,6 +226,7 @@ async fn sharing_needs_a_contact_and_revoking_the_last_share_removes_the_grant()
                 did: bob.clone(),
                 allow_copy: None,
                 expires_in_days: None,
+                reach: None,
             },
         )
         .await
@@ -264,6 +266,7 @@ async fn sharing_needs_a_contact_and_revoking_the_last_share_removes_the_grant()
                     did: bob.clone(),
                     allow_copy: None,
                     expires_in_days: days,
+                    reach: None,
                 },
             )
             .await
@@ -354,6 +357,7 @@ async fn copies_are_for_analytical_spaces() {
                 did: bob,
                 allow_copy: Some(true),
                 expires_in_days: None,
+                reach: None,
             },
         )
         .await
@@ -463,6 +467,7 @@ async fn share_for(n: &Api, did: &str, days: u32) -> NewShare {
             did: did.to_string(),
             allow_copy: None,
             expires_in_days: Some(days),
+            reach: None,
         },
     )
     .await
@@ -1144,6 +1149,7 @@ async fn lending_this_computer_to_contacts_then_pausing_and_stopping() {
         people,
         concurrent,
         per_hour,
+        reach: None,
     };
 
     // Not lent yet; lending is to contacts, within limits.
@@ -2228,6 +2234,7 @@ async fn daily_totals_stay_here_unless_the_lender_may_read_all_of_a_big_collecti
                 people: vec![sam_did.clone()],
                 concurrent: 1,
                 per_hour: 30,
+                reach: None,
             },
         )
         .await
@@ -2366,6 +2373,7 @@ async fn daily_totals_stay_here_unless_the_lender_may_read_all_of_a_big_collecti
                 did: rosh_did.clone(),
                 allow_copy: None,
                 expires_in_days: None,
+                reach: None,
             },
         )
         .await
@@ -2629,6 +2637,7 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
                 did: bob.clone(),
                 allow_copy: Some(true),
                 expires_in_days: None,
+                reach: None,
             },
         )
         .await
@@ -2666,6 +2675,7 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
                 did: bob.clone(),
                 allow_copy: None,
                 expires_in_days: None,
+                reach: None,
             },
         )
         .await
@@ -2727,4 +2737,210 @@ fn image_png(out: &mut Vec<u8>) {
     }))
     .write_to(&mut std::io::Cursor::new(out), image::ImageFormat::Png)
     .unwrap();
+}
+
+/// 3.12: being reached from outside is allowed per share or lending, and
+/// ends with it; "Don't ask again" makes the answer the rule.
+#[tokio::test]
+async fn reaching_from_outside_is_allowed_one_share_at_a_time() {
+    let n = node();
+    notes(&n).await;
+    let bob = did(41);
+    let sam = did(42);
+    for (who, name) in [(&bob, "Bob"), (&sam, "Sam")] {
+        n.api
+            .add_contact(
+                &OWNER,
+                ContactInput {
+                    did: who.clone(),
+                    name: name.into(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(network.policy, ReachPolicy::Ask);
+    assert!(network.help_contacts);
+    assert!(network.open_for.is_empty());
+    // This process runs no peer-to-peer layer: only on this network.
+    assert!(!network.available);
+    assert_eq!(network.reachable, Reachable::LocalOnly);
+
+    let share_with = |who: String, reach: Option<ReachChoice>| ShareSpace {
+        space: "notes".into(),
+        did: who,
+        allow_copy: None,
+        expires_in_days: None,
+        reach,
+    };
+    // Allowed for Bob's share alone; Sam's denied.
+    let bobs = n
+        .api
+        .share_space(
+            &OWNER,
+            share_with(
+                bob.clone(),
+                Some(ReachChoice {
+                    allow: true,
+                    remember: None,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    let sams = n
+        .api
+        .share_space(
+            &OWNER,
+            share_with(
+                sam.clone(),
+                Some(ReachChoice {
+                    allow: false,
+                    remember: Some(false),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(network.policy, ReachPolicy::Ask);
+    assert_eq!(
+        network.open_for,
+        vec![OpenFor {
+            kind: OpenForKind::Share,
+            id: bobs.id.clone(),
+            name: "Bob".into(),
+            space: Some("notes".into()),
+        }]
+    );
+    let shares = n
+        .api
+        .list_shares(&OWNER, ListShares::default())
+        .await
+        .unwrap();
+    let outside = |id: &str| shares.iter().find(|s| s.id == id).unwrap().reach_outside;
+    assert!(outside(&bobs.id));
+    assert!(!outside(&sams.id));
+
+    // Stopping Bob's share ends what was allowed for it.
+    n.api
+        .revoke_share(
+            &OWNER,
+            ShareRef {
+                id: bobs.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert!(network.open_for.is_empty());
+    // A new share with Bob is asked about again.
+    let again = share(&n, &bob, None).await;
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert!(network.open_for.is_empty());
+
+    // "Don't ask again" with Allow: every share, now and later.
+    n.api
+        .share_space(
+            &OWNER,
+            share_with(
+                bob.clone(),
+                Some(ReachChoice {
+                    allow: true,
+                    remember: Some(true),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(network.policy, ReachPolicy::Always);
+    assert!(network.open_for.iter().any(|o| o.id == again.id));
+    assert!(network.open_for.iter().any(|o| o.id == sams.id));
+
+    // Settings › Network changes it back, or to never.
+    let network = n
+        .api
+        .set_network(
+            &OWNER,
+            SetNetwork {
+                policy: Some(ReachPolicy::Never),
+                help_contacts: Some(false),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(network.policy, ReachPolicy::Never);
+    assert!(!network.help_contacts);
+    assert!(network.open_for.is_empty());
+
+    // Lending: allowed for the people lent to, while lent.
+    n.api
+        .set_network(
+            &OWNER,
+            SetNetwork {
+                policy: Some(ReachPolicy::Ask),
+                help_contacts: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .set_lending(
+            &OWNER,
+            SetLending {
+                on: true,
+                people: vec![sam.clone()],
+                concurrent: 1,
+                per_hour: 10,
+                reach: Some(ReachChoice {
+                    allow: true,
+                    remember: None,
+                }),
+            },
+        )
+        .await
+        .unwrap();
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(
+        network.open_for,
+        vec![OpenFor {
+            kind: OpenForKind::Lend,
+            id: sam.clone(),
+            name: "Sam".into(),
+            space: None,
+        }]
+    );
+    n.api
+        .set_lending(
+            &OWNER,
+            SetLending {
+                on: false,
+                people: vec![sam.clone()],
+                concurrent: 1,
+                per_hour: 10,
+                reach: None,
+            },
+        )
+        .await
+        .unwrap();
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert!(network.open_for.is_empty());
+    // Lent again, it is asked about again: the answer ended with the pause.
+    n.api
+        .set_lending(
+            &OWNER,
+            SetLending {
+                on: true,
+                people: vec![sam.clone()],
+                concurrent: 1,
+                per_hour: 10,
+                reach: None,
+            },
+        )
+        .await
+        .unwrap();
+    let network = n.api.network(&OWNER, Empty {}).await.unwrap();
+    assert!(network.open_for.is_empty());
 }

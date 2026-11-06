@@ -22,6 +22,8 @@ import type { TileTone } from "@oikome/ui";
 import type { Contact, NewShare, Share, SpaceSummary } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { dateFromSeconds } from "../format";
+import { useReachPrompt, toastReach } from "../reach";
+import type { ReachFor } from "../reach";
 import { navigate } from "../router";
 import { strings } from "../strings";
 
@@ -58,6 +60,7 @@ export function ShareDialog({
   const share = useAction();
   const stop = useAction();
   const toast = useToast();
+  const reach = useReachPrompt();
 
   // A folder viewed in place is shared to view where it is, never to copy.
   const picked = spaces.find((x) => x.name === space);
@@ -119,6 +122,7 @@ export function ShareDialog({
   }
 
   return (
+    <>
     <Dialog
       title={title}
       closeLabel={close}
@@ -142,17 +146,23 @@ export function ShareDialog({
         id="share-form"
         onSubmit={async (e) => {
           e.preventDefault();
+          // Asked first, when the rule is to ask; going back shares nothing.
+          const what: ReachFor = { kind: "share", collection: space, name: chosen?.name ?? "" };
+          const choice = await reach.ask(what);
+          if (choice === null) return;
           const result = await share.run(() =>
             client.shareSpace({
               space,
               did,
               allowCopy: copyable && access === "copy",
               expiresInDays: Number(ends),
+              reach: choice,
             }),
           );
           if (result) {
             setMade(result);
             onChange();
+            void toastReach(client, toast, what, choice);
           }
         }}
       >
@@ -229,6 +239,9 @@ export function ShareDialog({
                   <span className="screen-share-person__meta">
                     {s.accessUntil(x.access === "copy", dateFromSeconds(x.expiresAt))}
                   </span>
+                  {!x.reachOutside && (
+                    <span className="screen-share-person__meta">{strings.reach.onlyOnNetwork(name)}</span>
+                  )}
                 </span>
                 <Button
                   variant="quiet"
@@ -251,5 +264,7 @@ export function ShareDialog({
         {stop.error && <ErrorText>{stop.error}</ErrorText>}
       </section>
     </Dialog>
+    {reach.prompt}
+    </>
   );
 }

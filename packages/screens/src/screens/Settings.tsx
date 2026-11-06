@@ -17,13 +17,16 @@ import {
   Menu,
   Row,
   Segmented,
+  Select,
   Status,
+  Switch,
   TextField,
   Tile,
   useToast,
 } from "@oikome/ui";
 import type { IconName, TileTone } from "@oikome/ui";
-import type { NodeInfo, StorageSummary } from "@oikome/client";
+import type { Network, NodeInfo, ReachPolicy, StorageSummary } from "@oikome/client";
+import type { StatusKind } from "@oikome/ui";
 import { useAction, useClient, useLoad } from "../data";
 import { RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { bytes, dateFromMs, homeRelative, middle, shortId } from "../format";
@@ -222,6 +225,89 @@ function Appearance() {
         title={s.languageTitle}
         trailing={<span className="oik-row__value">{s.language}</span>}
       />
+    </Group>
+  );
+}
+
+const REACH_LOOK: Record<Network["reachable"], StatusKind> = {
+  direct: "ok",
+  through_contact: "ok",
+  local_only: "off",
+  opening: "run",
+  router_refused: "bad",
+  shared_address: "bad",
+};
+
+/**
+ * Whether people outside this computer's network reach it, for what, and
+ * what Oikome does when something needs that (3.12).
+ */
+function NetworkSettings() {
+  const client = useClient();
+  const toast = useToast();
+  const network = useLoad(() => client.network(), []);
+  const save = useAction();
+  const [changed, setChanged] = useState<Network>();
+  const n = changed ?? network.data;
+  if (!n) return network.error ? <Group title={s.networkTitle}><Row title={network.error} muted /></Group> : null;
+  const reachable =
+    n.reachable === "through_contact" ? s.reachable.through_contact(n.through ?? "") : s.reachable[n.reachable];
+  const help =
+    n.reachable === "router_refused" || n.reachable === "shared_address" ? s.reachHelp[n.reachable] : undefined;
+  const openFor =
+    n.openFor.length === 0
+      ? s.openForNothing
+      : n.openFor
+          .map((o) => (o.kind === "share" ? s.openForShare(o.space ?? "", o.name) : s.openForLend(o.name)))
+          .join(", ");
+  const change = async (request: { policy?: ReachPolicy; helpContacts?: boolean }) => {
+    const updated = await save.run(() => client.setNetwork(request));
+    if (updated) {
+      setChanged(updated);
+      toast(s.networkSaved);
+    }
+  };
+  return (
+    <Group title={s.networkTitle} footnote={s.networkFootnote}>
+      <Row
+        overline={s.reachableLabel}
+        title={
+          <span className="screen-row-stack">
+            <Status kind={REACH_LOOK[n.reachable]}>{reachable}</Status>
+            {help && <span className="screen-row-note">{help}</span>}
+          </span>
+        }
+      />
+      <Row overline={s.openForLabel} title={<span className="screen-row-prose">{openFor}</span>} />
+      <GroupPanel>
+        <Select
+          label={s.whenNeeded}
+          value={n.policy}
+          onChange={(value) => void change({ policy: value as ReachPolicy })}
+          options={[
+            { value: "ask", label: s.policy.ask },
+            { value: "always", label: s.policy.always },
+            { value: "never", label: s.policy.never },
+          ]}
+        />
+      </GroupPanel>
+      <Row
+        title={
+          <span className="screen-row-stack">
+            {s.helpContacts}
+            <span className="screen-row-note">{s.helpContactsBody}</span>
+          </span>
+        }
+        trailing={
+          <Switch
+            label={s.helpContacts}
+            checked={n.helpContacts}
+            disabled={save.busy}
+            onChange={(on) => void change({ helpContacts: on })}
+          />
+        }
+      />
+      {save.error && <Row title={save.error} muted />}
     </Group>
   );
 }
@@ -425,6 +511,7 @@ export function Settings({
             />
             <Row overline={s.version} title={<span className="oik-mono">{info.version}</span>} />
           </Group>
+          <NetworkSettings />
         </div>
       </div>
     </>

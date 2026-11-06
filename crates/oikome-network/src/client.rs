@@ -20,7 +20,6 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 use arrow_array::RecordBatch;
 use arrow_flight::encode::FlightDataEncoderBuilder;
@@ -41,10 +40,8 @@ use crate::protocol::{
     ACTION_COMPUTE_METHODS, ACTION_FETCH_FILE, ACTION_SNAPSHOT, HEADER_AUTH, HEADER_UCAN,
     METHOD_COMPUTE, METHOD_COMPUTE_METHODS, METHOD_FETCH_FILE, METHOD_SNAPSHOT,
 };
+use crate::route::{PeerDialer, PeerRoute, RouteConnector, CONNECT_TIMEOUT, DIAL_TIMEOUT};
 use crate::tls::{install_crypto_provider, DidCertVerifier};
-
-/// How long to wait for a TCP connection to a peer.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// TLS server name sent to every peer; peers are identified by DID instead.
 const PEER_SERVER_NAME: &str = "oikome.peer";
@@ -65,13 +62,15 @@ fn error_chain(e: &dyn std::error::Error) -> String {
 pub type ChunkStream = BoxStream<'static, Result<Bytes, EngineError>>;
 
 /// Calls one peer on behalf of this node, presenting one UCAN. Connects on
-/// first use.
+/// first use: to the peer's Flight endpoint, and when that doesn't answer
+/// (or none is known) over the node's peer-to-peer connection to it.
 pub struct PeerClient {
     peer: String,
     owner: Did,
     token: String,
     identity: Arc<NodeIdentity>,
     allow_http: bool,
+    dialer: Option<Arc<dyn PeerDialer>>,
     channel: OnceCell<Channel>,
 }
 
@@ -105,9 +104,10 @@ pub(crate) fn flight_to_engine(e: FlightError) -> EngineError {
 }
 
 impl PeerClient {
-    /// A client for the node `owner` at `peer` (`https://host:port`),
-    /// signing as `identity` and presenting `token`. Plaintext peers
-    /// (`http://`) are refused unless [`allow_http`](Self::allow_http) is set.
+    /// A client for the node `owner` at `peer` (`https://host:port`; empty
+    /// when only a [dialer](Self::with_dialer) reaches it), signing as
+    /// `identity` and presenting `token`. Plaintext peers (`http://`) are
+    /// refused unless [`allow_http`](Self::allow_http) is set.
     pub fn new(peer: String, owner: Did, token: String, identity: Arc<NodeIdentity>) -> Self {
         Self {
             peer,
@@ -115,8 +115,26 @@ impl PeerClient {
             token,
             identity,
             allow_http: false,
+            dialer: None,
             channel: OnceCell::new(),
         }
+    }
+
+    /// A client for the node `owner` along `route`.
+    pub fn routed(
+        route: PeerRoute,
+        owner: Did,
+        token: String,
+        identity: Arc<NodeIdentity>,
+    ) -> Self {
+        Self::new(route.endpoint.unwrap_or_default(), owner, token, identity)
+            .with_dialer(route.dialer)
+    }
+
+    /// Also reach the peer over the node's peer-to-peer connections.
+    pub fn with_dialer(mut self, dialer: Option<Arc<dyn PeerDialer>>) -> Self {
+        self.dialer = dialer;
+        self
     }
 
     /// Accept a plaintext (`http://`) peer.
@@ -139,10 +157,29 @@ impl PeerClient {
                         self.peer
                     )));
                 }
-                let mut endpoint = Endpoint::from_shared(self.peer.clone())
-                    .map_err(|e| EngineError::Remote(format!("invalid peer address: {e}")))?
-                    .connect_timeout(CONNECT_TIMEOUT);
-                if self.peer.starts_with("https://") {
+                let route = PeerRoute {
+                    endpoint: (!self.peer.is_empty()).then(|| self.peer.clone()),
+                    dialer: self.dialer.clone(),
+                };
+                if route.is_empty() {
+                    return Err(EngineError::Remote(format!(
+                        "no way to reach {} is known",
+                        self.owner
+                    )));
+                }
+                // With a dialer the connector tries both ways itself; the
+                // URL only says whether TLS runs on top.
+                let url = match route.dialer {
+                    Some(_) => format!("{}://{PEER_SERVER_NAME}", route.scheme()),
+                    None => self.peer.clone(),
+                };
+                let mut endpoint = Endpoint::from_shared(url)
+                    .map_err(|e| EngineError::Remote(format!("invalid peer address: {e}")))?;
+                endpoint = match route.dialer {
+                    Some(_) => endpoint.connect_timeout(CONNECT_TIMEOUT + DIAL_TIMEOUT),
+                    None => endpoint.connect_timeout(CONNECT_TIMEOUT),
+                };
+                if route.scheme() == "https" {
                     install_crypto_provider();
                     // The name is not checked (the certificate is pinned to
                     // the owner's DID); a fixed one avoids IPv6 literals.
@@ -152,8 +189,24 @@ impl PeerClient {
                         .tls_config_with_verifier(tls, pinned)
                         .map_err(|e| EngineError::Remote(format!("TLS setup: {e}")))?;
                 }
-                endpoint.connect().await.map_err(|e| {
-                    EngineError::Remote(format!("cannot reach {}: {}", self.peer, error_chain(&e)))
+                let target = if self.peer.is_empty() {
+                    self.owner.to_string()
+                } else {
+                    self.peer.clone()
+                };
+                let connected = match route.dialer.is_some() {
+                    true => {
+                        endpoint
+                            .connect_with_connector(RouteConnector {
+                                route,
+                                peer: self.owner.clone(),
+                            })
+                            .await
+                    }
+                    false => endpoint.connect().await,
+                };
+                connected.map_err(|e| {
+                    EngineError::Remote(format!("cannot reach {target}: {}", error_chain(&e)))
                 })
             })
             .await

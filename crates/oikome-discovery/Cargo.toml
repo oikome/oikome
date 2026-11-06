@@ -4,14 +4,22 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Oikome peer discovery on the local network (libp2p mDNS), recording each peer's Flight endpoint by DID"
+description = "Oikome peer-to-peer layer (libp2p): discovery on the local network, router port mapping, hole punching through contacts, and byte streams for Arrow Flight between nodes"
 
 [dependencies]
 oikome-catalog = { path = "../oikome-catalog" }
 oikome-identity = { path = "../oikome-identity" }
+base64 = { workspace = true }
 futures = { workspace = true }
 libp2p = { workspace = true }
+libp2p-stream = { workspace = true }
+oikome-network = { path = "../oikome-network" }
+rupnp = { workspace = true }
+crab_nat = { workspace = true }
+netdev = { workspace = true }
+tokio-util = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

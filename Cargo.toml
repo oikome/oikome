@@ -94,7 +94,17 @@ tonic = { version = "0.14.6", features = ["tls-ring"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["alloc", "ring"] }
-libp2p = { version = "0.57.1", default-features = false, features = ["tokio", "tcp", "noise", "yamux", "mdns", "identify", "request-response", "json", "macros", "ed25519"] }
+libp2p = { version = "0.57.1", default-features = false, features = ["tokio", "tcp", "noise", "yamux", "mdns", "identify", "request-response", "json", "macros", "ed25519", "relay", "dcutr"] }
+# Byte streams over libp2p connections: Arrow Flight between nodes on
+# different networks (3.12).
+libp2p-stream = "=0.5.0-alpha"
+# Ask the home router to open the node's port (3.12): UPnP IGD, and
+# NAT-PMP / PCP at the default gateway.
+rupnp = { version = "3.0.0", default-features = false }
+crab_nat = "0.8.1"
+netdev = { version = "0.46.3", default-features = false, features = ["gateway"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+tokio-util = { version = "0.7.19", features = ["compat"] }
 clap = { version = "4", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

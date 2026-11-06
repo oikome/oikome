@@ -36,6 +36,8 @@ import type { Borrowed, Contact, Invite, LendInvite, Lending, NodeInfo, Share, S
 import type { StatusKind } from "@oikome/ui";
 import type { Describe } from "../data";
 import { asSentence, useAction, useClient, useLoad } from "../data";
+import { toastReach, useReachPrompt } from "../reach";
+import type { ReachFor } from "../reach";
 import { ago, dateFromSeconds, fullId, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { navigate } from "../router";
@@ -168,6 +170,9 @@ export function Sharing({
                             <Avatar name={name} small />
                             {name}
                           </span>
+                          {on && !share.reachOutside && (
+                            <span className="screen-cell-sub">{strings.reach.onlyOnNetwork(name)}</span>
+                          )}
                         </td>
                         <td>
                           {on ? (
@@ -393,6 +398,7 @@ function Compute({
   const client = useClient();
   const toast = useToast();
   const act = useAction();
+  const reach = useReachPrompt();
   const names = (lending?.people ?? []).map((p) => p.name ?? strings.common.unknown);
   const meta = !lending
     ? undefined
@@ -402,6 +408,8 @@ function Compute({
           .filter(Boolean)
           .join(" · ");
   return (
+    <>
+    {reach.prompt}
     <Group title={s.compute} footnote={s.computeFootnote}>
       <Row
         leading={<Tile icon="cpu" tone="sage" />}
@@ -423,16 +431,22 @@ function Compute({
                   onLend();
                   return;
                 }
+                // Lent again: the people lent to reach it from outside only if allowed.
+                const what: ReachFor = { kind: "lend", names };
+                const choice = on ? await reach.ask(what) : undefined;
+                if (choice === null) return;
                 const saved = await act.run(() =>
                   client.setLending({
                     on,
                     people: lending.people.map((p) => p.did),
                     concurrent: lending.concurrent,
                     perHour: lending.perHour,
+                    reach: choice,
                   }),
                 );
                 if (saved) {
-                  toast(on ? s.lendOn : s.lendOff);
+                  if (choice) void toastReach(client, toast, what, choice);
+                  else toast(on ? s.lendOn : s.lendOff);
                   onChange();
                 }
               }}
@@ -489,6 +503,7 @@ function Compute({
         </GroupPanel>
       )}
     </Group>
+    </>
   );
 }
 
@@ -607,6 +622,7 @@ function LendDialog({
   const client = useClient();
   const toast = useToast();
   const save = useAction();
+  const reach = useReachPrompt();
   const [people, setPeople] = useState(() => new Set(lending.people.map((p) => p.did)));
   const [atOnce, setAtOnce] = useState(String(lending.concurrent));
   const [eachHour, setEachHour] = useState(String(lending.perHour));
@@ -641,6 +657,8 @@ function LendDialog({
   }
 
   return (
+    <>
+    {reach.prompt}
     <Dialog
       title={s.lendTitle}
       closeLabel={strings.common.close}
@@ -652,20 +670,31 @@ function LendDialog({
             variant="primary"
             disabled={save.busy || contacts.length === 0}
             onClick={async () => {
+              // Asked when someone new is lent to, or lending starts again:
+              // they reach this computer from outside only if allowed.
+              const added = [...people].filter((d) => !(lending.on && lending.people.some((p) => p.did === d)));
+              const what: ReachFor = {
+                kind: "lend",
+                names: added.map((d) => contacts.find((c) => c.did === d)?.name ?? strings.common.unknown),
+              };
+              const choice = added.length > 0 ? await reach.ask(what) : undefined;
+              if (choice === null) return;
               const saved = await save.run(() =>
                 client.setLending({
                   on: people.size > 0,
                   people: [...people],
                   concurrent: Number(atOnce),
                   perHour: Number(eachHour),
+                  reach: choice,
                 }),
               );
               if (!saved) return;
               onSaved();
+              if (choice) void toastReach(client, toast, what, choice);
               if (saved.invites.length > 0) {
                 setCodes(saved.invites);
               } else {
-                toast(s.lendSaved);
+                if (!choice) toast(s.lendSaved);
                 onClose();
               }
             }}
@@ -736,6 +765,7 @@ function LendDialog({
       <p className="screen-help">{s.lendHint(Math.round(lending.taskMs / 1000))}</p>
       {save.error && <ErrorText>{save.error}</ErrorText>}
     </Dialog>
+    </>
   );
 }
 

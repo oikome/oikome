@@ -2053,6 +2053,14 @@ a.screen-list__row:hover .screen-list__thumb {
   gap: var(--space-2);
   white-space: nowrap;
 }
+/* A second line under a cell's value: "Bob can reach this only on your network." */
+.screen-cell-sub {
+  display: block;
+  margin-top: 4px;
+  font: var(--text-small);
+  color: var(--ink3);
+  white-space: normal;
+}
 [data-theme="bold"] .screen-cell-person {
   padding: 2px 12px 2px 2px;
   border: 2px solid #111;
@@ -2086,6 +2094,19 @@ a.screen-list__row:hover .screen-list__thumb {
   font-weight: 400;
   color: var(--ink2);
   white-space: normal;
+}
+/* A row's title with a sentence under it, in prose rather than the data face of meta. */
+.screen-row-stack {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  white-space: normal;
+}
+.screen-row-note {
+  font: var(--text-small);
+  font-weight: 400;
+  color: var(--ink3);
+  max-width: 60ch;
 }
 
 /* ----- Home cards: totals by day, latest readings, Arrange ----- */

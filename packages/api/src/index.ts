@@ -500,7 +500,12 @@ allowCopy?: boolean,
 /**
  * 1 to 366 days; default 365.
  */
-expiresInDays?: number, };
+expiresInDays?: number, 
+/**
+ * What the owner answered when asked whether the contact may reach
+ * this computer from outside its network; not asked, nothing changes.
+ */
+reach?: ReachChoice, };
 
 /**
  * What a share lets the contact do.
@@ -650,7 +655,12 @@ concurrent: number,
 /**
  * 1 to 1000.
  */
-perHour: number, };
+perHour: number, 
+/**
+ * What the owner answered when asked whether these people may reach
+ * this computer from outside its network; not asked, nothing changes.
+ */
+reach?: ReachChoice, };
 
 /**
  * Lending saved, with an invite code (shown this once) for each person
@@ -662,6 +672,84 @@ export type LendingSaved = { lending: Lending, invites: Array<LendInvite>, };
  * The code to send someone newly lent to.
  */
 export type LendInvite = { did: string, name: string, invite: string, };
+
+/**
+ * What Oikome does when something needs this computer reached from
+ * outside its network (a share, a lent computer): ask every time, or the
+ * answer the owner said not to ask again.
+ */
+export type ReachPolicy = "ask" | "always" | "never";
+
+/**
+ * The owner's answer to "Let people reach this computer from outside your
+ * network?". Without `remember` it is for this one share or lending, and
+ * ends with it; with it, it is the answer from now on.
+ */
+export type ReachChoice = { allow: boolean, 
+/**
+ * "Don't ask again".
+ */
+remember?: boolean, };
+
+/**
+ * How this computer is reached from outside its network.
+ */
+export type Reachable = "local_only" | "opening" | "direct" | "through_contact" | "router_refused" | "shared_address";
+
+/**
+ * What the port is open for.
+ */
+export type OpenForKind = "share" | "lend";
+
+/**
+ * One thing the owner allowed to be reached from outside, still going.
+ */
+export type OpenFor = { kind: OpenForKind, 
+/**
+ * The share's id, or the DID lent to.
+ */
+id: string, 
+/**
+ * Who it is for.
+ */
+name: string, 
+/**
+ * The collection, for a share.
+ */
+space: string | null, };
+
+/**
+ * `network`: how this computer is reached from outside, what for, and
+ * what the owner chose.
+ */
+export type Network = { reachable: Reachable, 
+/**
+ * The contact others meet this computer through.
+ */
+through: string | null, 
+/**
+ * Shares and lending allowed to be reached from outside, still going.
+ */
+openFor: Array<OpenFor>, policy: ReachPolicy, 
+/**
+ * Contacts may meet each other here, when this computer is reached
+ * directly.
+ */
+helpContacts: boolean, 
+/**
+ * They can now.
+ */
+helping: boolean, 
+/**
+ * This node runs the peer-to-peer layer at all (a serving node).
+ */
+available: boolean, };
+
+/**
+ * `set_network`: change what Oikome does when it needs to be reached from
+ * outside, or whether contacts may meet here.
+ */
+export type SetNetwork = { policy?: ReachPolicy, helpContacts?: boolean, };
 
 /**
  * Whether a computer lent to you can be used now.
@@ -1059,7 +1147,12 @@ contactName: string | null, access: ShareAccess, issuedAtMs: number,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, status: ShareStatus, };
+expiresAt: number, status: ShareStatus, 
+/**
+ * The owner allowed it to be reached from outside this computer's
+ * network (for this share, or always).
+ */
+reachOutside: boolean, };
 
 /**
  * `list_shares`.

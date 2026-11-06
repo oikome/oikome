@@ -36,6 +36,7 @@ import type {
   InviteRef,
   Lending,
   LendingSaved,
+  Network,
   ListAccess,
   ListShares,
   NewShare,
@@ -59,6 +60,7 @@ import type {
   ShareRef,
   ShareSpace,
   SetLending,
+  SetNetwork,
   UseBorrowed,
   DailyTotals,
   DailyTotalsOf,
@@ -139,6 +141,9 @@ export interface NodeClient {
   declineInvite(request: InviteRef): Promise<Invite[]>;
   lending(): Promise<Lending>;
   setLending(request: SetLending): Promise<LendingSaved>;
+  /** How this computer is reached from outside its network, what for, and what the owner chose. */
+  network(): Promise<Network>;
+  setNetwork(request: SetNetwork): Promise<Network>;
   listBorrowed(): Promise<Borrowed[]>;
   stopBorrowing(request: BorrowedRef): Promise<Borrowed[]>;
   /** Send big summaries of collections shared with its owner there, or stop. */
@@ -414,6 +419,14 @@ export class HttpClient implements NodeClient {
 
   setLending(request: SetLending): Promise<LendingSaved> {
     return this.#json("set_lending", request);
+  }
+
+  network(): Promise<Network> {
+    return this.#json("network", {});
+  }
+
+  setNetwork(request: SetNetwork): Promise<Network> {
+    return this.#json("set_network", request);
   }
 
   listBorrowed(): Promise<Borrowed[]> {

@@ -663,6 +663,10 @@ pub struct ShareSpace {
     /// 1 to 366 days; default 365.
     #[serde(default)]
     pub expires_in_days: Option<u32>,
+    /// What the owner answered when asked whether the contact may reach
+    /// this computer from outside its network; not asked, nothing changes.
+    #[serde(default)]
+    pub reach: Option<ReachChoice>,
 }
 
 /// What a share lets the contact do.
@@ -809,6 +813,7 @@ pub struct LentTo {
 /// within these limits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct SetLending {
     pub on: bool,
     /// Contacts' DIDs; anyone left out stops being able to use it.
@@ -817,6 +822,112 @@ pub struct SetLending {
     pub concurrent: u32,
     /// 1 to 1000.
     pub per_hour: u32,
+    /// What the owner answered when asked whether these people may reach
+    /// this computer from outside its network; not asked, nothing changes.
+    #[serde(default)]
+    pub reach: Option<ReachChoice>,
+}
+
+// ----- Network (3.12) -----
+
+/// What Oikome does when something needs this computer reached from
+/// outside its network (a share, a lent computer): ask every time, or the
+/// answer the owner said not to ask again.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ReachPolicy {
+    #[default]
+    Ask,
+    Always,
+    Never,
+}
+
+/// The owner's answer to "Let people reach this computer from outside your
+/// network?". Without `remember` it is for this one share or lending, and
+/// ends with it; with it, it is the answer from now on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ReachChoice {
+    pub allow: bool,
+    /// "Don't ask again".
+    #[serde(default)]
+    pub remember: Option<bool>,
+}
+
+/// How this computer is reached from outside its network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Reachable {
+    /// Only from its own network.
+    LocalOnly,
+    /// The router is being asked.
+    Opening,
+    /// Directly: the router opened a port, or it has an address of its own
+    /// on the internet.
+    Direct,
+    /// Through a contact both sides reach (`through`).
+    ThroughContact,
+    /// The router didn't open a port, and no contact could help.
+    RouterRefused,
+    /// The router's own address is shared with others (the provider's, or
+    /// a second router's), so a port it opens can't be reached.
+    SharedAddress,
+}
+
+/// What the port is open for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenForKind {
+    /// A collection shared with someone.
+    Share,
+    /// This computer lent to someone.
+    Lend,
+}
+
+/// One thing the owner allowed to be reached from outside, still going.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenFor {
+    pub kind: OpenForKind,
+    /// The share's id, or the DID lent to.
+    pub id: String,
+    /// Who it is for.
+    pub name: String,
+    /// The collection, for a share.
+    pub space: Option<String>,
+}
+
+/// `network`: how this computer is reached from outside, what for, and
+/// what the owner chose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Network {
+    pub reachable: Reachable,
+    /// The contact others meet this computer through.
+    pub through: Option<String>,
+    /// Shares and lending allowed to be reached from outside, still going.
+    pub open_for: Vec<OpenFor>,
+    pub policy: ReachPolicy,
+    /// Contacts may meet each other here, when this computer is reached
+    /// directly.
+    pub help_contacts: bool,
+    /// They can now.
+    pub helping: bool,
+    /// This node runs the peer-to-peer layer at all (a serving node).
+    pub available: bool,
+}
+
+/// `set_network`: change what Oikome does when it needs to be reached from
+/// outside, or whether contacts may meet here.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct SetNetwork {
+    #[serde(default)]
+    pub policy: Option<ReachPolicy>,
+    #[serde(default)]
+    pub help_contacts: Option<bool>,
 }
 
 /// Lending saved, with an invite code (shown this once) for each person
@@ -1176,6 +1287,9 @@ pub struct Share {
     /// Seconds since the Unix epoch.
     pub expires_at: u64,
     pub status: ShareStatus,
+    /// The owner allowed it to be reached from outside this computer's
+    /// network (for this share, or always).
+    pub reach_outside: bool,
 }
 
 /// `list_shares`.

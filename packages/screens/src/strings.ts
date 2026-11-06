@@ -869,6 +869,9 @@ export const strings = {
     ranTask: (who: string) => `${who} ran a task on this computer`,
     checkedLending: (who: string) => `${who} checked whether this computer lends to them`,
     turnedAwayCompute: (who: string) => `${who} was turned away from this computer`,
+    turnedAwayOutside: (who: string) => `${who} tried to connect from outside your network and was turned away`,
+    detailOutside:
+      "Only contacts can connect to this computer from outside your network. This wasn't one, so it was turned away before it could ask for anything.",
     taskFailed: (who: string) => `${who}'s task on this computer didn't finish`,
     workedOut: (who: string, what: string, lender: string) =>
       `${who} worked out ${what}'s daily totals on ${lender}'s computer`,
@@ -880,6 +883,37 @@ export const strings = {
     failed: (who: string, what: string) => `${who} couldn't read ${what}`,
     times: (n: number) => `${n} times`,
     yourData: "your data",
+  },
+
+  // Being reached from outside this computer's network (3.12): the
+  // question before a share or lending, and what follows it.
+  reach: {
+    title: "Let people reach this computer from outside your network?",
+    whyShare: (collection: string, name: string) =>
+      `To share ${collection} with ${name} wherever they are, Oikome needs to open a port on your router.`,
+    whyLend: (names: string) =>
+      `To lend this computer to ${names} wherever they are, Oikome needs to open a port on your router.`,
+    risk: "Anyone on the internet could then find that port. Only the people you share with can read anything through it, and every attempt shows in Activity.",
+    stays: "Oikome's own pages and your AI assistants stay on this computer only.",
+    whileShare: (collection: string, name: string) =>
+      `The port stays open while you share ${collection} with ${name}, and closes when nothing needs it.`,
+    whileLend: (names: string) =>
+      `The port stays open while you lend this computer to ${names}, and closes when nothing needs it.`,
+    dontAsk: "Don't ask again",
+    deny: "Deny",
+    allow: "Allow",
+    allowedShare: (name: string, collection: string) =>
+      `${name} can reach ${collection} from outside your network while you share it.`,
+    allowedLend: (names: string) => `${names} can use this computer from outside your network while you lend it.`,
+    alwaysAllowed: "This computer can be reached from outside your network.",
+    deniedShare: (name: string, collection: string) => `${name} can reach ${collection} only on your network.`,
+    deniedLend: (names: string) => `${names} can use this computer only on your network.`,
+    neverAllowed: "Only devices on your network can reach this computer.",
+    routerRefused: "Your router didn't open the port. Turn on UPnP in its settings, then try again.",
+    onlyOnNetwork: (name: string) => `${name} can reach this only on your network.`,
+    /** "Sam", "Sam and Bob", "Sam, Bob and Ana". */
+    names: (names: string[]) =>
+      names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`,
   },
 
   settings: {
@@ -909,5 +943,33 @@ export const strings = {
     storageCount: (n: number) => (n === 1 ? "1 collection" : `${n} collections`),
     storageKind: { disk: "Local", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
     encrypted: "Encrypted",
+    networkTitle: "Network",
+    reachableLabel: "Reachable from outside",
+    reachable: {
+      direct: "Yes, directly",
+      through_contact: (name: string) => `Through ${name}`,
+      local_only: "Only on your network",
+      opening: "Asking your router…",
+      router_refused: "Your router didn't allow it",
+      shared_address: "Your router's address is shared",
+    },
+    reachHelp: {
+      router_refused:
+        "Turn on UPnP in your router's settings, then try again. Or connect through your own VPN, such as Tailscale or WireGuard.",
+      shared_address:
+        "Your internet provider, or a second router, shares one address among several homes, so a port opened here can't be reached. A contact who can be reached may introduce you, or connect through your own VPN, such as Tailscale or WireGuard.",
+    },
+    openForLabel: "Open for",
+    openForShare: (collection: string, name: string) => `sharing ${collection} with ${name}`,
+    openForLend: (name: string) => `lending this computer to ${name}`,
+    openForNothing: "Nothing now",
+    whenNeeded: "When Oikome needs to be reached from outside",
+    policy: { ask: "Ask every time", always: "Always allow", never: "Never allow" },
+    helpContacts: "Help my contacts reach each other",
+    helpContactsBody:
+      "When this computer can be reached directly, contacts who can't reach each other meet here first. Only a few kilobytes pass through, never their data.",
+    networkFootnote:
+      "Oikome asks your router to open one port for itself. Its own pages and your AI assistants stay on this computer.",
+    networkSaved: "Saved.",
   },
 };

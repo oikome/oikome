@@ -482,8 +482,8 @@ impl OikomeSession {
         owner: &str,
         token: &str,
     ) -> Result<PeerClient, SessionError> {
-        Ok(PeerClient::new(
-            self.engines().peer_endpoint(peer, owner)?,
+        Ok(PeerClient::routed(
+            self.engines().peer_route(peer, owner)?,
             Did::parse(owner)?,
             token.to_string(),
             self.engines().identity()?,

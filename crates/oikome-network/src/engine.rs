@@ -36,11 +36,13 @@ use crate::protocol::{
     schema_payload, ListTablesRequest, ListTablesResponse, QueryTicket, ACTION_LIST_TABLES,
     METHOD_DO_GET, METHOD_GET_SCHEMA, METHOD_LIST_TABLES,
 };
+use crate::route::PeerDialer;
 
 /// Where a remote Space lives and the UCAN to query it with.
 #[derive(Clone)]
 pub struct RemoteSpaceConfig {
-    /// Flight endpoint of the owner, `http://host:port`.
+    /// Flight endpoint of the owner, `https://host:port`; empty when only
+    /// `dialer` reaches it.
     pub peer: String,
     /// The Space's name on the owner node.
     pub remote_space: String,
@@ -50,6 +52,9 @@ pub struct RemoteSpaceConfig {
     pub token: String,
     /// Accept `peer` even if it is plaintext (`http://`).
     pub allow_http: bool,
+    /// The node's peer-to-peer connections, tried when `peer` doesn't
+    /// answer (another network, 3.12).
+    pub dialer: Option<Arc<dyn PeerDialer>>,
 }
 
 impl fmt::Debug for RemoteSpaceConfig {
@@ -85,14 +90,15 @@ impl FlightEngine {
     pub fn new(config: RemoteSpaceConfig, identity: Arc<NodeIdentity>) -> Self {
         // Unique per remote Space, so a pushed-down statement never spans two
         // Spaces (each needs its own capability check on the owner).
-        let instance_id = format!("flight:{}/{}", config.peer, config.remote_space);
+        let instance_id = format!("flight:{}/{}", config.owner, config.remote_space);
         let client = PeerClient::new(
             config.peer.clone(),
             config.owner.clone(),
             config.token.clone(),
             identity,
         )
-        .allow_http(config.allow_http);
+        .allow_http(config.allow_http)
+        .with_dialer(config.dialer.clone());
         Self {
             config,
             instance_id,
@@ -245,6 +251,7 @@ mod tests {
                 owner: owner.did().clone(),
                 token: "header.payload.signature".to_string(),
                 allow_http: true,
+                dialer: None,
             },
             Arc::new(NodeIdentity::from_seed(&[2; 32])),
         )
@@ -260,7 +267,10 @@ mod tests {
     #[tokio::test]
     async fn writes_are_rejected_and_unreachable_peers_error() {
         let e = engine();
-        assert_eq!(e.instance_id(), "flight:http://127.0.0.1:1/blog");
+        assert_eq!(
+            e.instance_id(),
+            format!("flight:{}/blog", NodeIdentity::from_seed(&[1; 32]).did())
+        );
         assert!(matches!(
             e.execute("DELETE FROM blog.posts", &[]).await,
             Err(EngineError::Unsupported(EngineKind::Flight, _))

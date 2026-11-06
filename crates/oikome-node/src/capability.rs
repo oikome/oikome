@@ -298,8 +298,7 @@ impl OikomeSession {
         let (peer, remote, token) = Self::peer_space_request(request)?;
         let owner = self.peer_space_owner(&token, &remote, ABILITY_QUERY)?;
         // Fail now on a plaintext address or an owner not discovered yet.
-        self.engines()
-            .peer_endpoint(peer.as_deref(), owner.as_str())?;
+        self.engines().peer_route(peer.as_deref(), owner.as_str())?;
         self.catalog.create_remote_space(
             &name,
             peer.as_deref(),

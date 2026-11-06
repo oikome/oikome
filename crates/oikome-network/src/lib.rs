@@ -22,11 +22,16 @@
 //!   [`QueryEngine`](oikome_engine::QueryEngine), so the federation layer
 //!   pushes subqueries to the owner node exactly as it does to a local
 //!   engine.
+//! * [`route`]: how a call reaches a peer — its endpoint on a shared
+//!   network, or a stream over the node's peer-to-peer connection (3.12).
+//! * [`reach`]: being reached from outside the node's network.
 //!
 //! The server side lives in `oikome-server`.
 
 pub mod client;
 pub mod engine;
+pub mod reach;
+pub mod route;
 /// The peer protocol types (moved to `oikome-protocol`, which the browser
 /// build shares).
 pub use oikome_protocol as protocol;
@@ -34,4 +39,6 @@ pub mod tls;
 
 pub use client::{ChunkStream, PeerClient};
 pub use engine::{FlightEngine, RemoteSpaceConfig};
+pub use reach::{NetworkStatus, NodeNetwork, Reach, ReachWanted};
+pub use route::{PeerDialer, PeerIo, PeerRoute, PeerStream, SocketDialer};
 pub use tls::{install_crypto_provider, DidCertVerifier};

@@ -106,11 +106,20 @@ export function Group({
   variant?: "list";
   children: ReactNode;
 }) {
+  // Named by its title, so a screen reader lists it among the page's parts.
+  const titleId = useId();
   return (
-    <section className={cx("oik-group", variant && `oik-group--${variant}`)}>
+    <section
+      className={cx("oik-group", variant && `oik-group--${variant}`)}
+      aria-labelledby={title ? titleId : undefined}
+    >
       {(title || action) && (
         <header className="oik-group__head">
-          {title && <h2 className="oik-group__title">{title}</h2>}
+          {title && (
+            <h2 id={titleId} className="oik-group__title">
+              {title}
+            </h2>
+          )}
           {action}
         </header>
       )}

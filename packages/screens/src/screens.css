@@ -1026,6 +1026,38 @@
   align-items: center;
   gap: var(--space-2);
 }
+/* A computer lent to you: today's use, the latest tasks sent, which
+   collections may go, and the switch to use it. */
+.screen-borrow__today,
+.screen-borrow__use {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-borrow__today > :last-child,
+.screen-borrow__when {
+  font: var(--text-small);
+  color: var(--ink3);
+  white-space: nowrap;
+}
+.screen-borrow__which {
+  margin: 0;
+  font: var(--text-small);
+  color: var(--ink2);
+}
+.screen-borrow__off {
+  margin-right: auto;
+  align-self: center;
+  font: var(--text-small);
+  color: var(--ink3);
+}
+@media (max-width: 720px) {
+  .screen-borrow__off {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+}
 .screen-lend-field {
   display: grid;
   gap: var(--space-2);
@@ -1591,6 +1623,95 @@ a.screen-list__row:hover .screen-list__thumb {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+}
+/* A folder viewed in place: where in it (its folders, from the top), and
+   the folders inside, each with what it holds. */
+.screen-folder-bar {
+  justify-content: space-between;
+}
+.screen-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font: var(--text);
+}
+.screen-crumbs__part {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.screen-crumbs__part .oik-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--ink4);
+}
+.screen-crumbs__step {
+  max-width: 24ch;
+  padding: 4px 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: calc(var(--r-btn) - 2px);
+  background: none;
+  color: var(--ink2);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.screen-crumbs__step:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.screen-crumbs__step[aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+.screen-folders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-folders__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--space-4);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--raised);
+  color: var(--ink);
+  font: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--ease);
+}
+.screen-folders__item:hover {
+  background: var(--hover);
+}
+.screen-folders__item .oik-icon {
+  flex: none;
+  color: var(--ink3);
+}
+.screen-folders__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-folders__count {
+  flex: none;
+  color: var(--ink3);
+  font: var(--text-meta);
 }
 .screen-pager {
   display: flex;
@@ -2201,6 +2322,12 @@ a.screen-lift:hover {
   justify-content: space-between;
   gap: var(--space-3);
   font: 400 11px/14px var(--mono);
+  color: var(--ink3);
+}
+/* Where a big summary was worked out, when a computer lent to you is in use. */
+.screen-totals__where {
+  margin: 0;
+  font: var(--text-small);
   color: var(--ink3);
 }
 .screen-latest__grid {

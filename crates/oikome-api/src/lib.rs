@@ -28,8 +28,10 @@
 //! runs SQL, the owner's own; `add_examples` runs this crate's constants.
 
 mod assistants;
+mod borrowing;
 pub mod error;
 mod examples;
+mod in_place;
 mod invites;
 mod lending;
 mod places;
@@ -45,7 +47,6 @@ use arrow_array::RecordBatch;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
 use oikome_catalog::{LocationFormat, OikomeCatalog, StorageKind};
-use oikome_connect::SourceConfig;
 use oikome_core::{validate_space_name, AccessMode, CreateSpaceRequest};
 use oikome_identity::keys::NODE_KEY_FILE;
 use oikome_identity::ucan::{ABILITY_QUERY, ABILITY_READ};
@@ -117,6 +118,10 @@ struct NodeSettings {
     /// added again, it goes back into its collection.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     removed_sources: BTreeMap<String, String>,
+    /// The folders of photos and notes that sources used to copy are viewed
+    /// in place now (3.9); done once.
+    #[serde(default)]
+    folders_in_place: bool,
 }
 
 /// The owner's own steps in Activity: setting up this data center, adding
@@ -211,6 +216,8 @@ pub struct Api {
     /// When each plugin last read each collection, so Activity says it once
     /// in a while rather than at every look at Home.
     plugin_reads: Arc<std::sync::Mutex<HashMap<(String, String), u64>>>,
+    /// Summaries worked out on a lent computer, kept for a while.
+    totals: Arc<std::sync::Mutex<HashMap<borrowing::KeptKey, borrowing::Kept>>>,
 }
 
 impl std::fmt::Debug for Api {
@@ -301,6 +308,7 @@ impl Api {
             flight_url: None,
             settings_lock: Arc::default(),
             plugin_reads: Arc::default(),
+            totals: Arc::default(),
         }
     }
 
@@ -593,6 +601,7 @@ impl Api {
                     from_did,
                     from_name,
                     expires_at,
+                    in_place: self.in_place_summary(&space.location),
                     name: space.name,
                 }
             })
@@ -732,16 +741,25 @@ impl Api {
                     }
                 }
                 let place = dir.to_string_lossy().into_owned();
-                let config = match example.feed {
-                    examples::Feed::Photos => SourceConfig::PhotosFolder { path: place },
-                    examples::Feed::Notes => SourceConfig::NotesFolder { path: place },
-                    examples::Feed::Csv { file, table } => {
-                        sources::csv_config(&dir.join(file), table).await?
+                match example.feed {
+                    // Photos and notes are viewed where they are (§7.7).
+                    examples::Feed::Photos | examples::Feed::Notes => {
+                        session
+                            .create_space(CreateSpaceRequest {
+                                name: example.name.to_string(),
+                                place: Some(oikome_catalog::space::PLACE_LOCAL.to_string()),
+                                path: Some(place),
+                                ..Default::default()
+                            })
+                            .await?;
                     }
-                };
-                session
-                    .add_source(example.name, config, Some(sources::EVERY), None)
-                    .await?;
+                    examples::Feed::Csv { file, table } => {
+                        let config = sources::csv_config(&dir.join(file), table).await?;
+                        session
+                            .add_source(example.name, config, Some(sources::EVERY), None)
+                            .await?;
+                    }
+                }
                 added.push(example.name.to_string());
             }
             self.update_settings(|settings| {
@@ -1282,6 +1300,12 @@ impl Api {
         }
         let space = self.catalog.get_space(&req.space)?;
         let allow_copy = req.allow_copy.unwrap_or(false);
+        if allow_copy && self.session(None).in_place_location(&req.space)?.is_some() {
+            return Err(ApiError::invalid(
+                "a folder viewed in place can be shared to view, not to keep a copy of; \
+                 save it as a collection of its own to share a copy",
+            ));
+        }
         if allow_copy && space.kind != oikome_core::SpaceKind::Analytical {
             return Err(ApiError::invalid(
                 "only analytical spaces can be copied; publish a transactional space and share the publication",
@@ -1451,6 +1475,12 @@ impl Api {
                     },
                     None => (AccessWho::Unknown, None),
                 };
+                // A task sent: the computer's owner, by name.
+                let detail = match r.detail {
+                    Some(d) if r.method == borrowing::COMPUTED_ON => borrowing::sent_to(&d)
+                        .map(|did| named(&people, did).unwrap_or_else(|| did.to_string())),
+                    other => other,
+                };
                 AccessItem {
                     who,
                     name,
@@ -1467,7 +1497,7 @@ impl Api {
                     },
                     reason: r.reason,
                     count: r.count,
-                    detail: r.detail,
+                    detail,
                 }
             })
             .collect())

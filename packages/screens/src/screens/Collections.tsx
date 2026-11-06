@@ -27,6 +27,7 @@ import { homeRelative } from "../format";
 import { ScreenHeader } from "../parts";
 import { navigate } from "../router";
 import { strings } from "../strings";
+import { ViewFolder } from "../folder";
 
 const s = strings.collections;
 /** The node's rule for a name: ASCII letters, digits, _ and -, not led by a digit, 1 to 64. */
@@ -49,6 +50,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
   const spaces = useLoad(() => client.listSpaces(), []);
   const shares = useLoad(() => client.listShares(), []);
   const [creating, setCreating] = useState(startCreating);
+  const [viewing, setViewing] = useState(false);
   useEffect(() => {
     if (startCreating) setCreating(true);
   }, [startCreating]);
@@ -99,7 +101,12 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
             options={(["all", "photos", "notes", "table"] as const).map((k) => ({ value: k, label: s.filters[k] }))}
           />
         )}
-        {/* An empty page offers the same action once, in its empty state. */}
+        {/* An empty page offers the same actions once, in its empty state. */}
+        {!empty && (
+          <Button icon="folder" onClick={() => setViewing(true)}>
+            {s.viewFolder}
+          </Button>
+        )}
         {!empty && (
           <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
             {s.newCollection}
@@ -108,6 +115,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
       </ScreenHeader>
 
       {creating && <NewCollection onClose={stopCreating} onCreated={spaces.reload} />}
+      {viewing && <ViewFolder onClose={() => setViewing(false)} onViewed={() => spaces.reload()} />}
 
       {spaces.error && <ErrorText>{spaces.error}</ErrorText>}
       {!spaces.data && !spaces.error && (
@@ -126,9 +134,14 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
             title={s.emptyTitle}
             body={s.emptyBody}
             action={
-              <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
-                {s.newCollection}
-              </Button>
+              <>
+                <Button icon="folder" onClick={() => setViewing(true)}>
+                  {s.viewFolder}
+                </Button>
+                <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+                  {s.newCollection}
+                </Button>
+              </>
             }
           />
         </Card>

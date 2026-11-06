@@ -128,6 +128,34 @@ pub async fn bind_space(
                     .await?;
             }
         }
+        LocationFormat::InPlace { .. } => {
+            // Boxed: scanning a folder is a large future, and every
+            // statement binds its Spaces.
+            let bound = Box::pin(crate::inplace::bound(catalog, engines, &location)).await?;
+            let mut names = vec![crate::inplace::FILES.to_string()];
+            names.extend(bound.tables.iter().map(|(name, _)| name.clone()));
+            for attached in engine.table_names(&space.name).await? {
+                if !names.contains(&attached) {
+                    engine
+                        .detach(&QualifiedName::new(&space.name, &attached))
+                        .await?;
+                }
+            }
+            engine
+                .attach(
+                    &QualifiedName::new(&space.name, crate::inplace::FILES),
+                    TableSource::ParquetFiles {
+                        files: vec![bound.files],
+                        schema: crate::inplace::files_schema(),
+                    },
+                )
+                .await?;
+            for (table, source) in bound.tables {
+                engine
+                    .attach(&QualifiedName::new(&space.name, &table), source)
+                    .await?;
+            }
+        }
         LocationFormat::Remote { .. } => {
             return Err(SessionError::Unsupported(format!(
                 "space '{}' is bound to a remote location but is not a remote space",

@@ -41,7 +41,7 @@ pub use capabilities::Capabilities;
 pub use error::EngineError;
 pub use name::QualifiedName;
 pub use oikome_core::EngineKind;
-pub use source::{SpaceSource, TableSource};
+pub use source::{FileFormat, SpaceSource, TableSource};
 pub use stream::RecordBatchStream;
 #[cfg(feature = "blocking")]
 pub use stream::{BatchSink, BlockingWorker};

@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use crate::invites::{grant_of, invite_code, now_secs, read_private, Lends, What};
 use crate::{
     Api, ApiError, BorrowStatus, Borrowed, BorrowedRef, Caller, Empty, LendInvite, Lending,
-    LendingSaved, LentTo, SetLending,
+    LendingSaved, LentTo, SetLending, UseBorrowed,
 };
 
 /// How long a grant to use this computer lasts.
@@ -57,6 +57,10 @@ pub(crate) struct Held {
     pub(crate) from: String,
     pub(crate) lends: Option<Lends>,
     pub(crate) accepted_at_ms: u64,
+    /// Big summaries of collections shared with the lender go there
+    /// (`use_borrowed`); off until the owner turns it on.
+    #[serde(default)]
+    pub(crate) in_use: bool,
 }
 
 /// A grant this node made to use it.
@@ -245,6 +249,11 @@ impl Api {
             .collect()
     }
 
+    /// The computers lent to this one, as kept.
+    pub(crate) fn held(&self) -> Result<Vec<Held>, ApiError> {
+        read_private(&self.borrowed_path())
+    }
+
     pub(crate) fn change_borrowed<T>(
         &self,
         change: impl FnOnce(&mut Vec<Held>) -> T,
@@ -260,7 +269,7 @@ impl Api {
     ) -> Result<Vec<Borrowed>, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let held: Vec<Held> = read_private(&self.borrowed_path())?;
+        let held = self.held()?;
         let session = self.session(None);
         let now = now_secs();
         let mut out = Vec::new();
@@ -303,10 +312,32 @@ impl Api {
                 task_ms,
                 expires_at,
                 status,
+                in_use: h.in_use,
             });
         }
         out.sort_by(|a, b| a.from_name.cmp(&b.from_name));
         Ok(out)
+    }
+
+    /// Send big summaries of collections shared with its owner to a
+    /// computer lent to this one, or stop.
+    pub async fn use_borrowed(
+        &self,
+        caller: &Caller,
+        req: UseBorrowed,
+    ) -> Result<Vec<Borrowed>, ApiError> {
+        caller.require_owner()?;
+        let found = self.change_borrowed(|all| {
+            let found = all.iter().any(|h| h.id == req.id);
+            for h in all.iter_mut().filter(|h| h.id == req.id) {
+                h.in_use = req.in_use;
+            }
+            found
+        })?;
+        if !found {
+            return Err(ApiError::not_found("no such computer lent to you"));
+        }
+        self.list_borrowed(caller, Empty {}).await
     }
 
     /// Stop using a computer lent to this one: its grant is forgotten here.

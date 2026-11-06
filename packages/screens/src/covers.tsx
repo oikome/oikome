@@ -45,7 +45,7 @@ export function countOf(preview: Preview | undefined): string | undefined {
   // Another data center's tables are not counted just to list them; when
   // the first read held all of a table's rows, that is its count.
   const read = preview?.rows?.numRows;
-  const rows = preview?.table?.rows ?? (read !== undefined && read < PREVIEW_ROWS ? read : undefined);
+  const rows = preview?.count ?? preview?.table?.rows ?? (read !== undefined && read < PREVIEW_ROWS ? read : undefined);
   if (rows === null || rows === undefined || rows === 0) return undefined;
   return s.count(Number(rows), preview!.shape.view);
 }

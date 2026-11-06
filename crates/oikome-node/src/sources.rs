@@ -785,6 +785,8 @@ pub fn spawn_source_sync(session: Arc<OikomeSession>, check_every: Duration) -> 
                 tracing::warn!(error = %e, "reloading the catalog failed");
             }
             session.pull_due_sources().await;
+            // Folders viewed in place are scanned on the same schedule.
+            session.refresh_places(Duration::from_secs(20)).await;
         }
     })
 }

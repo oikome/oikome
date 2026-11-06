@@ -71,7 +71,15 @@ function withMarks(text: string, marks: SearchMark[]): ReactNode {
 }
 
 /** What each collection a search found in reads as, from its cover's read. */
-type Views = Map<string, { table?: string; view: View }>;
+type Views = Map<string, { table?: string; view: View; inPlace?: boolean }>;
+
+/** What a file of a folder viewed in place reads as, by its name. */
+function fileView(path: string | undefined): View {
+  const extension = path?.split(".").pop()?.toLowerCase() ?? "";
+  if (["jpg", "jpeg", "png", "gif", "webp"].includes(extension)) return "photos";
+  if (["md", "markdown", "txt"].includes(extension)) return "notes";
+  return "table";
+}
 
 interface Found {
   query: string;
@@ -88,6 +96,11 @@ async function viewsOf(client: NodeClient, spaces: SpaceSummary[], hits: SearchH
       const space = spaces.find((x) => x.name === name);
       if (!space) return;
       try {
+        if (space.inPlace) {
+          // A folder viewed in place: each file reads as what it is.
+          views.set(name, { table: "files", view: "table", inPlace: true });
+          return;
+        }
         const preview = await loadPreview(client, space);
         views.set(name, { table: preview.table?.name, view: preview.shape.view });
       } catch {
@@ -108,6 +121,10 @@ function picture(client: NodeClient, hit: SearchHit): Promise<string | undefined
     found = client
       .readRow({ space: hit.collection, table: hit.table, key: hit.key ?? [] })
       .then(({ table }) => {
+        // A photo of a folder viewed in place: its thumbnail from the index.
+        if (table.getChild("kind")?.get(0) === "image" && table.getChild("path")) {
+          return client.fileUrl("thumb", { space: hit.collection, path: String(table.getChild("path")?.get(0)) });
+        }
         const image = shapeOf(table).image;
         const bytes: unknown = image === undefined ? undefined : table.getChildAt(image)?.get(0);
         return bytes instanceof Uint8Array ? imageSrc(bytes) : undefined;
@@ -231,7 +248,12 @@ export function Palette({ onClose, scope }: { onClose: () => void; scope?: strin
     if (!found?.results) return [];
     return found.results.hits.map((hit, i) => {
       const known = found.views.get(hit.collection);
-      const view: View = known && known.table === hit.table ? known.view : "table";
+      const view: View =
+        known?.inPlace && hit.table === "files"
+          ? fileView(hit.key?.[0])
+          : known && known.table === hit.table
+            ? known.view
+            : "table";
       const group = view === "photos" ? s.photos : view === "notes" ? s.notes : s.rows;
       const where = known && known.table !== hit.table ? s.inTable(hit.collection, hit.table) : hit.collection;
       const column = view === "table" || view === "series" ? columnLabel(hit.column) : undefined;

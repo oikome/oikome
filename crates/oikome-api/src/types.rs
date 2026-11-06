@@ -126,6 +126,117 @@ pub struct SpaceSummary {
     /// For a remote Space: when the share it was added with ends, in seconds
     /// since the Unix epoch.
     pub expires_at: Option<u64>,
+    /// For a collection that views a folder where it is (§7.7): which.
+    pub in_place: Option<InPlace>,
+}
+
+/// The folder a collection views where it is, and how its index stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InPlace {
+    /// The storage it is on; `None` for this computer.
+    pub place: Option<String>,
+    /// The folder: its full path on this computer, else within the storage.
+    pub path: String,
+    /// Files the index knows.
+    pub files: u64,
+    /// When it was last read, in milliseconds since the Unix epoch.
+    pub scanned_at_ms: Option<u64>,
+    /// Whether it could be reached when last asked.
+    pub reachable: Option<bool>,
+}
+
+/// `view_in_place`: a collection that views a folder where it is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ViewInPlace {
+    /// A storage's name; this computer when left out.
+    pub place: Option<String>,
+    /// The folder: a full path on this computer, else within the storage.
+    pub path: String,
+    /// The collection's name; made from the folder's when left out.
+    pub name: Option<String>,
+}
+
+/// `list_files`: one folder of a collection viewed in place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ListFiles {
+    pub space: String,
+    /// The folder within it, `/`-separated; the top when left out.
+    pub folder: Option<String>,
+    pub offset: Option<u64>,
+    /// At most 1,000; 200 when left out.
+    pub limit: Option<u64>,
+    /// Files of every folder (no folders listed), the most recent first.
+    pub deep: Option<bool>,
+    /// Only files of this kind.
+    pub kind: Option<FileKind>,
+}
+
+/// A folder of a collection viewed in place: the folders in it, and a page
+/// of its files (photos first, then notes, tables and the rest).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileListing {
+    pub folders: Vec<FileFolder>,
+    pub files: Vec<FileItem>,
+    /// Files directly in this folder.
+    pub total: u64,
+}
+
+/// A folder within the one listed, with how many files are under it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileFolder {
+    pub name: String,
+    pub files: u64,
+}
+
+/// What a file is, as far as showing it goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FileKind {
+    Image,
+    Note,
+    /// A CSV, Parquet or JSON file: a table when it is at the top.
+    Table,
+    Other,
+}
+
+/// A file of a collection viewed in place, as its index knows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileItem {
+    /// Within the folder viewed, `/`-separated.
+    pub path: String,
+    pub name: String,
+    pub kind: FileKind,
+    pub size: u64,
+    /// When it was last changed: `2025-11-07 09:40:00`.
+    pub modified: String,
+    /// A photo's caption or a note's name.
+    pub title: Option<String>,
+    /// When a photo was taken, as its captions or the file say.
+    pub taken: Option<String>,
+    /// A note's date.
+    pub written: Option<String>,
+    pub place: Option<String>,
+    pub credit: Option<String>,
+    /// A note's text: its start in a listing, all of it read alone.
+    pub text: Option<String>,
+    /// Whether the index has a thumbnail of it.
+    pub thumbnail: bool,
+}
+
+/// One file of a collection viewed in place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRef {
+    pub space: String,
+    pub path: String,
 }
 
 /// `create_space`: a new local Space.
@@ -755,6 +866,109 @@ pub struct Borrowed {
     /// Seconds since the Unix epoch.
     pub expires_at: u64,
     pub status: BorrowStatus,
+    /// Big summaries of collections shared with its owner are sent there.
+    pub in_use: bool,
+}
+
+/// `use_borrowed`: send big summaries to a computer lent to you, or stop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UseBorrowed {
+    pub id: String,
+    pub in_use: bool,
+}
+
+/// `borrowed_jobs`: what was sent to a computer lent to you.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BorrowedJobsOf {
+    pub id: String,
+    /// Count tasks from this time on (the start of the viewer's day), in
+    /// milliseconds since the Unix epoch.
+    pub since_ms: u64,
+}
+
+/// What was sent to a computer lent to you, and what may be.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BorrowedJobs {
+    /// Tasks sent there since `since_ms`.
+    pub since: u64,
+    /// The latest ones, newest first: one line per collection and minute.
+    pub recent: Vec<SentJob>,
+    /// Your collections shared with its owner now: the only ones whose
+    /// summaries may be worked out there.
+    pub collections: Vec<String>,
+}
+
+/// Summaries of one collection sent to a computer lent to you.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SentJob {
+    pub space: String,
+    pub at_ms: u64,
+    /// Tasks in that minute.
+    pub count: u64,
+}
+
+/// `daily_totals`: a table's totals by day, for a card on Home.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyTotalsOf {
+    pub space: String,
+    pub table: String,
+    /// The column with each row's day (a date, a time, or text that starts
+    /// `YYYY-MM-DD`).
+    pub when: String,
+    /// The column with each row's amount.
+    pub amount: String,
+}
+
+/// A table's totals for its last days.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct DailyTotals {
+    /// The last 14 days up to the latest with data, oldest first, days
+    /// without rows at 0; empty when no row has a day and an amount.
+    pub days: Vec<DayTotal>,
+    /// Rows in the table.
+    pub rows: u64,
+    /// The computer lent to you that worked them out (`Borrowed::id`);
+    /// none when this one did.
+    pub borrowed: Option<String>,
+    /// The name of its owner, or of the one in use that wasn't used.
+    pub lender: Option<String>,
+    /// Why this computer worked them out although one lent to you is in
+    /// use.
+    pub stayed_here: Option<StayedHere>,
+}
+
+/// A day's total.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DayTotal {
+    /// `YYYY-MM-DD`.
+    pub day: String,
+    pub total: f64,
+}
+
+/// Why a summary stayed on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StayedHere {
+    /// Too small to be worth sending.
+    Small,
+    /// The collection isn't shared with the lender.
+    NotShared,
+    /// The lender may see only part of it (a row policy).
+    PartlyShared,
+    /// The lender doesn't lend to you now.
+    NotLending,
+    /// The lender can't be reached.
+    Unreachable,
+    /// It was sent, and the task failed there (a limit, the quota).
+    Failed,
 }
 
 /// What a plugin reads, as its manifest says: one kind of collection.

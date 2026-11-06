@@ -17,6 +17,13 @@ import type {
   AssistantRef,
   ConnectAssistant,
   Borrowed,
+  BorrowedJobs,
+  FileItem,
+  FileListing,
+  FileRef,
+  ListFiles,
+  ViewInPlace,
+  BorrowedJobsOf,
   BorrowedRef,
   Contact,
   ContactInput,
@@ -52,6 +59,9 @@ import type {
   ShareRef,
   ShareSpace,
   SetLending,
+  UseBorrowed,
+  DailyTotals,
+  DailyTotalsOf,
   SpaceRef,
   SpaceSummary,
   SqlDone,
@@ -131,6 +141,24 @@ export interface NodeClient {
   setLending(request: SetLending): Promise<LendingSaved>;
   listBorrowed(): Promise<Borrowed[]>;
   stopBorrowing(request: BorrowedRef): Promise<Borrowed[]>;
+  /** Send big summaries of collections shared with its owner there, or stop. */
+  useBorrowed(request: UseBorrowed): Promise<Borrowed[]>;
+  /** What was sent to a computer lent to you, and which collections may be. */
+  borrowedJobs(request: BorrowedJobsOf): Promise<BorrowedJobs>;
+  /** A table's totals by day, worked out here or on a computer lent to you. */
+  dailyTotals(request: DailyTotalsOf): Promise<DailyTotals>;
+  /** A collection that views a folder where it is; nothing is copied. */
+  viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
+  /** Read a folder viewed in place again now. */
+  refreshSpace(request: SpaceRef): Promise<SpaceSummary>;
+  /** One folder of a collection viewed in place, from its index. */
+  listFiles(request: ListFiles): Promise<FileListing>;
+  /** One file of a collection viewed in place, with all of a note's text. */
+  readFile(request: FileRef): Promise<FileItem>;
+  /** Open a folder viewed in place on this computer in its file manager. */
+  showFolder(request: SpaceRef): Promise<Empty>;
+  /** Where the app shows a photo's thumbnail or original from. */
+  fileUrl(kind: "thumb" | "original", file: FileRef): string;
   listPlugins(): Promise<Plugin[]>;
   inspectPlugin(request: PluginFolder): Promise<Plugin>;
   installPlugin(request: InstallPlugin): Promise<Plugin>;
@@ -394,6 +422,43 @@ export class HttpClient implements NodeClient {
 
   stopBorrowing(request: BorrowedRef): Promise<Borrowed[]> {
     return this.#json("stop_borrowing", request);
+  }
+
+  useBorrowed(request: UseBorrowed): Promise<Borrowed[]> {
+    return this.#json("use_borrowed", request);
+  }
+
+  borrowedJobs(request: BorrowedJobsOf): Promise<BorrowedJobs> {
+    return this.#json("borrowed_jobs", request);
+  }
+
+  dailyTotals(request: DailyTotalsOf): Promise<DailyTotals> {
+    return this.#json("daily_totals", request);
+  }
+
+  viewInPlace(request: ViewInPlace): Promise<SpaceSummary> {
+    return this.#json("view_in_place", request);
+  }
+
+  refreshSpace(request: SpaceRef): Promise<SpaceSummary> {
+    return this.#json("refresh_space", request);
+  }
+
+  listFiles(request: ListFiles): Promise<FileListing> {
+    return this.#json("list_files", request);
+  }
+
+  readFile(request: FileRef): Promise<FileItem> {
+    return this.#json("read_file", request);
+  }
+
+  showFolder(request: SpaceRef): Promise<Empty> {
+    return this.#json("show_folder", request);
+  }
+
+  fileUrl(kind: "thumb" | "original", file: FileRef): string {
+    const path = file.path.split("/").map(encodeURIComponent).join("/");
+    return `/files/${kind}/${encodeURIComponent(file.space)}/${path}`;
   }
 
   listPlugins(): Promise<Plugin[]> {

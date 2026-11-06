@@ -25,7 +25,18 @@
 
 import { spawn } from "node:child_process";
 import dgram from "node:dgram";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -208,14 +219,15 @@ test("the examples open as photos, notes, a table and readings; a collection of 
   await expect(page.getByText("Rows 1–2")).toHaveCount(0);
 });
 
-test("the examples are files: edit one, sync it, and it shows", async () => {
-  // Like a notes app's vault: plain files in the data folder, read by sources.
+test("the examples are files: edit one, read it again, and it shows", async () => {
+  // Like a notes app's vault: plain files in the data folder. Tables are
+  // read in by sources; photos and notes are read where they are.
   const spendingCsv = join(owner, "Examples", "spending", "spending.csv");
   expect(existsSync(join(owner, "Examples", "lisbon-photos", "captions.csv"))).toBe(true);
   appendFileSync(spendingCsv, "Coffee at the airport,2025-11-09,Food,2.50\n");
   await page.goto(`${base}/sources`);
   const sources = page.getByRole("table", { name: "Sources" });
-  await expect(sources.locator("tbody tr")).toHaveCount(4);
+  await expect(sources.locator("tbody tr")).toHaveCount(2);
   await expect(sources.getByText("Up to date").first()).toBeVisible();
   await page.getByRole("button", { name: "Sync now: spending.csv" }).click();
   await expect(page.locator(".oik-toasts")).toContainText("Read spending.csv again.");
@@ -225,32 +237,43 @@ test("the examples are files: edit one, sync it, and it shows", async () => {
     page.getByRole("table", { name: "spending" }).getByRole("cell", { name: "Coffee at the airport" }),
   ).toBeVisible();
 
+  // A note added to the guide's folder shows once the folder is read again.
+  writeFileSync(join(owner, "Examples", "oikome-guide", "8 Ferry.md"), "Take the ferry to Cacilhas at sunset.\n");
+  await page.goto(`${base}/collections/oikome-guide`);
+  await expect(page.locator(".screen-facts")).toContainText("Examples/oikome-guide");
+  await expect(page.locator(".screen-facts")).toContainText("Read where it is");
+  await page.getByRole("button", { name: "Read Again" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Read oikome-guide again.");
+  await expect(page.getByText("Take the ferry to Cacilhas at sunset.")).toBeVisible();
+
   // Paused, a source stays listed; removed (after a question), its
-  // collection stays, and adding the folder again puts it back there.
+  // collection stays, and adding the file again puts it back there.
   await page.goto(`${base}/sources`);
-  const guide = sources.locator("tbody tr").filter({ hasText: "oikome-guide" });
-  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  const climate = sources.locator("tbody tr").filter({ hasText: "home-climate" });
+  const more = () => page.getByRole("button", { name: "More actions for readings.csv" }).click();
+  await more();
   await page.getByRole("menuitem", { name: "Pause" }).click();
-  await expect(page.locator(".oik-toasts")).toContainText("Paused oikome-guide.");
-  await expect(guide).toContainText("Paused");
-  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Paused readings.csv.");
+  await expect(climate).toContainText("Paused");
+  await more();
   await page.getByRole("menuitem", { name: "Resume" }).click();
-  await expect(guide).toContainText("Up to date");
-  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await expect(climate).toContainText("Up to date");
+  await more();
   await page.getByRole("menuitem", { name: "Remove Source…" }).click();
-  await page.getByRole("dialog", { name: "Remove oikome-guide?" }).getByRole("button", { name: "Remove" }).click();
-  await expect(page.locator(".oik-toasts")).toContainText("Removed oikome-guide.");
-  await expect(sources.locator("tbody tr")).toHaveCount(3);
-  const back = await api("add_source", { kind: "notes", path: join(owner, "Examples", "oikome-guide") });
-  expect(back.name).toBe("oikome-guide");
+  await page.getByRole("dialog", { name: "Remove readings.csv?" }).getByRole("button", { name: "Remove" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Removed readings.csv.");
+  await expect(sources.locator("tbody tr")).toHaveCount(1);
+  const readings = join(owner, "Examples", "home-climate", "readings.csv");
+  const back = await api("add_source", { kind: "csv", path: readings });
+  expect(back.name).toBe("home-climate");
 
   // Its page: what it did lately, how often it reads, paused with a switch,
   // and removed from there too.
   await page.reload();
-  await page.getByRole("button", { name: "More actions for oikome-guide" }).click();
+  await more();
   await page.getByRole("menuitem", { name: "Open Details" }).click();
-  await expect(page).toHaveURL(`${base}/sources/oikome-guide`);
-  await expect(page.getByRole("heading", { name: "oikome-guide", level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/sources/home-climate`);
+  await expect(page.getByRole("heading", { name: "readings.csv", level: 1 })).toBeVisible();
   await expect(page.getByRole("region", { name: "Recent syncs" })).toContainText("Done");
   const pause = page.getByRole("switch", { name: "Pause this source" });
   await pause.click();
@@ -262,10 +285,10 @@ test("the examples are files: edit one, sync it, and it shows", async () => {
   await hourly.click();
   await expect(hourly).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Remove Source" }).click();
-  await page.getByRole("dialog", { name: "Remove oikome-guide?" }).getByRole("button", { name: "Remove" }).click();
+  await page.getByRole("dialog", { name: "Remove readings.csv?" }).getByRole("button", { name: "Remove" }).click();
   await expect(page).toHaveURL(`${base}/sources`);
-  await expect(sources.locator("tbody tr")).toHaveCount(3);
-  await api("add_source", { kind: "notes", path: join(owner, "Examples", "oikome-guide") });
+  await expect(sources.locator("tbody tr")).toHaveCount(1);
+  await api("add_source", { kind: "csv", path: readings });
 });
 
 test("⌘K searches what the collections hold, and a hit opens that one on its own", async () => {
@@ -347,7 +370,7 @@ test("a photo opens large and the arrow keys move through them; a note opens in 
   let photo = page.getByRole("dialog", { name: titles[4] });
   await expect(photo).toContainText("5 of 6 · ← → to move");
   await expect(photo).toContainText("Who can see this");
-  await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=photos&item=/);
+  await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=files&item=/);
   expect(await page.evaluate(() => window.scrollY)).toBe(y);
 
   await page.keyboard.press("ArrowRight");
@@ -365,7 +388,7 @@ test("a photo opens large and the arrow keys move through them; a note opens in 
   // A note with a line of tags: the tags show as tags, the note in full.
   const tram = join(owner, "Examples", "oikome-guide", "10 Tram.md");
   writeFileSync(tram, "Took the 28 up to Graça, then walked down.\n\n#lisbon #trams\n");
-  await api("pull_source", { source: "oikome-guide" });
+  await api("refresh_space", { space: "oikome-guide" });
   await page.goto(`${base}/collections/oikome-guide`);
   const card = page.locator(".screen-note").filter({ hasText: "Took the 28" });
   await expect(card.locator(".oik-tag")).toHaveText(["#lisbon", "#trams"]);
@@ -374,11 +397,11 @@ test("a photo opens large and the arrow keys move through them; a note opens in 
   const note = page.getByRole("dialog", { name: "Note" });
   await expect(note).toContainText("Took the 28 up to Graça, then walked down.");
   await expect(note.locator(".oik-tag")).toHaveText(["#lisbon", "#trams"]);
-  await expect(note).toContainText(/\d+ of 8/);
+  await expect(note).toContainText(/\d+ of 9/);
   await note.getByRole("button", { name: "Close" }).click();
   await expect(page).toHaveURL(/\/collections\/oikome-guide$/);
   rmSync(tram);
-  await api("pull_source", { source: "oikome-guide" });
+  await api("refresh_space", { space: "oikome-guide" });
 });
 
 /** One MCP request from outside the browser, as an AI assistant sends it. */
@@ -447,7 +470,7 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   expect(elsewhere.body.result.isError).toBe(true);
   expect(elsewhere.body.result.content[0].text).toBe("there is no collection lisbon-photos");
   const row = await call("read_row", { collection: hits[0].collection, table: hits[0].table, key: hits[0].key });
-  expect(row.body.result.structuredContent.fields.note).toMatch(/Welcome to Oikome/);
+  expect(row.body.result.structuredContent.fields.text).toMatch(/Welcome to Oikome/);
   const owners = await call("run_sql", { sql: "SELECT 1" });
   expect(owners.body.error.code).toBe(-32602);
 
@@ -785,6 +808,194 @@ test("Home lends this computer to Bob, who adds it and sees when lending is paus
       timeout: 1000,
     });
   }).toPass({ timeout: 20_000 });
+});
+
+test("Bob lends Home his computer: big summaries of what he may see go there, the rest stay home", async () => {
+  // Bob lends his computer to Home.
+  await bob.goto(`${bobBase}/sharing`);
+  await bob.getByRole("button", { name: "Change" }).click();
+  const lend = bob.getByRole("dialog", { name: "Lend This Computer" });
+  await lend.getByRole("checkbox", { name: /Home/ }).check();
+  await lend.getByRole("button", { name: "Save" }).click();
+  await expect(bob.getByRole("heading", { name: /This Invite Code$/ })).toBeVisible();
+  const code = (await bob.locator(".oik-inset-well .oik-copy__value").textContent()).trim();
+  await bob.getByRole("button", { name: "Done" }).click();
+  const lendingAtBob = bob.getByRole("switch", { name: "Lend this computer" });
+  await expect(lendingAtBob).toHaveAttribute("aria-checked", "true");
+
+  // Home adds it.
+  await page.goto(`${base}/sharing`);
+  await page.getByRole("button", { name: "Add an Invite" }).click();
+  await page.getByRole("dialog", { name: "Add an Invite" }).getByLabel("Invite code").fill(code);
+  await page.getByRole("button", { name: "Add Invite" }).click();
+  const notice = page.getByRole("region", { name: /lends you their computer$/ });
+  await notice.getByRole("button", { name: /^Accept: / }).click();
+  const bobs = page.locator(".oik-row", { hasText: "Bob's computer" });
+  await expect(bobs).toContainText("Available");
+
+  // A big collection: 100,000 rows over ten days, a euro each.
+  const days = Array.from({ length: 10 }, (_, i) => `('2025-01-${String(i + 1).padStart(2, "0")}')`).join(", ");
+  const digits = "(VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9))";
+  await api("create_space", { name: "ledger" });
+  const made = await api("run_sql", {
+    sql:
+      "CREATE TABLE ledger.ledger (what VARCHAR, day VARCHAR, category VARCHAR, euros DOUBLE); " +
+      `INSERT INTO ledger.ledger SELECT 'coffee', a.d, 'food', 1.0 FROM (VALUES ${days}) a(d), ` +
+      `${digits} b(x), ${digits} c(x), ${digits} d(x), ${digits} e(x)`,
+  });
+  expect(made.code).toBeUndefined();
+  const { homeCards } = await api("node_info");
+  await api("set_home_cards", { cards: [...homeCards, { id: "totals:ledger", width: 7 }] });
+
+  // Turned on, from its details: nothing is shared with Bob yet.
+  await bobs.getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("dialog", { name: "Bob's computer" });
+  await expect(details).toContainText("Share a collection with Bob to work out its summaries there.");
+  await expect(details).toContainText("Big jobs stay on your own devices.");
+  await details.getByRole("switch", { name: "Use Bob's computer" }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Big summaries now go to Bob's computer.");
+  await details.getByRole("button", { name: "Done" }).click();
+  await expect(bobs).toContainText("In use");
+
+  const card = page.getByRole("region", { name: "ledger · last 14 days" });
+  await page.goto(base);
+  await expect(card).toContainText("Worked out here: it isn't shared with Bob");
+  await expect(card).toContainText("100,000 in all");
+
+  // Shared with Bob, who may see all of it: worked out on his computer, to the same totals.
+  const bobDid = oikome(contact, "identity").trim();
+  const shared = await api("share_space", { space: "ledger", did: bobDid });
+  expect(shared.id).toBeTruthy();
+  await page.reload();
+  await expect(card).toContainText("Worked out on Bob's computer");
+  await expect(card).toContainText("100,000 in all · 10 days with any");
+
+  // Bob's Activity says Home ran a task, through lending; Home's says what went where.
+  await bob.goto(`${bobBase}/activity`);
+  await expect(async () => {
+    await bob.reload();
+    const line = bob.locator("tbody tr", { hasText: "ran a task on this computer" }).first();
+    await expect(line).toBeVisible({ timeout: 1000 });
+    await expect(line).toContainText("Lending");
+  }).toPass({ timeout: 20_000 });
+  await page.goto(`${base}/activity`);
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByText("worked out ledger's daily totals on Bob's computer").first()).toBeVisible({
+      timeout: 1000,
+    });
+  }).toPass({ timeout: 20_000 });
+  await page.goto(`${base}/sharing`);
+  await bobs.getByRole("button", { name: "Details" }).click();
+  await expect(details).toContainText("1 task");
+  await expect(details).toContainText("ledger by day");
+  await expect(details).toContainText("Summaries of ledger can go there.");
+  await details.getByRole("button", { name: "Done" }).click();
+
+  // Bob stops lending: the next summary (the collection grew) stays home.
+  await bob.goto(`${bobBase}/sharing`);
+  await lendingAtBob.click();
+  await expect(lendingAtBob).toHaveAttribute("aria-checked", "false");
+  await api("run_sql", { sql: "INSERT INTO ledger.ledger VALUES ('tea', '2025-01-10', 'food', 2.0)" });
+  await page.goto(base);
+  await expect(card).toContainText("Worked out here: Bob's computer isn't lending now");
+  await expect(card).toContainText("100,002 in all");
+
+  // The share stopped: it stays home, and says why.
+  await api("revoke_share", { id: shared.id });
+  await page.reload();
+  await expect(card).toContainText("Worked out here: it isn't shared with Bob");
+
+  // Back as it was for what follows (a plugin picks the one collection that fits it).
+  await api("set_home_cards", { cards: homeCards });
+  await api("drop_space", { space: "ledger" });
+});
+
+test("a folder is viewed where it is: browsed, opened, queried, offline, and shared to view", async () => {
+  // A folder of the owner's, outside the data center: a photo, a table, notes in a folder.
+  const trip = mkdtempSync(join(tmpdir(), "oikome-trip-"));
+  const lisbon = join(owner, "Examples", "lisbon-photos");
+  const jpeg = readdirSync(lisbon).find((f) => f.endsWith(".jpg"));
+  copyFileSync(join(lisbon, jpeg), join(trip, "Tram 28.jpg"));
+  writeFileSync(join(trip, "2025.csv"), "day,euros\n2025-01-01,3.5\n2025-01-02,4\n");
+  mkdirSync(join(trip, "Notes"));
+  writeFileSync(join(trip, "Notes", "Ferry.md"), "Took the ferry to Cacilhas at sunset.\n");
+  const away = `${trip}-away`;
+  try {
+    // The dialog offers a folder of this computer to read where it is.
+    await page.goto(`${base}/collections`);
+    await page.getByRole("button", { name: "View a Folder" }).click();
+    const dialog = page.getByRole("dialog", { name: "View a Folder" });
+    await expect(dialog).toContainText("never changes it");
+    await expect(dialog.getByRole("button", { name: "View in Place" })).toBeDisabled();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    // The folder picker browses from the home folder; the test's folder is
+    // elsewhere, so it is named directly.
+    const viewed = await api("view_in_place", { path: trip });
+    expect(viewed.inPlace.files).toBe(3);
+    const name = viewed.name;
+
+    // Its page: where it is, its photo from the index, its folders.
+    await page.goto(`${base}/collections/${name}`);
+    await expect(page.locator(".screen-facts")).toContainText("Read where it is");
+    const thumb = page.locator(".screen-photo img").first();
+    await expect.poll(() => thumb.evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+    expect(await thumb.getAttribute("src")).toMatch(/^\/files\/thumb\//);
+    // Opened large, from the folder itself.
+    await page.locator(".screen-photo__link").first().click();
+    await expect(page).toHaveURL(/table=files&item=Tram\+28\.jpg/);
+    const photo = page.getByRole("dialog", { name: "Tram 28" });
+    const large = photo.locator("img").first();
+    await expect.poll(() => large.evaluate((img) => img.naturalWidth)).toBeGreaterThan(512);
+    expect(await large.getAttribute("src")).toMatch(/^\/files\/original\//);
+    await page.keyboard.press("Escape");
+    // Into a folder and back.
+    await page.getByRole("button", { name: /Notes/ }).click();
+    await expect(page.getByText("Took the ferry to Cacilhas at sunset.")).toBeVisible();
+    await page.getByRole("navigation", { name: "Files" }).getByRole("button", { name }).click();
+    await expect(page.locator(".screen-photo")).toHaveCount(1);
+    // Its table, read where it is.
+    await page.getByRole("combobox", { name: "Table" }).selectOption("t_2025");
+    await expect(page.getByRole("table", { name: "t_2025" }).getByRole("cell", { name: "Jan 2, 2025" })).toBeVisible();
+
+    // A photo is sent only to the owner's own pages.
+    const outside = await fetch(`${base}/files/thumb/${name}/Tram%2028.jpg`);
+    expect(outside.status).toBe(401);
+
+    // Offline: the index still shows it, and says why the files don't open.
+    renameSync(trip, away);
+    await page.goto(`${base}/collections/${name}`);
+    await page.getByRole("button", { name: "Read Again" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "can't be reached right now" })).toBeVisible();
+    await expect.poll(() => page.locator(".screen-photo img").first().evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+    renameSync(away, trip);
+    await page.getByRole("button", { name: "Read Again" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "can't be reached right now" })).toHaveCount(0);
+
+    // Shared with Bob to view: he queries it live, and can't keep a copy.
+    const bobDid = oikome(contact, "identity").trim();
+    const refused = await api("share_space", { space: name, did: bobDid, allowCopy: true });
+    expect(refused.code).toBe("invalid");
+    const shared = await api("share_space", { space: name, did: bobDid });
+    const rows = await bob.evaluate(
+      async ([code, space]) => {
+        const call = async (op, body) =>
+          (await fetch(`/api/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+        const invite = await call("add_invite", { invite: code });
+        const accepted = await call("accept_invite", { id: invite.id, name: `${space}-from-home` });
+        const tables = await call("list_tables", { space: `${space}-from-home` });
+        return { accepted, tables: tables.map((t) => t.name) };
+      },
+      [shared.invite, name],
+    );
+    expect(rows.tables).toContain("files");
+    expect(rows.tables).toContain("t_2025");
+    await api("revoke_share", { id: shared.id });
+    await api("drop_space", { space: name });
+  } finally {
+    if (existsSync(away)) renameSync(away, trip);
+    rmSync(trip, { recursive: true, force: true });
+  }
 });
 
 test("plugins go on Home, read only what they may, and reach nothing", async () => {

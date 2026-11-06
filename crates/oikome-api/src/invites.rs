@@ -548,6 +548,7 @@ impl Api {
                     from: from.clone(),
                     lends: waiting.lends,
                     accepted_at_ms: crate::now_ms(),
+                    in_use: false,
                 };
                 self.change_borrowed(|all| {
                     all.retain(|h| h.owner != held.owner);

@@ -169,6 +169,33 @@ pub fn check_relative_path(path: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Check a path to one of the owner's own files or folders on a storage,
+/// viewed in place (§7.7): relative, with any names the owner gave them
+/// (spaces, accents, other scripts), but no `.`, `..`, empty segments,
+/// backslashes or control characters. Oikome only reads these.
+pub fn check_owner_path(path: &str) -> Result<(), StoreError> {
+    let fine = |s: &str| {
+        !s.is_empty() && s != "." && s != ".." && !s.chars().any(|c| c.is_control() || c == '\\')
+    };
+    if path.is_empty() || path.len() > 4096 || !path.split('/').all(fine) {
+        return Err(StoreError::Invalid(format!(
+            "'{path}' is not a relative path within the folder"
+        )));
+    }
+    Ok(())
+}
+
+/// A file or folder the owner keeps on a storage, as listed for viewing in
+/// place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    /// Milliseconds since the Unix epoch; 0 when the storage doesn't say.
+    pub modified_ms: i64,
+}
+
 /// A temporary name next to `path`, unique within this process.
 fn temp_name(path: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -243,6 +270,133 @@ impl RemoteStore {
                 credentials,
             }),
         })
+    }
+
+    /// The owner's folder `folder` under the WebDAV server at `endpoint`,
+    /// to view in place: read only, so its names need only be the owner's
+    /// own ([`check_owner_path`]); nothing is ever written through it.
+    pub fn webdav_view(
+        endpoint: &str,
+        folder: &str,
+        credentials: Credentials,
+    ) -> Result<Self, StoreError> {
+        let folder = folder.trim_matches('/');
+        if !folder.is_empty() {
+            check_owner_path(folder)?;
+        }
+        let base = url::Url::parse(endpoint)
+            .map_err(|e| StoreError::Invalid(format!("WebDAV address: {e}")))?;
+        if !matches!(base.scheme(), "http" | "https")
+            || !base.username().is_empty()
+            || base.password().is_some()
+            || base.query().is_some()
+            || base.fragment().is_some()
+        {
+            return Err(StoreError::Invalid(
+                "a WebDAV address is http(s)://host[:port][/path], without credentials".into(),
+            ));
+        }
+        let root = match folder {
+            "" => "/".to_string(),
+            f => format!("/{f}/"),
+        };
+        let mut builder = opendal::services::Webdav::default()
+            .endpoint(endpoint.trim_end_matches('/'))
+            .root(&root);
+        if let Some(user) = &credentials.username {
+            builder = builder.username(user);
+        }
+        if let Some(password) = &credentials.password {
+            builder = builder.password(password.as_str());
+        }
+        if let Some(token) = &credentials.token {
+            builder = builder.token(token.as_str());
+        }
+        let op = Operator::new(builder)
+            .map_err(|e| StoreError::Invalid(format!("WebDAV: {}", e.kind())))?
+            .finish();
+        Ok(Self { op, put: None })
+    }
+
+    /// The owner's entries in the folder `dir` (`""` for the top), with
+    /// their sizes and times, to view in place.
+    pub async fn list_owned(&self, dir: &str) -> Result<Vec<OwnerEntry>, StoreError> {
+        let dir = match dir.trim_matches('/') {
+            "" => String::new(),
+            d => {
+                check_owner_path(d)?;
+                format!("{d}/")
+            }
+        };
+        let entries = self
+            .op
+            .list(&dir)
+            .await
+            .map_err(|e| StoreError::from_dal(&dir, e))?;
+        let mut out = Vec::new();
+        for entry in entries {
+            let Some(name) = entry
+                .path()
+                .strip_prefix(dir.as_str())
+                .map(|n| n.trim_end_matches('/').to_string())
+            else {
+                continue;
+            };
+            if name.is_empty() || name.contains('/') {
+                continue;
+            }
+            let is_dir = entry.metadata().mode() == EntryMode::DIR;
+            let (mut size, mut modified) = (
+                entry.metadata().content_length(),
+                entry.metadata().last_modified(),
+            );
+            // Not every server says in its listing.
+            if !is_dir && modified.is_none() {
+                if let Ok(meta) = self.op.stat(entry.path()).await {
+                    size = meta.content_length();
+                    modified = meta.last_modified();
+                }
+            }
+            out.push(OwnerEntry {
+                name,
+                is_dir,
+                size,
+                modified_ms: modified.map_or(0, |t| t.timestamp_millis()),
+            });
+        }
+        Ok(out)
+    }
+
+    /// `range` of the owner's file at `path` (all of it with `..`), at most
+    /// `max` bytes, to view in place.
+    pub async fn read_owned(
+        &self,
+        path: &str,
+        range: std::ops::Range<u64>,
+        max: u64,
+    ) -> Result<Bytes, StoreError> {
+        check_owner_path(path)?;
+        let size = self
+            .op
+            .stat(path)
+            .await
+            .map_err(|e| StoreError::from_dal(path, e))?
+            .content_length();
+        let end = range.end.min(size);
+        if range.start > end {
+            return Ok(Bytes::new());
+        }
+        if end - range.start > max {
+            return Err(StoreError::Invalid(format!(
+                "{path}: more than {max} bytes asked for"
+            )));
+        }
+        self.op
+            .read_with(path)
+            .range(range.start..end)
+            .await
+            .map(|b| b.to_bytes())
+            .map_err(|e| StoreError::from_dal(path, e))
     }
 
     /// The folder `folder` (plain segments; `""` for `root` itself) under

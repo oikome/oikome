@@ -96,6 +96,16 @@ pub enum LocationFormat {
     /// the newest complete snapshot, under `.oikome/replicas/<location id>/`.
     /// The storage and folder are in [`Location::storage`].
     StorageCopy,
+    /// A folder viewed where it is (§7.7): read-only, holding no data of its
+    /// own. Its index (files, text, thumbnails) is a cache under
+    /// `.oikome/index/<location id>/`.
+    InPlace {
+        /// The storage the folder is on; `None` for this computer.
+        #[serde(default)]
+        place: Option<String>,
+        /// The folder: absolute on this computer, else within the storage.
+        path: String,
+    },
 }
 
 impl LocationFormat {
@@ -108,6 +118,7 @@ impl LocationFormat {
             LocationFormat::Remote { .. } => "remote",
             LocationFormat::Replica { .. } => "replica",
             LocationFormat::StorageCopy => "storage_copy",
+            LocationFormat::InPlace { .. } => "in_place",
         }
     }
 
@@ -162,7 +173,8 @@ pub fn engine_reads(engine: EngineKind, format: &LocationFormat) -> bool {
             LocationFormat::IcebergParquet { .. }
             | LocationFormat::Lance { .. }
             | LocationFormat::Replica { .. }
-            | LocationFormat::StorageCopy,
+            | LocationFormat::StorageCopy
+            | LocationFormat::InPlace { .. },
         ) => false,
     }
 }
@@ -184,6 +196,9 @@ pub fn validate_binding(
         ));
     }
 
+    if request.place.is_some() {
+        return in_place(request, existing, now_ms);
+    }
     let kind = request.kind.unwrap_or(SpaceKind::Analytical);
     if kind == SpaceKind::Remote || request.peer.is_some() || request.token.is_some() {
         return Err(CatalogError::InvalidProperty(
@@ -249,7 +264,8 @@ pub fn validate_binding(
             _,
             LocationFormat::Remote { .. }
             | LocationFormat::Replica { .. }
-            | LocationFormat::StorageCopy,
+            | LocationFormat::StorageCopy
+            | LocationFormat::InPlace { .. },
         )
         | (SpaceKind::Remote, _) => {
             return Err(CatalogError::KindFormatMismatch {
@@ -323,6 +339,70 @@ pub fn validate_binding(
     };
     Ok((space, location))
 }
+
+/// A Space viewing a folder in place (`PLACE`, §7.7): analytical, read
+/// only, bound to a Location of its own that nothing writes. Whether the
+/// folder exists, and is not one of Oikome's own, is checked by the node.
+fn in_place(
+    request: &CreateSpaceRequest,
+    existing: Option<&Location>,
+    now_ms: u64,
+) -> Result<(Space, Location), CatalogError> {
+    let wrong = |what: &str| {
+        CatalogError::InvalidProperty(format!("a space viewed in place (PLACE) {what}"))
+    };
+    if existing.is_some() || request.location.is_some() {
+        return Err(wrong("has a location of its own; leave out LOCATION"));
+    }
+    if request.kind.is_some_and(|k| k != SpaceKind::Analytical)
+        || request.engine.is_some_and(|e| e != EngineKind::DuckDb)
+    {
+        return Err(wrong("is analytical, read by DuckDB"));
+    }
+    if request.access == Some(AccessMode::Writable) {
+        return Err(wrong("is read-only: Oikome never writes where it views"));
+    }
+    if request.storage.is_some() || request.format.is_some() {
+        return Err(wrong(
+            "takes no STORAGE or FORMAT; name the storage in PLACE",
+        ));
+    }
+    if request.peer.is_some() || request.token.is_some() || request.remote.is_some() {
+        return Err(wrong("is a folder of this data center, not of a peer"));
+    }
+    let place = request.place.as_deref().unwrap_or_default().trim();
+    if place.is_empty() {
+        return Err(wrong("needs PLACE = 'local' or a storage's name"));
+    }
+    let path = request.path.as_deref().unwrap_or_default();
+    if path.trim().is_empty() || path.chars().any(char::is_control) {
+        return Err(wrong("needs PATH, the folder it views, on one line"));
+    }
+    let location = Location {
+        id: request.name.clone(),
+        format: LocationFormat::InPlace {
+            place: (place != PLACE_LOCAL).then(|| place.to_string()),
+            path: path.to_string(),
+        },
+        residency: vec![STORAGE_DISK.to_string()],
+        writer: None,
+        storage: None,
+    };
+    let space = Space {
+        name: request.name.clone(),
+        uri: None,
+        kind: SpaceKind::Analytical,
+        engine: EngineKind::DuckDb,
+        location: location.id.clone(),
+        access: AccessMode::ReadOnly,
+        created_at_ms: now_ms,
+        published_from: None,
+    };
+    Ok((space, location))
+}
+
+/// `PLACE` for a folder on this computer.
+pub const PLACE_LOCAL: &str = "local";
 
 /// Where a `CREATE SPACE` request puts the Space on a storage, if it names
 /// one (`STORAGE` other than `'disk'`). Whether the storage is registered

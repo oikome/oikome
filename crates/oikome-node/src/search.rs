@@ -52,7 +52,7 @@ pub const MAX_SCAN_ROWS: usize = 10_000;
 /// The FTS5 tokenizer: any three or more characters, case and accents aside.
 const TOKENIZER: &str = "trigram remove_diacritics 1";
 /// A term shorter than this (in characters) cannot use a trigram index.
-const MIN_INDEXED_CHARS: usize = 3;
+pub(crate) const MIN_INDEXED_CHARS: usize = 3;
 
 /// A row a search found.
 #[derive(Debug, Clone, PartialEq)]
@@ -239,7 +239,7 @@ pub(crate) async fn drop_index(
 }
 
 /// A `LIKE` pattern matching `term` anywhere, with `\` as its escape.
-fn like_pattern(term: &str) -> String {
+pub(crate) fn like_pattern(term: &str) -> String {
     let mut out = String::from("%");
     for c in term.chars() {
         if matches!(c, '\\' | '%' | '_') {
@@ -252,7 +252,7 @@ fn like_pattern(term: &str) -> String {
 }
 
 /// An FTS5 query matching every term in `terms` (each a string, quotes doubled).
-fn fts_query(terms: &[&str]) -> String {
+pub(crate) fn fts_query(terms: &[&str]) -> String {
     terms
         .iter()
         .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
@@ -348,6 +348,36 @@ impl OikomeSession {
             return Ok(Vec::new());
         }
         let mut out = Vec::new();
+        if let Some(location) = self.in_place_location(space)? {
+            // A folder viewed in place: its index finds files, read again as
+            // a principal like any table's rows; its data files are read.
+            let readable = self.readable_relations(space).await?;
+            if readable.iter().any(|t| t == crate::inplace::FILES) {
+                let found = crate::inplace::search(&self.catalog, &location, &terms, limit)?;
+                // (The index is read synchronously; nothing large is awaited.)
+                out.extend(if self.principal().is_none() {
+                    found
+                } else {
+                    self.as_principal(
+                        space,
+                        crate::inplace::FILES,
+                        &["path".to_string()],
+                        &terms,
+                        found,
+                    )
+                    .await?
+                });
+            }
+            // Its data files are read where they are: one that can't be read
+            // now (the place is offline) doesn't stop the search.
+            for table in readable.iter().filter(|t| *t != crate::inplace::FILES) {
+                match self.scan(space, table, &terms, limit, &[]).await {
+                    Ok(found) => out.extend(found),
+                    Err(e) => tracing::debug!(%space, %table, error = %e, "not searched"),
+                }
+            }
+            return Ok(out);
+        }
         for table in self.readable_relations(space).await? {
             let found = if def.kind == SpaceKind::Transactional {
                 let engine = self.engines().sqlite_for(&def)?;
@@ -550,6 +580,9 @@ impl OikomeSession {
     pub async fn row_key(&self, space: &str, table: &str) -> Result<Vec<String>, SessionError> {
         self.deny_principal("reading a table's key")?;
         let def = self.space(space)?;
+        if table == crate::inplace::FILES && self.in_place_location(space)?.is_some() {
+            return Ok(vec!["path".to_string()]);
+        }
         if def.kind != SpaceKind::Transactional {
             return Ok(Vec::new());
         }
@@ -568,6 +601,21 @@ impl OikomeSession {
         key: &[String],
     ) -> Result<QueryResult, SessionError> {
         let def = self.space(space)?;
+        if table == crate::inplace::FILES && self.in_place_location(space)?.is_some() {
+            // A file of a folder viewed in place, by its path.
+            if key.len() != 1 {
+                return Err(SessionError::Unsupported(format!(
+                    "{space}.{table} is read by a file's path"
+                )));
+            }
+            let sql = format!(
+                "SELECT * FROM {} WHERE path = ?1 LIMIT 1",
+                qualified(space, table)
+            );
+            return self
+                .query_params(&sql, &[Value::Text(key[0].clone())])
+                .await;
+        }
         if def.kind != SpaceKind::Transactional {
             return Err(SessionError::Unsupported(format!(
                 "rows of {space} are not read by key"

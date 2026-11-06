@@ -834,6 +834,14 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     Duration::from_secs(storage_sync),
                 ))
             });
+            // Folders of photos and notes that sources copied are viewed in
+            // place from now on (§7.7), once.
+            if let Err(e) = Api::new(catalog.clone(), engines.clone())
+                .view_folders_in_place()
+                .await
+            {
+                tracing::warn!(error = %e, "viewing folder sources in place");
+            }
             // Sources are pulled on their schedule while the node serves (§11).
             let _source_sync = (source_sync > 0).then(|| {
                 let owner =
@@ -950,8 +958,13 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+/// The stack of each of the runtime's threads. Queries run on them: a
+/// federated plan (DataFusion over Flight, §5) nests its streams deeply, and
+/// tokio's default of 2 MiB was found too little for a contact's query in a
+/// debug build.
+const THREAD_STACK_BYTES: usize = 8 << 20;
+
+fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -959,7 +972,18 @@ async fn main() {
         )
         .with_writer(std::io::stderr)
         .init();
-    if let Err(e) = run(Cli::parse()).await {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(THREAD_STACK_BYTES)
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("error: starting the runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = runtime.block_on(run(Cli::parse())) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }

@@ -64,8 +64,9 @@ function through(item: AccessItem): string {
   if (item.who === "you") return s.viaThisComputer;
   if (item.who === "plugin") return s.viaPlugin;
   if (item.who === "assistant") return s.viaAssistant;
-  if (item.shareId) return s.viaShare;
+  // Compute lines carry their grant's id too: lending first.
   if (lends(item)) return s.viaLending;
+  if (item.shareId) return s.viaShare;
   return s.viaNetwork;
 }
 
@@ -82,6 +83,7 @@ export function sentence(item: AccessItem): string {
   if (item.method === "owner_setup") return s.setUp(name);
   if (item.method === "owner_examples") return s.addedExamples(name, what);
   if (item.method === "owner_key") return s.savedKey(name);
+  if (item.method === "owner_computed_on") return s.workedOut(name, what, item.detail ?? "");
   // A plugin on Home, reading as itself.
   if (item.method === "plugin_read") {
     return item.outcome === "allowed" ? s.readForCard(name, what) : s.pluginRefused(name, what);
@@ -109,6 +111,8 @@ function detail(item: AccessItem): { body: string; go?: { to: string; label: str
       return { body: s.detailExamples(what), go: { to: "/collections", label: s.goCollections } };
     case "owner_key":
       return { body: s.detailKey, go: { to: "/settings", label: s.goSettings } };
+    case "owner_computed_on":
+      return { body: s.detailWorkedOut(what, item.detail ?? ""), go: { to: "/sharing", label: s.goSharing } };
     case "plugin_read":
       return {
         body: item.outcome === "allowed" ? s.detailPlugin(name, what) : s.detailPluginRefused(name, what),

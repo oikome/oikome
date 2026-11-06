@@ -6,14 +6,13 @@
 // of some readings (such as a home's temperatures). Arrange (arrange.tsx)
 // places them on Home.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { PointerEvent } from "react";
-import type { SpaceSummary } from "@oikome/client";
-import type { Table } from "apache-arrow";
+import type { NodeClient, SpaceSummary } from "@oikome/client";
 import type { Preview } from "./content";
-import { itemsOf, measure, numberAt, shapeOf } from "./content";
+import { measure, shapeOf } from "./content";
 import { useClient, useLoad } from "./data";
-import { calendarDate, monthAndDay } from "./format";
+import { calendarDate, isoTime, monthAndDay } from "./format";
 import { show } from "./parts";
 import { Link } from "./router";
 import { strings } from "./strings";
@@ -22,7 +21,8 @@ const s = strings.home;
 
 /** Days a totals card shows. */
 const DAYS = 14;
-const DAY_MS = 86_400_000;
+/** Rows read to tell which columns hold a day and an amount. */
+const SAMPLE_ROWS = 50;
 
 /** Whether a collection makes a totals card: a table with a date and a number. */
 export function hasTotals(preview?: Preview): boolean {
@@ -34,29 +34,39 @@ export function hasLatest(preview?: Preview): boolean {
   return preview?.shape.view === "series";
 }
 
-/** A day's totals, for the last `DAYS` days up to the latest one with data. */
-function totalsOf(table: Table) {
-  const shape = shapeOf(table);
-  const number = shape.detail;
-  if (number === undefined || shape.when === undefined) return undefined;
-  const items = itemsOf(table, shape);
-  const byDay = new Map<number, number>();
-  items.forEach((item, r) => {
-    if (item.when === undefined) return;
-    const value = numberAt(table, number, r);
-    if (value === undefined) return;
-    // Days as written: the UTC day of a date or a time without a zone.
-    const day = Math.floor(item.when / DAY_MS) * DAY_MS;
-    byDay.set(day, (byDay.get(day) ?? 0) + value);
+/**
+ * A day's totals, for the last `DAYS` days up to the latest one with data.
+ * A sample of the table decides which columns hold the day and the amount;
+ * the node adds up every row, here or on a computer lent to you.
+ */
+async function totalsOf(client: NodeClient, space: string) {
+  const tables = await client.listTables({ space });
+  const first = tables[0];
+  if (!first) return undefined;
+  const sample = (await client.readRows({ space, table: first.name, limit: SAMPLE_ROWS })).table;
+  const shape = shapeOf(sample);
+  if (shape.when === undefined || shape.detail === undefined) return undefined;
+  const fields = sample.schema.fields;
+  const amountField = fields[shape.detail]!;
+  const answer = await client.dailyTotals({
+    space,
+    table: first.name,
+    when: fields[shape.when]!.name,
+    amount: amountField.name,
   });
-  if (byDay.size === 0) return undefined;
-  const last = Math.max(...byDay.keys());
-  const days = Array.from({ length: DAYS }, (_, i) => last - (DAYS - 1 - i) * DAY_MS);
-  const values = days.map((d) => byDay.get(d) ?? 0);
-  const field = table.schema.fields[number]!;
+  const days = answer.days.map((d) => isoTime(d.day)?.ms ?? 0);
+  if (days.length !== DAYS) return undefined;
+  const values = answer.days.map((d) => d.total);
   const total = values.reduce((a, b) => a + b, 0);
   const busy = values.filter((v) => v > 0);
-  return { days, values, total, active: busy.length, label: measure(field.name).label };
+  // Where it was worked out, when a computer lent to you is in use.
+  const lender = answer.lender ?? "";
+  const where = answer.borrowed
+    ? s.workedOutOn(lender)
+    : answer.stayedHere && answer.stayedHere !== "small"
+      ? s.stayedHere[answer.stayedHere]?.(lender)
+      : undefined;
+  return { days, values, total, active: busy.length, label: measure(amountField.name).label, where };
 }
 
 /** Numbers as people read money and counts: 161.85, 1,284. */
@@ -67,12 +77,7 @@ function amount(n: number): string {
 /** Bars of a day's totals over two weeks, from zero, with the day under the pointer. */
 export function TotalsCard({ space, className }: { space: SpaceSummary; className?: string }) {
   const client = useClient();
-  const rows = useLoad(async () => {
-    const tables = await client.listTables({ space: space.name });
-    const first = tables[0];
-    return first ? (await client.readRows({ space: space.name, table: first.name, limit: 1000 })).table : undefined;
-  }, [space.name]);
-  const totals = useMemo(() => (rows.data ? totalsOf(rows.data) : undefined), [rows.data]);
+  const totals = useLoad(() => totalsOf(client, space.name), [space.name]).data;
   const [hover, setHover] = useState<number>();
   const max = totals ? Math.max(...totals.values, 0) : 0;
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
@@ -125,6 +130,7 @@ export function TotalsCard({ space, className }: { space: SpaceSummary; classNam
             <span>{s.totalsLine(amount(totals.total), totals.active)}</span>
             <span>{monthAndDay(totals.days[DAYS - 1]!, true)}</span>
           </div>
+          {totals.where && <p className="screen-totals__where">{totals.where}</p>}
         </div>
       )}
     </section>

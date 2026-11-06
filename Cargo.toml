@@ -65,6 +65,9 @@ getrandom = "0.3"
 base64 = "0.22"
 bs58 = "0.5"
 blake3 = "1.8"
+# Thumbnails of photos viewed in place (§7.7): decoding and resizing, only
+# the formats Oikome shows.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 web-time = "1.1.0"
 # Browser node (crates/oikome-wasm). wasm-bindgen is pinned exactly: the
 # wasm-bindgen CLI that generates the JS glue must be the same version.

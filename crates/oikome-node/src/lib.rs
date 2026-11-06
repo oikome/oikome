@@ -34,6 +34,7 @@ mod ddl;
 mod dml;
 pub mod error;
 mod graph;
+pub mod inplace;
 mod lance;
 pub mod publish;
 pub mod registry;

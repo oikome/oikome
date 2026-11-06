@@ -224,6 +224,7 @@ export function AddSource({
   onAdded: (source: SourceSummary) => void;
 }) {
   const client = useClient();
+  const toast = useToast();
   const [kind, setKind] = useState<SourceKind>(start);
   const [path, setPath] = useState<string>();
   const [browsing, setBrowsing] = useState(false);
@@ -243,6 +244,15 @@ export function AddSource({
               disabled={!path || add.busy}
               onClick={async () => {
                 if (!path) return;
+                if (!csv) {
+                  // A folder is viewed where it is, never copied (3.9).
+                  const viewed = await add.run(() => client.viewInPlace({ path }));
+                  if (!viewed) return;
+                  forgetPreviews();
+                  toast(strings.collections.viewed(viewed.name));
+                  navigate(`/collections/${encodeURIComponent(viewed.name)}`);
+                  return;
+                }
                 const added = await add.run(() => client.addSource({ kind, path }));
                 if (added) onAdded(added);
               }}

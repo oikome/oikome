@@ -59,7 +59,9 @@ export function ShareDialog({
   const stop = useAction();
   const toast = useToast();
 
-  const copyable = spaces.find((x) => x.name === space)?.kind === "analytical";
+  // A folder viewed in place is shared to view where it is, never to copy.
+  const picked = spaces.find((x) => x.name === space);
+  const copyable = picked?.kind === "analytical" && !picked.inPlace;
   const chosen = contacts.find((c) => c.did === did);
   const withAccess = shares.filter((x) => x.space === space && x.status === "active");
   const close = strings.common.close;
@@ -160,7 +162,8 @@ export function ShareDialog({
             value={space}
             onChange={(value) => {
               setSpace(value);
-              if (spaces.find((x) => x.name === value)?.kind !== "analytical") setAccess("view");
+              const next = spaces.find((x) => x.name === value);
+              if (next?.kind !== "analytical" || next.inPlace) setAccess("view");
             }}
             leading={<Tile icon="collection" tone={toneOf(space)} small />}
             options={spaces.map((x) => ({ value: x.name, label: x.name }))}

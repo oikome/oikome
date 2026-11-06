@@ -760,33 +760,63 @@ async fn a_new_data_center_gets_examples_once() {
     );
     assert!(added.iter().all(|s| s.example && s.storage.is_none()));
 
-    // Photos are images, kept whole.
-    let rows = n
+    // Photos and notes are viewed where they are: nothing is copied, and
+    // the index keeps a thumbnail of each photo.
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let lisbon = added.iter().find(|s| s.name == "lisbon-photos").unwrap();
+    let viewed = lisbon.in_place.as_ref().expect("viewed in place");
+    assert!(viewed.place.is_none());
+    assert!(
+        viewed.path.ends_with("Examples/lisbon-photos"),
+        "{}",
+        viewed.path
+    );
+    assert!(!root.join(".oikome/sqlite/lisbon-photos.sqlite").exists());
+    let listed = n
         .api
-        .read_rows(
+        .list_files(
             &OWNER,
-            ReadRows {
+            ListFiles {
                 space: "lisbon-photos".into(),
-                table: "photos".into(),
-                limit: None,
+                folder: None,
                 offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
             },
         )
         .await
         .unwrap();
-    let batch = StreamReader::try_new(rows.ipc.as_slice(), None)
-        .unwrap()
-        .next()
-        .unwrap()
+    let photos: Vec<&FileItem> = listed
+        .files
+        .iter()
+        .filter(|f| f.kind == FileKind::Image)
+        .collect();
+    assert_eq!(photos.len(), 6);
+    assert!(photos.iter().all(|p| p.thumbnail && p.title.is_some()));
+    let photo = FileRef {
+        space: "lisbon-photos".into(),
+        path: photos[0].path.clone(),
+    };
+    let thumb = n.api.file_thumbnail(&OWNER, photo.clone()).await.unwrap();
+    assert!(thumb.starts_with(&[0xff, 0xd8]), "a JPEG");
+    let original = n
+        .api
+        .file_original(&OWNER, photo.clone(), None)
+        .await
         .unwrap();
-    assert_eq!(batch.num_rows(), 6);
-    let photo = batch
-        .column_by_name("photo")
-        .unwrap()
-        .as_any()
-        .downcast_ref::<arrow_array::BinaryArray>()
+    assert!(
+        original.bytes.starts_with(&[0xff, 0xd8, 0xff]),
+        "the photo itself"
+    );
+    assert_eq!(original.bytes.len() as u64, original.total);
+    let part = n
+        .api
+        .file_original(&OWNER, photo, Some((2, Some(11))))
+        .await
         .unwrap();
-    assert!(photo.value(0).starts_with(&[0xff, 0xd8, 0xff]), "a JPEG");
+    assert_eq!((part.start, part.bytes.len()), (2, 10));
+    assert_eq!(part.bytes, original.bytes[2..12]);
     let tables = n
         .api
         .list_tables(
@@ -797,11 +827,13 @@ async fn a_new_data_center_gets_examples_once() {
         )
         .await
         .unwrap();
-    assert_eq!(tables.len(), 1);
-    assert_eq!(tables[0].rows, Some(6));
+    // The captions name the photos; they are no table of their own.
+    let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["files"]);
+    assert_eq!(tables[0].key, ["path"]);
     for (space, table, count) in [
         ("spending", "spending", 29),
-        ("oikome-guide", "notes", 7),
+        ("oikome-guide", "files", 7),
         ("home-climate", "readings", 14 * 24),
     ] {
         let rows = n
@@ -820,16 +852,13 @@ async fn a_new_data_center_gets_examples_once() {
         assert_eq!(row_count(&rows), count, "{space}");
     }
 
-    // They are files, read by sources: edit one and read it again.
-    let root = std::path::PathBuf::from(n.catalog.root_path());
+    // The tables are files read by sources: edit one and read it again.
     let spending = root.join("Examples/spending/spending.csv");
     assert!(root.join("Examples/lisbon-photos/captions.csv").is_file());
     assert!(root.join("Examples/oikome-guide/1 Welcome.md").is_file());
     let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(sources.len(), 4);
-    let photos = sources.iter().find(|s| s.name == "lisbon-photos").unwrap();
-    assert_eq!(photos.kind, SourceKind::Photos);
-    assert!(photos.pulled_at_ms.is_some() && photos.failure.is_none());
+    let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["home-climate", "spending"]);
     let mut text = std::fs::read_to_string(&spending).unwrap();
     text.push_str("Coffee at the airport,2025-11-09,Food,2.50\n");
     std::fs::write(&spending, text).unwrap();
@@ -897,9 +926,10 @@ async fn a_new_data_center_gets_examples_once() {
         assert!(storages[0].total_bytes.is_some_and(|t| t > 0));
     }
 
-    // Its files stay, and keep the name.
-    let err = n
-        .api
+    // Its files stay where they are; it kept nothing of its own, so its
+    // name is free again.
+    assert!(root.join("Examples/oikome-guide/1 Welcome.md").is_file());
+    n.api
         .create_space(
             &OWNER,
             NewSpace {
@@ -909,8 +939,7 @@ async fn a_new_data_center_gets_examples_once() {
             },
         )
         .await
-        .unwrap_err();
-    assert_eq!(err.code, ErrorCode::Conflict, "{err}");
+        .unwrap();
 
     // An unknown storage is refused before anything is made.
     let err = n
@@ -1557,15 +1586,14 @@ async fn activity_names_who_it_was() {
 }
 
 /// A source can be paused and resumed; removed, its collection stays, and
-/// adding the same folder again puts it back into that collection.
+/// adding the same file again puts it back into that collection.
 #[tokio::test]
 async fn a_source_pauses_and_comes_back_into_its_collection() {
     let n = node();
     n.api.add_examples(&OWNER, Empty {}).await.unwrap();
-    let guide =
-        |sources: &[SourceSummary]| sources.iter().find(|s| s.name == "oikome-guide").cloned();
+    let guide = |sources: &[SourceSummary]| sources.iter().find(|s| s.name == "spending").cloned();
     let pause = |paused| PauseSource {
-        source: "oikome-guide".into(),
+        source: "spending".into(),
         paused,
     };
     let paused = n.api.pause_source(&OWNER, pause(true)).await.unwrap();
@@ -1586,30 +1614,30 @@ async fn a_source_pauses_and_comes_back_into_its_collection() {
         .remove_source(
             &OWNER,
             SourceRef {
-                source: "oikome-guide".into(),
+                source: "spending".into(),
             },
         )
         .await
         .unwrap();
     assert!(guide(&left).is_none());
-    assert!(n.catalog.get_space("oikome-guide").is_ok());
+    assert!(n.catalog.get_space("spending").is_ok());
     let back = n
         .api
         .add_source(
             &OWNER,
             NewSource {
-                kind: SourceKind::Notes,
+                kind: SourceKind::Csv,
                 path: place,
             },
         )
         .await
         .unwrap();
-    assert_eq!(back.name, "oikome-guide");
-    assert!(n.catalog.get_space("oikome-guide-2").is_err());
+    assert_eq!(back.name, "spending");
+    assert!(n.catalog.get_space("spending-2").is_err());
 
     // How often it is read: one of the choices, or only when asked.
     let every = |every_secs| SetSourceEvery {
-        source: "oikome-guide".into(),
+        source: "spending".into(),
         every_secs,
     };
     let set = n
@@ -1629,7 +1657,7 @@ async fn a_source_pauses_and_comes_back_into_its_collection() {
     // Its recent syncs: what came in, then nothing new again and again as
     // one line, then a failure.
     let guide = || SourceRef {
-        source: "oikome-guide".into(),
+        source: "spending".into(),
     };
     n.api.pull_source(&OWNER, guide()).await.unwrap();
     n.api.pull_source(&OWNER, guide()).await.unwrap();
@@ -1638,7 +1666,7 @@ async fn a_source_pauses_and_comes_back_into_its_collection() {
     // Added back, then read twice: three times nothing new.
     assert_eq!(runs[0].count, 3, "{runs:?}");
     assert!(runs[0].first_ms < runs[0].at_ms, "{runs:?}");
-    assert!(runs.iter().any(|r| r.upserted == 7), "{runs:?}");
+    assert!(runs.iter().any(|r| r.upserted == 29), "{runs:?}");
     let root = std::path::PathBuf::from(n.catalog.root_path());
     std::fs::write(
         root.join("Examples/spending/spending.csv"),
@@ -1684,7 +1712,7 @@ async fn search_finds_what_sources_bring_in() {
         .iter()
         .find(|h| h.collection == "lisbon-photos")
         .unwrap_or_else(|| panic!("{found:?}"));
-    assert_eq!(photo.table, "photos");
+    assert_eq!(photo.table, "files");
     assert!(marked(photo).contains(&"Pastéis".to_string()), "{photo:?}");
     let row = n
         .api
@@ -1710,7 +1738,7 @@ async fn search_finds_what_sources_bring_in() {
         )
         .await
         .unwrap();
-    assert_eq!(tables[0].key, vec!["file".to_string()]);
+    assert_eq!(tables[0].key, vec!["path".to_string()]);
 
     // Rows of a table, in the one collection asked for.
     let found = n
@@ -1726,10 +1754,11 @@ async fn search_finds_what_sources_bring_in() {
     let guide = std::path::PathBuf::from(n.catalog.root_path()).join("Examples/oikome-guide");
     let lisbon = guide.join("9 Lisbon.md");
     std::fs::write(&lisbon, "今天在里斯本吃了蛋挞, and a bica at Brasileira.").unwrap();
-    let pull = || SourceRef {
-        source: "oikome-guide".into(),
+    // The folder is read again on its schedule, or now when asked.
+    let pull = || SpaceRef {
+        space: "oikome-guide".into(),
     };
-    n.api.pull_source(&OWNER, pull()).await.unwrap();
+    n.api.refresh_space(&OWNER, pull()).await.unwrap();
     for query in ["里斯本", "蛋挞", "brasileira bica"] {
         let found = n.api.search(&OWNER, search(query, None)).await.unwrap();
         let note = found
@@ -1737,13 +1766,13 @@ async fn search_finds_what_sources_bring_in() {
             .iter()
             .find(|h| h.collection == "oikome-guide")
             .unwrap_or_else(|| panic!("{query}: {found:?}"));
-        assert_eq!(note.column, "note");
+        assert_eq!(note.column, "text");
         assert!(!note.marks.is_empty(), "{query}: {note:?}");
     }
 
     // Changed: the new words are found, the old ones no longer.
     std::fs::write(&lisbon, "Ginjinha in Rossio.").unwrap();
-    n.api.pull_source(&OWNER, pull()).await.unwrap();
+    n.api.refresh_space(&OWNER, pull()).await.unwrap();
     let hits = |query: &str| {
         let api = &n.api;
         let query = query.to_string();
@@ -1759,7 +1788,7 @@ async fn search_finds_what_sources_bring_in() {
     assert_eq!(hits("brasileira").await, 0);
     // Removed: gone from the index with its row.
     std::fs::remove_file(&lisbon).unwrap();
-    n.api.pull_source(&OWNER, pull()).await.unwrap();
+    n.api.refresh_space(&OWNER, pull()).await.unwrap();
     assert_eq!(hits("ginjinha").await, 0);
 
     // A collection with no index (made with SQL) is read and matched.
@@ -1847,17 +1876,14 @@ async fn activity(node: &Node, n: usize) -> Vec<AccessItem> {
 async fn a_principal_searches_only_what_it_may_read() {
     use oikome_node::{OikomeSession, QueryResult, SessionConfig};
     let n = node();
-    // A notes folder of the owner's, filled by a source: indexed.
+    // A file of the owner's, filled into a collection by a source: indexed.
     let folder = std::path::PathBuf::from(n.catalog.root_path()).join("journal");
     std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("journal.csv");
     std::fs::write(
-        folder.join("plans.md"),
-        "Secret plans for Lisbon in spring.",
-    )
-    .unwrap();
-    std::fs::write(
-        folder.join("trams.md"),
-        "The trams of Lisbon climb all day.",
+        &file,
+        "file,note\nplans.md,Secret plans for Lisbon in spring.\n\
+         trams.md,The trams of Lisbon climb all day.\n",
     )
     .unwrap();
     let source = n
@@ -1865,8 +1891,8 @@ async fn a_principal_searches_only_what_it_may_read() {
         .add_source(
             &OWNER,
             NewSource {
-                kind: SourceKind::Notes,
-                path: folder.to_string_lossy().into_owned(),
+                kind: SourceKind::Csv,
+                path: file.to_string_lossy().into_owned(),
             },
         )
         .await
@@ -1882,7 +1908,7 @@ async fn a_principal_searches_only_what_it_may_read() {
         .await
         .unwrap();
     // Alice may see the file names only.
-    sql(&n, "GRANT SELECT (file) ON journal.notes TO alice").await;
+    sql(&n, "GRANT SELECT (file) ON journal.journal TO alice").await;
     let session = |who: &str| {
         OikomeSession::new(
             n.catalog.clone(),
@@ -1924,7 +1950,7 @@ async fn a_principal_searches_only_what_it_may_read() {
     assert_eq!(by_name.len(), 1);
     assert!(by_name[0].texts.iter().all(|(column, _)| column == "file"));
     let row = alice
-        .row_by_key("journal", "notes", &["plans.md".to_string()])
+        .row_by_key("journal", "journal", &["plans.md".to_string()])
         .await
         .unwrap();
     let QueryResult::Batches { schema, .. } = row else {
@@ -1934,10 +1960,10 @@ async fn a_principal_searches_only_what_it_may_read() {
 
     // Bob may see one note: a row his policy leaves out is not found, nor
     // read. (With a policy on the table, anyone it doesn't name sees no row.)
-    sql(&n, "GRANT SELECT ON journal.notes TO bob").await;
+    sql(&n, "GRANT SELECT ON journal.journal TO bob").await;
     sql(
         &n,
-        "CREATE POLICY trams_only ON journal.notes FOR SELECT TO bob USING (file = 'trams.md')",
+        "CREATE POLICY trams_only ON journal.journal FOR SELECT TO bob USING (file = 'trams.md')",
     )
     .await;
     let bob = session("bob");
@@ -1948,7 +1974,7 @@ async fn a_principal_searches_only_what_it_may_read() {
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].key, Some(vec!["trams.md".to_string()]));
     let QueryResult::Batches { batches, .. } = bob
-        .row_by_key("journal", "notes", &["plans.md".to_string()])
+        .row_by_key("journal", "journal", &["plans.md".to_string()])
         .await
         .unwrap()
     else {
@@ -2004,9 +2030,11 @@ async fn an_assistant_reads_only_the_collections_it_is_given() {
     let readable = n.api.assistant_collections(&me, Empty {}).await.unwrap();
     assert_eq!(readable.len(), 1);
     assert_eq!(readable[0].name, "oikome-guide");
+    // The guide is a folder viewed in place: its files, keyed by path.
     let table = &readable[0].tables[0];
-    assert!(table.columns.contains(&"note".to_string()));
-    assert_eq!(table.key, vec!["file".to_string()]);
+    assert_eq!(table.name, "files");
+    assert!(table.columns.contains(&"text".to_string()));
+    assert_eq!(table.key, vec!["path".to_string()]);
     assert_eq!(table.rows, Some(7));
     assert!(n.api.list_spaces(&me, Empty {}).await.is_err());
     assert!(n.api.search(&me, q("welcome", None)).await.is_err());
@@ -2053,8 +2081,8 @@ async fn an_assistant_reads_only_the_collections_it_is_given() {
             &me,
             ReadRow {
                 space: "lisbon-photos".into(),
-                table: "photos".into(),
-                key: vec!["Tram 28E.jpg".into()],
+                table: "files".into(),
+                key: vec!["tram.jpg".into()],
             },
         )
         .await
@@ -2161,4 +2189,542 @@ async fn an_assistant_reads_only_the_collections_it_is_given() {
         .connect_assistant(&me, connect("Another", vec![]))
         .await
         .is_err());
+}
+
+/// Big summaries go to a computer lent here only when its owner may read
+/// all of what they are made from; otherwise this computer works them out,
+/// and says why.
+#[tokio::test]
+async fn daily_totals_stay_here_unless_the_lender_may_read_all_of_a_big_collection() {
+    let rosh = node();
+    let rosh_api = rosh.api.clone().with_flight_url("https://127.0.0.1:9");
+    rosh_api
+        .rename_node(
+            &OWNER,
+            NodeName {
+                name: "Rosh's data center".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let rosh_did = rosh_api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    let sam = node();
+    let sam_did = sam.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    rosh_api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: sam_did.clone(),
+                name: "Sam".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let saved = rosh_api
+        .set_lending(
+            &OWNER,
+            SetLending {
+                on: true,
+                people: vec![sam_did.clone()],
+                concurrent: 1,
+                per_hour: 30,
+            },
+        )
+        .await
+        .unwrap();
+    let invite = add(&sam, &saved.invites[0].invite).await.unwrap();
+    sam.api
+        .accept_invite(
+            &OWNER,
+            AcceptInvite {
+                id: invite.id,
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let borrowed = sam.api.list_borrowed(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(borrowed.len(), 1);
+    assert!(!borrowed[0].in_use);
+    let id = borrowed[0].id.clone();
+
+    // A small table of days written as text, with a gap and rows without
+    // an amount or a day.
+    for name in ["spending", "big"] {
+        sam.api
+            .create_space(
+                &OWNER,
+                NewSpace {
+                    name: name.into(),
+                    kind: None,
+                    storage: None,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    sql(
+        &sam,
+        "CREATE TABLE spending.days (what VARCHAR, day VARCHAR, euros DOUBLE); \
+         INSERT INTO spending.days VALUES \
+         ('bread', '2025-10-20', 2.5), ('tram', '2025-10-20 09:40:00', 3.0), \
+         ('book', '2025-10-23', 12.0), ('nothing', '2025-10-24', NULL), \
+         ('lost', NULL, 4.0), ('old', '2025-09-01', 100.0)",
+    )
+    .await;
+    let totals_of = |space: &str, table: &str| DailyTotalsOf {
+        space: space.into(),
+        table: table.into(),
+        when: "day".into(),
+        amount: "euros".into(),
+    };
+    let totals = sam
+        .api
+        .daily_totals(&OWNER, totals_of("spending", "days"))
+        .await
+        .unwrap();
+    assert_eq!(totals.rows, 6);
+    assert_eq!(totals.days.len(), 14);
+    // The latest day with an amount ends the fortnight (a day without one
+    // doesn't); empty days are 0; a day too old is left out.
+    assert_eq!(totals.days[13].day, "2025-10-23");
+    assert_eq!(totals.days[0].day, "2025-10-10");
+    let on = |day: &str| totals.days.iter().find(|d| d.day == day).unwrap().total;
+    assert_eq!(on("2025-10-20"), 5.5);
+    assert_eq!(on("2025-10-23"), 12.0);
+    assert_eq!(on("2025-10-21"), 0.0);
+    assert_eq!(totals.days.iter().map(|d| d.total).sum::<f64>(), 17.5);
+    // Nothing lent is in use: no word about where.
+    assert_eq!(totals.borrowed, None);
+    assert_eq!(totals.stayed_here, None);
+
+    // Only the table's own columns, and only its tables.
+    let mut wrong = totals_of("spending", "days");
+    wrong.amount = "euros\" FROM x --".into();
+    let e = sam.api.daily_totals(&OWNER, wrong).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    let e = sam
+        .api
+        .daily_totals(&OWNER, totals_of("spending", "nope"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+
+    // In use: a small table still stays here, and says so.
+    let listed = sam
+        .api
+        .use_borrowed(
+            &OWNER,
+            UseBorrowed {
+                id: id.clone(),
+                in_use: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(listed[0].in_use);
+    let totals = sam
+        .api
+        .daily_totals(&OWNER, totals_of("spending", "days"))
+        .await
+        .unwrap();
+    assert_eq!(totals.borrowed, None);
+    assert_eq!(totals.stayed_here, Some(StayedHere::Small));
+    assert_eq!(totals.lender.as_deref(), Some("Rosh's data center"));
+
+    // A big one: 100,000 rows over ten days, a euro each.
+    sql(
+        &sam,
+        "CREATE TABLE big.t (day VARCHAR, euros DOUBLE); \
+         INSERT INTO big.t SELECT a.d, 1.0 FROM \
+         (VALUES ('2025-01-01'), ('2025-01-02'), ('2025-01-03'), ('2025-01-04'), ('2025-01-05'), \
+                 ('2025-01-06'), ('2025-01-07'), ('2025-01-08'), ('2025-01-09'), ('2025-01-10')) a(d), \
+         (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9)) b(x), \
+         (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9)) c(x), \
+         (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9)) d(x), \
+         (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9)) e(x)",
+    )
+    .await;
+    // Not shared with Rosh: it stays here.
+    let totals = sam
+        .api
+        .daily_totals(&OWNER, totals_of("big", "t"))
+        .await
+        .unwrap();
+    assert_eq!(totals.rows, 100_000);
+    assert_eq!(totals.stayed_here, Some(StayedHere::NotShared));
+    assert_eq!(totals.days[13].day, "2025-01-10");
+    assert_eq!(totals.days[13].total, 10_000.0);
+
+    // Shared, but a row policy for someone else leaves Rosh no row: still
+    // here.
+    sam.api
+        .share_space(
+            &OWNER,
+            ShareSpace {
+                space: "big".into(),
+                did: rosh_did.clone(),
+                allow_copy: None,
+                expires_in_days: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(
+        &sam,
+        "CREATE POLICY someone ON big.t FOR SELECT TO alice USING (true)",
+    )
+    .await;
+    let totals = sam
+        .api
+        .daily_totals(&OWNER, totals_of("big", "t"))
+        .await
+        .unwrap();
+    assert_eq!(totals.stayed_here, Some(StayedHere::PartlyShared));
+
+    // Rosh may read all of it: it is sent, and Rosh's computer, not
+    // running here, can't be reached. The answer is the same.
+    sql(&sam, "DROP POLICY someone ON big.t").await;
+    let totals = sam
+        .api
+        .daily_totals(&OWNER, totals_of("big", "t"))
+        .await
+        .unwrap();
+    assert_eq!(totals.borrowed, None);
+    assert_eq!(totals.stayed_here, Some(StayedHere::Unreachable));
+    assert_eq!(totals.lender.as_deref(), Some("Rosh's data center"));
+    assert_eq!(totals.days[13].total, 10_000.0);
+
+    // Nothing was worked out there, so nothing to count; Rosh may be given
+    // summaries of `big` only.
+    let jobs = sam
+        .api
+        .borrowed_jobs(
+            &OWNER,
+            BorrowedJobsOf {
+                id: id.clone(),
+                since_ms: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(jobs.since, 0);
+    assert!(jobs.recent.is_empty());
+    assert_eq!(jobs.collections, vec!["big".to_string()]);
+
+    // Turned off: kept so in the file.
+    sam.api
+        .use_borrowed(
+            &OWNER,
+            UseBorrowed {
+                id: id.clone(),
+                in_use: false,
+            },
+        )
+        .await
+        .unwrap();
+    let again = Api::new(sam.catalog.clone(), sam.engines.clone());
+    let listed = again.list_borrowed(&OWNER, Empty {}).await.unwrap();
+    assert!(!listed[0].in_use);
+    let e = sam
+        .api
+        .use_borrowed(
+            &OWNER,
+            UseBorrowed {
+                id: "nope".into(),
+                in_use: true,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+}
+
+/// A folder viewed in place: chosen by its path, browsed from its index,
+/// shared to view and never to copy; a folder source of old becomes one,
+/// keeping its name and whom it was shared with.
+#[tokio::test]
+async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
+    use oikome_node::{OikomeSession, SessionConfig};
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+
+    // Where a folder may be viewed from.
+    for (path, code) in [
+        ("", ErrorCode::Invalid),
+        ("relative/folder", ErrorCode::Invalid),
+        ("/no/such/folder", ErrorCode::Invalid),
+    ] {
+        let e = n
+            .api
+            .view_in_place(
+                &OWNER,
+                ViewInPlace {
+                    place: None,
+                    path: path.into(),
+                    name: None,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, code, "{path}: {e}");
+    }
+    let e = n
+        .api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: Some("nas".into()),
+                path: "photos".into(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+    let inside = root.join(".oikome").join("index");
+    std::fs::create_dir_all(&inside).unwrap();
+    assert!(n
+        .api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: inside.to_string_lossy().into_owned(),
+                name: None,
+            },
+        )
+        .await
+        .is_err());
+
+    // A folder of the owner's, with a photo, notes and a subfolder.
+    let trip = root.join("Trip 2025");
+    std::fs::create_dir_all(trip.join("Notes")).unwrap();
+    let mut png = Vec::new();
+    image_png(&mut png);
+    std::fs::write(trip.join("tram.png"), &png).unwrap();
+    for i in 0..3 {
+        std::fs::write(trip.join(format!("{i}.txt")), format!("Day {i} in Lisbon")).unwrap();
+    }
+    std::fs::write(trip.join("Notes").join("ferry.md"), "Ferry to Cacilhas").unwrap();
+    let viewed = n
+        .api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: trip.to_string_lossy().into_owned(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(viewed.name, "trip-2025");
+    assert!(viewed.readonly);
+    let in_place = viewed.in_place.unwrap();
+    assert_eq!(in_place.files, 5);
+    assert_eq!(in_place.reachable, Some(true));
+
+    // Browsed a page at a time, folders first known by what they hold.
+    let page = |folder: Option<&str>, offset, limit| ListFiles {
+        space: "trip-2025".into(),
+        folder: folder.map(Into::into),
+        offset: Some(offset),
+        limit: Some(limit),
+        deep: None,
+        kind: None,
+    };
+    let first = n.api.list_files(&OWNER, page(None, 0, 2)).await.unwrap();
+    assert_eq!(first.total, 4);
+    assert_eq!(first.files.len(), 2);
+    assert_eq!(first.files[0].kind, FileKind::Image);
+    assert_eq!(first.folders[0].name, "Notes");
+    assert_eq!(first.folders[0].files, 1);
+    let rest = n.api.list_files(&OWNER, page(None, 2, 2)).await.unwrap();
+    assert_eq!(rest.files.len(), 2);
+    let notes = n
+        .api
+        .list_files(&OWNER, page(Some("Notes"), 0, 10))
+        .await
+        .unwrap();
+    assert_eq!(notes.files[0].path, "Notes/ferry.md");
+    // Every folder at once, of one kind: what a cover shows.
+    let deep = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "trip-2025".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: Some(true),
+                kind: Some(FileKind::Note),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(deep.total, 4);
+    assert!(deep.folders.is_empty());
+    assert!(deep.files.iter().all(|f| f.kind == FileKind::Note));
+    let note = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "trip-2025".into(),
+                path: "Notes/ferry.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(note.text.as_deref(), Some("Ferry to Cacilhas"));
+    assert!(n
+        .api
+        .list_files(&OWNER, page(Some("../.."), 0, 10))
+        .await
+        .is_err());
+
+    // Only a photo the index lists is sent, and only to the owner.
+    let file = |path: &str| FileRef {
+        space: "trip-2025".into(),
+        path: path.into(),
+    };
+    for path in ["0.txt", "../../etc/passwd", "nope.png"] {
+        assert_eq!(
+            n.api
+                .file_original(&OWNER, file(path), None)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound,
+            "{path}"
+        );
+    }
+    let stranger = Caller::Principal { did: did(9) };
+    assert!(n
+        .api
+        .file_thumbnail(&stranger, file("tram.png"))
+        .await
+        .is_err());
+
+    // Shared to view where it is, never to keep a copy.
+    let bob = did(2);
+    n.api
+        .add_contact(
+            &OWNER,
+            ContactInput {
+                did: bob.clone(),
+                name: "Bob".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let e = n
+        .api
+        .share_space(
+            &OWNER,
+            ShareSpace {
+                space: "trip-2025".into(),
+                did: bob.clone(),
+                allow_copy: Some(true),
+                expires_in_days: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // A photos folder that a source copied (M2): viewed in place once the
+    // node starts, under its name, still shared with Bob, with no copy.
+    let photos = root.join("Old photos");
+    std::fs::create_dir_all(&photos).unwrap();
+    std::fs::write(photos.join("tram.png"), &png).unwrap();
+    let owner = OikomeSession::new(
+        n.catalog.clone(),
+        n.engines.clone(),
+        SessionConfig::default(),
+    );
+    owner
+        .add_source(
+            "old-photos",
+            oikome_connect::SourceConfig::PhotosFolder {
+                path: photos.to_string_lossy().into_owned(),
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let copy = root.join(".oikome/sqlite/old-photos.sqlite");
+    assert!(copy.is_file());
+    n.api
+        .share_space(
+            &OWNER,
+            ShareSpace {
+                space: "old-photos".into(),
+                did: bob.clone(),
+                allow_copy: None,
+                expires_in_days: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api.view_folders_in_place().await.unwrap();
+    assert!(!copy.exists());
+    assert!(n.catalog.get_source("old-photos").is_err());
+    assert!(n.catalog.has_space_grant(&bob, "old-photos"));
+    let spaces = n.api.list_spaces(&OWNER, Empty {}).await.unwrap();
+    let old = spaces.iter().find(|s| s.name == "old-photos").unwrap();
+    assert!(old.in_place.is_some());
+    assert_eq!(old.shared_with, 1);
+    assert!(photos.join("tram.png").is_file());
+    // Once only.
+    n.api.view_folders_in_place().await.unwrap();
+
+    // A card plugin reads its photos as the photos it read before.
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("photo-memories".into()),
+                path: None,
+                collections: vec!["old-photos".into()],
+            },
+        )
+        .await
+        .unwrap();
+    let rows = n
+        .api
+        .plugin_read(
+            &OWNER,
+            PluginRead {
+                plugin: "photo-memories".into(),
+                space: "old-photos".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+    let batch = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert_eq!(batch.num_rows(), 1);
+    let photo = batch
+        .column_by_name("photo")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<arrow_array::BinaryArray>()
+        .unwrap();
+    assert!(photo.value(0).starts_with(&[0xff, 0xd8]), "its thumbnail");
+}
+
+fn image_png(out: &mut Vec<u8>) {
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(32, 16, |x, y| {
+        image::Rgb([x as u8 * 8, y as u8 * 16, 120])
+    }))
+    .write_to(&mut std::io::Cursor::new(out), image::ImageFormat::Png)
+    .unwrap();
 }

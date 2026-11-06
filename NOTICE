@@ -151,6 +151,24 @@ sqlite-vec (sqlite-vec; vector search in transactional Spaces, compiled into SQL
   https://github.com/asg017/sqlite-vec  -  MIT License (also Apache-2.0)
   Copyright (c) 2024 Alex Garcia
 
+image-rs (image, image-webp, png, gif, weezl, fdeflate, color_quant, byteorder-lite;
+  thumbnails of photos viewed in place)
+  https://github.com/image-rs  -  MIT License or Apache License 2.0 (byteorder-lite:
+  Unlicense or MIT License; color_quant: MIT License)
+  Copyright The image-rs Developers
+
+zune-image (zune-jpeg, zune-core; decoding JPEG photos)
+  https://github.com/etemesi254/zune-image  -  MIT License, Apache License 2.0 or zlib License
+  Copyright Caleb Etemesi
+
+moxcms and pxfm (colour management in decoding photos, used by image)
+  https://github.com/awxkee/moxcms  -  BSD 3-Clause License or Apache License 2.0
+  Copyright Radzivon Bartoshyk
+
+quick-error (used by image)
+  https://github.com/tailhook/quick-error  -  MIT License or Apache License 2.0
+  Copyright Paul Colomiets
+
 LZ4 (bundled by lz4-sys, used by lance-encoding)
   https://github.com/lz4/lz4  -  BSD 2-Clause License
   Copyright (c) 2011-2020, Yann Collet

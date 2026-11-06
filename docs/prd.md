@@ -48,9 +48,9 @@ The interface uses the words on the left; underneath are the mechanisms in the m
 | Collection | Space | A body of data on one subject, such as "flomo notes", "Family photos" or "Smart home" |
 | Place (this computer is Local) | Storage / Location | This computer (Local), a NAS (3.4a), cloud drives (from 3.4b, with files and names encrypted on this computer; 3.4c through the drives' APIs; 3.4d Baidu Netdisk), object storage (3.4e). Files already on a place can be viewed in place (3.9). A collection a source fills goes on Local by default; another place is asked about first, and this computer keeps the working copy and sends a copy there after every sync |
 | Source | Connector | Pulls data in from an app or a folder, with sync status; can be paused (3.5) |
-| Viewing in place (name not decided) | An in-place Space (`InPlace` Location) + an index on this computer | Files already on a storage or drive are viewed and queried where they are, not copied; the index and thumbnails stay on this computer and can be rebuilt (3.9) |
+| Viewing in place ("View a Folder") | An in-place Space (`InPlace` Location) + an index on this computer | Files already on a storage or drive are viewed and queried where they are, not copied; the index and thumbnails stay on this computer and can be rebuilt (3.9) |
 | Save To | Save rules (node configuration) | The owner picks the target place, folder and naming rule, once or continuously; the target is plain files or a new collection; only files Oikome wrote itself are changed (3.10) |
-| Portfolio | How a saved Space is presented | Order, cover, title and captions, shared with the collection (3.11) |
+| Portfolio | How a saved Space is presented | Order, cover, title and captions, shared with the collection (3.10) |
 | Contact | The other side's DID + a local name | People can't read a DID; the name is kept only on this computer |
 | Share | UCAN + view / column grants / row policies | "Share only public notes" = one view plus one UCAN |
 | Stop sharing | REVOKE UCAN | The other side's next request is refused |
@@ -95,7 +95,7 @@ Like an AI assistant, a plugin is a visitor with its own identity that can read 
 | Kind | What it does | Where it runs | Phase |
 | --- | --- | --- | --- |
 | Dashboard plugin | Reads data only; draws a card or a full page on Home | A sandbox in the browser | M2 |
-| Source plugin | Pulls data from an outside app into a collection | Full Node | M4 (the first sources are built in) |
+| Source plugin | Pulls data from an outside app into a collection | Full Node | Later, one at a time (the first sources are built in) |
 
 **What a plugin's manifest declares**
 
@@ -127,7 +127,7 @@ Like an AI assistant, a plugin is a visitor with its own identity that can read 
 
 **Example: smart home.** The Home Assistant source pulls sensor history on a schedule into the "Smart home" collection. The smart home dashboard plugin reads it and shows each room's temperature and humidity, this week's power use and the doors and windows on Home. It shows and never controls; a card opens Home Assistant. Freshness depends on the pull interval (minutes), not real time.
 
-**Distribution:** v1 installs only from local files and links; a community directory comes with M4.
+**Distribution:** v1 installs only from local files and links; a community directory comes later, with third-party plugins.
 
 ## Devices
 
@@ -146,7 +146,7 @@ Not built yet: 3.8 and M5 (architecture §13.4).
 
 - **Public shares:** the owner can open chosen collections, views or columns to anyone, strangers included. They are query-only by default; copying only when the owner allows it. Visitors use any DID, one made in the browser on the spot or a wallet's (`did:pkh`), and are in Activity like anyone else. Each visitor has the owner's limits: requests per minute, and rows and run time per query; a request over them is refused. Strangers never need the owner's address: live queries go through a relay, and a collection can also be published as a read-only snapshot with a signed manifest to a storage or to IPFS or Arweave. If the owner wishes, a public share can be listed where people look for it; private shares never are.
 - **Paid access:** the owner can charge for a public share or a share to a contact, for a period or per query, with copies priced separately. Money goes through a payment plugin the owner picks (PayPal, Alipay, a Web3 wallet and others) straight to the owner's own account; Oikome never handles funds. Once payment is confirmed, the node issues a grant for exactly what was bought and for how long, and revokes it on a refund; orders go into Activity. A payment plugin may reach only its own service and reads no data. A copy cannot be taken back once sold; the interface says so when the owner prices a copy.
-- **Web3:** data can also come from chains (an address's transactions and tokens), and a wallet can be an identity. Oikome issues no token, runs no chain and puts no private data on chain, and nobody needs a wallet to use it.
+- **Web3:** a chain is a way to pay (a wallet in M5) and a wallet can be an identity (`did:pkh`, 3.8); chains are not a source of data. Oikome issues no token, runs no chain and puts no private data on chain, and nobody needs a wallet to use it.
 - **Saved collections:** a public share is best made from a saved collection (3.10). It is detached from the original files, so changing or deleting them does not affect it. Photos in a public share have their location removed by default (architecture §7.9).
 
 ## Permissions, Privacy and Security
@@ -182,19 +182,26 @@ A milestone starts only once its gate phases are done; no skipping (architecture
 | Milestone | What users can do | Gate | Status |
 | --- | --- | --- | --- |
 | M1 Usable (M1a layout, M1b API, M1c screens) | First run and examples, recovery key, browsing collections, sharing and revoking, contacts, Activity, places | 3.0–3.2 | Done |
-| M2 Connect | Sources page and sync status, Home dashboard and built-in cards, dashboard plugins v1 and plugin grants, accepting invites, lending compute | 3.5, M1c | In progress |
+| M2 Connect | Sources page and sync status, Home dashboard and built-in cards, dashboard plugins v1 and plugin grants, accepting invites, lending compute | 3.5, M1c | ✅ |
 | M3 Find | Full-text search, photo and note views, AI Assistants page, MCP over HTTP | 3.3, M2 | ✅ |
-| M4 Extend | Borrowed compute, third-party source plugins, plugin directory, cloud-drive storage (with 3.4b, 3.4c) | 3.4b, 3.6, M3 | Not started |
-| M5 Pay | Pricing, payment plugins, buyers, orders in Activity | 3.8, M4 | Not started |
+| M4 Extend | Borrowed compute: big summaries on Home worked out on a computer a contact lends you, only for collections shared with them (third-party plugins and the plugin directory come later, one plugin at a time) | 3.4b, 3.6, M3 | ✅ |
+| M5 Pay | Pricing, payment plugins, buyers, orders in Activity | 3.8, M4 | Not started; last, with third-party plugins |
+| M6 Desktop app | Install Oikome and run it without a command line, on macOS, Windows and Linux | M4 | Not started |
+| M7 Phone app and devices | Pair a phone by QR code and read Home and collections on it, away from home too (with 3.12) | M6, 3.12 | Not started |
+| M8 Languages | Use the apps in Chinese and other languages | M1c | Not started |
+| M9 Family | Give family members their own identity and what each may see | M7 | Not started |
+| M10 Plugins from others | Install source and card plugins other people make, one at a time, signed, from a directory | M4 | Not started; last, with M5 |
 
-Device pairing comes with the phone and desktop apps and is not in a milestone yet. The smart home reference plugin also depends on which phase the Home Assistant source lands in (see Open Questions).
+**Order (2026-11-05).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen). Next: 3.8, 3.7, 3.10, 3.4c–3.4e (their real accounts tested together), M6, 3.12, M7, M8, M9, 3.13. Last: M5 and M10.
+
+Device pairing comes with the phone app (M7). The smart home reference plugin also depends on which phase the Home Assistant source lands in (see Open Questions).
 
 The core phases also schedule the following; their screens come with the phases:
 - Viewing in place (3.9): browse files already on cloud drives and NAS, as AList / OpenList do, without importing them.
-- Save To (3.10).
-- Sharing saved collections and portfolios (3.11).
+- Save To, with portfolios (3.10).
+- Public shares, with photos' location removed (3.8).
 
-Serving Oikome over WebDAV, so other apps can use it as a drive, is not scheduled.
+Serving Oikome over WebDAV, so other apps can use it as a drive, is phase 3.13. Reaching home from anywhere through relays is 3.12.
 
 ## Non-goals
 
@@ -233,7 +240,7 @@ What the back end needs:
 | Data contract | Plugins decoupled from sources | The manifest declares a data shape and the column kinds needed; no automatic matching yet | M2 |
 | Source status | Sources page | Last sync, failure reason, pause, frequency | M2 ✅ |
 | Global search | Search on Home | With 3.3 (full text + vectors) | M3 |
-| In-place Spaces and an index on this computer | Browsing and searching files already on storages and drives | Not built (architecture §7.7) | 3.9 |
+| In-place Spaces and an index on this computer | Browsing and searching files already on storages and drives | Built (architecture §7.7) | 3.9 ✅ |
 | Save rules | Saving to plain files or a new collection | Not built (architecture §7.8) | 3.10 |
 
 The apps are the apps track of architecture §14.1: they run beside the core phases, and neither blocks the other.
@@ -247,7 +254,7 @@ The apps are the apps track of architecture §14.1: they run beside the core pha
 - [ ] Which phase gets the Home Assistant source? The first batch in 3.5 is only files and flomo.
 - [ ] How does family connect from outside the home? There is no STUN/TURN, and crossing routers is not scheduled.
 - [ ] Remote management needs a management grant for the owner's own devices, which changes the "principals are read-only" boundary. Is that acceptable? Decided with the phone app.
-- [ ] Plugin distribution: beyond local install, a community directory comes with M4. When do signature checks come?
+- [ ] Plugin distribution: beyond local install, a community directory comes with third-party plugins, one kind at a time. When do signature checks come?
 - [ ] Built-in AI chat or not? Where would the model run?
 - [x] Can cloud drives be places? Yes, step by step. A NAS at home comes first (3.4a); on drives, files and names are encrypted on this computer first (3.4b through sync folders, 3.4c through the drives' APIs).
 - [x] Must files already on drives and NAS be imported first? No: they are viewed in place. Only what the owner saves is copied, to the target and by the rules the owner sets (2026-11-04, architecture §7.7, §7.8).

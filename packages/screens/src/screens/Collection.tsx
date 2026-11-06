@@ -11,11 +11,13 @@ import type { MouseEvent, ReactNode } from "react";
 import {
   Avatar,
   AvatarStack,
+  Banner,
   Button,
   Card,
   ConfirmDialog,
   EmptyState,
   ErrorText,
+  Icon,
   Menu,
   Select,
   Tag,
@@ -24,11 +26,20 @@ import {
 } from "@oikome/ui";
 import type { SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
-import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf, tagsOf, withoutTagLines } from "../content";
+import {
+  chronological,
+  fileItems,
+  forgetPreviews,
+  itemsOf,
+  loadPreview,
+  shapeOf,
+  tagsOf,
+  withoutTagLines,
+} from "../content";
 import type { Item, Shape } from "../content";
 import { countOf, fromOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
-import { dateFromSeconds, homeRelative, monthAndDay } from "../format";
+import { bytes, dateFromSeconds, homeRelative, monthAndDay } from "../format";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
@@ -96,6 +107,29 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
   const place = storages.data?.find((x) => x.name === space.storage);
   const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
   const source = sources.data?.find((x) => x.name === space.name);
+  const folder = space.inPlace;
+  // Where a folder viewed in place is: its path, on this computer or a NAS.
+  const folderWhere = folder
+    ? folder.place
+      ? `${storages.data?.find((x) => x.name === folder.place)?.label ?? folder.place}: ${folder.path || "/"}`
+      : homeRelative(folder.path)
+    : undefined;
+  // A folder viewed in place keeps nothing anywhere: it stays in its folder.
+  const keptOn = folder
+    ? s.inItsFolder(
+        folder.place ? (storages.data?.find((x) => x.name === folder.place)?.label ?? folder.place) : s.thisComputerPlace,
+      )
+    : place?.encrypted
+      ? `${where} · ${strings.settings.encrypted}`
+      : where;
+  const readAgain = async () => {
+    const done = await sync.run(() => client.refreshSpace({ space: space.name }));
+    forgetPreviews(space.name);
+    spaces.reload();
+    preview.reload();
+    setContentsKey((k) => k + 1);
+    if (done) toast(s.readNow(space.name));
+  };
   const syncNow = async () => {
     if (!source) return;
     const done = await sync.run(() => client.pullSource({ source: source.name }));
@@ -134,6 +168,11 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
             {strings.sources.syncNow}
           </Button>
         )}
+        {folder && (
+          <Button icon="sync" disabled={sync.busy} spinning={sync.busy} onClick={readAgain}>
+            {s.readAgain}
+          </Button>
+        )}
         {local && (
           <Menu
             label={strings.common.moreActions(space.name)}
@@ -143,6 +182,14 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
                     {
                       label: strings.sources.showFiles,
                       onSelect: () => void sync.run(() => client.showSourceFiles({ source: source.name })),
+                    },
+                  ]
+                : []),
+              ...(folder && !folder.place
+                ? [
+                    {
+                      label: strings.sources.showFiles,
+                      onSelect: () => void sync.run(() => client.showFolder({ space: space.name })),
                     },
                   ]
                 : []),
@@ -175,13 +222,24 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
                       : strings.sources.waiting}
                 </span>
               </dd>
+            ) : folder ? (
+              <dd className="screen-facts__from">
+                <span title={folder.path} translate="no">
+                  {folderWhere}
+                </span>
+                <span className="screen-facts__note">
+                  {[s.readWhereItIs, folder.scannedAtMs != null ? s.readAgo(since(folder.scannedAtMs)) : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </dd>
             ) : (
               <dd>{space.example ? s.fromExample : s.fromYou}</dd>
             )}
           </div>
           <div>
             <dt className="oik-label">{s.factStored}</dt>
-            <dd>{place?.encrypted ? `${where} · ${strings.settings.encrypted}` : where}</dd>
+            <dd>{keptOn}</dd>
           </div>
           <div>
             <dt className="oik-label">{s.factWho}</dt>
@@ -254,16 +312,24 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
       {searching && <Palette scope={space.name} onClose={() => setSearching(false)} />}
 
       {sync.error && <ErrorText>{sync.error}</ErrorText>}
-      <Contents
-        key={`${space.name}:${contentsKey}`}
-        space={space}
-        item={item}
-        facts={{
-          cameFrom: source ? homeRelative(source.place) : space.example ? s.fromExample : s.fromYou,
-          keptOn: place?.encrypted ? `${where} · ${strings.settings.encrypted}` : where,
+      {(() => {
+        const facts = {
+          cameFrom: source
+            ? homeRelative(source.place)
+            : folderWhere
+              ? `${folderWhere} · ${s.readWhereItIs}`
+              : space.example
+                ? s.fromExample
+                : s.fromYou,
+          keptOn,
           who: [strings.common.you, ...names].join(", "),
-        }}
-      />
+        };
+        return folder ? (
+          <FolderContents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} />
+        ) : (
+          <Contents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} />
+        );
+      })()}
     </>
   );
 }
@@ -275,21 +341,32 @@ interface Facts {
   who: string;
 }
 
-function Contents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuery; facts: Facts }) {
+function Contents({
+  space,
+  item,
+  facts,
+  only,
+}: {
+  space: SpaceSummary;
+  item?: ItemQuery;
+  facts: Facts;
+  /** One table only, chosen elsewhere (a folder's data file). */
+  only?: string;
+}) {
   const client = useClient();
   // A shared collection is read from its owner's computer, which can be off
   // or may have stopped sharing; say so instead of the node's message.
   const unreadable = space.kind === "remote" ? () => s.cantRead : undefined;
   const tables = useLoad(() => client.listTables({ space: space.name }), [space.name], unreadable);
   // An address that names an item opens its table.
-  const [table, setTable] = useState<string | undefined>(item?.table ?? undefined);
+  const [table, setTable] = useState<string | undefined>(only ?? item?.table ?? undefined);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_ROWS);
 
   useEffect(() => {
-    if (!tables.data) return;
+    if (!tables.data || only) return;
     if (!table || !tables.data.some((t) => t.name === table)) setTable(tables.data[0]?.name);
-  }, [tables.data, table]);
+  }, [tables.data, table, only]);
 
   const rows = useLoad(
     async () =>
@@ -383,7 +460,7 @@ function Contents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuer
   }
   return (
     <div className="screen-contents">
-      {tables.data && tables.data.length > 1 && table && (
+      {!only && tables.data && tables.data.length > 1 && table && (
         <div className="screen-toolbar">
           <Select
             inline
@@ -455,7 +532,8 @@ function View({
   linkOf,
   onOpen,
 }: {
-  table: Table;
+  /** The rows read, for a table or readings; photos and notes need only items. */
+  table?: Table;
   shape: Shape;
   items: Item[];
   label: string;
@@ -511,6 +589,7 @@ function View({
       </div>
     );
   }
+  if (!table) return null;
   if (shape.view === "series") {
     return (
       <>
@@ -565,5 +644,205 @@ function Photo({
         {item.credit && <span className="screen-photo__credit">{item.credit}</span>}
       </figcaption>
     </figure>
+  );
+}
+
+/** What a file is, in a word: a data file by its format. */
+function kindLabel(name: string, kind: string): string {
+  if (kind !== "table") return s.fileKinds[kind] ?? s.fileKinds.other!;
+  const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  return extension === "parquet" ? "Parquet" : extension.startsWith("json") || extension === "ndjson" ? "JSON" : "CSV";
+}
+
+/** Files of a folder viewed in place are read a page at a time. */
+const FOLDER_PAGE = 120;
+
+function parentOf(path: string): string {
+  const at = path.lastIndexOf("/");
+  return at < 0 ? "" : path.slice(0, at);
+}
+
+/**
+ * A folder viewed in place, browsed from its index: its folders, then its
+ * photos, notes and other files; a photo or note opens at its own address
+ * and ← → move through the folder's. Its data files are tables of their own.
+ */
+function FolderContents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuery; facts: Facts }) {
+  const client = useClient();
+  const tables = useLoad(() => client.listTables({ space: space.name }), [space.name]);
+  const dataTables = (tables.data ?? []).filter((t) => t.name !== "files");
+  const opened = item?.table === "files" && item.key.length === 1 ? item.key[0] : undefined;
+  const [shown, setShown] = useState<string>(item?.table && item.table !== "files" ? item.table : "files");
+  const [folder, setFolder] = useState(() => (opened ? parentOf(opened) : ""));
+  const [limit, setLimit] = useState(FOLDER_PAGE);
+  const listing = useLoad(
+    () => client.listFiles({ space: space.name, folder, limit }),
+    [space.name, folder, limit],
+  );
+  const files = listing.data?.files ?? [];
+  const photos = useMemo(
+    () => fileItems(client, space.name, files.filter((f) => f.kind === "image")),
+    [client, space.name, files],
+  );
+  const notes = useMemo(
+    () => fileItems(client, space.name, files.filter((f) => f.kind === "note")),
+    [client, space.name, files],
+  );
+  const others = files.filter((f) => f.kind !== "image" && f.kind !== "note");
+  const openable = [...photos, ...notes];
+  const linkOf = (it: Item) =>
+    it.path ? itemPath({ collection: space.name, table: "files", key: [it.path] }) : undefined;
+  const open = (it: Item | undefined, replace: boolean) => {
+    const to = it && linkOf(it);
+    if (to) navigate(to, { replace, keepScroll: true });
+  };
+  const here = opened ? openable.findIndex((it) => it.path === opened) : -1;
+  const nav: ItemNav | undefined =
+    here >= 0
+      ? {
+          position: here + 1,
+          total: openable.length,
+          previous: here > 0 ? () => open(openable[here - 1], true) : undefined,
+          next: here < openable.length - 1 ? () => open(openable[here + 1], true) : undefined,
+        }
+      : undefined;
+  const crumbs = folder ? folder.split("/") : [];
+  const offline = space.inPlace?.reachable === false;
+  const label = space.inPlace?.place ?? homeRelative(space.inPlace?.path ?? "");
+
+  const picker = dataTables.length > 0 && (
+    <Select
+      inline
+      label={s.tableLabel}
+      value={shown}
+      onChange={setShown}
+      options={[{ value: "files", label: s.files }, ...dataTables.map((t) => ({ value: t.name, label: t.name }))]}
+    />
+  );
+  if (shown !== "files") {
+    return (
+      <div className="screen-contents">
+        <div className="screen-toolbar">{picker}</div>
+        <Contents space={space} facts={facts} only={shown} />
+      </div>
+    );
+  }
+  return (
+    <div className="screen-contents">
+      {offline && <Banner title={s.offlineTitle(label)} body={s.offlineBody} />}
+      {(folder || (listing.data?.folders.length ?? 0) > 0 || picker) && (
+      <div className="screen-toolbar screen-folder-bar">
+        {(folder || (listing.data?.folders.length ?? 0) > 0) ? (
+        <nav className="screen-crumbs" aria-label={s.files}>
+          <button type="button" className="screen-crumbs__step" onClick={() => setFolder("")} aria-current={folder ? undefined : "page"}>
+            {space.name}
+          </button>
+          {crumbs.map((name, i) => {
+            const to = crumbs.slice(0, i + 1).join("/");
+            return (
+              <span key={to} className="screen-crumbs__part">
+                <Icon name="chevron" />
+                <button
+                  type="button"
+                  className="screen-crumbs__step"
+                  onClick={() => setFolder(to)}
+                  aria-current={i === crumbs.length - 1 ? "page" : undefined}
+                  translate="no"
+                >
+                  {name}
+                </button>
+              </span>
+            );
+          })}
+        </nav>
+        ) : (
+          <span />
+        )}
+        {picker}
+      </div>
+      )}
+      {listing.error && <ErrorText>{listing.error}</ErrorText>}
+      {!listing.data && !listing.error && <div className="screen-page-skeleton oik-skel" aria-hidden="true" />}
+      {listing.data && listing.data.folders.length > 0 && (
+        <ul className="screen-folders" aria-label={s.files}>
+          {listing.data.folders.map((sub) => (
+            <li key={sub.name}>
+              <button
+                type="button"
+                className="screen-folders__item"
+                onClick={() => {
+                  setFolder(folder ? `${folder}/${sub.name}` : sub.name);
+                  setLimit(FOLDER_PAGE);
+                }}
+              >
+                <Icon name="folder" />
+                <span className="screen-folders__name" translate="no">
+                  {sub.name}
+                </span>
+                <span className="screen-folders__count">{s.folderFiles(Number(sub.files))}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {photos.length > 0 && (
+        <View shape={{ view: "photos" }} items={photos} label={s.kinds.photos} linkOf={linkOf} onOpen={(it) => open(it, false)} />
+      )}
+      {notes.length > 0 && (
+        <View shape={{ view: "notes" }} items={notes} label={s.kinds.notes} linkOf={linkOf} onOpen={(it) => open(it, false)} />
+      )}
+      {others.length > 0 && (
+        <div className="screen-table-card oik-table-wrap">
+          <table className="oik-table" aria-label={s.otherFiles}>
+            <thead>
+              <tr>
+                <th scope="col">{s.colName}</th>
+                <th scope="col">{s.colKind}</th>
+                <th scope="col" className="oik-num">
+                  {s.colSize}
+                </th>
+                <th scope="col">{s.colModified}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {others.map((f) => (
+                <tr key={f.path}>
+                  <td translate="no">{f.name}</td>
+                  <td>{kindLabel(f.name, f.kind)}</td>
+                  <td className="oik-num">{bytes(Number(f.size))}</td>
+                  <td>{f.modified}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {listing.data && files.length === 0 && listing.data.folders.length === 0 && (
+        <p className="screen-muted">{s.emptyFolder}</p>
+      )}
+      {listing.data && Number(listing.data.total) > files.length && (
+        <div className="screen-pager">
+          <span className="screen-muted">{s.folderFiles(Number(listing.data.total))}</span>
+          <Button variant="quiet" onClick={() => setLimit((n) => n + FOLDER_PAGE)}>
+            {s.showMore}
+          </Button>
+        </div>
+      )}
+      {opened && (
+        <ItemDialog
+          inPlace
+          item={{ collection: space.name, table: "files", key: [opened] }}
+          cameFrom={facts.cameFrom}
+          keptOn={facts.keptOn}
+          who={facts.who}
+          nav={nav}
+          onClose={() => {
+            const page = `/collections/${encodeURIComponent(space.name)}`;
+            if (previousPage()?.split("?")[0] === page) window.history.back();
+            else navigate(page, { replace: true, keepScroll: true });
+          }}
+        />
+      )}
+    </div>
   );
 }

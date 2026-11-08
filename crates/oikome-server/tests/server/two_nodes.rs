@@ -112,7 +112,7 @@ async fn ucan_gated_federated_query_and_revocation_cuts_access() {
         .unwrap();
     // One leaf, executed by A in A's namespace: `pub` is B's name for it.
     assert!(
-        plan.contains(&format!("compute_context=flight:{}/blog", a.url())),
+        plan.contains(&format!("compute_context=flight:{}/blog", a.did())),
         "{plan}"
     );
     assert!(plan.contains("FROM blog.posts GROUP BY"), "{plan}");
@@ -214,6 +214,7 @@ async fn delegated_tokens_act_for_the_delegator_and_revocation_propagates() {
             owner: a.identity.did().clone(),
             token: root.clone(),
             allow_http: true,
+            dialer: None,
         },
         c.identity.clone(),
     );
@@ -403,6 +404,7 @@ async fn remote_spaces_are_never_served_onwards() {
             owner: b.identity.did().clone(),
             token: wildcard,
             allow_http: true,
+            dialer: None,
         },
         c.identity.clone(),
     );

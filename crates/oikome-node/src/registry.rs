@@ -22,7 +22,8 @@ use oikome_catalog::{is_plaintext_peer, LocationFormat, OikomeCatalog, Space};
 use oikome_core::{CatalogError, EngineKind};
 use oikome_engine::QueryEngine;
 use oikome_identity::{load_node_identity, Did, NodeIdentity};
-use oikome_network::{FlightEngine, RemoteSpaceConfig};
+use oikome_network::route::peer_socket_path;
+use oikome_network::{FlightEngine, PeerDialer, PeerRoute, RemoteSpaceConfig, SocketDialer};
 use zeroize::Zeroizing;
 
 use crate::compute::ComputeScheduler;
@@ -84,7 +85,15 @@ pub struct EngineRegistry {
     secret_backend: OnceLock<Arc<dyn SecretBackend>>,
     /// Peers' compute tasks on this node (§12).
     compute: ComputeScheduler,
+    /// The serving process's peer-to-peer connections (3.12); other
+    /// processes of the node borrow them through its socket.
+    dialer: OnceLock<Arc<dyn PeerDialer>>,
 }
+
+/// A Flight endpoint discovery last saw longer ago than this is left out
+/// when the peer-to-peer connection can reach the peer anyway: it moved,
+/// or it was on this network only for a while.
+const STALE_ENDPOINT_MS: u64 = 10 * 60 * 1000;
 
 impl std::fmt::Debug for EngineRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -126,6 +135,7 @@ impl EngineRegistry {
             graphs: Mutex::new(HashMap::new()),
             hashes: HashCache::default(),
             storage_secrets: config.storage_secrets,
+            dialer: OnceLock::new(),
             secret_backend: config
                 .secret_backend
                 .map(OnceLock::from)
@@ -201,34 +211,63 @@ impl EngineRegistry {
         self.allow_http
     }
 
-    /// The Flight endpoint of the node `owner`: `peer` when the Space names
-    /// one, otherwise where discovery last saw `owner`. Plaintext endpoints
-    /// are refused unless [`NodeConfig::allow_http`] is set.
-    pub fn peer_endpoint(&self, peer: Option<&str>, owner: &str) -> Result<String, SessionError> {
+    /// Reach peers on other networks through `dialer` (the serving
+    /// process's peer-to-peer connections). Set once.
+    pub fn set_dialer(&self, dialer: Arc<dyn PeerDialer>) {
+        let _ = self.dialer.set(dialer);
+    }
+
+    /// What reaches peers on other networks: this process's peer-to-peer
+    /// connections, or the serving process's through its socket.
+    pub fn dialer(&self) -> Option<Arc<dyn PeerDialer>> {
+        if let Some(dialer) = self.dialer.get() {
+            return Some(dialer.clone());
+        }
+        let socket = peer_socket_path(&self.catalog.oikome_dir());
+        if cfg!(unix) && socket.exists() {
+            return Some(Arc::new(SocketDialer::new(socket)));
+        }
+        None
+    }
+
+    /// How to reach the node `owner`: `peer` when the Space names one,
+    /// otherwise where discovery last saw `owner` on this network, and over
+    /// the node's peer-to-peer connections. Plaintext endpoints are refused
+    /// unless [`NodeConfig::allow_http`] is set.
+    pub fn peer_route(&self, peer: Option<&str>, owner: &str) -> Result<PeerRoute, SessionError> {
+        let dialer = self.dialer();
         let endpoint = match peer {
-            Some(peer) => peer.to_string(),
+            Some(peer) => Some(peer.to_string()),
             None => {
                 // Discovery records peers from the serving process.
                 self.catalog.refresh()?;
+                let now = oikome_identity::unix_now_ms();
                 self.catalog
                     .get_peer(owner)
+                    .filter(|p| !p.endpoint.is_empty())
+                    .filter(|p| {
+                        dialer.is_none() || now.saturating_sub(p.last_seen_ms) < STALE_ENDPOINT_MS
+                    })
                     .map(|p| p.endpoint)
-                    .ok_or_else(|| {
-                        CatalogError::InvalidProperty(format!(
-                            "node {owner} has not been discovered: check that it is serving on \
-                             this network, or give its address with PEER = 'https://host:port'"
-                        ))
-                    })?
             }
         };
-        if is_plaintext_peer(&endpoint) && !self.allow_http {
+        if let Some(endpoint) = &endpoint {
+            if is_plaintext_peer(endpoint) && !self.allow_http {
+                return Err(CatalogError::InvalidProperty(format!(
+                    "{endpoint} is plaintext; this node only reaches peers over https \
+                     (start it with --allow-http to accept http)"
+                ))
+                .into());
+            }
+        }
+        if endpoint.is_none() && dialer.is_none() {
             return Err(CatalogError::InvalidProperty(format!(
-                "{endpoint} is plaintext; this node only reaches peers over https \
-                 (start it with --allow-http to accept http)"
+                "node {owner} has not been discovered: check that it is serving on \
+                 this network, or give its address with PEER = 'https://host:port'"
             ))
             .into());
         }
-        Ok(endpoint)
+        Ok(PeerRoute { endpoint, dialer })
     }
 
     /// The node's identity, loaded on first use if it was not configured.
@@ -257,9 +296,11 @@ impl EngineRegistry {
         };
         let token = self.catalog.remote_token(&space.name)?;
         // Resolved on every bind: a discovered owner may have moved.
-        let peer = self.peer_endpoint(peer.as_deref(), owner)?;
+        let route = self.peer_route(peer.as_deref(), owner)?;
+        let peer = route.endpoint.clone().unwrap_or_default();
         let binding = format!(
-            "{peer}|{remote_space}|{owner}|{}",
+            "{peer}|{}|{remote_space}|{owner}|{}",
+            route.dialer.is_some(),
             oikome_identity::ucan::token_id(token.expose())
         );
         if let Some((key, engine)) = self
@@ -279,6 +320,7 @@ impl EngineRegistry {
                 owner: Did::parse(owner)?,
                 token: token.expose().to_string(),
                 allow_http: self.allow_http,
+                dialer: route.dialer,
             },
             self.identity()?,
         ));

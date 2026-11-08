@@ -169,7 +169,8 @@ const GUIDE: &[&str] = &[
      collections, and nowhere else unless you share them.",
     "Everything you see now is an example, kept as plain files in the Examples folder where \
      your data lives. Edit a note, a CSV file or a photo's caption with any app, and Oikome \
-     reads the change within a minute. Sources shows where each collection comes from.",
+     reads the change within a minute. Photos and notes are read where they are; Sources \
+     shows where each table comes from.",
     "New Collection makes one of your own. Choose where it is stored: Local, a \
      folder, a NAS or a cloud drive. Settings \u{2192} Storage picks where new ones go.",
     "To share a collection, add the person as a contact with their ID, then press Share. \

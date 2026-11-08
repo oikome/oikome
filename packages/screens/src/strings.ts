@@ -235,6 +235,15 @@ export const strings = {
     totalsSummary: (what: string, total: string, from: string, to: string) =>
       `${what} by day, ${total} in all, from ${from} to ${to}`,
     totalsLine: (total: string, days: number) => `${total} in all · ${days} ${days === 1 ? "day" : "days"} with any`,
+    workedOutOn: (name: string) => `Worked out on ${name}'s computer`,
+    /** Why a big summary stayed on this computer although one lent to you is in use. */
+    stayedHere: {
+      not_shared: (name: string) => `Worked out here: it isn't shared with ${name}`,
+      partly_shared: (name: string) => `Worked out here: ${name} may see only part of it`,
+      not_lending: (name: string) => `Worked out here: ${name}'s computer isn't lending now`,
+      unreachable: (name: string) => `Worked out here: can't reach ${name}'s computer`,
+      failed: (name: string) => `Worked out here: ${name}'s computer couldn't finish it`,
+    } as Record<string, (name: string) => string>,
     latestTitle: (name: string) => `${name} · latest`,
     open: "Open",
     arrange: "Arrange",
@@ -319,6 +328,43 @@ export const strings = {
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
     example: "Example",
     kinds: { photos: "Photos", notes: "Notes", table: "Table", series: "Readings" },
+    // A folder viewed where it is (3.9).
+    viewFolder: "View a Folder",
+    viewFolderBody:
+      "Oikome reads the folder where it is and never changes it. Nothing is copied: it keeps a list of the files, their text and small pictures, to show and search them.",
+    viewOn: "On",
+    thisComputerPlace: "This computer",
+    folderOn: (place: string) => `Folder on ${place}`,
+    folderOnHint: "Its path on the storage, such as Photos/2025. Leave it empty for all of it.",
+    chooseFolder: "Choose Folder…",
+    noFolderYet: "No folder chosen",
+    holds: (photos: number, notes: number) =>
+      photos + notes === 0
+        ? "No photos or notes at its top; folders inside are read too."
+        : `${[photos ? `${photos} ${photos === 1 ? "photo" : "photos"}` : "", notes ? `${notes} ${notes === 1 ? "note" : "notes"}` : ""]
+            .filter(Boolean)
+            .join(" and ")} at its top, and whatever its folders hold.`,
+    viewIt: "View in Place",
+    reading: "Reading…",
+    viewed: (name: string) => `${name} is read where it is.`,
+    readWhereItIs: "Read where it is",
+    inItsFolder: (place: string) => `${place}, in its own folder`,
+    readAgain: "Read Again",
+    readAgo: (when: string) => `Read ${when}`,
+    readNow: (name: string) => `Read ${name} again.`,
+    offlineTitle: (place: string) => `${place} can't be reached right now`,
+    offlineBody: "Names, text and small pictures still show. The files themselves open once it's back.",
+    files: "Files",
+    top: "Top",
+    folderFiles: (n: number) => (n === 1 ? "1 file" : `${n.toLocaleString("en")} files`),
+    otherFiles: "Other Files",
+    colName: "Name",
+    colKind: "Kind",
+    colSize: "Size",
+    colModified: "Changed",
+    fileKinds: { image: "Photo", note: "Note", table: "Table", other: "File" } as Record<string, string>,
+    showMore: "Show More",
+    emptyFolder: "Nothing in this folder.",
     yours: "Yours",
     factHolds: "Holds",
     factStored: "Stored on",
@@ -467,8 +513,8 @@ export const strings = {
       "flomo-mcp": "flomo",
     } as Record<string, string>,
     kindHelp: {
-      photos: "Pictures in a folder; a captions.csv beside them names them",
-      notes: "Markdown or text files, such as an Obsidian vault",
+      photos: "Pictures in a folder, read where they are; a captions.csv beside them names them",
+      notes: "Markdown or text files, such as an Obsidian vault, read where they are",
       csv: "A table exported from any app",
     } as Record<string, string>,
     upToDate: "Up to date",
@@ -710,6 +756,20 @@ export const strings = {
     } as Record<string, string>,
     stopUsing: "Stop Using",
     stoppedUsing: (name: string) => `Stopped using ${name}'s computer.`,
+    inUse: "In use",
+    borrowDetails: "Details",
+    borrowBody: (name: string) =>
+      `When a summary is too big for this computer, Oikome works it out on ${name}'s computer and gets the answer back. Only collections you share with ${name} go there, and only what ${name} can already see.`,
+    usedToday: "Used today",
+    jobTitle: (space: string) => `${space} by day`,
+    jobFrom: (space: string) => `From the ${space} card`,
+    canWorkOut: (names: string[]) => `Summaries of ${names.join(", ")} can go there.`,
+    nothingSharedWith: (name: string) => `Share a collection with ${name} to work out its summaries there.`,
+    shareOne: "Share a Collection",
+    useSwitch: (name: string) => `Use ${name}'s computer`,
+    bigJobsStay: "Big jobs stay on your own devices.",
+    usingNow: (name: string) => `Big summaries now go to ${name}'s computer.`,
+    notUsing: "Big summaries stay on this computer.",
     contacts: "Contacts",
     addContact: "Add Contact",
     contactName: "Name",
@@ -809,13 +869,51 @@ export const strings = {
     ranTask: (who: string) => `${who} ran a task on this computer`,
     checkedLending: (who: string) => `${who} checked whether this computer lends to them`,
     turnedAwayCompute: (who: string) => `${who} was turned away from this computer`,
+    turnedAwayOutside: (who: string) => `${who} tried to connect from outside your network and was turned away`,
+    detailOutside:
+      "Only contacts can connect to this computer from outside your network. This wasn't one, so it was turned away before it could ask for anything.",
     taskFailed: (who: string) => `${who}'s task on this computer didn't finish`,
+    workedOut: (who: string, what: string, lender: string) =>
+      `${who} worked out ${what}'s daily totals on ${lender}'s computer`,
+    detailWorkedOut: (what: string, lender: string) =>
+      `${what} is big, so its daily totals for Home were worked out on ${lender}'s computer, which lends to you. Only what ${lender} can already see of it went there.`,
     browsed: (who: string, what: string) => `${who} looked at ${what}`,
     copied: (who: string, what: string) => `${who} copied ${what}`,
     turnedAway: (who: string, what: string) => `${who} was turned away from ${what}`,
     failed: (who: string, what: string) => `${who} couldn't read ${what}`,
     times: (n: number) => `${n} times`,
     yourData: "your data",
+  },
+
+  // Being reached from outside this computer's network (3.12): the
+  // question before a share or lending, and what follows it.
+  reach: {
+    title: "Let people reach this computer from outside your network?",
+    whyShare: (collection: string, name: string) =>
+      `To share ${collection} with ${name} wherever they are, Oikome needs to open a port on your router.`,
+    whyLend: (names: string) =>
+      `To lend this computer to ${names} wherever they are, Oikome needs to open a port on your router.`,
+    risk: "Anyone on the internet could then find that port. Only the people you share with can read anything through it, and every attempt shows in Activity.",
+    stays: "Oikome's own pages and your AI assistants stay on this computer only.",
+    whileShare: (collection: string, name: string) =>
+      `The port stays open while you share ${collection} with ${name}, and closes when nothing needs it.`,
+    whileLend: (names: string) =>
+      `The port stays open while you lend this computer to ${names}, and closes when nothing needs it.`,
+    dontAsk: "Don't ask again",
+    deny: "Deny",
+    allow: "Allow",
+    allowedShare: (name: string, collection: string) =>
+      `${name} can reach ${collection} from outside your network while you share it.`,
+    allowedLend: (names: string) => `${names} can use this computer from outside your network while you lend it.`,
+    alwaysAllowed: "This computer can be reached from outside your network.",
+    deniedShare: (name: string, collection: string) => `${name} can reach ${collection} only on your network.`,
+    deniedLend: (names: string) => `${names} can use this computer only on your network.`,
+    neverAllowed: "Only devices on your network can reach this computer.",
+    routerRefused: "Your router didn't open the port. Turn on UPnP in its settings, then try again.",
+    onlyOnNetwork: (name: string) => `${name} can reach this only on your network.`,
+    /** "Sam", "Sam and Bob", "Sam, Bob and Ana". */
+    names: (names: string[]) =>
+      names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`,
   },
 
   settings: {
@@ -845,5 +943,33 @@ export const strings = {
     storageCount: (n: number) => (n === 1 ? "1 collection" : `${n} collections`),
     storageKind: { disk: "Local", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
     encrypted: "Encrypted",
+    networkTitle: "Network",
+    reachableLabel: "Reachable from outside",
+    reachable: {
+      direct: "Yes, directly",
+      through_contact: (name: string) => `Through ${name}`,
+      local_only: "Only on your network",
+      opening: "Asking your router…",
+      router_refused: "Your router didn't allow it",
+      shared_address: "Your router's address is shared",
+    },
+    reachHelp: {
+      router_refused:
+        "Turn on UPnP in your router's settings, then try again. Or connect through your own VPN, such as Tailscale or WireGuard.",
+      shared_address:
+        "Your internet provider, or a second router, shares one address among several homes, so a port opened here can't be reached. A contact who can be reached may introduce you, or connect through your own VPN, such as Tailscale or WireGuard.",
+    },
+    openForLabel: "Open for",
+    openForShare: (collection: string, name: string) => `sharing ${collection} with ${name}`,
+    openForLend: (name: string) => `lending this computer to ${name}`,
+    openForNothing: "Nothing now",
+    whenNeeded: "When Oikome needs to be reached from outside",
+    policy: { ask: "Ask every time", always: "Always allow", never: "Never allow" },
+    helpContacts: "Help my contacts reach each other",
+    helpContactsBody:
+      "When this computer can be reached directly, contacts who can't reach each other meet here first. Only a few kilobytes pass through, never their data.",
+    networkFootnote:
+      "Oikome asks your router to open one port for itself. Its own pages and your AI assistants stay on this computer.",
+    networkSaved: "Saved.",
   },
 };

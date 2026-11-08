@@ -68,7 +68,7 @@ fn summary(def: &SourceDef, config: &SourceConfig, pulled_at_ms: Option<u64>) ->
 
 /// A collection name made from a file or folder name: `Bank Export 2025`
 /// reads `bank-export-2025`.
-fn slug(text: &str) -> String {
+pub(crate) fn slug(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
         if c.is_ascii_alphanumeric() {
@@ -137,7 +137,7 @@ pub(crate) async fn csv_config(path: &Path, table: &str) -> Result<SourceConfig,
 
 /// Show a folder, or a file in its folder, in this computer's file
 /// manager. The path is passed as an argument, never through a shell.
-fn reveal(path: &Path, folder: bool) -> std::io::Result<()> {
+pub(crate) fn reveal(path: &Path, folder: bool) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut c = Command::new("open");
@@ -228,19 +228,11 @@ impl Api {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         let config = match req.kind {
+            // A folder is viewed where it is, not copied (§7.7).
             SourceKind::Photos | SourceKind::Notes => {
-                if !path.is_dir() {
-                    return Err(ApiError::invalid(format!(
-                        "{} is not a folder",
-                        path.display()
-                    )));
-                }
-                let path = path.to_string_lossy().into_owned();
-                if req.kind == SourceKind::Photos {
-                    SourceConfig::PhotosFolder { path }
-                } else {
-                    SourceConfig::NotesFolder { path }
-                }
+                return Err(ApiError::invalid(
+                    "a folder of photos or notes is viewed where it is: use view_in_place",
+                ));
             }
             SourceKind::Csv => {
                 let csv = path

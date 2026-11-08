@@ -1,0 +1,107 @@
+# Two homes behind routers and a contact on the internet, for the check
+# that nodes reach each other across networks without a relay of the
+# project's (3.12): tests/e2e/docker_nat.sh.
+#
+#   home-a  192.168.10.0/24   node-a (shares) behind router-a, which gets
+#                             UPnP (miniupnpd) halfway through the check
+#   home-b  192.168.20.0/24   node-b (reads) behind router-b, no UPnP
+#   wan     11.11.0.0/24      the internet: the routers' outside addresses
+#                             and node-c, a contact both homes reach
+#
+# The internet segment uses addresses outside the private, shared and
+# documentation ranges, as a real one does (miniupnpd refuses to map a
+# router whose outside address is one of those). Every network is internal:
+# nothing leaves the Docker host.
+#
+#   docker compose -f docker/compose.yml build     # oikome:e2e first
+#   docker compose -f docker/nat/compose.yml build
+#   bash tests/e2e/docker_nat.sh
+
+name: oikome-nat
+
+x-router: &router
+  image: oikome-nat-router:e2e
+  pull_policy: never
+  cap_add: [NET_ADMIN]
+  sysctls:
+    net.ipv4.ip_forward: "1"
+  environment:
+    WAN_NET: "11.11.0."
+
+x-node: &node
+  image: oikome-nat-node:e2e
+  pull_policy: never
+  cap_add: [NET_ADMIN]
+  environment: &node-env
+    OIKOME_STORAGE_SYNC: "0"
+
+services:
+  router-a:
+    <<: *router
+    build:
+      context: ../..
+      dockerfile: docker/nat/router.Dockerfile
+    environment:
+      HOME_NET: "192.168.10."
+      WAN_NET: "11.11.0."
+    networks:
+      home-a: { ipv4_address: 192.168.10.2 }
+      wan: { ipv4_address: 11.11.0.2 }
+
+  router-b:
+    <<: *router
+    environment:
+      HOME_NET: "192.168.20."
+      WAN_NET: "11.11.0."
+    networks:
+      home-b: { ipv4_address: 192.168.20.2 }
+      wan: { ipv4_address: 11.11.0.3 }
+
+  node-a:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: docker/nat/node.Dockerfile
+    environment:
+      <<: *node-env
+      GATEWAY: 192.168.10.2
+    command: ["serve", "--listen", "0.0.0.0:50051", "--p2p-listen", "/ip4/0.0.0.0/tcp/4001",
+              "--no-mdns", "--web"]
+    volumes: ["a-data:/data"]
+    networks:
+      home-a: { ipv4_address: 192.168.10.10 }
+
+  node-b:
+    <<: *node
+    environment:
+      <<: *node-env
+      GATEWAY: 192.168.20.2
+    command: ["serve", "--listen", "0.0.0.0:50051", "--p2p-listen", "/ip4/0.0.0.0/tcp/4001",
+              "--no-mdns", "--web"]
+    volumes: ["b-data:/data"]
+    networks:
+      home-b: { ipv4_address: 192.168.20.10 }
+
+  node-c:
+    <<: *node
+    command: ["serve", "--listen", "0.0.0.0:50051", "--p2p-listen", "/ip4/0.0.0.0/tcp/4001",
+              "--no-mdns", "--no-port-mapping", "--web"]
+    volumes: ["c-data:/data"]
+    networks:
+      wan: { ipv4_address: 11.11.0.30 }
+
+networks:
+  home-a:
+    internal: true
+    ipam: { config: [{ subnet: 192.168.10.0/24 }] }
+  home-b:
+    internal: true
+    ipam: { config: [{ subnet: 192.168.20.0/24 }] }
+  wan:
+    internal: true
+    ipam: { config: [{ subnet: 11.11.0.0/24 }] }
+
+volumes:
+  a-data: {}
+  b-data: {}
+  c-data: {}

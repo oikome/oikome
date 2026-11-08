@@ -120,7 +120,8 @@ fn cursor_of(entries: &[Entry], extra: &[u8]) -> String {
 }
 
 /// A file time as this computer's clock reads it: `2025-11-07 09:40:00`.
-fn wall_time(time: SystemTime) -> String {
+/// A file time as local wall time, `2025-11-07 09:40:00`.
+pub fn wall_time(time: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(time)
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
@@ -128,7 +129,7 @@ fn wall_time(time: SystemTime) -> String {
 
 /// `2025-11-07`, `2025-11-07 09:40` or `2025-11-07T09:40:00` as written in
 /// a note or a caption, in one form; anything else is not a time.
-fn written_time(text: &str) -> Option<String> {
+pub fn written_time(text: &str) -> Option<String> {
     let text = text.trim().trim_matches(|c| c == '"' || c == '\'');
     let (day, time) = match text.split_once([' ', 'T']) {
         Some((day, time)) => (day, Some(time.trim_end_matches('Z'))),
@@ -192,50 +193,7 @@ impl PhotosFolder {
 
     /// `captions.csv`, by file name: title, place, taken and credit.
     fn captions(&self, bytes: &[u8]) -> Result<HashMap<String, [Option<String>; 4]>, ConnectError> {
-        let mut out = HashMap::new();
-        if bytes.is_empty() {
-            return Ok(out);
-        }
-        let bad = |e: &dyn std::fmt::Display| ConnectError::Format(format!("{CAPTIONS}: {e}"));
-        let (header, _) = Format::default()
-            .with_header(true)
-            .infer_schema(Cursor::new(bytes), Some(1))
-            .map_err(|e| bad(&e))?;
-        let names: Vec<String> = header
-            .fields()
-            .iter()
-            .map(|f| f.name().trim().to_ascii_lowercase())
-            .collect();
-        let at = |name: &str| names.iter().position(|n| n == name);
-        let file = at("file").ok_or_else(|| bad(&"it needs a 'file' column"))?;
-        let wanted = [at("title"), at("place"), at("taken"), at("credit")];
-        let schema = Arc::new(Schema::new(
-            names
-                .iter()
-                .map(|n| Field::new(n, DataType::Utf8, true))
-                .collect::<Vec<_>>(),
-        ));
-        let reader = arrow_csv::ReaderBuilder::new(schema)
-            .with_header(true)
-            .build(Cursor::new(bytes))
-            .map_err(|e| bad(&e))?;
-        for batch in reader {
-            let batch = batch.map_err(|e| bad(&e))?;
-            let column = |i: usize| batch.column(i).as_any().downcast_ref::<StringArray>();
-            let text = |i: usize, row: usize| {
-                column(i)
-                    .filter(|c| !c.is_null(row))
-                    .map(|c| c.value(row).trim().to_string())
-                    .filter(|t| !t.is_empty())
-            };
-            for row in 0..batch.num_rows() {
-                let Some(name) = text(file, row) else {
-                    continue;
-                };
-                out.insert(name, wanted.map(|c| c.and_then(|c| text(c, row))));
-            }
-        }
-        Ok(out)
+        captions_of(bytes)
     }
 }
 
@@ -391,6 +349,55 @@ impl Connector for NotesFolder {
             complete: true,
         })
     }
+}
+
+/// `captions.csv`, by file name: title, place, taken and credit. Also read
+/// for folders viewed in place (§7.7).
+pub fn captions_of(bytes: &[u8]) -> Result<HashMap<String, [Option<String>; 4]>, ConnectError> {
+    let mut out = HashMap::new();
+    if bytes.is_empty() {
+        return Ok(out);
+    }
+    let bad = |e: &dyn std::fmt::Display| ConnectError::Format(format!("{CAPTIONS}: {e}"));
+    let (header, _) = Format::default()
+        .with_header(true)
+        .infer_schema(Cursor::new(bytes), Some(1))
+        .map_err(|e| bad(&e))?;
+    let names: Vec<String> = header
+        .fields()
+        .iter()
+        .map(|f| f.name().trim().to_ascii_lowercase())
+        .collect();
+    let at = |name: &str| names.iter().position(|n| n == name);
+    let file = at("file").ok_or_else(|| bad(&"it needs a 'file' column"))?;
+    let wanted = [at("title"), at("place"), at("taken"), at("credit")];
+    let schema = Arc::new(Schema::new(
+        names
+            .iter()
+            .map(|n| Field::new(n, DataType::Utf8, true))
+            .collect::<Vec<_>>(),
+    ));
+    let reader = arrow_csv::ReaderBuilder::new(schema)
+        .with_header(true)
+        .build(Cursor::new(bytes))
+        .map_err(|e| bad(&e))?;
+    for batch in reader {
+        let batch = batch.map_err(|e| bad(&e))?;
+        let column = |i: usize| batch.column(i).as_any().downcast_ref::<StringArray>();
+        let text = |i: usize, row: usize| {
+            column(i)
+                .filter(|c| !c.is_null(row))
+                .map(|c| c.value(row).trim().to_string())
+                .filter(|t| !t.is_empty())
+        };
+        for row in 0..batch.num_rows() {
+            let Some(name) = text(file, row) else {
+                continue;
+            };
+            out.insert(name, wanted.map(|c| c.and_then(|c| text(c, row))));
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

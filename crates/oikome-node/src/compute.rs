@@ -212,38 +212,70 @@ async fn run_method(task: ComputeTask) -> Result<(SchemaRef, Vec<RecordBatch>), 
     }
 }
 
-#[cfg(feature = "engine-duckdb")]
 async fn run_sql(task: ComputeTask) -> Result<(SchemaRef, Vec<RecordBatch>), SessionError> {
-    use oikome_engine_duckdb::isolated::{run_isolated, IsolatedLimits};
-    // One query, nothing else; the isolated DuckDB refuses the rest anyway.
-    let statements = sqlparser::parser::Parser::parse_sql(
-        &sqlparser::dialect::DuckDbDialect {},
-        &task.request.sql,
-    )
-    .map_err(|e| SessionError::Unsupported(format!("the task's SQL: {e}")))?;
-    if statements.len() != 1 || !matches!(statements[0], sqlparser::ast::Statement::Query(_)) {
-        return Err(SessionError::Unsupported(
-            "a sql task is one query over the table `input`".to_string(),
-        ));
-    }
     let limits = effective_limits(task.limits);
     let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
-    Ok(run_isolated(
+    run_sql_query(
         task.schema,
         task.batches,
         task.request.sql,
-        IsolatedLimits {
+        TaskLimits {
             time: Duration::from_millis(limits.time_ms.unwrap_or(30_000)),
             memory_bytes: limits.memory_bytes.unwrap_or(512 << 20),
             output_bytes: limits.output_bytes.unwrap_or(64 << 20),
             threads: (cores / 2).max(1),
         },
     )
+    .await
+}
+
+/// How long a task may run and how much it may use.
+struct TaskLimits {
+    time: Duration,
+    memory_bytes: u64,
+    output_bytes: u64,
+    threads: usize,
+}
+
+/// One query over `batches` (the table `input`), in an isolated DuckDB.
+#[cfg(feature = "engine-duckdb")]
+async fn run_sql_query(
+    schema: SchemaRef,
+    batches: Vec<RecordBatch>,
+    sql: String,
+    limits: TaskLimits,
+) -> Result<(SchemaRef, Vec<RecordBatch>), SessionError> {
+    use oikome_engine_duckdb::isolated::{run_isolated, IsolatedLimits};
+    // One query, nothing else; the isolated DuckDB refuses the rest anyway.
+    let statements =
+        sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::DuckDbDialect {}, &sql)
+            .map_err(|e| SessionError::Unsupported(format!("the task's SQL: {e}")))?;
+    if statements.len() != 1 || !matches!(statements[0], sqlparser::ast::Statement::Query(_)) {
+        return Err(SessionError::Unsupported(
+            "a sql task is one query over the table `input`".to_string(),
+        ));
+    }
+    Ok(run_isolated(
+        schema,
+        batches,
+        sql,
+        IsolatedLimits {
+            time: limits.time,
+            memory_bytes: limits.memory_bytes,
+            output_bytes: limits.output_bytes,
+            threads: limits.threads,
+        },
+    )
     .await?)
 }
 
 #[cfg(not(feature = "engine-duckdb"))]
-async fn run_sql(_task: ComputeTask) -> Result<(SchemaRef, Vec<RecordBatch>), SessionError> {
+async fn run_sql_query(
+    _schema: SchemaRef,
+    _batches: Vec<RecordBatch>,
+    _sql: String,
+    _limits: TaskLimits,
+) -> Result<(SchemaRef, Vec<RecordBatch>), SessionError> {
     Err(SessionError::EngineNotRegistered(
         oikome_core::EngineKind::DuckDb,
     ))
@@ -372,6 +404,26 @@ impl OikomeSession {
                 ))
             }
         };
+        self.compute_batches_on_peer(peer, owner, token, method, schema, batches, sql)
+            .await
+    }
+
+    /// Run `sql` over `batches` on the node `owner`, as
+    /// [`compute_on_peer`](Self::compute_on_peer) does, with an input the
+    /// caller read: the apps read it as the lender, so that only what the
+    /// lender may see already leaves this node. Owner only.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn compute_batches_on_peer(
+        &self,
+        peer: Option<&str>,
+        owner: &str,
+        token: &str,
+        method: &str,
+        schema: SchemaRef,
+        batches: Vec<RecordBatch>,
+        sql: &str,
+    ) -> Result<QueryResult, SessionError> {
+        self.deny_principal("computing on a peer")?;
         let request = ComputeRequest {
             method: method.to_string(),
             sql: sql.to_string(),
@@ -380,6 +432,32 @@ impl OikomeSession {
             .compute_client(peer, owner, token)?
             .compute(&request, schema, batches)
             .await?;
+        Ok(QueryResult::Batches { schema, batches })
+    }
+
+    /// Run the `sql` task over `batches` here, in the same isolated DuckDB
+    /// a lent computer uses, so a task gives the same answer wherever it
+    /// runs. Owner only.
+    pub async fn run_task_here(
+        &self,
+        schema: SchemaRef,
+        batches: Vec<RecordBatch>,
+        sql: &str,
+    ) -> Result<QueryResult, SessionError> {
+        self.deny_principal("running a task")?;
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        let (schema, batches) = run_sql_query(
+            schema,
+            batches,
+            sql.to_string(),
+            TaskLimits {
+                time: Duration::from_secs(60),
+                memory_bytes: 1 << 30,
+                output_bytes: 64 << 20,
+                threads: (cores / 2).max(1),
+            },
+        )
+        .await?;
         Ok(QueryResult::Batches { schema, batches })
     }
 
@@ -404,8 +482,8 @@ impl OikomeSession {
         owner: &str,
         token: &str,
     ) -> Result<PeerClient, SessionError> {
-        Ok(PeerClient::new(
-            self.engines().peer_endpoint(peer, owner)?,
+        Ok(PeerClient::routed(
+            self.engines().peer_route(peer, owner)?,
             Did::parse(owner)?,
             token.to_string(),
             self.engines().identity()?,

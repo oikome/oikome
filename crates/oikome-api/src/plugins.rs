@@ -599,7 +599,14 @@ impl Api {
                 principal: Some(plugin.did.clone()),
             },
         );
+        let in_place = self.session(None).in_place_location(&req.space)?;
         let read = async {
+            if let Some(location) = &in_place {
+                return self
+                    .photos_for_plugin(&session, &req.space, location, req.limit)
+                    .await
+                    .map(Some);
+            }
             let relations = session.readable_relations(&req.space).await?;
             let Some(table) = relations.first() else {
                 return Ok(None);
@@ -769,6 +776,89 @@ impl Api {
             let _ = std::fs::remove_dir_all(&tmp);
             ApiError::internal(e)
         })
+    }
+}
+
+impl Api {
+    /// A plugin's read of a folder viewed in place: its photos as the
+    /// photos of a folder source were (`file`, `title`, `place`, `taken`,
+    /// `credit`, `photo`), read as the plugin, so its grants decide, with
+    /// each photo's thumbnail from the index.
+    async fn photos_for_plugin(
+        &self,
+        session: &OikomeSession,
+        space: &str,
+        location: &oikome_catalog::Location,
+        limit: Option<u32>,
+    ) -> Result<Rows, ApiError> {
+        use std::sync::Arc;
+
+        use arrow_array::{Array, BinaryArray, RecordBatch, StringArray};
+        use arrow_schema::{DataType, Field, Schema};
+        let limit = limit.unwrap_or(MAX_ROWS).clamp(1, MAX_ROWS);
+        let sql = format!(
+            "SELECT path, title, place, taken, credit FROM {}.{} WHERE kind = 'image' \
+             ORDER BY taken DESC LIMIT {limit}",
+            quote_ident(space),
+            quote_ident(oikome_node::inplace::FILES)
+        );
+        let QueryResult::Batches { batches, .. } = session.sql(&sql).await? else {
+            return Err(ApiError::internal("a query returned no rows"));
+        };
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("file", DataType::Utf8, false),
+            Field::new("title", DataType::Utf8, true),
+            Field::new("place", DataType::Utf8, true),
+            Field::new("taken", DataType::Utf8, true),
+            Field::new("credit", DataType::Utf8, true),
+            Field::new("photo", DataType::Binary, true),
+        ]));
+        let mut out = Vec::new();
+        for batch in batches {
+            let text = |i: usize| -> Vec<Option<String>> {
+                let column = batch.column(i);
+                let strings = column.as_any().downcast_ref::<StringArray>();
+                (0..batch.num_rows())
+                    .map(|r| {
+                        strings
+                            .filter(|s| !s.is_null(r))
+                            .map(|s| s.value(r).to_string())
+                    })
+                    .collect()
+            };
+            let paths = text(0);
+            let photos: Vec<Option<Vec<u8>>> = paths
+                .iter()
+                .map(|p| {
+                    p.as_deref().and_then(|p| {
+                        oikome_node::inplace::thumb(&self.catalog, location, p)
+                            .ok()
+                            .flatten()
+                    })
+                })
+                .collect();
+            out.push(
+                RecordBatch::try_new(
+                    schema.clone(),
+                    vec![
+                        Arc::new(StringArray::from(
+                            paths
+                                .iter()
+                                .map(|p| p.clone().unwrap_or_default())
+                                .collect::<Vec<_>>(),
+                        )),
+                        Arc::new(StringArray::from(text(1))),
+                        Arc::new(StringArray::from(text(2))),
+                        Arc::new(StringArray::from(text(3))),
+                        Arc::new(StringArray::from(text(4))),
+                        Arc::new(BinaryArray::from_iter(photos.iter().map(|p| p.as_deref()))),
+                    ],
+                )
+                .map_err(ApiError::internal)?,
+            );
+        }
+        let schema: arrow_schema::SchemaRef = schema;
+        encode_rows(&schema, &out, limit as usize, MAX_READ_BYTES)
     }
 }
 

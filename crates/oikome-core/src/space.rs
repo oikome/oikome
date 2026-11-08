@@ -285,8 +285,13 @@ pub struct CreateSpaceRequest {
     /// Where the Space lives: `'disk'` (default) or the name of a storage
     /// registered with `oikome storage add` (a NAS, §7.5).
     pub storage: Option<String>,
-    /// Folder of the Space on its storage; defaults to the Space name.
+    /// Folder of the Space on its storage; defaults to the Space name. For a
+    /// Space viewed in place (`PLACE`), the folder viewed.
     pub path: Option<String>,
+    /// View a folder in place (§7.7): `'local'` for a folder on this
+    /// computer (`PATH` absolute), or the name of a storage (`PATH` within
+    /// it). The Space is read-only and holds no data of its own.
+    pub place: Option<String>,
     /// Format of a new analytical Location (default Iceberg).
     pub format: Option<SpaceFormat>,
     /// Flight endpoint of the node owning a remote Space (`http://host:port`).
@@ -310,6 +315,7 @@ impl fmt::Debug for CreateSpaceRequest {
             .field("access", &self.access)
             .field("storage", &self.storage)
             .field("path", &self.path)
+            .field("place", &self.place)
             .field("format", &self.format)
             .field("peer", &self.peer)
             .field("remote", &self.remote)

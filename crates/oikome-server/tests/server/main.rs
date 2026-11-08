@@ -20,6 +20,7 @@
 mod common;
 
 mod access_log;
+mod across;
 mod compute;
 mod discovery;
 mod lance_subscription;

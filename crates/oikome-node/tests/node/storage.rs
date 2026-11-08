@@ -730,3 +730,80 @@ async fn a_lance_space_on_a_nas_is_searched_with_the_writers_index() {
     assert!(!ours.is_empty());
     assert_eq!(ours, index_files(&b_root));
 }
+
+/// The owner's own folder on a NAS, viewed where it is: listed with its
+/// names as they are, a table read through the cache, thumbnails kept, and
+/// the index answering while the NAS is down.
+#[tokio::test]
+async fn a_folder_on_a_nas_is_viewed_in_place() {
+    let nas = Nas::start().await;
+    let album = nas.folder("Photos Album");
+    std::fs::create_dir_all(album.join("Lisboa")).unwrap();
+    std::fs::write(
+        album.join("2025 年.csv"),
+        "day,euros\n2025-01-01,3\n2025-01-02,4\n",
+    )
+    .unwrap();
+    std::fs::write(album.join("Lisboa").join("1 Olá.md"), "Os elétricos sobem.").unwrap();
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::new(40, 20))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    std::fs::write(album.join("Lisboa").join("Elétrico (28).png"), &png).unwrap();
+    let n = node(1, nas.secrets());
+    n.catalog.add_storage("nas", nas.kind(), false).unwrap();
+    n.sql("CREATE SPACE album WITH PLACE = 'nas', PATH = 'Photos Album'")
+        .await;
+    n.sql("REFRESH SPACE album").await;
+
+    let paths = n.sql("SELECT path FROM album.files ORDER BY path").await;
+    let paths: Vec<String> = paths
+        .batches()
+        .iter()
+        .flat_map(|b| {
+            let a = b
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow_array::StringArray>()
+                .unwrap();
+            (0..a.len())
+                .map(|i| a.value(i).to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        paths,
+        ["2025 年.csv", "Lisboa/1 Olá.md", "Lisboa/Elétrico (28).png"]
+    );
+    assert_eq!(n.count("album.t_2025").await, 2);
+    let location = n.owner.in_place_location("album").unwrap().unwrap();
+    assert!(
+        oikome_node::inplace::thumb(&n.catalog, &location, "Lisboa/Elétrico (28).png")
+            .unwrap()
+            .is_some()
+    );
+    let found = n
+        .owner
+        .search("album", &["elétricos".to_string()], 10)
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+
+    // The NAS goes down: the index still answers, the table says why not.
+    nas.down.store(true, Ordering::Relaxed);
+    let refreshed = n.owner.refresh_in_place("album").await.unwrap();
+    assert!(!refreshed.reachable);
+    assert_eq!(n.count("album.files").await, 3);
+    let e = n.owner.sql("SELECT * FROM album.t_2025").await.unwrap_err();
+    assert!(e.to_string().contains("can't be reached"), "{e}");
+    nas.down.store(false, Ordering::Relaxed);
+    assert!(n.owner.refresh_in_place("album").await.unwrap().reachable);
+    assert_eq!(n.count("album.t_2025").await, 2);
+    // Nothing was written on the NAS.
+    let names: Vec<String> = std::fs::read_dir(&album)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2);
+}

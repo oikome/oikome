@@ -20,6 +20,7 @@ base64 = { workspace = true }
 blake3 = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+hyper-util = { workspace = true }
 rustls = { workspace = true }
 rustls-webpki = { workspace = true }
 serde = { workspace = true }
@@ -27,4 +28,8 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
+tower = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

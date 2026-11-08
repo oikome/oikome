@@ -12,6 +12,7 @@ oikome-connect = { path = "../oikome-connect" }
 oikome-core = { path = "../oikome-core" }
 oikome-engine = { path = "../oikome-engine" }
 oikome-identity = { path = "../oikome-identity" }
+oikome-network = { path = "../oikome-network" }
 oikome-node = { path = "../oikome-node" }
 oikome-semantic = { path = "../oikome-semantic" }
 arrow-array = { workspace = true }
@@ -33,6 +34,7 @@ ts-rs = { workspace = true }
 rustix = { version = "1.1", default-features = false, features = ["fs", "std", "system"] }
 
 [dev-dependencies]
+image = { workspace = true }
 iceberg = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

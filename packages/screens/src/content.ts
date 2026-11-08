@@ -8,7 +8,7 @@
 
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
-import type { NodeClient, SpaceSummary, TableSummary } from "@oikome/client";
+import type { FileItem, NodeClient, SpaceSummary, TableSummary } from "@oikome/client";
 import { isoTime, measureLabel } from "./format";
 import { numeric, show } from "./parts";
 
@@ -35,6 +35,8 @@ export interface Shape {
 export interface Item {
   /** Its row in the table it was read from. */
   row: number;
+  /** A file of a folder viewed in place: its path within the folder. */
+  path?: string;
   image?: string;
   text?: string;
   detail?: string;
@@ -52,6 +54,9 @@ export interface Preview {
   items: Item[];
   /** Rows to show in a table cover: column labels and a few rows of text. */
   rows?: Table;
+  /** How many there are of what it shows, when not a table's rows: the
+   * photos or notes of a folder viewed in place. */
+  count?: number;
 }
 
 const MAGIC: [number[], string][] = [
@@ -232,6 +237,41 @@ const SERIES_ROWS = 72;
 
 const previews = new Map<string, Promise<Preview>>();
 
+/** Files of a folder viewed in place as items: a photo by its thumbnail,
+ * caption and place, a note by its text and date. */
+export function fileItems(client: NodeClient, space: string, files: FileItem[]): Item[] {
+  return files.map((file, row) => {
+    const at = file.kind === "image" ? (file.taken ?? file.modified) : (file.written ?? file.modified);
+    const iso = isoTime(at);
+    return {
+      row,
+      path: file.path,
+      image: file.kind === "image" && file.thumbnail ? client.fileUrl("thumb", { space, path: file.path }) : undefined,
+      text: file.kind === "note" ? (file.text ?? file.title ?? file.name) : (file.title ?? file.name),
+      detail: file.place ?? undefined,
+      credit: file.credit ?? undefined,
+      when: iso?.ms,
+      whenKind: iso ? (iso.day ? "day" : "wall") : undefined,
+    };
+  });
+}
+
+/** What a folder viewed in place shows on a cover: its latest photos, else
+ * its latest notes, read from its index (also while its place is offline). */
+async function folderPreview(client: NodeClient, space: SpaceSummary): Promise<Preview> {
+  for (const kind of ["image", "note"] as const) {
+    const listed = await client.listFiles({ space: space.name, deep: true, kind, limit: PREVIEW_ROWS });
+    if (listed.files.length > 0) {
+      return {
+        shape: { view: kind === "image" ? "photos" : "notes" },
+        items: chronological(fileItems(client, space.name, listed.files)),
+        count: Number(listed.total),
+      };
+    }
+  }
+  return { shape: { view: "table" }, items: [], count: 0 };
+}
+
 /**
  * The first table of `space` and its first rows, read once and shared by
  * every cover and Home tile on the screen. A collection shared by someone
@@ -241,6 +281,11 @@ export function loadPreview(client: NodeClient, space: SpaceSummary): Promise<Pr
   // One shared with you is read from its owner's data center; when that is
   // off, the read fails and its cover stays plain.
   let preview = previews.get(space.name);
+  if (!preview && space.inPlace) {
+    preview = folderPreview(client, space);
+    preview.catch(() => previews.delete(space.name));
+    previews.set(space.name, preview);
+  }
   if (!preview) {
     preview = (async () => {
       const tables = await client.listTables({ space: space.name });

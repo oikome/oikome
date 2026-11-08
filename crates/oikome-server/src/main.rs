@@ -59,16 +59,22 @@ use oikome_connect::SourceConfig;
 use oikome_discovery::{Discovery, DiscoveryConfig, EndpointResponse};
 use oikome_engine_duckdb::{DuckDbConfig, DuckDbEngine, Extension};
 use oikome_node::{
-    spawn_source_sync, spawn_storage_sync, AccessLog, EngineRegistry, NodeConfig, OikomeSession,
-    QueryResult, SessionConfig, StorageCredentials,
+    spawn_source_sync, spawn_storage_sync, AccessEntry, AccessLog, EngineRegistry, NodeConfig,
+    OikomeSession, QueryResult, SessionConfig, StorageCredentials,
 };
 use oikome_server::web::{login_file, DEFAULT_WEB_LISTEN};
-use oikome_server::{serve, serve_webrtc, DtlsIdentity, OikomeFlightService, WebApp};
+use oikome_server::{serve_webrtc, serve_with_peers, DtlsIdentity, OikomeFlightService, WebApp};
 use tokio::net::{TcpListener, UdpSocket};
 use zeroize::Zeroizing;
 
 /// The node's DTLS certificate for WebRTC, next to its key.
 const WEBRTC_DTLS_FILE: &str = "webrtc_dtls.json";
+/// How often the node looks again at whether anything the owner allowed
+/// needs it reached from outside.
+const REACH_CHECK: Duration = Duration::from_secs(60);
+/// Activity's method for a connection from outside turned away by the
+/// peer-to-peer layer (not a contact).
+const TURNED_AWAY: &str = "connect";
 /// How long an access record printed by `SHOW WEBRTC` stays valid.
 const WEBRTC_RECORD_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
 
@@ -370,6 +376,10 @@ enum Command {
         /// libp2p address of a known peer to connect to (repeatable).
         #[arg(long)]
         dial: Vec<String>,
+        /// Never ask the router to open a port, even when the owner allowed
+        /// this node to be reached from outside (contacts can still help).
+        #[arg(long, env = "OIKOME_NO_PORT_MAPPING")]
+        no_port_mapping: bool,
         /// UDP address for browsers over WebRTC (e.g. 0.0.0.0:4433); off
         /// when unset. `SHOW WEBRTC` prints the record browsers connect with.
         #[arg(long, env = "OIKOME_WEBRTC_LISTEN")]
@@ -801,6 +811,7 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             p2p_listen,
             no_mdns,
             dial,
+            no_port_mapping,
             webrtc_listen,
             webrtc_advertise,
             storage_sync,
@@ -834,6 +845,14 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     Duration::from_secs(storage_sync),
                 ))
             });
+            // Folders of photos and notes that sources copied are viewed in
+            // place from now on (§7.7), once.
+            if let Err(e) = Api::new(catalog.clone(), engines.clone())
+                .view_folders_in_place()
+                .await
+            {
+                tracing::warn!(error = %e, "viewing folder sources in place");
+            }
             // Sources are pulled on their schedule while the node serves (§11).
             let _source_sync = (source_sync > 0).then(|| {
                 let owner =
@@ -849,12 +868,58 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             let listener = TcpListener::bind(listen).await?;
             let scheme = if plaintext { "http" } else { "https" };
             tracing::info!(did = %service.did(), addr = %listener.local_addr()?, %scheme, "serving Arrow Flight");
+            // Announce this endpoint to peers and record theirs; reach peers
+            // on other networks (§9, 3.12).
+            let mut p2p = DiscoveryConfig::new(
+                p2p_listen.parse()?,
+                EndpointResponse {
+                    scheme: scheme.to_string(),
+                    port: listener.local_addr()?.port(),
+                },
+            );
+            p2p.mdns = !no_mdns;
+            p2p.port_mapping = !no_port_mapping;
+            let discovery = Discovery::start(&identity, catalog.clone(), p2p).await?;
+            for addr in dial {
+                discovery.dial(addr.parse()?).await?;
+            }
+            engines.set_dialer(discovery.dialer());
+            // Someone who isn't a contact, turned away from outside, is in
+            // Activity too: the prompt that opened the port says every
+            // attempt shows there. Merged per minute, as unknown callers are.
+            let refused = access_log.clone();
+            discovery.on_turned_away(Arc::new(move |_, _| {
+                refused.record(AccessEntry {
+                    at_ms: oikome_identity::unix_now_ms(),
+                    caller: None,
+                    method: TURNED_AWAY.to_string(),
+                    spaces: Vec::new(),
+                    token_id: None,
+                    outcome: oikome_node::Outcome::Denied,
+                    reason: Some("not a contact, connecting from outside this network".to_string()),
+                    detail: None,
+                    merge: true,
+                });
+            }));
+            let network = discovery.network();
+            // What the owner allowed decides whether the router is asked;
+            // looked at again now and then (a share runs out on its own).
+            let reach_api =
+                Api::new(catalog.clone(), engines.clone()).with_network(network.clone());
+            let _reach = AbortOnDrop(tokio::spawn(async move {
+                let mut every = tokio::time::interval(REACH_CHECK);
+                loop {
+                    every.tick().await;
+                    reach_api.update_reach();
+                }
+            }));
             let web = if web {
                 let web_listener = TcpListener::bind(web_listen).await?;
                 let addr = web_listener.local_addr()?;
                 let api = Api::new(catalog.clone(), engines.clone())
                     .with_access_log(access_log)
-                    .with_flight_url(format!("{scheme}://{}", listener.local_addr()?));
+                    .with_flight_url(format!("{scheme}://{}", listener.local_addr()?))
+                    .with_network(network);
                 let mut app = WebApp::new(api, addr, login_file(&catalog_dir))?;
                 if let Some(root) = &web_root {
                     app = app.with_web_root(root)?;
@@ -864,23 +929,6 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             } else {
                 None
             };
-            // Announce this endpoint to peers and record theirs (§9).
-            let discovery = Discovery::start(
-                &identity,
-                catalog,
-                DiscoveryConfig {
-                    listen: p2p_listen.parse()?,
-                    flight: EndpointResponse {
-                        scheme: scheme.to_string(),
-                        port: listener.local_addr()?.port(),
-                    },
-                    mdns: !no_mdns,
-                },
-            )
-            .await?;
-            for addr in dial {
-                discovery.dial(addr.parse()?).await?;
-            }
             let webrtc = match webrtc_listen {
                 Some(addr) => {
                     let socket = UdpSocket::bind(addr).await?;
@@ -923,7 +971,30 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     let _ = stopped.wait_for(|s| *s).await;
                 }
             };
-            let flight = serve(listener, service.clone(), tls.as_ref(), until_stopped());
+            let flight = serve_with_peers(
+                listener,
+                discovery.take_flight_streams(),
+                service.clone(),
+                tls.as_ref(),
+                until_stopped(),
+            );
+            // Other processes of the node (`oikome sql`) reach peers on
+            // other networks through this one.
+            let socket = async {
+                #[cfg(unix)]
+                {
+                    let path = oikome_network::route::peer_socket_path(&catalog_dir);
+                    if let Err(e) = oikome_network::route::serve_peer_socket(
+                        &path,
+                        discovery.dialer(),
+                        until_stopped(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, path = %path.display(), "other processes can't reach peers through this one");
+                    }
+                }
+            };
             let browsers = async {
                 let Some((socket, dtls)) = webrtc else {
                     return Ok::<(), BoxError>(());
@@ -941,7 +1012,9 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     None => Ok(()),
                 }
             };
-            let (flight, browsers, owner) = tokio::join!(flight, browsers, owner);
+            let (flight, browsers, owner, ()) = tokio::join!(flight, browsers, owner, socket);
+            // The router port closes with the node.
+            discovery.shutdown().await;
             flight?;
             browsers?;
             owner?;
@@ -950,8 +1023,13 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+/// The stack of each of the runtime's threads. Queries run on them: a
+/// federated plan (DataFusion over Flight, §5) nests its streams deeply, and
+/// tokio's default of 2 MiB was found too little for a contact's query in a
+/// debug build.
+const THREAD_STACK_BYTES: usize = 8 << 20;
+
+fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -959,7 +1037,18 @@ async fn main() {
         )
         .with_writer(std::io::stderr)
         .init();
-    if let Err(e) = run(Cli::parse()).await {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(THREAD_STACK_BYTES)
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(e) => {
+            eprintln!("error: starting the runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+    if let Err(e) = runtime.block_on(run(Cli::parse())) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }

@@ -135,7 +135,11 @@ fromName: string | null,
  * For a remote Space: when the share it was added with ends, in seconds
  * since the Unix epoch.
  */
-expiresAt: number | null, };
+expiresAt: number | null, 
+/**
+ * For a collection that views a folder where it is (§7.7): which.
+ */
+inPlace: InPlace | null, };
 
 /**
  * `create_space`: a new local Space.
@@ -496,7 +500,12 @@ allowCopy?: boolean,
 /**
  * 1 to 366 days; default 365.
  */
-expiresInDays?: number, };
+expiresInDays?: number, 
+/**
+ * What the owner answered when asked whether the contact may reach
+ * this computer from outside its network; not asked, nothing changes.
+ */
+reach?: ReachChoice, };
 
 /**
  * What a share lets the contact do.
@@ -646,7 +655,12 @@ concurrent: number,
 /**
  * 1 to 1000.
  */
-perHour: number, };
+perHour: number, 
+/**
+ * What the owner answered when asked whether these people may reach
+ * this computer from outside its network; not asked, nothing changes.
+ */
+reach?: ReachChoice, };
 
 /**
  * Lending saved, with an invite code (shown this once) for each person
@@ -658,6 +672,84 @@ export type LendingSaved = { lending: Lending, invites: Array<LendInvite>, };
  * The code to send someone newly lent to.
  */
 export type LendInvite = { did: string, name: string, invite: string, };
+
+/**
+ * What Oikome does when something needs this computer reached from
+ * outside its network (a share, a lent computer): ask every time, or the
+ * answer the owner said not to ask again.
+ */
+export type ReachPolicy = "ask" | "always" | "never";
+
+/**
+ * The owner's answer to "Let people reach this computer from outside your
+ * network?". Without `remember` it is for this one share or lending, and
+ * ends with it; with it, it is the answer from now on.
+ */
+export type ReachChoice = { allow: boolean, 
+/**
+ * "Don't ask again".
+ */
+remember?: boolean, };
+
+/**
+ * How this computer is reached from outside its network.
+ */
+export type Reachable = "local_only" | "opening" | "direct" | "through_contact" | "router_refused" | "shared_address";
+
+/**
+ * What the port is open for.
+ */
+export type OpenForKind = "share" | "lend";
+
+/**
+ * One thing the owner allowed to be reached from outside, still going.
+ */
+export type OpenFor = { kind: OpenForKind, 
+/**
+ * The share's id, or the DID lent to.
+ */
+id: string, 
+/**
+ * Who it is for.
+ */
+name: string, 
+/**
+ * The collection, for a share.
+ */
+space: string | null, };
+
+/**
+ * `network`: how this computer is reached from outside, what for, and
+ * what the owner chose.
+ */
+export type Network = { reachable: Reachable, 
+/**
+ * The contact others meet this computer through.
+ */
+through: string | null, 
+/**
+ * Shares and lending allowed to be reached from outside, still going.
+ */
+openFor: Array<OpenFor>, policy: ReachPolicy, 
+/**
+ * Contacts may meet each other here, when this computer is reached
+ * directly.
+ */
+helpContacts: boolean, 
+/**
+ * They can now.
+ */
+helping: boolean, 
+/**
+ * This node runs the peer-to-peer layer at all (a serving node).
+ */
+available: boolean, };
+
+/**
+ * `set_network`: change what Oikome does when it needs to be reached from
+ * outside, or whether contacts may meet here.
+ */
+export type SetNetwork = { policy?: ReachPolicy, helpContacts?: boolean, };
 
 /**
  * Whether a computer lent to you can be used now.
@@ -675,12 +767,235 @@ taskMs: number | null,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, status: BorrowStatus, };
+expiresAt: number, status: BorrowStatus, 
+/**
+ * Big summaries of collections shared with its owner are sent there.
+ */
+inUse: boolean, };
 
 /**
  * `stop_borrowing`: a computer lent to you, by its id.
  */
 export type BorrowedRef = { id: string, };
+
+/**
+ * `use_borrowed`: send big summaries to a computer lent to you, or stop.
+ */
+export type UseBorrowed = { id: string, inUse: boolean, };
+
+/**
+ * `borrowed_jobs`: what was sent to a computer lent to you.
+ */
+export type BorrowedJobsOf = { id: string, 
+/**
+ * Count tasks from this time on (the start of the viewer's day), in
+ * milliseconds since the Unix epoch.
+ */
+sinceMs: number, };
+
+/**
+ * What was sent to a computer lent to you, and what may be.
+ */
+export type BorrowedJobs = { 
+/**
+ * Tasks sent there since `since_ms`.
+ */
+since: number, 
+/**
+ * The latest ones, newest first: one line per collection and minute.
+ */
+recent: Array<SentJob>, 
+/**
+ * Your collections shared with its owner now: the only ones whose
+ * summaries may be worked out there.
+ */
+collections: Array<string>, };
+
+/**
+ * Summaries of one collection sent to a computer lent to you.
+ */
+export type SentJob = { space: string, atMs: number, 
+/**
+ * Tasks in that minute.
+ */
+count: number, };
+
+/**
+ * `daily_totals`: a table's totals by day, for a card on Home.
+ */
+export type DailyTotalsOf = { space: string, table: string, 
+/**
+ * The column with each row's day (a date, a time, or text that starts
+ * `YYYY-MM-DD`).
+ */
+when: string, 
+/**
+ * The column with each row's amount.
+ */
+amount: string, };
+
+/**
+ * A table's totals for its last days.
+ */
+export type DailyTotals = { 
+/**
+ * The last 14 days up to the latest with data, oldest first, days
+ * without rows at 0; empty when no row has a day and an amount.
+ */
+days: Array<DayTotal>, 
+/**
+ * Rows in the table.
+ */
+rows: number, 
+/**
+ * The computer lent to you that worked them out (`Borrowed::id`);
+ * none when this one did.
+ */
+borrowed?: string, 
+/**
+ * The name of its owner, or of the one in use that wasn't used.
+ */
+lender?: string, 
+/**
+ * Why this computer worked them out although one lent to you is in
+ * use.
+ */
+stayedHere?: StayedHere, };
+
+/**
+ * A day's total.
+ */
+export type DayTotal = { 
+/**
+ * `YYYY-MM-DD`.
+ */
+day: string, total: number, };
+
+/**
+ * Why a summary stayed on this computer.
+ */
+export type StayedHere = "small" | "not_shared" | "partly_shared" | "not_lending" | "unreachable" | "failed";
+
+/**
+ * The folder a collection views where it is, and how its index stands.
+ */
+export type InPlace = { 
+/**
+ * The storage it is on; `None` for this computer.
+ */
+place: string | null, 
+/**
+ * The folder: its full path on this computer, else within the storage.
+ */
+path: string, 
+/**
+ * Files the index knows.
+ */
+files: number, 
+/**
+ * When it was last read, in milliseconds since the Unix epoch.
+ */
+scannedAtMs: number | null, 
+/**
+ * Whether it could be reached when last asked.
+ */
+reachable: boolean | null, };
+
+/**
+ * `view_in_place`: a collection that views a folder where it is.
+ */
+export type ViewInPlace = { 
+/**
+ * A storage's name; this computer when left out.
+ */
+place?: string, 
+/**
+ * The folder: a full path on this computer, else within the storage.
+ */
+path: string, 
+/**
+ * The collection's name; made from the folder's when left out.
+ */
+name?: string, };
+
+/**
+ * `list_files`: one folder of a collection viewed in place.
+ */
+export type ListFiles = { space: string, 
+/**
+ * The folder within it, `/`-separated; the top when left out.
+ */
+folder?: string, offset?: number, 
+/**
+ * At most 1,000; 200 when left out.
+ */
+limit?: number, 
+/**
+ * Files of every folder (no folders listed), the most recent first.
+ */
+deep?: boolean, 
+/**
+ * Only files of this kind.
+ */
+kind?: FileKind, };
+
+/**
+ * A folder of a collection viewed in place: the folders in it, and a page
+ * of its files (photos first, then notes, tables and the rest).
+ */
+export type FileListing = { folders: Array<FileFolder>, files: Array<FileItem>, 
+/**
+ * Files directly in this folder.
+ */
+total: number, };
+
+/**
+ * A folder within the one listed, with how many files are under it.
+ */
+export type FileFolder = { name: string, files: number, };
+
+/**
+ * What a file is, as far as showing it goes.
+ */
+export type FileKind = "image" | "note" | "table" | "other";
+
+/**
+ * A file of a collection viewed in place, as its index knows it.
+ */
+export type FileItem = { 
+/**
+ * Within the folder viewed, `/`-separated.
+ */
+path: string, name: string, kind: FileKind, size: number, 
+/**
+ * When it was last changed: `2025-11-07 09:40:00`.
+ */
+modified: string, 
+/**
+ * A photo's caption or a note's name.
+ */
+title: string | null, 
+/**
+ * When a photo was taken, as its captions or the file say.
+ */
+taken: string | null, 
+/**
+ * A note's date.
+ */
+written: string | null, place: string | null, credit: string | null, 
+/**
+ * A note's text: its start in a listing, all of it read alone.
+ */
+text: string | null, 
+/**
+ * Whether the index has a thumbnail of it.
+ */
+thumbnail: boolean, };
+
+/**
+ * One file of a collection viewed in place.
+ */
+export type FileRef = { space: string, path: string, };
 
 /**
  * What a plugin reads, as its manifest says: one kind of collection.
@@ -832,7 +1147,12 @@ contactName: string | null, access: ShareAccess, issuedAtMs: number,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, status: ShareStatus, };
+expiresAt: number, status: ShareStatus, 
+/**
+ * The owner allowed it to be reached from outside this computer's
+ * network (for this share, or always).
+ */
+reachOutside: boolean, };
 
 /**
  * `list_shares`.

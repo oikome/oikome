@@ -49,13 +49,14 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, Api, ApiError, AssistantCollections, AssistantRef, BorrowedRef, Caller,
-    ConnectAssistant, ContactInput, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
-    InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares, NewSource, NewSpace, NewStorage,
-    NodeName, PauseSource, PluginCollections, PluginFolder, PluginRead, PluginRef, ReadRow,
-    ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef,
-    SpaceRef, SqlResult, StorageRef, PLUGIN_SDK,
+    AcceptInvite, Api, ApiError, AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef,
+    Caller, ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty,
+    ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
+    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
+    PluginRead, PluginRef, ReadRow, ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery,
+    ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
+use oikome_api::{FileRef, ListFiles, SetNetwork, ViewInPlace};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
@@ -410,6 +411,11 @@ impl WebState {
             "list_spaces" => json_op!(list_spaces, Empty),
             "create_space" => json_op!(create_space, NewSpace),
             "drop_space" => json_op!(drop_space, SpaceRef),
+            "view_in_place" => json_op!(view_in_place, ViewInPlace),
+            "refresh_space" => json_op!(refresh_space, SpaceRef),
+            "list_files" => json_op!(list_files, ListFiles),
+            "read_file" => json_op!(read_file, FileRef),
+            "show_folder" => json_op!(show_folder, SpaceRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
             "add_examples" => json_op!(add_examples, Empty),
             "list_storages" => json_op!(list_storages, Empty),
@@ -480,8 +486,13 @@ impl WebState {
             },
             "lending" => json_op!(lending, Empty),
             "set_lending" => json_op!(set_lending, SetLending),
+            "network" => json_op!(network, Empty),
+            "set_network" => json_op!(set_network, SetNetwork),
             "list_borrowed" => json_op!(list_borrowed, Empty),
             "stop_borrowing" => json_op!(stop_borrowing, BorrowedRef),
+            "use_borrowed" => json_op!(use_borrowed, UseBorrowed),
+            "borrowed_jobs" => json_op!(borrowed_jobs, BorrowedJobsOf),
+            "daily_totals" => json_op!(daily_totals, DailyTotalsOf),
             "list_shares" => json_op!(list_shares, ListShares),
             "revoke_share" => json_op!(revoke_share, ShareRef),
             "list_access" => json_op!(list_access, ListAccess),
@@ -510,6 +521,130 @@ fn parse<T: DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
         body
     };
     serde_json::from_slice(body).map_err(|e| ApiError::invalid(format!("request: {e}")))
+}
+
+/// Photos of folders viewed in place: `/files/thumb/<collection>/<path>`
+/// and `/files/original/<collection>/<path>`, for the app's `<img>`.
+const FILES_PREFIX: &str = "/files/";
+
+/// `%XX` escapes decoded; `None` for a broken escape or text that is not
+/// UTF-8.
+fn percent_decoded(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// `Range: bytes=<start>-[<end>]`, one range only.
+fn byte_range(headers: &HeaderMap) -> Option<(u64, Option<u64>)> {
+    let value = headers.get(header::RANGE)?.to_str().ok()?;
+    let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
+    if start.contains(',') || end.contains(',') {
+        return None;
+    }
+    let start = start.trim().parse().ok()?;
+    let end = match end.trim() {
+        "" => None,
+        e => Some(e.parse().ok()?),
+    };
+    Some((start, end))
+}
+
+impl WebState {
+    /// A photo's thumbnail or original, for the app's own pages only: the
+    /// owner's session, and no other site's page.
+    async fn serve_folder_file(&self, headers: &HeaderMap, host: &str, path: &str) -> Response {
+        if let Some(origin) = headers.get(header::ORIGIN) {
+            if origin.as_bytes() != format!("http://{host}").as_bytes() {
+                return error(ApiError::permission_denied("cross-origin request"));
+            }
+        }
+        if let Some(site) = headers.get("sec-fetch-site") {
+            if !matches!(site.as_bytes(), b"same-origin" | b"none") {
+                return error(ApiError::permission_denied("cross-site request"));
+            }
+        }
+        if !self.session_ok(headers) {
+            return error(ApiError::new(
+                ErrorCode::Unauthenticated,
+                "log in with `oikome web open`",
+            ));
+        }
+        let rest = &path[FILES_PREFIX.len()..];
+        let parsed = rest.split_once('/').and_then(|(what, rest)| {
+            let (space, file) = rest.split_once('/')?;
+            let file: Vec<String> = file
+                .split('/')
+                .map(percent_decoded)
+                .collect::<Option<_>>()?;
+            Some((what, percent_decoded(space)?, file.join("/")))
+        });
+        let Some((what, space, file)) = parsed else {
+            return error(ApiError::not_found("not found"));
+        };
+        let req = FileRef { space, path: file };
+        match what {
+            "thumb" => match self.api.file_thumbnail(&Caller::Owner, req).await {
+                Ok(jpeg) => {
+                    let mut response = respond(StatusCode::OK, "image/jpeg", jpeg);
+                    response.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, max-age=60"),
+                    );
+                    response
+                }
+                Err(e) => error(e),
+            },
+            "original" => {
+                let range = byte_range(headers);
+                match self.api.file_original(&Caller::Owner, req, range).await {
+                    Ok(original) => {
+                        let end = original.start + original.bytes.len() as u64;
+                        let partial = range.is_some();
+                        let mut response = respond(
+                            if partial {
+                                StatusCode::PARTIAL_CONTENT
+                            } else {
+                                StatusCode::OK
+                            },
+                            original.content_type,
+                            original.bytes,
+                        );
+                        let headers = response.headers_mut();
+                        headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+                        headers.insert(
+                            header::CACHE_CONTROL,
+                            HeaderValue::from_static("private, max-age=60"),
+                        );
+                        if partial {
+                            if let Ok(value) = HeaderValue::from_str(&format!(
+                                "bytes {}-{}/{}",
+                                original.start,
+                                end.saturating_sub(1),
+                                original.total
+                            )) {
+                                headers.insert(header::CONTENT_RANGE, value);
+                            }
+                        }
+                        response
+                    }
+                    Err(e) => error(e),
+                }
+            }
+            _ => error(ApiError::not_found("not found")),
+        }
+    }
 }
 
 fn secure_headers(headers: &mut HeaderMap) {
@@ -705,6 +840,9 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
             error(ApiError::not_found("API calls use POST"))
         }
         (&Method::GET, _) if path.starts_with("/plugins/") => serve_plugin_file(&state.api, path),
+        (&Method::GET, _) if path.starts_with(FILES_PREFIX) => {
+            state.serve_folder_file(&parts.headers, host, path).await
+        }
         (&Method::GET, _) if state.web_root.is_some() => {
             let root = state
                 .web_root

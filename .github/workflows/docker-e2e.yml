@@ -1,5 +1,7 @@
 # Network phase (3.1) end to end: three Oikome nodes in Docker
-# (docker/compose.yml), driven by tests/e2e/docker_nodes.sh.
+# (docker/compose.yml), driven by tests/e2e/docker_nodes.sh; and reaching
+# across networks without a relay (3.12): two homes behind NAT routers and
+# a contact (docker/nat/compose.yml), driven by tests/e2e/docker_nat.sh.
 name: docker-e2e
 
 # Runs only when the Rust core, the tests or the image change; app and
@@ -49,6 +51,15 @@ jobs:
 
       - name: Discovery, TLS, federated query, subscription, revocation, search
         run: bash tests/e2e/docker_nodes.sh
+        env:
+          E2E_BUILD: "0"
+          E2E_LOG_DIR: e2e-logs
+
+      - name: Build the router and NAT node images
+        run: docker compose -f docker/nat/compose.yml build
+
+      - name: Across networks, without a relay (3.12)
+        run: bash tests/e2e/docker_nat.sh
         env:
           E2E_BUILD: "0"
           E2E_LOG_DIR: e2e-logs

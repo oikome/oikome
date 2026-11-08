@@ -843,7 +843,7 @@ const UNTIL = [['1w', '2025-11-09'], ['1m', '2025-12-02'], ['1y', '2026-11-02'],
 const untilText = (iso) => (iso ? md(iso) : t('noEnd'));
 const LEND = { to: ['Sam'], cores: 4, hours: 2, on: true };
 
-const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '' };
+const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true };
 (() => {
   const qs = new URLSearchParams(location.search);
   try { S.mode = localStorage.getItem('oikome-proto-mode') || S.mode; S.lang = localStorage.getItem('oikome-proto-lang') || S.lang; } catch {}
@@ -1233,7 +1233,15 @@ screens.settings = () => `
       <div class="li"><div class="li__main"><span class="li__meta">${t('yourId')}</span><span class="li__title mono" style="font-family:var(--mono);font-size:12px">z6MkrYLgFi4cuz…TTsM5U6Ui</span></div><button class="btn btn--ghost icon-btn" data-act="copy" data-what="yourId" aria-label="${t('copy')}">${I('copy')}</button></div>
       <div class="li"><div class="li__main"><span class="li__meta">${t('version')}</span><span class="li__title mono" style="font-family:var(--mono)">1.0.0</span></div></div>
     </div></div>
+    <div class="card w7"><div class="card__head"><span class="label">${t('net.title')}</span></div><div class="list">
+      <div class="li"><div class="li__main"><span class="li__meta">${t('net.reachable')}</span><span class="li__title">${t(netOpen().length ? 'net.direct' : 'net.local')}</span></div>${glyph(netOpen().length ? 'ok' : 'off', t(netOpen().length ? 'net.direct' : 'net.local'))}</div>
+      <div class="li"><div class="li__main"><span class="li__meta">${t('net.openFor')}</span><span class="li__title">${netOpen().length ? netOpen().map(([c, who]) => t('net.openShare', { c, who })).join(', ') : t('net.nothing')}</span></div></div>
+      <div class="li"><div class="li__main"><span class="li__title">${t('net.when')}</span></div><select class="btn" data-change="reachpolicy" aria-label="${t('net.when')}">${['ask', 'always', 'never'].map((v) => `<option value="${v}" ${S.reach === v ? 'selected' : ''}>${t(`net.${v}`)}</option>`).join('')}</select></div>
+      <div class="li"><div class="li__main"><span class="li__title">${t('net.help')}</span><span class="li__meta">${t('net.helpSub')}</span></div><span class="toggle ${S.helpContacts ? 'on' : ''}" data-act="flag" data-bind="helpContacts" role="switch" aria-checked="${S.helpContacts}" aria-label="${t('net.help')}"></span></div>
+    </div><p class="faint" style="font-size:12px;margin:10px 16px 14px">${t('net.foot')}</p></div>
   </div>`;
+// What the port is open for: shares allowed one at a time, or every active share once always allowed.
+const netOpen = () => (S.reach === 'never' ? [] : SHARES.filter((x) => !x.ended && (S.reach === 'always' || S.reachFor.includes(x.c + '|' + x.to))).map((x) => [x.c, x.to]));
 
 const langBtn = (cls) => `<button class="btn btn--ghost top__lang ${cls || ''}" data-act="langmenu" title="${esc(LANGS[li()][1])}" aria-label="${t('language')}: ${esc(LANGS[li()][1])}">${Is('globe', 15)}<span class="lang-code">${LANGS[li()][3]}</span></button>`;
 screens.welcome = () => {
@@ -1326,6 +1334,12 @@ DLG.share = (D) => {
   const c = C.find((x) => x.name === D.c) || C[0];
   const who = D.to === 'new' ? t('share.whoever') : esc(D.to);
   const until = UNTIL.find((u) => u[0] === D.until);
+  // 3.12: before the port is opened, asked as an operating system asks; Deny or Allow, for this share unless told not to ask again.
+  if (D.step === 'reach') {
+    return dlg(t('reach.title'), `<p class="muted" style="margin:0">${t('reach.whyShare', { c: c.name, who })}</p><p class="muted" style="margin:0">${t('reach.risk')}</p><p class="muted" style="margin:0">${t('reach.stays')}</p><p class="muted" style="margin:0">${t('reach.whileShare', { c: c.name, who })}</p>
+      <div class="opts">${flagOpt('dontAsk', D.dontAsk, `<b style="flex:1">${t('reach.dontAsk')}</b>`)}</div>`,
+    foot('', `<button class="btn" data-act="reachanswer" data-v="deny" data-autofocus>${t('reach.deny')}</button><button class="btn btn--primary" data-act="reachanswer" data-v="allow">${t('reach.allow')}</button>`), 'dialog--s');
+  }
   if (D.step === 5) {
     return dlg(t('share.title', { c: c.name }), D.to === 'new'
       ? `<div class="done"><span class="ico c2">${I('check')}</span><b>${t('share.inviteReady')}</b><p class="muted" style="margin:0">${t('share.inviteBody', { c: c.name })}</p></div><div class="code-row"><div class="code">oik1-7Q2M-K8XD-4HVA</div>${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="inviteCode"')}</div>`
@@ -1674,12 +1688,22 @@ const ACT = {
     open('share', { step: c ? 2 : 1, c: c || 'reading-list', part: (c || 'reading-list') === 'reading-list' ? 'some' : 'all', off: ['Rating', 'My notes'], tags: ['reading'], rooms: ['Living room', 'Kitchen'], to: el.dataset.to || 'Sam', mode: 'live', until: '1m' });
   },
   shareok: () => {
+    if (S.reach === 'ask' && D.step !== 'reach') { upd({ step: 'reach', dontAsk: false }); return; }
     const to = D.to === 'new' ? 'Invite' : D.to;
     SHARES.forEach((s) => { if (s.c === D.c && s.to === to) s.ended = true; });
     const ct = CONTACTS.find((p) => p.n === to);
     SHARES.unshift({ c: D.c, to, av: ct ? ct.k : 'd', mode: D.mode, until: UNTIL.find((u) => u[0] === D.until)[1], some: D.part === 'some' });
     upd({ step: 5 }); render(true);
   },
+  reachanswer: (el) => {
+    const allow = el.dataset.v === 'allow';
+    const who = D.to === 'new' ? t('share.whoever') : D.to;
+    if (D.dontAsk) S.reach = allow ? 'always' : 'never';
+    else if (allow) S.reachFor.push(D.c + '|' + who);
+    toast(D.dontAsk ? t(allow ? 'toast.reachAlways' : 'toast.reachNever') : t(allow ? 'toast.reachOnce' : 'toast.reachDenied', { who, c: D.c }));
+    ACT.shareok();
+  },
+  reachpolicy: (el) => { S.reach = el.value; if (S.reach !== 'ask') S.reachFor = []; render(true); toast(t('toast.saved')); },
   leave: (el) => {
     const n = el.dataset.c, c = fromList().find((x) => x.name === n);
     confirmDlg(t('lv.title', { c: n }), t('lv.body', { who: c.from }), t('col.leave'), () => { S.left[n] = true; go('collections'); toast(t('toast.left', { c: n })); });
@@ -1953,6 +1977,10 @@ document.addEventListener('click', (e) => {
   if (e.target.matches('[data-close]') || e.target.closest('button[data-close]')) { close(); return; }
   const g = e.target.closest('[data-go]');
   if (g && !e.target.closest('a, button')) go(g.dataset.go);
+});
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-change]');
+  if (el && ACT[el.dataset.change]) ACT[el.dataset.change](el);
 });
 document.addEventListener('input', (e) => {
   const el = e.target;

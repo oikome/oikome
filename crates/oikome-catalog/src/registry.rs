@@ -427,6 +427,15 @@ impl OikomeCatalog {
                     return Err(CatalogError::StorageNotFound(storage.to_string()));
                 }
             }
+            if let Some(place) = request
+                .place
+                .as_deref()
+                .filter(|p| *p != crate::space::PLACE_LOCAL)
+            {
+                if !reg.storages.contains_key(place) {
+                    return Err(CatalogError::StorageNotFound(place.to_string()));
+                }
+            }
             if request.location.is_none() && reg.locations.contains_key(&request.name) {
                 return Err(CatalogError::Registry(format!(
                     "a location named '{}' already exists; bind it with LOCATION = '{}'",
@@ -471,6 +480,8 @@ impl OikomeCatalog {
                 LocationFormat::Remote { .. } | LocationFormat::Replica { .. } => {}
                 // The node fills the copy (`replica_dir`) from the storage.
                 LocationFormat::StorageCopy => {}
+                // The folder is the owner's; the node keeps only its index.
+                LocationFormat::InPlace { .. } => {}
             }
         }
 
@@ -527,16 +538,39 @@ impl OikomeCatalog {
             // Another node's Space, or a copy of one on a storage: forget its
             // Location with the token. The caller removes a copy's files (see
             // `replica_dir`).
-            if reg
-                .locations
-                .get(&space.location)
-                .is_some_and(|l| l.format.is_peer_space() || l.format.is_copy())
-            {
+            // A folder viewed in place: its Location is the Space's alone.
+            // The caller removes its index (see `index_dir`).
+            if reg.locations.get(&space.location).is_some_and(|l| {
+                l.format.is_peer_space()
+                    || l.format.is_copy()
+                    || matches!(l.format, LocationFormat::InPlace { .. })
+            }) {
                 reg.locations.remove(&space.location);
             }
             reg.tokens.remove(name);
             Ok(())
         })
+    }
+
+    /// Forget a Location no Space is bound to (its files stay where they
+    /// are); used when a Space's data moves elsewhere and its name is taken
+    /// again, as when a folder source becomes a folder viewed in place.
+    pub fn forget_location(&self, id: &str) -> Result<(), CatalogError> {
+        self.mutate_registry(|reg| {
+            if reg.spaces.values().any(|s| s.location == id) {
+                return Err(CatalogError::Registry(format!(
+                    "location '{id}' is still in use"
+                )));
+            }
+            reg.locations.remove(id);
+            Ok(())
+        })
+    }
+
+    /// Where the index of a folder viewed in place is kept: a cache under
+    /// `.oikome/index/<location id>/`, rebuilt when it is missing.
+    pub fn index_dir(&self, location: &Location) -> PathBuf {
+        self.oikome_dir().join("index").join(&location.id)
     }
 
     /// Mark `target` as the publication Space of `source`: from now on it is

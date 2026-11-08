@@ -86,9 +86,45 @@ BLAKE3 (blake3)
   https://github.com/BLAKE3-team/BLAKE3  -  Apache License 2.0 (dual-licensed with CC0-1.0)
   Copyright 2019 Jack O'Connor and Samuel Neves
 
-rust-libp2p (libp2p and its libp2p-* crates; used for peer discovery)
+rust-libp2p (libp2p and its libp2p-* crates, libp2p-stream included; peer discovery,
+  and connections across networks: circuit relay between contacts, hole punching)
   https://github.com/libp2p/rust-libp2p  -  MIT License
   Copyright 2017-2020 Parity Technologies (UK) Ltd.
+
+rupnp and ssdp-client (asking a home router to open the node's port over UPnP)
+  https://github.com/jakobhellermann/rupnp  -  MIT License or Apache License 2.0
+  Copyright Jakob Hellermann
+
+roxmltree (reading routers' UPnP descriptions)
+  https://github.com/RazrFalcon/roxmltree  -  MIT License or Apache License 2.0
+  Copyright Yevhenii Reizner
+
+genawaiter (used by rupnp)
+  https://github.com/whatisaphone/genawaiter  -  MIT License
+  Copyright John Simon
+
+crab_nat (asking a home router to open the node's port over PCP and NAT-PMP)
+  https://github.com/ryco117/crab_nat  -  MIT License
+  Copyright Ryan Andersen
+
+netdev and mac-addr (finding the default gateway)
+  https://github.com/shellrow/netdev  -  MIT License
+  Copyright shellrow
+
+Used by netdev: netlink-packet-core, netlink-packet-route and netlink-sys (Linux;
+  https://github.com/rust-netlink, MIT License), objc2, objc2-core-foundation,
+  objc2-system-configuration, objc2-encode, block2 and dispatch2 (macOS;
+  https://github.com/madsmtm/objc2, MIT License; dispatch2: Zlib, Apache 2.0 or MIT),
+  plist (https://github.com/ebarnard/rust-plist, MIT License), quick-xml
+  (https://github.com/tafia/quick-xml, MIT License) and dlopen2
+  (https://github.com/OpenByteDev/dlopen2, MIT License)
+
+num_enum (used by crab_nat), proc-macro-crate, toml_edit, toml_parser, toml_datetime
+  and winnow (used by num_enum)
+  https://github.com/illicitonion/num_enum  -  BSD 3-Clause, MIT or Apache License 2.0;
+  https://github.com/bkchr/proc-macro-crate and
+  https://github.com/toml-rs/toml  -  MIT License or Apache License 2.0;
+  https://github.com/winnow-rs/winnow  -  MIT License
 
 rustls (rustls, rustls-webpki)
   https://github.com/rustls/rustls  -  Apache License 2.0 (also ISC, MIT)
@@ -150,6 +186,24 @@ keyring-rs (keyring-core, apple-native-keyring-store, windows-native-keyring-sto
 sqlite-vec (sqlite-vec; vector search in transactional Spaces, compiled into SQLite)
   https://github.com/asg017/sqlite-vec  -  MIT License (also Apache-2.0)
   Copyright (c) 2024 Alex Garcia
+
+image-rs (image, image-webp, png, gif, weezl, fdeflate, color_quant, byteorder-lite;
+  thumbnails of photos viewed in place)
+  https://github.com/image-rs  -  MIT License or Apache License 2.0 (byteorder-lite:
+  Unlicense or MIT License; color_quant: MIT License)
+  Copyright The image-rs Developers
+
+zune-image (zune-jpeg, zune-core; decoding JPEG photos)
+  https://github.com/etemesi254/zune-image  -  MIT License, Apache License 2.0 or zlib License
+  Copyright Caleb Etemesi
+
+moxcms and pxfm (colour management in decoding photos, used by image)
+  https://github.com/awxkee/moxcms  -  BSD 3-Clause License or Apache License 2.0
+  Copyright Radzivon Bartoshyk
+
+quick-error (used by image)
+  https://github.com/tailhook/quick-error  -  MIT License or Apache License 2.0
+  Copyright Paul Colomiets
 
 LZ4 (bundled by lz4-sys, used by lance-encoding)
   https://github.com/lz4/lz4  -  BSD 2-Clause License

@@ -192,6 +192,10 @@ impl OikomeSession {
                 self.deny_principal("REFRESH SPACE")?;
                 let space = self.space(&name)?;
                 let location = self.catalog.get_location(&space.location)?;
+                if matches!(location.format, LocationFormat::InPlace { .. }) {
+                    let done = Box::pin(self.refresh_in_place(&name)).await?;
+                    return refreshed_result(done);
+                }
                 if location.storage.is_some() && !location.format.is_copy() {
                     Box::pin(self.push_space(&name)).await?.into_result()
                 } else {
@@ -256,6 +260,10 @@ impl OikomeSession {
                 RemoteMode::Subscribe => self.create_subscribed_space(request).await,
             };
         }
+        if request.place.is_some() {
+            Box::pin(self.create_in_place(request)).await?;
+            return Ok(QueryResult::Empty);
+        }
         if request
             .storage
             .as_deref()
@@ -282,7 +290,19 @@ impl OikomeSession {
             // A Lance Space (or a copy of one) is attached whole.
             self.engines.duckdb()?.detach_space(name).await?;
         }
+        let in_place = self.in_place_location(name)?;
+        if in_place.is_some() {
+            let engine = self.engines.duckdb()?;
+            for table in engine.table_names(name).await? {
+                engine
+                    .detach(&oikome_engine::QualifiedName::new(name, &table))
+                    .await?;
+            }
+        }
         self.catalog.drop_space(name)?;
+        if let Some(location) = in_place {
+            crate::inplace::forget(&self.catalog, &location).await?;
+        }
         if self.default_space().as_deref() == Some(name) {
             self.set_default_space(None);
         }
@@ -492,6 +512,10 @@ impl OikomeSession {
     }
 
     /// The node's engines.
+    pub(crate) fn engines_arc(&self) -> Arc<EngineRegistry> {
+        self.engines.clone()
+    }
+
     pub(crate) fn engines(&self) -> &EngineRegistry {
         &self.engines
     }
@@ -926,4 +950,34 @@ impl OikomeSession {
         }
         Ok(QueryResult::Empty)
     }
+}
+
+/// `REFRESH SPACE` of a folder viewed in place, as a result set:
+/// `(files, changed, read, reachable)`.
+fn refreshed_result(done: crate::inplace::Refreshed) -> Result<QueryResult, SessionError> {
+    use arrow_array::{ArrayRef, BooleanArray, Int64Array, RecordBatch};
+    use arrow_schema::{DataType, Field, Schema};
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("files", DataType::Int64, false),
+        Field::new("changed", DataType::Boolean, false),
+        Field::new("read", DataType::Int64, false),
+        Field::new("reachable", DataType::Boolean, false),
+    ]));
+    let number = |n: u64| -> ArrayRef {
+        Arc::new(Int64Array::from(vec![i64::try_from(n).unwrap_or(i64::MAX)]))
+    };
+    let flag = |b: bool| -> ArrayRef { Arc::new(BooleanArray::from(vec![b])) };
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            number(done.files),
+            flag(done.changed),
+            number(done.read as u64),
+            flag(done.reachable),
+        ],
+    )?;
+    Ok(QueryResult::Batches {
+        schema,
+        batches: vec![batch],
+    })
 }

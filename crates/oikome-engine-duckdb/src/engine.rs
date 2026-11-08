@@ -24,8 +24,8 @@ use oikome_core::EngineKind;
 use oikome_engine::name::{quote_ident, quote_literal};
 use oikome_engine::stream::DEFAULT_STREAM_CAPACITY;
 use oikome_engine::{
-    BlockingWorker, Capabilities, EngineError, QualifiedName, QueryEngine, RecordBatchStream,
-    SpaceSource, SqlDialect, TableSource, TxHandle, Value,
+    BlockingWorker, Capabilities, EngineError, FileFormat, QualifiedName, QueryEngine,
+    RecordBatchStream, SpaceSource, SqlDialect, TableSource, TxHandle, Value,
 };
 
 use crate::types::arrow_to_duckdb_type;
@@ -95,6 +95,8 @@ enum Attached {
     Parquet(Vec<PathBuf>),
     Sqlite(PathBuf, String),
     Arrow,
+    File(PathBuf, FileFormat),
+    Unavailable(String),
 }
 
 /// In-memory DuckDB instance shared by all analytical Spaces of a node.
@@ -367,6 +369,45 @@ impl QueryEngine for DuckDbEngine {
                     name.quoted(),
                     quote_ident(&alias),
                     quote_ident(&table)
+                );
+                self.run_batch(sql).await?;
+                self.remember(name.clone(), what);
+                Ok(())
+            }
+            TableSource::File { path, format } => {
+                let what = Attached::File(path.clone(), format);
+                if self.already_attached(name, &what) {
+                    return Ok(());
+                }
+                // Read each time the table is read, so the view follows the
+                // file; DuckDB opens it read-only.
+                let reader = match format {
+                    FileFormat::Csv => "read_csv_auto",
+                    FileFormat::Parquet => "read_parquet",
+                    FileFormat::Json => "read_json_auto",
+                };
+                let sql = format!(
+                    "CREATE SCHEMA IF NOT EXISTS {};\n\
+                     CREATE OR REPLACE VIEW {} AS SELECT * FROM {reader}({});",
+                    quote_ident(&name.space),
+                    name.quoted(),
+                    path_literal(&path)
+                );
+                self.run_batch(sql).await?;
+                self.remember(name.clone(), what);
+                Ok(())
+            }
+            TableSource::Unavailable { message } => {
+                let what = Attached::Unavailable(message.clone());
+                if self.already_attached(name, &what) {
+                    return Ok(());
+                }
+                let sql = format!(
+                    "CREATE SCHEMA IF NOT EXISTS {};\n\
+                     CREATE OR REPLACE VIEW {} AS SELECT error({}) AS unavailable;",
+                    quote_ident(&name.space),
+                    name.quoted(),
+                    quote_literal(&message)
                 );
                 self.run_batch(sql).await?;
                 self.remember(name.clone(), what);

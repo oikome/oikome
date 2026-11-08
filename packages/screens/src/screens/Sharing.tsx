@@ -36,7 +36,9 @@ import type { Borrowed, Contact, Invite, LendInvite, Lending, NodeInfo, Share, S
 import type { StatusKind } from "@oikome/ui";
 import type { Describe } from "../data";
 import { asSentence, useAction, useClient, useLoad } from "../data";
-import { dateFromSeconds, fullId, shortId } from "../format";
+import { toastReach, useReachPrompt } from "../reach";
+import type { ReachFor } from "../reach";
+import { ago, dateFromSeconds, fullId, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { navigate } from "../router";
 import { strings } from "../strings";
@@ -71,6 +73,7 @@ export function Sharing({
   const [composing, setComposing] = useState(startSharing);
   const [inviting, setInviting] = useState(startInviting);
   const [lendingOpen, setLendingOpen] = useState(startLending);
+  const [borrowing, setBorrowing] = useState<Borrowed>();
   useEffect(() => {
     if (startSharing || startInviting || startLending) {
       setComposing(startSharing);
@@ -167,6 +170,9 @@ export function Sharing({
                             <Avatar name={name} small />
                             {name}
                           </span>
+                          {on && !share.reachOutside && (
+                            <span className="screen-cell-sub">{strings.reach.onlyOnNetwork(name)}</span>
+                          )}
                         </td>
                         <td>
                           {on ? (
@@ -221,6 +227,7 @@ export function Sharing({
           lending={lending.data}
           borrowed={borrowed.data}
           onLend={() => setLendingOpen(true)}
+          onOpen={setBorrowing}
           onChange={reload}
         />
 
@@ -258,6 +265,17 @@ export function Sharing({
           contacts={contacts.data}
           onClose={() => setLendingOpen(false)}
           onSaved={reload}
+        />
+      )}
+      {borrowing && (
+        <BorrowDialog
+          borrowed={borrowing}
+          onClose={() => setBorrowing(undefined)}
+          onChange={reload}
+          onShare={() => {
+            setBorrowing(undefined);
+            setComposing(true);
+          }}
         />
       )}
       {inviting && (
@@ -367,16 +385,20 @@ function Compute({
   lending,
   borrowed,
   onLend,
+  onOpen,
   onChange,
 }: {
   lending?: Lending;
   borrowed?: Borrowed[];
   onLend: () => void;
+  /** Open a computer lent to you: what went there, and whether to use it. */
+  onOpen: (borrowed: Borrowed) => void;
   onChange: () => void;
 }) {
   const client = useClient();
   const toast = useToast();
   const act = useAction();
+  const reach = useReachPrompt();
   const names = (lending?.people ?? []).map((p) => p.name ?? strings.common.unknown);
   const meta = !lending
     ? undefined
@@ -386,6 +408,8 @@ function Compute({
           .filter(Boolean)
           .join(" · ");
   return (
+    <>
+    {reach.prompt}
     <Group title={s.compute} footnote={s.computeFootnote}>
       <Row
         leading={<Tile icon="cpu" tone="sage" />}
@@ -407,16 +431,22 @@ function Compute({
                   onLend();
                   return;
                 }
+                // Lent again: the people lent to reach it from outside only if allowed.
+                const what: ReachFor = { kind: "lend", names };
+                const choice = on ? await reach.ask(what) : undefined;
+                if (choice === null) return;
                 const saved = await act.run(() =>
                   client.setLending({
                     on,
                     people: lending.people.map((p) => p.did),
                     concurrent: lending.concurrent,
                     perHour: lending.perHour,
+                    reach: choice,
                   }),
                 );
                 if (saved) {
-                  toast(on ? s.lendOn : s.lendOff);
+                  if (choice) void toastReach(client, toast, what, choice);
+                  else toast(on ? s.lendOn : s.lendOff);
                   onChange();
                 }
               }}
@@ -429,16 +459,24 @@ function Compute({
           key={b.id}
           leading={<Tile icon="cpu" tone="lavender" />}
           title={s.borrowedTitle(b.fromName)}
-          meta={s.lendsYouMeta(
-            [
-              b.concurrent != null ? s.tasksAtOnce(b.concurrent) : null,
-              b.perHour != null ? s.perHour(b.perHour) : null,
-              s.inviteUntil(dateFromSeconds(b.expiresAt)),
-            ].filter((part): part is string => part !== null),
-          )}
+          meta={[
+            b.inUse ? s.inUse : null,
+            s.lendsYouMeta(
+              [
+                b.concurrent != null ? s.tasksAtOnce(b.concurrent) : null,
+                b.perHour != null ? s.perHour(b.perHour) : null,
+                s.inviteUntil(dateFromSeconds(b.expiresAt)),
+              ].filter((part): part is string => part !== null),
+            ),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
           trailing={
             <span className="screen-compute__acts">
               <Status kind={BORROW_STATUS[b.status]}>{s.borrowStatus[b.status]}</Status>
+              <Button variant="quiet" onClick={() => onOpen(b)}>
+                {s.borrowDetails}
+              </Button>
               <Menu
                 label={strings.common.moreActions(s.borrowedTitle(b.fromName))}
                 items={[
@@ -465,6 +503,104 @@ function Compute({
         </GroupPanel>
       )}
     </Group>
+    </>
+  );
+}
+
+/** The start of today, where the viewer is. */
+function startOfToday(): number {
+  const day = new Date();
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/**
+ * A computer lent to you: what went there today and lately, which
+ * collections may, and whether to use it. Only big summaries of collections
+ * shared with its owner go, and only what they can already see.
+ */
+function BorrowDialog({
+  borrowed,
+  onClose,
+  onChange,
+  onShare,
+}: {
+  borrowed: Borrowed;
+  onClose: () => void;
+  onChange: () => void;
+  onShare: () => void;
+}) {
+  const client = useClient();
+  const toast = useToast();
+  const act = useAction();
+  const name = borrowed.fromName;
+  const [since] = useState(startOfToday);
+  const jobs = useLoad(() => client.borrowedJobs({ id: borrowed.id, sinceMs: since }), [borrowed.id, since]);
+  const [inUse, setInUse] = useState(borrowed.inUse);
+  const collections = jobs.data?.collections ?? [];
+  return (
+    <Dialog
+      title={s.borrowedTitle(name)}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          {!inUse && <span className="screen-borrow__off">{s.bigJobsStay}</span>}
+          <Button variant="primary" onClick={onClose}>
+            {strings.common.done}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{s.borrowBody(name)}</p>
+      <div className="screen-borrow__today">
+        <span className="oik-label">{s.usedToday}</span>
+        <span>{jobs.data ? s.tasks(jobs.data.since) : "—"}</span>
+      </div>
+      {jobs.data && jobs.data.recent.length > 0 && (
+        <Group>
+          {jobs.data.recent.map((job) => (
+            <Row
+              key={`${job.space}-${job.atMs}`}
+              leading={<Tile icon="cpu" tone="lavender" />}
+              title={s.jobTitle(job.space)}
+              meta={[s.jobFrom(job.space), job.count > 1 ? s.tasks(job.count) : null].filter(Boolean).join(" · ")}
+              trailing={<span className="screen-borrow__when">{ago(job.atMs)}</span>}
+            />
+          ))}
+        </Group>
+      )}
+      {jobs.data && (
+        <p className="screen-borrow__which">
+          {collections.length > 0 ? (
+            s.canWorkOut(collections)
+          ) : (
+            <>
+              {s.nothingSharedWith(name)}{" "}
+              <Button variant="text" onClick={onShare}>
+                {s.shareOne}
+              </Button>
+            </>
+          )}
+        </p>
+      )}
+      <div className="screen-borrow__use">
+        <span>{s.useSwitch(name)}</span>
+        <Switch
+          label={s.useSwitch(name)}
+          checked={inUse}
+          disabled={act.busy}
+          onChange={async (on) => {
+            const listed = await act.run(() => client.useBorrowed({ id: borrowed.id, inUse: on }));
+            if (!listed) return;
+            setInUse(on);
+            toast(on ? s.usingNow(name) : s.notUsing);
+            onChange();
+          }}
+        />
+      </div>
+      {(act.error || jobs.error) && <ErrorText>{act.error ?? jobs.error}</ErrorText>}
+    </Dialog>
   );
 }
 
@@ -486,6 +622,7 @@ function LendDialog({
   const client = useClient();
   const toast = useToast();
   const save = useAction();
+  const reach = useReachPrompt();
   const [people, setPeople] = useState(() => new Set(lending.people.map((p) => p.did)));
   const [atOnce, setAtOnce] = useState(String(lending.concurrent));
   const [eachHour, setEachHour] = useState(String(lending.perHour));
@@ -520,6 +657,8 @@ function LendDialog({
   }
 
   return (
+    <>
+    {reach.prompt}
     <Dialog
       title={s.lendTitle}
       closeLabel={strings.common.close}
@@ -531,20 +670,31 @@ function LendDialog({
             variant="primary"
             disabled={save.busy || contacts.length === 0}
             onClick={async () => {
+              // Asked when someone new is lent to, or lending starts again:
+              // they reach this computer from outside only if allowed.
+              const added = [...people].filter((d) => !(lending.on && lending.people.some((p) => p.did === d)));
+              const what: ReachFor = {
+                kind: "lend",
+                names: added.map((d) => contacts.find((c) => c.did === d)?.name ?? strings.common.unknown),
+              };
+              const choice = added.length > 0 ? await reach.ask(what) : undefined;
+              if (choice === null) return;
               const saved = await save.run(() =>
                 client.setLending({
                   on: people.size > 0,
                   people: [...people],
                   concurrent: Number(atOnce),
                   perHour: Number(eachHour),
+                  reach: choice,
                 }),
               );
               if (!saved) return;
               onSaved();
+              if (choice) void toastReach(client, toast, what, choice);
               if (saved.invites.length > 0) {
                 setCodes(saved.invites);
               } else {
-                toast(s.lendSaved);
+                if (!choice) toast(s.lendSaved);
                 onClose();
               }
             }}
@@ -615,6 +765,7 @@ function LendDialog({
       <p className="screen-help">{s.lendHint(Math.round(lending.taskMs / 1000))}</p>
       {save.error && <ErrorText>{save.error}</ErrorText>}
     </Dialog>
+    </>
   );
 }
 

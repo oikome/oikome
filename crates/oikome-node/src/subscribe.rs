@@ -603,8 +603,7 @@ impl OikomeSession {
         let name = request.name.clone();
         let (peer, remote, token) = Self::peer_space_request(request)?;
         let owner = self.peer_space_owner(&token, &remote, ABILITY_READ)?;
-        self.engines()
-            .peer_endpoint(peer.as_deref(), owner.as_str())?;
+        self.engines().peer_route(peer.as_deref(), owner.as_str())?;
         let space = self.catalog.create_replica_space(
             &name,
             peer.as_deref(),
@@ -638,8 +637,8 @@ impl OikomeSession {
                 owner,
             } => {
                 let token = self.catalog.remote_token(name)?;
-                let client = PeerClient::new(
-                    self.engines().peer_endpoint(peer.as_deref(), owner)?,
+                let client = PeerClient::routed(
+                    self.engines().peer_route(peer.as_deref(), owner)?,
                     Did::parse(owner)?,
                     token.expose().to_string(),
                     self.engines().identity()?,

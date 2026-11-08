@@ -26,20 +26,19 @@ use oikome_discovery::{Discovery, DiscoveryConfig, EndpointResponse, Multiaddr};
 async fn discover(node: &Node, listen: &str, mdns: bool) -> Discovery {
     let (scheme, rest) = node.url().split_once("://").unwrap();
     let port = rest.rsplit_once(':').unwrap().1.parse().unwrap();
-    Discovery::start(
-        &node.identity,
-        node.catalog.clone(),
-        DiscoveryConfig {
-            listen: listen.parse().unwrap(),
-            flight: EndpointResponse {
-                scheme: scheme.to_string(),
-                port,
-            },
-            mdns,
+    let mut config = DiscoveryConfig::new(
+        listen.parse().unwrap(),
+        EndpointResponse {
+            scheme: scheme.to_string(),
+            port,
         },
-    )
-    .await
-    .unwrap()
+    );
+    config.mdns = mdns;
+    // Tests never ask the computer's router.
+    config.port_mapping = false;
+    Discovery::start(&node.identity, node.catalog.clone(), config)
+        .await
+        .unwrap()
 }
 
 /// Wait until `node` has recorded `peer` at its current Flight endpoint.

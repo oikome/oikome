@@ -14,8 +14,9 @@
 
 //! Invites (architecture v3 §13.4): a share, or a lent computer, sent to
 //! another data center as one code. The code holds the grant's token, where
-//! the sending data center is reached, and what it is called (and, for a
-//! computer, how much it lends). The receiver adds it, sees who invited them
+//! the sending data center is reached (its Flight address when it listens
+//! on one, and the peer-to-peer addresses it signed, 3.12), and what it is
+//! called (and, for a computer, how much it lends). The receiver adds it, sees who invited them
 //! to what, and accepts (a collection is added, queried where it is; a
 //! computer is kept to borrow; the sender becomes a contact) or declines.
 //! Invites waiting here hold tokens, so they are kept with the node's
@@ -67,6 +68,10 @@ struct Wire {
     from: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     lends: Option<Lends>,
+    /// Where the sender accepts peer-to-peer connections, signed with its
+    /// key (3.12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    at: Option<String>,
 }
 
 /// A pasted code, read.
@@ -75,6 +80,7 @@ struct Code {
     peer: Option<String>,
     from: String,
     lends: Option<Lends>,
+    at: Option<String>,
 }
 
 /// An invite waiting here, as kept.
@@ -87,6 +93,10 @@ struct Waiting {
     #[serde(default)]
     lends: Option<Lends>,
     received_at_ms: u64,
+    /// The sender's signed address record, kept when the invite is
+    /// accepted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    at: Option<String>,
 }
 
 /// What a token grants: a collection, or the use of a computer.
@@ -103,14 +113,16 @@ pub(crate) struct Grant {
 }
 
 /// The invite code for a grant: its token, where this data center is
-/// reached (left out when it only says the node listens everywhere, so
-/// the receiver finds it on the network), the name it goes by, and for a
-/// lent computer how much it lends.
+/// reached (its Flight address, left out when it only says the node
+/// listens everywhere, so the receiver finds it on the network; and its
+/// signed peer-to-peer addresses), the name it goes by, and for a lent
+/// computer how much it lends.
 pub(crate) fn invite_code(
     token: &str,
     peer: Option<&str>,
     from: &str,
     lends: Option<Lends>,
+    at: Option<String>,
 ) -> String {
     let wire = Wire {
         v: 1,
@@ -118,6 +130,7 @@ pub(crate) fn invite_code(
         peer: peer.filter(|p| reachable(p)).map(str::to_string),
         from: from.to_string(),
         lends,
+        at,
     };
     let json = serde_json::to_vec(&wire).unwrap_or_default();
     format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(json))
@@ -165,6 +178,8 @@ fn decode(code: &str) -> Result<Code, ApiError> {
             peer,
             from: wire.from,
             lends: wire.lends,
+            // Read when accepted; one far too long isn't a record.
+            at: wire.at.filter(|a| a.len() <= 8192),
         })
     } else if code.split('.').count() == 3 {
         Ok(Code {
@@ -172,6 +187,7 @@ fn decode(code: &str) -> Result<Code, ApiError> {
             peer: None,
             from: String::new(),
             lends: None,
+            at: None,
         })
     } else {
         Err(incomplete())
@@ -469,6 +485,7 @@ impl Api {
             peer,
             from,
             lends,
+            at,
         } = decode(&req.invite)?;
         let grant = self.check_grant(&token)?;
         let owner = grant.owner.as_str();
@@ -497,6 +514,7 @@ impl Api {
             from,
             lends,
             received_at_ms: crate::now_ms(),
+            at,
         };
         let kept = self.change_waiting(|all| {
             if let Some(same) = all.iter().find(|w| w.id == id) {
@@ -537,6 +555,8 @@ impl Api {
         let grant = self.check_grant(&waiting.token)?;
         let owner = grant.owner.as_str().to_string();
         let from = sender_name(&waiting.from, &grant.owner);
+        // Where the sender is reached from another network.
+        self.learn_record(&owner, waiting.at.as_deref());
         let space = match &grant.what {
             What::Space { space, .. } => space.clone(),
             What::Compute { .. } => {
@@ -548,6 +568,7 @@ impl Api {
                     from: from.clone(),
                     lends: waiting.lends,
                     accepted_at_ms: crate::now_ms(),
+                    in_use: false,
                 };
                 self.change_borrowed(|all| {
                     all.retain(|h| h.owner != held.owner);
@@ -623,6 +644,7 @@ mod tests {
             Some("https://127.0.0.1:7330"),
             "Rosh's data center",
             Some(lends),
+            Some("c2lnbmVk".to_string()),
         );
         assert!(code.starts_with(PREFIX));
         // A message may wrap it.
@@ -632,6 +654,17 @@ mod tests {
         assert_eq!(read.peer.as_deref(), Some("https://127.0.0.1:7330"));
         assert_eq!(read.from, "Rosh's data center");
         assert_eq!(read.lends, Some(lends));
+        assert_eq!(read.at.as_deref(), Some("c2lnbmVk"));
+    }
+
+    #[test]
+    fn codes_from_before_addresses_were_signed_still_read() {
+        // As Oikome made them before 3.12: no `at`.
+        let json = br#"{"v":1,"token":"a.b.c","from":"Home"}"#;
+        let code = format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(json));
+        let read = decode(&code).unwrap();
+        assert_eq!(read.token, "a.b.c");
+        assert_eq!(read.at, None);
     }
 
     #[test]
@@ -640,6 +673,7 @@ mod tests {
             "a.b.c",
             Some("https://0.0.0.0:7330"),
             "",
+            None,
             None,
         ))
         .unwrap();
@@ -653,7 +687,7 @@ mod tests {
         assert!(decode("").is_err());
         assert!(decode("oik1-!!!").is_err());
         assert!(decode("hello").is_err());
-        let changed = invite_code("a.b.c", Some("https://h:1/path?x"), "", None);
+        let changed = invite_code("a.b.c", Some("https://h:1/path?x"), "", None, None);
         assert!(decode(&changed).is_err());
     }
 }

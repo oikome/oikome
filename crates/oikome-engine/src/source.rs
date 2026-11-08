@@ -35,6 +35,32 @@ pub enum TableSource {
         schema: SchemaRef,
         batches: Vec<RecordBatch>,
     },
+    /// A data file read where it is, each time the table is read (a folder
+    /// viewed in place, §7.7). The engine never writes it.
+    File { path: PathBuf, format: FileFormat },
+    /// A table that can't be read now: reading it fails with `message`
+    /// (the place its file is on can't be reached).
+    Unavailable { message: String },
+}
+
+/// The kind of a data file read in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FileFormat {
+    Csv,
+    Parquet,
+    Json,
+}
+
+impl FileFormat {
+    /// The format a file's extension names, if any.
+    pub fn of_extension(extension: &str) -> Option<Self> {
+        match extension.to_ascii_lowercase().as_str() {
+            "csv" | "tsv" => Some(FileFormat::Csv),
+            "parquet" => Some(FileFormat::Parquet),
+            "json" | "jsonl" | "ndjson" => Some(FileFormat::Json),
+            _ => None,
+        }
+    }
 }
 
 /// A physical source an engine exposes as a whole Space: its tables appear as
@@ -52,6 +78,8 @@ impl TableSource {
             TableSource::ParquetFiles { .. } => "parquet files",
             TableSource::SqliteFile { .. } => "sqlite file",
             TableSource::ArrowBatches { .. } => "arrow batches",
+            TableSource::File { .. } => "file",
+            TableSource::Unavailable { .. } => "unavailable table",
         }
     }
 }

@@ -21,7 +21,8 @@ pub mod storage;
 pub use file_read::OpenDalFileRead;
 pub use file_write::OpenDalFileWrite;
 pub use remote::{
-    check_relative_path, file_chunks, Credentials, RemoteStore, StoreEntry, StoreError,
+    check_owner_path, check_relative_path, file_chunks, Credentials, OwnerEntry, RemoteStore,
+    StoreEntry, StoreError,
 };
 pub use seal::{sealed_size, SealError, SealKey};
 pub use storage::{OpenDalStorage, OpenDalStorageConfig, OpenDalStorageFactory};

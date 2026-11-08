@@ -423,6 +423,9 @@ impl Api {
                         req.space, req.table
                     )));
                 }
+                // A photo of a folder viewed in place: its thumbnail from the
+                // index goes with the row it was allowed to read.
+                let (schema, batches) = self.with_thumbnail(&req, schema, batches)?;
                 encode_rows(&schema, &batches, 1, MAX_READ_BYTES)
             }
             Ok(_) => Err(ApiError::internal("reading a row returned no rows")),
@@ -548,6 +551,55 @@ fn entry(assistant: &Stored, method: &str, spaces: Vec<String>) -> AccessEntry {
 /// none by that name.
 fn no_collection(name: &str) -> ApiError {
     ApiError::not_found(format!("there is no collection {name}"))
+}
+
+impl Api {
+    /// `batches` (one row of a folder's `files`, read as the assistant) with
+    /// a `photo` column holding the photo's thumbnail, when it is a photo of
+    /// a folder viewed in place; as they are otherwise.
+    fn with_thumbnail(
+        &self,
+        req: &ReadRow,
+        schema: arrow_schema::SchemaRef,
+        batches: Vec<arrow_array::RecordBatch>,
+    ) -> Result<(arrow_schema::SchemaRef, Vec<arrow_array::RecordBatch>), ApiError> {
+        use std::sync::Arc;
+
+        use arrow_array::{Array, BinaryArray, RecordBatch, StringArray};
+        use arrow_schema::{DataType, Field, Schema};
+        if req.table != oikome_node::inplace::FILES {
+            return Ok((schema, batches));
+        }
+        let Some(location) = self.session(None).in_place_location(&req.space)? else {
+            return Ok((schema, batches));
+        };
+        let Some(batch) = batches.into_iter().find(|b| b.num_rows() > 0) else {
+            return Ok((schema, Vec::new()));
+        };
+        let text = |name: &str| {
+            batch
+                .column_by_name(name)
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>().cloned())
+                .filter(|c| !c.is_null(0))
+                .map(|c| c.value(0).to_string())
+        };
+        let thumb = match (text("kind").as_deref(), text("path")) {
+            (Some(oikome_node::inplace::IMAGE), Some(path)) => {
+                oikome_node::inplace::thumb(&self.catalog, &location, &path)?
+            }
+            _ => None,
+        };
+        let Some(thumb) = thumb else {
+            return Ok((schema, vec![batch.slice(0, 1)]));
+        };
+        let mut fields: Vec<Field> = schema.fields().iter().map(|f| f.as_ref().clone()).collect();
+        fields.push(Field::new("photo", DataType::Binary, true));
+        let schema = Arc::new(Schema::new(fields));
+        let mut columns: Vec<arrow_array::ArrayRef> = batch.slice(0, 1).columns().to_vec();
+        columns.push(Arc::new(BinaryArray::from(vec![Some(thumb.as_slice())])));
+        let batch = RecordBatch::try_new(schema.clone(), columns).map_err(ApiError::internal)?;
+        Ok((schema, vec![batch]))
+    }
 }
 
 #[cfg(test)]

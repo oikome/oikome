@@ -19,6 +19,7 @@
 
 mod federation;
 mod graph;
+mod inplace;
 mod lance;
 mod publish;
 mod semantic;

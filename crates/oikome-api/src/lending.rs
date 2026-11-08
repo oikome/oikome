@@ -32,9 +32,10 @@ use oikome_semantic::{ComputeLimits, IssueComputeRequest};
 use serde::{Deserialize, Serialize};
 
 use crate::invites::{grant_of, invite_code, now_secs, read_private, Lends, What};
+use crate::network::lend_key;
 use crate::{
     Api, ApiError, BorrowStatus, Borrowed, BorrowedRef, Caller, Empty, LendInvite, Lending,
-    LendingSaved, LentTo, SetLending,
+    LendingSaved, LentTo, SetLending, UseBorrowed,
 };
 
 /// How long a grant to use this computer lasts.
@@ -57,19 +58,23 @@ pub(crate) struct Held {
     pub(crate) from: String,
     pub(crate) lends: Option<Lends>,
     pub(crate) accepted_at_ms: u64,
+    /// Big summaries of collections shared with the lender go there
+    /// (`use_borrowed`); off until the owner turns it on.
+    #[serde(default)]
+    pub(crate) in_use: bool,
 }
 
 /// A grant this node made to use it.
-struct Lent {
-    id: String,
-    did: String,
-    expires_at: u64,
+pub(crate) struct Lent {
+    pub(crate) id: String,
+    pub(crate) did: String,
+    pub(crate) expires_at: u64,
 }
 
 impl Api {
     /// Grants to use this computer that still work: every capability is a
     /// compute one on this node, and the token is neither revoked nor over.
-    fn lent(&self) -> Result<Vec<Lent>, ApiError> {
+    pub(crate) fn lent(&self) -> Result<Vec<Lent>, ApiError> {
         let node = format!("node://{}", self.node_did()?);
         let revoked = self.catalog.revoked_ucans();
         let now = now_secs();
@@ -91,6 +96,14 @@ impl Api {
                 expires_at: u.expires_at,
             })
             .collect())
+    }
+
+    /// Whether Oikome's computations are offered (to whoever is lent to).
+    pub(crate) fn lending_on(&self) -> bool {
+        self.catalog
+            .offered_compute()
+            .iter()
+            .any(|m| m == METHOD_SQL)
     }
 
     /// Whether this computer is lent, to whom, and how much each may use.
@@ -166,7 +179,7 @@ impl Api {
             concurrent: req.concurrent,
             per_hour: req.per_hour,
         };
-        let mut invites = Vec::new();
+        let mut issued_to = Vec::new();
         for did in &people {
             session.set_compute_quota(did, req.concurrent, req.per_hour)?;
             if lent.iter().any(|g| &g.did == did) {
@@ -183,26 +196,35 @@ impl Api {
                 },
                 lifetime_secs: LEND_DAYS * 86_400,
             })?;
-            invites.push(LendInvite {
-                did: did.clone(),
-                name: self
-                    .catalog
-                    .get_contact(did)
-                    .map(|c| c.name)
-                    .unwrap_or_default(),
-                invite: invite_code(
-                    &issued.token,
-                    self.flight_url.as_deref(),
-                    &from,
-                    Some(lends),
-                ),
-            });
+            issued_to.push((did.clone(), issued.token));
         }
         if req.on && !people.is_empty() {
             session.offer_compute(METHOD_SQL)?;
         } else {
             session.withdraw_compute(METHOD_SQL)?;
         }
+        // Asked only when lending is on: then the people lent to reach it.
+        let keys: Vec<String> = people.iter().map(|d| lend_key(d)).collect();
+        self.reach_for(req.reach.filter(|_| req.on), &keys).await?;
+        let record = self.address_record();
+        let invites = issued_to
+            .into_iter()
+            .map(|(did, token)| LendInvite {
+                name: self
+                    .catalog
+                    .get_contact(&did)
+                    .map(|c| c.name)
+                    .unwrap_or_default(),
+                invite: invite_code(
+                    &token,
+                    self.flight_url.as_deref(),
+                    &from,
+                    Some(lends),
+                    record.clone(),
+                ),
+                did,
+            })
+            .collect();
         Ok(LendingSaved {
             lending: self.lending(caller, Empty {}).await?,
             invites,
@@ -245,6 +267,11 @@ impl Api {
             .collect()
     }
 
+    /// The computers lent to this one, as kept.
+    pub(crate) fn held(&self) -> Result<Vec<Held>, ApiError> {
+        read_private(&self.borrowed_path())
+    }
+
     pub(crate) fn change_borrowed<T>(
         &self,
         change: impl FnOnce(&mut Vec<Held>) -> T,
@@ -260,7 +287,7 @@ impl Api {
     ) -> Result<Vec<Borrowed>, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let held: Vec<Held> = read_private(&self.borrowed_path())?;
+        let held = self.held()?;
         let session = self.session(None);
         let now = now_secs();
         let mut out = Vec::new();
@@ -303,10 +330,32 @@ impl Api {
                 task_ms,
                 expires_at,
                 status,
+                in_use: h.in_use,
             });
         }
         out.sort_by(|a, b| a.from_name.cmp(&b.from_name));
         Ok(out)
+    }
+
+    /// Send big summaries of collections shared with its owner to a
+    /// computer lent to this one, or stop.
+    pub async fn use_borrowed(
+        &self,
+        caller: &Caller,
+        req: UseBorrowed,
+    ) -> Result<Vec<Borrowed>, ApiError> {
+        caller.require_owner()?;
+        let found = self.change_borrowed(|all| {
+            let found = all.iter().any(|h| h.id == req.id);
+            for h in all.iter_mut().filter(|h| h.id == req.id) {
+                h.in_use = req.in_use;
+            }
+            found
+        })?;
+        if !found {
+            return Err(ApiError::not_found("no such computer lent to you"));
+        }
+        self.list_borrowed(caller, Empty {}).await
     }
 
     /// Stop using a computer lent to this one: its grant is forgotten here.

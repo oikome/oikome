@@ -27,12 +27,14 @@
 //! the catalog and the operations call the node directly. Only `run_sql`
 //! runs SQL, the owner's own; `add_examples` runs this crate's constants.
 
+mod assistants;
 pub mod error;
 mod examples;
 mod invites;
 mod lending;
 mod places;
 mod plugins;
+mod search;
 mod sources;
 pub mod types;
 
@@ -504,6 +506,8 @@ impl Api {
             token_id: None,
             outcome: Outcome::Allowed,
             reason: None,
+            detail: None,
+            merge: false,
         });
     }
 
@@ -1022,7 +1026,13 @@ impl Api {
             } else {
                 None
             };
+            let key = if local && !views.contains(&name) {
+                session.row_key(&req.space, &name).await.unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             out.push(TableSummary {
+                key,
                 kind: if views.contains(&name) {
                     RelationKind::View
                 } else {
@@ -1405,6 +1415,7 @@ impl Api {
         .map_err(ApiError::internal)??;
         let own = self.node_did()?;
         let plugins: BTreeMap<String, String> = self.plugin_names().into_iter().collect();
+        let assistants: BTreeMap<String, String> = self.assistant_names().into_iter().collect();
         // People by the name the owner knows them by: a contact's, else the
         // one they gave in an invite or with a computer they lend.
         let mut people: BTreeMap<String, String> = self
@@ -1431,6 +1442,9 @@ impl Api {
                     Some(did) if r.method == plugins::READ_METHOD => {
                         (AccessWho::Plugin, named(&plugins, did))
                     }
+                    Some(did) if r.method.starts_with(assistants::METHOD_PREFIX) => {
+                        (AccessWho::Assistant, named(&assistants, did))
+                    }
                     Some(did) => match named(&people, did) {
                         Some(name) => (AccessWho::Person, Some(name)),
                         None => (AccessWho::Unknown, None),
@@ -1453,6 +1467,7 @@ impl Api {
                     },
                     reason: r.reason,
                     count: r.count,
+                    detail: r.detail,
                 }
             })
             .collect())

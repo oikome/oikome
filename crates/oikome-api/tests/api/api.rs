@@ -27,6 +27,7 @@ use oikome_node::{EngineRegistry, NodeConfig};
 struct Node {
     _dir: tempfile::TempDir,
     catalog: Arc<OikomeCatalog>,
+    engines: Arc<EngineRegistry>,
     api: Api,
 }
 
@@ -35,10 +36,11 @@ fn node() -> Node {
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
     let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
-    let api = Api::new(catalog.clone(), engines);
+    let api = Api::new(catalog.clone(), engines.clone());
     Node {
         _dir: dir,
         catalog,
+        engines,
         api,
     }
 }
@@ -131,6 +133,7 @@ async fn spaces_rows_and_sql() {
             name: "memos".into(),
             kind: RelationKind::Table,
             rows: Some(3),
+            key: vec![],
         }]
     );
 
@@ -1452,10 +1455,11 @@ async fn activity_names_who_it_was() {
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
     let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
     let log = AccessLog::open(&catalog.oikome_dir()).unwrap();
-    let api = Api::new(catalog.clone(), engines).with_access_log(log.clone());
+    let api = Api::new(catalog.clone(), engines.clone()).with_access_log(log.clone());
     let n = Node {
         _dir: dir,
         catalog,
+        engines,
         api,
     };
     notes(&n).await;
@@ -1482,6 +1486,8 @@ async fn activity_names_who_it_was() {
             token_id: None,
             outcome: Outcome::Denied,
             reason: None,
+            detail: None,
+            merge: false,
         });
     }
     // A plugin reads, then it and Bob are removed.
@@ -1645,4 +1651,514 @@ async fn a_source_pauses_and_comes_back_into_its_collection() {
     assert!(n.api.pull_source(&OWNER, spending()).await.is_err());
     let runs = n.api.list_source_runs(&OWNER, spending()).await.unwrap();
     assert!(runs[0].failure.is_some(), "{runs:?}");
+}
+
+/// Search finds what sources brought in (photo captions, notes, table rows),
+/// follows their files as they change, reads collections with no index
+/// too, and takes what is typed as words, never as syntax.
+#[tokio::test]
+async fn search_finds_what_sources_bring_in() {
+    let n = node();
+    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let search = |query: &str, collection: Option<&str>| Search {
+        query: query.into(),
+        collection: collection.map(Into::into),
+        limit: None,
+    };
+    let marked = |hit: &SearchHit| -> Vec<String> {
+        let units: Vec<u16> = hit.excerpt.encode_utf16().collect();
+        hit.marks
+            .iter()
+            .map(|m| String::from_utf16_lossy(&units[m.start as usize..m.end as usize]))
+            .collect()
+    };
+
+    // A photo by its caption, case and accents aside; opened by its key.
+    let found = n
+        .api
+        .search(&OWNER, search("pasteis BELEM", None))
+        .await
+        .unwrap();
+    let photo = found
+        .hits
+        .iter()
+        .find(|h| h.collection == "lisbon-photos")
+        .unwrap_or_else(|| panic!("{found:?}"));
+    assert_eq!(photo.table, "photos");
+    assert!(marked(photo).contains(&"Pastéis".to_string()), "{photo:?}");
+    let row = n
+        .api
+        .read_row(
+            &OWNER,
+            ReadRow {
+                space: photo.collection.clone(),
+                table: photo.table.clone(),
+                key: photo.key.clone().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&row), 1);
+    // The page knows the key, so each photo has a link of its own.
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "lisbon-photos".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(tables[0].key, vec!["file".to_string()]);
+
+    // Rows of a table, in the one collection asked for.
+    let found = n
+        .api
+        .search(&OWNER, search("groceries", Some("spending")))
+        .await
+        .unwrap();
+    assert!(found.hits.len() >= 3, "{found:?}");
+    assert!(found.hits.iter().all(|h| h.collection == "spending"));
+
+    // A note written and read again: words of three characters or more
+    // through the index, shorter ones too (Chinese has no spaces).
+    let guide = std::path::PathBuf::from(n.catalog.root_path()).join("Examples/oikome-guide");
+    let lisbon = guide.join("9 Lisbon.md");
+    std::fs::write(&lisbon, "今天在里斯本吃了蛋挞, and a bica at Brasileira.").unwrap();
+    let pull = || SourceRef {
+        source: "oikome-guide".into(),
+    };
+    n.api.pull_source(&OWNER, pull()).await.unwrap();
+    for query in ["里斯本", "蛋挞", "brasileira bica"] {
+        let found = n.api.search(&OWNER, search(query, None)).await.unwrap();
+        let note = found
+            .hits
+            .iter()
+            .find(|h| h.collection == "oikome-guide")
+            .unwrap_or_else(|| panic!("{query}: {found:?}"));
+        assert_eq!(note.column, "note");
+        assert!(!note.marks.is_empty(), "{query}: {note:?}");
+    }
+
+    // Changed: the new words are found, the old ones no longer.
+    std::fs::write(&lisbon, "Ginjinha in Rossio.").unwrap();
+    n.api.pull_source(&OWNER, pull()).await.unwrap();
+    let hits = |query: &str| {
+        let api = &n.api;
+        let query = query.to_string();
+        async move {
+            api.search(&OWNER, search(&query, Some("oikome-guide")))
+                .await
+                .unwrap()
+                .hits
+                .len()
+        }
+    };
+    assert_eq!(hits("ginjinha").await, 1);
+    assert_eq!(hits("brasileira").await, 0);
+    // Removed: gone from the index with its row.
+    std::fs::remove_file(&lisbon).unwrap();
+    n.api.pull_source(&OWNER, pull()).await.unwrap();
+    assert_eq!(hits("ginjinha").await, 0);
+
+    // A collection with no index (made with SQL) is read and matched.
+    notes(&n).await;
+    sql(
+        &n,
+        "INSERT INTO notes.memos VALUES (4, 'Remember the tram 28')",
+    )
+    .await;
+    let found = n
+        .api
+        .search(&OWNER, search("tram 28", Some("notes")))
+        .await
+        .unwrap();
+    assert_eq!(found.hits.len(), 1, "{found:?}");
+    assert_eq!(found.hits[0].excerpt, "Remember the tram 28");
+
+    // Syntax of SQL, FTS5 and LIKE is only words to look for.
+    for query in [
+        "\"; DROP TABLE notes; --",
+        "NEAR(",
+        "a\"b OR *",
+        "%",
+        "_",
+        "\\",
+        "'",
+    ] {
+        let found = n.api.search(&OWNER, search(query, None)).await;
+        assert!(found.is_ok(), "{query}: {found:?}");
+        assert!(found.unwrap().skipped.is_empty(), "{query}");
+    }
+    assert!(n
+        .api
+        .search(&OWNER, search(&"x".repeat(201), None))
+        .await
+        .is_err());
+    assert_eq!(hits("ginjinha").await, 0);
+    assert!(n
+        .api
+        .search(&OWNER, search("welcome", None))
+        .await
+        .unwrap()
+        .hits
+        .iter()
+        .any(|h| h.collection == "oikome-guide"));
+
+    // Only the owner searches.
+    let stranger = Caller::Principal { did: did(9) };
+    assert!(n.api.search(&stranger, search("tram", None)).await.is_err());
+}
+
+/// A node whose requests go to an access log, as `serve` keeps one.
+fn logged_node() -> Node {
+    let dir = tempfile::tempdir().unwrap();
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let log = oikome_node::AccessLog::open(&catalog.oikome_dir()).unwrap();
+    let api = Api::new(catalog.clone(), engines.clone()).with_access_log(log);
+    Node {
+        _dir: dir,
+        catalog,
+        engines,
+        api,
+    }
+}
+
+/// Activity's lines once `n` of them are written (the log writes behind).
+async fn activity(node: &Node, n: usize) -> Vec<AccessItem> {
+    for _ in 0..300 {
+        let items = node
+            .api
+            .list_access(&OWNER, ListAccess::default())
+            .await
+            .unwrap();
+        if items.len() >= n {
+            return items;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("Activity never had {n} lines");
+}
+
+#[tokio::test]
+async fn a_principal_searches_only_what_it_may_read() {
+    use oikome_node::{OikomeSession, QueryResult, SessionConfig};
+    let n = node();
+    // A notes folder of the owner's, filled by a source: indexed.
+    let folder = std::path::PathBuf::from(n.catalog.root_path()).join("journal");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("plans.md"),
+        "Secret plans for Lisbon in spring.",
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("trams.md"),
+        "The trams of Lisbon climb all day.",
+    )
+    .unwrap();
+    let source = n
+        .api
+        .add_source(
+            &OWNER,
+            NewSource {
+                kind: SourceKind::Notes,
+                path: folder.to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(source.name, "journal");
+    n.api
+        .pull_source(
+            &OWNER,
+            SourceRef {
+                source: "journal".into(),
+            },
+        )
+        .await
+        .unwrap();
+    // Alice may see the file names only.
+    sql(&n, "GRANT SELECT (file) ON journal.notes TO alice").await;
+    let session = |who: &str| {
+        OikomeSession::new(
+            n.catalog.clone(),
+            n.engines.clone(),
+            SessionConfig {
+                default_space: None,
+                principal: Some(who.to_string()),
+            },
+        )
+    };
+    let terms = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+    // The owner finds both.
+    let found = n
+        .api
+        .search(
+            &OWNER,
+            Search {
+                query: "lisbon".into(),
+                collection: Some("journal".into()),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.hits.len(), 2, "{found:?}");
+
+    // Words only in a column it may not see find nothing; its own columns
+    // are all it gets back.
+    let alice = session("alice");
+    assert!(alice
+        .search("journal", &terms(&["lisbon"]), 10)
+        .await
+        .unwrap()
+        .is_empty());
+    let by_name = alice
+        .search("journal", &terms(&["plans"]), 10)
+        .await
+        .unwrap();
+    assert_eq!(by_name.len(), 1);
+    assert!(by_name[0].texts.iter().all(|(column, _)| column == "file"));
+    let row = alice
+        .row_by_key("journal", "notes", &["plans.md".to_string()])
+        .await
+        .unwrap();
+    let QueryResult::Batches { schema, .. } = row else {
+        panic!("a row")
+    };
+    assert_eq!(schema.fields().len(), 1);
+
+    // Bob may see one note: a row his policy leaves out is not found, nor
+    // read. (With a policy on the table, anyone it doesn't name sees no row.)
+    sql(&n, "GRANT SELECT ON journal.notes TO bob").await;
+    sql(
+        &n,
+        "CREATE POLICY trams_only ON journal.notes FOR SELECT TO bob USING (file = 'trams.md')",
+    )
+    .await;
+    let bob = session("bob");
+    let seen = bob
+        .search("journal", &terms(&["lisbon"]), 10)
+        .await
+        .unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].key, Some(vec!["trams.md".to_string()]));
+    let QueryResult::Batches { batches, .. } = bob
+        .row_by_key("journal", "notes", &["plans.md".to_string()])
+        .await
+        .unwrap()
+    else {
+        panic!("rows")
+    };
+    assert!(batches.iter().all(|b| b.num_rows() == 0));
+
+    // Someone with no grant finds nothing there at all.
+    assert!(session("carol")
+        .search("journal", &terms(&["lisbon"]), 10)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn an_assistant_reads_only_the_collections_it_is_given() {
+    let n = logged_node();
+    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let q = |query: &str, collection: Option<&str>| Search {
+        query: query.into(),
+        collection: collection.map(Into::into),
+        limit: None,
+    };
+
+    // Connected to read the guide; its token is shown once, not kept.
+    let connected = n
+        .api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: "Claude Code".into(),
+                app: AssistantApp::ClaudeCode,
+                collections: vec!["oikome-guide".into()],
+            },
+        )
+        .await
+        .unwrap();
+    let id = connected.assistant.id.clone();
+    assert!(connected.token.starts_with("oik_"));
+    assert_eq!(connected.assistant.collections, vec!["oikome-guide"]);
+    assert_eq!(connected.assistant.last_used_ms, None);
+    let kept = std::fs::read_to_string(n.catalog.oikome_dir().join("assistants.json")).unwrap();
+    assert!(!kept.contains(&connected.token));
+    let me = n
+        .api
+        .assistant_by_token(&connected.token)
+        .expect("its token");
+    assert!(n.api.assistant_by_token("oik_not-its-token").is_none());
+    let listed = n.api.list_assistants(&OWNER, Empty {}).await.unwrap();
+    assert!(listed[0].last_used_ms.is_some());
+
+    // It is told of its collection only, and does none of the owner's things.
+    let readable = n.api.assistant_collections(&me, Empty {}).await.unwrap();
+    assert_eq!(readable.len(), 1);
+    assert_eq!(readable[0].name, "oikome-guide");
+    let table = &readable[0].tables[0];
+    assert!(table.columns.contains(&"note".to_string()));
+    assert_eq!(table.key, vec!["file".to_string()]);
+    assert_eq!(table.rows, Some(7));
+    assert!(n.api.list_spaces(&me, Empty {}).await.is_err());
+    assert!(n.api.search(&me, q("welcome", None)).await.is_err());
+    assert!(n.api.assistant_collections(&OWNER, Empty {}).await.is_err());
+
+    // Its search: its collection only; one it may not read doesn't exist.
+    let found = n
+        .api
+        .assistant_search(&me, q("welcome", None))
+        .await
+        .unwrap();
+    assert!(!found.hits.is_empty());
+    assert!(found.hits.iter().all(|h| h.collection == "oikome-guide"));
+    assert!(n
+        .api
+        .assistant_search(&me, q("belem", None))
+        .await
+        .unwrap()
+        .hits
+        .is_empty());
+    let e = n
+        .api
+        .assistant_search(&me, q("belem", Some("lisbon-photos")))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+    let hit = &found.hits[0];
+    let row = n
+        .api
+        .assistant_read_row(
+            &me,
+            ReadRow {
+                space: hit.collection.clone(),
+                table: hit.table.clone(),
+                key: hit.key.clone().unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&row), 1);
+    let e = n
+        .api
+        .assistant_read_row(
+            &me,
+            ReadRow {
+                space: "lisbon-photos".into(),
+                table: "photos".into(),
+                key: vec!["Tram 28E.jpg".into()],
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::NotFound);
+
+    // Given the photos too, it finds them; taken back, it doesn't.
+    let give = |collections: &[&str]| AssistantCollections {
+        id: id.clone(),
+        collections: collections.iter().map(|c| c.to_string()).collect(),
+    };
+    n.api
+        .set_assistant_collections(&OWNER, give(&["oikome-guide", "lisbon-photos"]))
+        .await
+        .unwrap();
+    let photos = n.api.assistant_search(&me, q("belem", None)).await.unwrap();
+    assert!(photos.hits.iter().any(|h| h.collection == "lisbon-photos"));
+    n.api
+        .set_assistant_collections(&OWNER, give(&["oikome-guide"]))
+        .await
+        .unwrap();
+    assert!(n
+        .api
+        .assistant_search(&me, q("belem", None))
+        .await
+        .unwrap()
+        .hits
+        .is_empty());
+
+    // Activity: what it searched for, what it read, what it was refused.
+    let lines = activity(&n, 7).await;
+    let mine: Vec<&AccessItem> = lines
+        .iter()
+        .filter(|l| l.who == AccessWho::Assistant)
+        .collect();
+    assert!(mine
+        .iter()
+        .all(|l| l.name.as_deref() == Some("Claude Code")));
+    assert!(mine.iter().any(|l| l.method == "assistant_search"
+        && l.detail.as_deref() == Some("welcome")
+        && l.outcome == AccessOutcome::Allowed));
+    assert!(mine
+        .iter()
+        .any(|l| l.method == "assistant_read" && l.outcome == AccessOutcome::Allowed));
+    assert!(mine.iter().any(|l| l.method == "assistant_search"
+        && l.spaces == ["lisbon-photos"]
+        && l.outcome == AccessOutcome::Denied));
+
+    // Its access ended: the token stops working and the grants go at once.
+    let Caller::Principal { did: its_did } = &me else {
+        panic!("an assistant is a principal")
+    };
+    let ended = n
+        .api
+        .end_assistant_access(&OWNER, AssistantRef { id: id.clone() })
+        .await
+        .unwrap();
+    assert!(ended.ended_at_ms.is_some());
+    assert!(ended.collections.is_empty());
+    assert!(n.api.assistant_by_token(&connected.token).is_none());
+    assert!(n
+        .api
+        .assistant_search(&me, q("welcome", None))
+        .await
+        .is_err());
+    assert!(!n.catalog.has_space_grant(its_did, "oikome-guide"));
+    assert!(n
+        .api
+        .set_assistant_collections(&OWNER, give(&["oikome-guide"]))
+        .await
+        .is_err());
+
+    // Removed, it is no longer listed; Activity keeps its name.
+    let left = n
+        .api
+        .remove_assistant(&OWNER, AssistantRef { id })
+        .await
+        .unwrap();
+    assert!(left.is_empty());
+    let lines = activity(&n, 7).await;
+    assert!(lines
+        .iter()
+        .filter(|l| l.who == AccessWho::Assistant)
+        .all(|l| l.name.as_deref() == Some("Claude Code")));
+
+    // Only the owner's own collections, and a name, are accepted.
+    let connect = |name: &str, collections: Vec<String>| ConnectAssistant {
+        name: name.into(),
+        app: AssistantApp::Other,
+        collections,
+    };
+    assert!(n
+        .api
+        .connect_assistant(&OWNER, connect("", vec![]))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .connect_assistant(&OWNER, connect("Another", vec!["no-such".into()]))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .connect_assistant(&me, connect("Another", vec![]))
+        .await
+        .is_err());
 }

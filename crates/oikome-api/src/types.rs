@@ -386,6 +386,10 @@ pub struct TableSummary {
     /// How many rows it has; `None` for another node's Space, which is not
     /// asked just to count.
     pub rows: Option<u64>,
+    /// The columns that name one of its rows, in key order, for `read_row`
+    /// (each item of a collection a source fills has a link of its own);
+    /// empty when it has none or is not read by key.
+    pub key: Vec<String>,
 }
 
 /// `read_rows`: a page of a table or view, as an Arrow IPC stream.
@@ -401,6 +405,85 @@ pub struct ReadRows {
     /// Rows to skip.
     #[serde(default)]
     pub offset: Option<u64>,
+}
+
+/// `read_row`: one row of a collection a source fills, by its primary key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadRow {
+    pub space: String,
+    pub table: String,
+    /// Each key column as text, in key order (as a search hit gives it).
+    pub key: Vec<String>,
+}
+
+/// `search`: what the owner's collections hold. The query is plain words,
+/// and a row matches when every word is in its text: a word of three or
+/// more characters anywhere inside words, case and accents aside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct Search {
+    pub query: String,
+    /// Only this collection; every one of the owner's when left out.
+    #[serde(default)]
+    pub collection: Option<String>,
+    /// Most hits, 1 to 100; default 30.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// What a search found, best first, and the collections it did not search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    pub hits: Vec<SearchHit>,
+    pub skipped: Vec<SearchSkipped>,
+}
+
+/// A row a search found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub collection: String,
+    pub table: String,
+    /// The row's primary key, each column as text (for `read_row`); `null`
+    /// when its table has none.
+    pub key: Option<Vec<String>>,
+    /// The column the excerpt is from.
+    pub column: String,
+    /// That column around the first match, on one line, cut with `…`.
+    pub excerpt: String,
+    /// Where the words are in `excerpt`, in UTF-16 code units, as
+    /// JavaScript counts a string.
+    pub marks: Vec<SearchMark>,
+}
+
+/// A stretch of a search excerpt that matched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchMark {
+    pub start: u32,
+    pub end: u32,
+}
+
+/// A collection a search did not look in, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchSkipped {
+    pub collection: String,
+    pub reason: SearchSkip,
+    /// What went wrong, for `failed`.
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchSkip {
+    /// Shared with you: it is searched where it is kept.
+    SharedWithYou,
+    /// Searching it failed.
+    Failed,
 }
 
 /// `run_sql`: the owner's statements, separated by `;`, run in one session.
@@ -757,6 +840,87 @@ pub struct PluginCollections {
     pub collections: Vec<String>,
 }
 
+/// The app an AI assistant connects from (M3d).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AssistantApp {
+    /// Claude Code, in the terminal.
+    ClaudeCode,
+    /// Anything else that speaks MCP over HTTP.
+    Other,
+}
+
+/// An AI assistant the owner connected (M3d): it reads only the
+/// collections given, as itself, and every read shows up in Activity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct Assistant {
+    pub id: String,
+    /// The identity it reads as: its lines in Activity are by this DID.
+    pub did: String,
+    pub name: String,
+    pub app: AssistantApp,
+    /// The collections it may read; none once its access ended.
+    pub collections: Vec<String>,
+    pub connected_at_ms: u64,
+    /// When it last reached this data center; `null` until it first does.
+    pub last_used_ms: Option<u64>,
+    /// When its access ended; it can't reach this data center again.
+    pub ended_at_ms: Option<u64>,
+}
+
+/// `connect_assistant`: a new assistant, by name, and what it may read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectAssistant {
+    pub name: String,
+    pub app: AssistantApp,
+    pub collections: Vec<String>,
+}
+
+/// What `connect_assistant` returns: the assistant, and the token it
+/// reaches this data center with, shown this once (only its hash is kept).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantConnected {
+    pub assistant: Assistant,
+    pub token: String,
+}
+
+/// `set_assistant_collections`: what a connected assistant may read now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantCollections {
+    pub id: String,
+    pub collections: Vec<String>,
+}
+
+/// `end_assistant_access`, `remove_assistant`: an assistant, by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantRef {
+    pub id: String,
+}
+
+/// A collection an assistant may read, as it is told about it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadableCollection {
+    pub name: String,
+    pub tables: Vec<ReadableTable>,
+}
+
+/// A table of a collection an assistant may read: the columns it sees,
+/// how many rows, and the key it reads a row by (`read_row`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadableTable {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub rows: Option<u64>,
+    pub key: Vec<String>,
+}
+
 /// `remove_plugin`: an installed plugin, by id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -865,6 +1029,8 @@ pub enum AccessWho {
     Person,
     /// A plugin on Home, reading as itself.
     Plugin,
+    /// An AI assistant the owner connected, reading as itself.
+    Assistant,
     /// A computer this one has no name for.
     Unknown,
 }
@@ -888,6 +1054,9 @@ pub struct AccessItem {
     pub share_id: Option<String>,
     pub outcome: AccessOutcome,
     pub reason: Option<String>,
-    /// Requests merged into this item (failed authentications in one minute).
+    /// Requests merged into this item (failed authentications in one
+    /// minute; an assistant's reads of one collection in one minute).
     pub count: u64,
+    /// What it asked for, where that says more: an assistant's search words.
+    pub detail: Option<String>,
 }

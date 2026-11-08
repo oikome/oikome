@@ -30,6 +30,9 @@
 //!   serves its files under a strict Content-Security-Policy. Paths are
 //!   checked segment by segment and must resolve inside the root; paths
 //!   without an extension get `index.html` (the app's own routes).
+//! - **MCP.** `/mcp` is for the owner's AI assistants (`crate::mcp`): each
+//!   request carries an assistant's token, and none from a web page (no
+//!   `Origin`) is answered.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -46,11 +49,12 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, Api, ApiError, BorrowedRef, Caller, ContactInput, DefaultStorage, DidRef, Empty,
-    ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
-    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
-    PluginRead, PluginRef, ReadRows, Rows, RunSql, SetLending, SetSourceEvery, ShareRef,
-    ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, PLUGIN_SDK,
+    AcceptInvite, Api, ApiError, AssistantCollections, AssistantRef, BorrowedRef, Caller,
+    ConnectAssistant, ContactInput, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
+    InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares, NewSource, NewSpace, NewStorage,
+    NodeName, PauseSource, PluginCollections, PluginFolder, PluginRead, PluginRef, ReadRow,
+    ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef,
+    SpaceRef, SqlResult, StorageRef, PLUGIN_SDK,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -142,6 +146,8 @@ struct WebState {
     login: Mutex<LoginToken>,
     /// Session id -> last request.
     sessions: Mutex<HashMap<String, Instant>>,
+    /// Requests each AI assistant sent to MCP this minute.
+    mcp_calls: crate::mcp::Calls,
 }
 
 /// The web API of one node.
@@ -197,6 +203,7 @@ impl WebApp {
                     expires: Instant::now(),
                 }),
                 sessions: Mutex::new(HashMap::new()),
+                mcp_calls: crate::mcp::Calls::default(),
             }),
         };
         app.state.rotate_login()?;
@@ -419,6 +426,14 @@ impl WebState {
             "show_source_files" => json_op!(show_source_files, SourceRef),
             "find_places" => json_op!(find_places, Empty),
             "list_folders" => json_op!(list_folders, FolderRef),
+            "search" => json_op!(search, Search),
+            "read_row" => match parse::<ReadRow>(&body) {
+                Ok(request) => match api.read_row(&caller, request).await {
+                    Ok(rows) => arrow(rows),
+                    Err(e) => error(e),
+                },
+                Err(e) => error(e),
+            },
             "read_rows" => match parse::<ReadRows>(&body) {
                 Ok(request) => match api.read_rows(&caller, request).await {
                     Ok(rows) => arrow(rows),
@@ -448,6 +463,14 @@ impl WebState {
             "install_plugin" => json_op!(install_plugin, InstallPlugin),
             "set_plugin_collections" => json_op!(set_plugin_collections, PluginCollections),
             "remove_plugin" => json_op!(remove_plugin, PluginRef),
+            "list_assistants" => json_op!(list_assistants, Empty),
+            // Its answer holds the assistant's token, shown this once.
+            "connect_assistant" => json_op!(connect_assistant, ConnectAssistant),
+            "set_assistant_collections" => {
+                json_op!(set_assistant_collections, AssistantCollections)
+            }
+            "end_assistant_access" => json_op!(end_assistant_access, AssistantRef),
+            "remove_assistant" => json_op!(remove_assistant, AssistantRef),
             "plugin_read" => match parse::<PluginRead>(&body) {
                 Ok(request) => match api.plugin_read(&caller, request).await {
                     Ok(rows) => arrow(rows),
@@ -666,6 +689,17 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
     };
     let path = parts.uri.path();
     match (&parts.method, path) {
+        // AI assistants, with their tokens; never the app's session.
+        (_, crate::mcp::PATH) => {
+            crate::mcp::handle(
+                &state.api,
+                &state.mcp_calls,
+                &parts.method,
+                &parts.headers,
+                body,
+            )
+            .await
+        }
         (&Method::GET, "/login") => state.login(parts.uri.query()),
         (&Method::GET, _) if path.starts_with("/api/") => {
             error(ApiError::not_found("API calls use POST"))

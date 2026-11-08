@@ -550,6 +550,191 @@
   padding: var(--space-5) 10px;
   color: var(--ink2);
 }
+/* Opened from a collection: the search stays in it. */
+.screen-palette__scope {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font: 500 11px/1 var(--mono);
+  color: var(--ink2);
+  white-space: nowrap;
+}
+/* An excerpt can take two lines; a name takes one. */
+.screen-palette__title--excerpt {
+  display: -webkit-box;
+  font-weight: 400;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.screen-palette__thumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+[data-theme="bold"] .screen-palette__thumb {
+  border: 2px solid #111;
+}
+.screen-palette__notes {
+  display: grid;
+  gap: 4px;
+  margin: var(--space-2) 10px 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line2);
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-palette__notes p {
+  margin: 0;
+}
+
+/* ----- One item: a photo large, a note in full, a row field by field ----- */
+
+.screen-item {
+  box-sizing: border-box;
+  width: calc(100% - 2 * var(--space-4));
+  max-width: 560px;
+  max-height: calc(100vh - 2 * var(--space-7));
+  padding: 0;
+  overflow: auto;
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-dialog);
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: var(--sh-pop);
+}
+.screen-item[open] {
+  animation: oik-lift 220ms var(--ease);
+}
+.screen-item::backdrop {
+  background: var(--scrim);
+  animation: oik-fade 180ms var(--ease);
+}
+.screen-item--photo {
+  max-width: 1080px;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+}
+.screen-item--photo[open] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+.screen-item__image {
+  display: grid;
+  place-items: center;
+  min-height: 380px;
+  background: #141310;
+}
+.screen-item__image img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+}
+.screen-item__side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+  border-left: var(--bw) solid var(--line2);
+}
+.screen-item__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 18px var(--space-5);
+  border-bottom: var(--bw) solid var(--line2);
+}
+.screen-item__title {
+  margin: 0;
+  font: var(--text-heading);
+  text-transform: var(--heading-case);
+  overflow-wrap: anywhere;
+}
+.screen-item__body {
+  display: grid;
+  gap: 18px;
+  padding: var(--space-5);
+}
+.screen-item__note {
+  margin: 0;
+  font: 400 15px/23px var(--font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.screen-item__skeleton {
+  height: 96px;
+  border-radius: var(--r-card);
+}
+.screen-item__facts,
+.screen-item__fields {
+  display: grid;
+  margin: 0;
+}
+.screen-item__facts > div,
+.screen-item__fields > div {
+  display: grid;
+  gap: 2px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.screen-item__facts > div:last-child,
+.screen-item__fields > div:last-child {
+  border-bottom: 0;
+}
+.screen-item__side .screen-item__facts > div {
+  padding: 12px var(--space-5);
+}
+.screen-item__side .screen-item__facts > div:last-child {
+  border-bottom: 1px solid var(--line2);
+}
+.screen-item__facts dd,
+.screen-item__fields dd {
+  margin: 0;
+  font: var(--text-data);
+  overflow-wrap: anywhere;
+}
+.screen-item__fields {
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line2);
+}
+/* The one before and after: at the foot of the side, or of a note. */
+.screen-item__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px var(--space-4);
+  border-top: var(--bw) solid var(--line2);
+}
+.screen-item__side .screen-item__nav {
+  margin-top: auto;
+}
+.screen-item__position {
+  font: 400 12px/16px var(--mono);
+  color: var(--ink3);
+  text-align: center;
+}
+@media (max-width: 760px) {
+  .screen-item--photo[open] {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .screen-item__image {
+    min-height: 240px;
+  }
+  .screen-item__side {
+    border-top: var(--bw) solid var(--line2);
+    border-left: 0;
+  }
+}
 .screen-page {
   box-sizing: border-box;
   max-width: 1240px;
@@ -687,6 +872,20 @@
 }
 .screen-dash--rows > .oik-group > .oik-group__body {
   flex: 1;
+}
+
+/* ----- AI Assistants ----- */
+
+.screen-assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.screen-assistant-lately {
+  margin-top: var(--space-4);
+}
+.screen-assistant-wait {
+  margin: 0;
 }
 
 /* ----- Home ----- */
@@ -1421,8 +1620,19 @@ a.screen-list__row:hover .screen-list__thumb {
   filter: grayscale(1);
   transition: filter 500ms var(--ease);
 }
-.screen-photo:hover img {
+.screen-photo:hover img,
+.screen-photo__link:focus-visible img {
   filter: none;
+}
+/* A photo opens large; its link is the picture. */
+.screen-photo__link {
+  display: block;
+  border-radius: var(--r-card);
+  cursor: zoom-in;
+}
+.screen-photo__link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 3px;
 }
 .screen-photo__missing {
   aspect-ratio: 4 / 3;
@@ -1661,6 +1871,30 @@ a.screen-list__row:hover .screen-list__thumb {
   margin: 0;
   font: 400 15px/23px var(--font);
   white-space: pre-wrap;
+}
+/* A note opens in full; the whole card is its link. */
+.screen-note__link {
+  display: block;
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5));
+  padding: var(--space-4) var(--space-5);
+  border-radius: inherit;
+  color: inherit;
+  text-decoration: none;
+}
+.screen-note:has(.screen-note__link:hover) {
+  border-color: var(--ink3);
+}
+.screen-note__link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.screen-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.screen-note .screen-tags {
+  margin-top: var(--space-3);
 }
 .screen-table-card {
   overflow-x: auto;
@@ -2605,6 +2839,25 @@ tr.screen-source {
   .screen-header {
     flex-wrap: wrap;
     align-items: flex-start;
+  }
+  /* A filter in a page's header stays within the page: more choices
+     than fit scroll inside it. */
+  .screen-header__actions {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .screen-header .oik-seg {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .screen-header .oik-seg::-webkit-scrollbar {
+    display: none;
+  }
+  .screen-header .oik-seg__option {
+    flex: none;
+    padding: 0 9px;
+    white-space: nowrap;
   }
   .screen-kpis {
     grid-template-columns: 1fr;

@@ -183,7 +183,7 @@ A milestone starts only once its gate phases are done; no skipping (architecture
 | --- | --- | --- | --- |
 | M1 Usable (M1a layout, M1b API, M1c screens) | First run and examples, recovery key, browsing collections, sharing and revoking, contacts, Activity, places | 3.0–3.2 | Done |
 | M2 Connect | Sources page and sync status, Home dashboard and built-in cards, dashboard plugins v1 and plugin grants, accepting invites, lending compute | 3.5, M1c | In progress |
-| M3 Find | Full-text and semantic search, photo and note views, AI Assistants page (`oikome-mcp`) | 3.3, M2 | Not started |
+| M3 Find | Full-text search, photo and note views, AI Assistants page, MCP over HTTP | 3.3, M2 | ✅ |
 | M4 Extend | Borrowed compute, third-party source plugins, plugin directory, cloud-drive storage (with 3.4b, 3.4c) | 3.4b, 3.6, M3 | Not started |
 | M5 Pay | Pricing, payment plugins, buyers, orders in Activity | 3.8, M4 | Not started |
 

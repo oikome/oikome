@@ -17,15 +17,19 @@ function here(): string {
  * Go to `to`. A new step starts at the top of the page and remembers where
  * it came from, so Back links can return there. `replace` swaps the current
  * step instead: for redirects, and for pages that should not be returned to
- * (a removed collection, a panel that was closed).
+ * (a removed collection, a panel that was closed). `keepScroll` stays where
+ * the page is: for an item opened over it.
  */
-export function navigate(to: string, { replace = false }: { replace?: boolean } = {}) {
+export function navigate(
+  to: string,
+  { replace = false, keepScroll = false }: { replace?: boolean; keepScroll?: boolean } = {},
+) {
   if (to !== here()) {
     if (replace) {
       window.history.replaceState(window.history.state, "", to);
     } else {
       window.history.pushState({ from: here() }, "", to);
-      window.scrollTo(0, 0);
+      if (!keepScroll) window.scrollTo(0, 0);
     }
   }
   window.dispatchEvent(new Event(CHANGE));

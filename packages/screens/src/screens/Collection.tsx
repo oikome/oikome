@@ -7,6 +7,7 @@
 // can be left.
 
 import { useEffect, useMemo, useState } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import {
   Avatar,
   AvatarStack,
@@ -17,12 +18,13 @@ import {
   ErrorText,
   Menu,
   Select,
+  Tag,
   collectionTones,
   useToast,
 } from "@oikome/ui";
 import type { SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
-import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf } from "../content";
+import { chronological, forgetPreviews, itemsOf, loadPreview, shapeOf, tagsOf, withoutTagLines } from "../content";
 import type { Item, Shape } from "../content";
 import { countOf, fromOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
@@ -30,7 +32,10 @@ import { dateFromSeconds, homeRelative, monthAndDay } from "../format";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
-import { Link, navigate } from "../router";
+import { ItemDialog, itemPath } from "../item";
+import type { ItemNav } from "../item";
+import { Palette } from "../palette";
+import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
 
@@ -39,7 +44,13 @@ const s = strings.collections;
 const PAGE_ROWS = 100;
 const PAGE_PHOTOS = 24;
 
-export function Collection({ name }: { name: string }) {
+/** An item the address names: `?table=…&item=…`, one `item` per key column. */
+export interface ItemQuery {
+  table: string | null;
+  key: string[];
+}
+
+export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
   const client = useClient();
   const toast = useToast();
   const spaces = useLoad(() => client.listSpaces(), []);
@@ -51,6 +62,7 @@ export function Collection({ name }: { name: string }) {
   const [contentsKey, setContentsKey] = useState(0);
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
+  const [searching, setSearching] = useState(false);
   const remove = useAction();
 
   const list = spaces.data ?? [];
@@ -105,6 +117,11 @@ export function Collection({ name }: { name: string }) {
         }
         title={space.name}
       >
+        {local && (
+          <Button icon="search" onClick={() => setSearching(true)}>
+            {s.searchIn}
+          </Button>
+        )}
         {local ? (
           <Button variant="primary" onClick={() => setSharing(true)}>
             {s.share}
@@ -234,31 +251,50 @@ export function Collection({ name }: { name: string }) {
         />
       )}
 
+      {searching && <Palette scope={space.name} onClose={() => setSearching(false)} />}
+
       {sync.error && <ErrorText>{sync.error}</ErrorText>}
-      <Contents key={`${space.name}:${contentsKey}`} space={space} />
+      <Contents
+        key={`${space.name}:${contentsKey}`}
+        space={space}
+        item={item}
+        facts={{
+          cameFrom: source ? homeRelative(source.place) : space.example ? s.fromExample : s.fromYou,
+          keptOn: place?.encrypted ? `${where} · ${strings.settings.encrypted}` : where,
+          who: [strings.common.you, ...names].join(", "),
+        }}
+      />
     </>
   );
 }
 
-function Contents({ space }: { space: SpaceSummary }) {
+/** What an item's own view says of its collection. */
+interface Facts {
+  cameFrom: ReactNode;
+  keptOn: string;
+  who: string;
+}
+
+function Contents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuery; facts: Facts }) {
   const client = useClient();
   // A shared collection is read from its owner's computer, which can be off
   // or may have stopped sharing; say so instead of the node's message.
   const unreadable = space.kind === "remote" ? () => s.cantRead : undefined;
   const tables = useLoad(() => client.listTables({ space: space.name }), [space.name], unreadable);
-  const [table, setTable] = useState<string>();
+  // An address that names an item opens its table.
+  const [table, setTable] = useState<string | undefined>(item?.table ?? undefined);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_ROWS);
 
   useEffect(() => {
-    const first = tables.data?.[0]?.name;
-    if (first && !table) setTable(first);
+    if (!tables.data) return;
+    if (!table || !tables.data.some((t) => t.name === table)) setTable(tables.data[0]?.name);
   }, [tables.data, table]);
 
   const rows = useLoad(
     async () =>
       table
-        ? client.readRows({ space: space.name, table, limit: pageSize, offset })
+        ? { ...(await client.readRows({ space: space.name, table, limit: pageSize, offset })), at: offset }
         : undefined,
     [space.name, table, offset, pageSize],
     unreadable,
@@ -269,7 +305,8 @@ function Contents({ space }: { space: SpaceSummary }) {
     if (shape?.view === "photos" && pageSize !== PAGE_PHOTOS && offset === 0) setPageSize(PAGE_PHOTOS);
   }, [shape, pageSize, offset]);
   // Readings open at the latest ones; Previous goes back in time.
-  const total = Number(tables.data?.find((t) => t.name === table)?.rows ?? 0);
+  const summary = tables.data?.find((t) => t.name === table);
+  const total = Number(summary?.rows ?? 0);
   const [atLatest, setAtLatest] = useState(false);
   useEffect(() => {
     if (shape?.view === "series" && !atLatest && offset === 0 && total > pageSize) {
@@ -278,6 +315,63 @@ function Contents({ space }: { space: SpaceSummary }) {
     }
   }, [shape, atLatest, offset, total, pageSize]);
   const count = rows.data?.table.numRows ?? 0;
+
+  // Photos and notes read in the order they happened, as a diary does.
+  const items = useMemo(() => {
+    if (!rows.data || !shape) return [];
+    const all = itemsOf(rows.data.table, shape);
+    return shape.view === "photos" || shape.view === "notes" ? chronological(all) : all;
+  }, [rows.data, shape]);
+  // Each item of a table with a key has an address of its own.
+  const keyOf = (it: Item): string[] | undefined => {
+    const columns = summary?.key ?? [];
+    if (!rows.data || columns.length === 0 || space.kind === "remote") return undefined;
+    const parts = columns.map((c) => rows.data!.table.getChild(c)?.get(it.row) as unknown);
+    if (parts.some((v) => v === null || v === undefined || v instanceof Uint8Array)) return undefined;
+    return parts.map((v) => String(v));
+  };
+  const linkOf = (it: Item): string | undefined => {
+    const key = keyOf(it);
+    return key && table ? itemPath({ collection: space.name, table, key }) : undefined;
+  };
+  const open = (it: Item | undefined, replace: boolean) => {
+    const to = it && linkOf(it);
+    if (to) navigate(to, { replace, keepScroll: true });
+  };
+
+  // Past the first or last item of a page, the next page opens at its first
+  // (or the one before at its last) once it has been read.
+  const [turning, setTurning] = useState<{ at: number; to: "first" | "last" }>();
+  useEffect(() => {
+    if (!turning || rows.data?.at !== turning.at) return;
+    setTurning(undefined);
+    open(turning.to === "first" ? items[0] : items[items.length - 1], true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turning, rows.data, items]);
+  const turn = (at: number, to: "first" | "last") => {
+    setTurning({ at, to });
+    setOffset(at);
+  };
+
+  // The item the address names: moved through when it is on this page.
+  const itemTable = item && item.key.length > 0 && space.kind !== "remote" ? (item.table ?? tables.data?.[0]?.name) : undefined;
+  const here =
+    itemTable === table && (shape?.view === "photos" || shape?.view === "notes")
+      ? items.findIndex((it) => {
+          const key = keyOf(it);
+          return key !== undefined && key.length === item!.key.length && key.every((k, i) => k === item!.key[i]);
+        })
+      : -1;
+  const more = count === pageSize && (total === 0 || offset + count < total);
+  const nav: ItemNav | undefined =
+    here >= 0
+      ? {
+          position: offset + here + 1,
+          total: Math.max(total, offset + count),
+          previous: here > 0 ? () => open(items[here - 1], true) : offset > 0 ? () => turn(Math.max(0, offset - pageSize), "last") : undefined,
+          next: here < items.length - 1 ? () => open(items[here + 1], true) : more ? () => turn(offset + pageSize, "first") : undefined,
+        }
+      : undefined;
 
   if (tables.error) return <ErrorText>{tables.error}</ErrorText>;
   if (tables.data && tables.data.length === 0) {
@@ -306,7 +400,9 @@ function Contents({ space }: { space: SpaceSummary }) {
       )}
       {rows.error && <ErrorText>{rows.error}</ErrorText>}
       {!rows.data && !rows.error && <div className="screen-page-skeleton oik-skel" aria-hidden="true" />}
-      {rows.data && shape && table && <View table={rows.data.table} shape={shape} label={table} />}
+      {rows.data && shape && table && (
+        <View table={rows.data.table} shape={shape} items={items} label={table} linkOf={linkOf} onOpen={(it) => open(it, false)} />
+      )}
       {rows.data && count === 0 && <p className="screen-muted">{s.noRows}</p>}
       {/* Paging only when there is more than one page. */}
       {(offset > 0 || count === pageSize) && (
@@ -326,18 +422,57 @@ function Contents({ space }: { space: SpaceSummary }) {
           </span>
         </div>
       )}
+      {itemTable && (
+        <ItemDialog
+          item={{ collection: space.name, table: itemTable, key: item!.key }}
+          known={
+            rows.data && shape && itemTable === table
+              ? { shape, columns: rows.data.table.schema.fields.map((f) => f.name) }
+              : undefined
+          }
+          cameFrom={facts.cameFrom}
+          keptOn={facts.keptOn}
+          who={facts.who}
+          nav={nav}
+          onClose={() => {
+            // Back where it was opened from on this page; else this page,
+            // without the item, in its place.
+            const page = `/collections/${encodeURIComponent(space.name)}`;
+            if (previousPage()?.split("?")[0] === page) window.history.back();
+            else navigate(page, { replace: true, keepScroll: true });
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function View({ table, shape, label }: { table: Table; shape: Shape; label: string }) {
-  // Photos and notes read in the order they happened, as a diary does.
-  const items = useMemo(() => chronological(itemsOf(table, shape)), [table, shape]);
+function View({
+  table,
+  shape,
+  items,
+  label,
+  linkOf,
+  onOpen,
+}: {
+  table: Table;
+  shape: Shape;
+  items: Item[];
+  label: string;
+  linkOf: (item: Item) => string | undefined;
+  onOpen: (item: Item) => void;
+}) {
+  // A plain click opens the item over the page; others keep the browser's.
+  const opener = (it: Item) => (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!plainClick(e)) return;
+    e.preventDefault();
+    onOpen(it);
+  };
   if (shape.view === "photos") {
     return (
       <div className="screen-photos" aria-label={label}>
-        {items.map((item, i) => (
-          <Photo key={i} item={item} />
+        {items.map((it) => (
+          <Photo key={it.row} item={it} href={linkOf(it)} onOpen={opener(it)} />
         ))}
       </div>
     );
@@ -345,12 +480,34 @@ function View({ table, shape, label }: { table: Table; shape: Shape; label: stri
   if (shape.view === "notes") {
     return (
       <div className="screen-notes" aria-label={label}>
-        {items.map((item, i) => (
-          <article key={i} className="screen-note">
-            {itemDate(item) && <span className="screen-note__date">{itemDate(item)}</span>}
-            <p className="screen-note__text">{item.text}</p>
-          </article>
-        ))}
+        {items.map((it) => {
+          const href = linkOf(it);
+          const tags = tagsOf(it.text);
+          const body = (
+            <>
+              {itemDate(it) && <span className="screen-note__date">{itemDate(it)}</span>}
+              <p className="screen-note__text">{withoutTagLines(it.text)}</p>
+              {tags.length > 0 && (
+                <span className="screen-tags">
+                  {tags.map((tag) => (
+                    <Tag key={tag}>#{tag}</Tag>
+                  ))}
+                </span>
+              )}
+            </>
+          );
+          return (
+            <article key={it.row} className="screen-note">
+              {href ? (
+                <a className="screen-note__link" href={href} onClick={opener(it)}>
+                  {body}
+                </a>
+              ) : (
+                body
+              )}
+            </article>
+          );
+        })}
       </div>
     );
   }
@@ -371,15 +528,30 @@ function View({ table, shape, label }: { table: Table; shape: Shape; label: stri
   );
 }
 
-function Photo({ item }: { item: Item }) {
+function Photo({
+  item,
+  href,
+  onOpen,
+}: {
+  item: Item;
+  href?: string;
+  onOpen: (e: MouseEvent<HTMLAnchorElement>) => void;
+}) {
   const day = item.when === undefined ? undefined : monthAndDay(item.when, item.whenKind !== "moment");
   const meta = [item.detail, day].filter(Boolean).join(" · ");
+  const picture = item.image ? (
+    <img src={item.image} alt={item.text ?? ""} decoding="async" />
+  ) : (
+    <div className="screen-photo__missing" />
+  );
   return (
     <figure className="screen-photo">
-      {item.image ? (
-        <img src={item.image} alt={item.text ?? ""} decoding="async" />
+      {href ? (
+        <a className="screen-photo__link" href={href} onClick={onOpen} aria-label={s.open(item.text ?? s.kinds.photos)}>
+          {picture}
+        </a>
       ) : (
-        <div className="screen-photo__missing" />
+        picture
       )}
       <figcaption>
         <span className="screen-photo__line">

@@ -681,7 +681,16 @@ impl OikomeSession {
 
         let engine = self.engines().sqlite_private_for(&space)?;
         let tx = engine.begin().await?;
-        match apply(&engine, name, name, &tables, pull).await {
+        let applied = async {
+            // Each table's full-text index (M3a), made before this pull's
+            // writes so its triggers index them in the same transaction.
+            for (table, columns) in crate::search::text_columns(&tables) {
+                crate::search::ensure_index(&engine, name, &table, &columns).await?;
+            }
+            apply(&engine, name, name, &tables, pull).await
+        }
+        .await;
+        match applied {
             Ok(tables) => {
                 engine.commit(tx).await?;
                 Ok(PullReport {

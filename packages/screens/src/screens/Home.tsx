@@ -18,12 +18,13 @@ import type { CardChoice } from "../arrange";
 import { LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
 import { useAction, useClient, useLoad } from "../data";
 import { useCountUp } from "../motion";
-import { PluginCard } from "../plugins";
+import { inLanguage, PluginCard } from "../plugins";
 import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
 import { sentence, who } from "./Activity";
+import { locale } from "../i18n/languages";
 
 const s = strings.home;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -31,9 +32,8 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RECENT = 5;
 const LOG = 5;
 
-const today = new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" });
-const short = new Intl.DateTimeFormat("en", { month: "short", day: "numeric" });
-const dateShort = (ms: number) => short.format(new Date(ms));
+const today = () => new Intl.DateTimeFormat(locale(), { weekday: "long", month: "long", day: "numeric" });
+const dateShort = (ms: number) => new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric" }).format(new Date(ms));
 
 interface Recent {
   space: SpaceSummary;
@@ -54,7 +54,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const shares = useLoad(() => client.listShares(), []);
   const storages = useLoad(() => client.listStorages(), []);
   const sources = useLoad(() => client.listSources(), []);
-  const plugins = useLoad(() => client.listPlugins(), []);
+  const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
   // People's reads: a plugin's reads of its own cards are in Activity, not here.
   const access = useLoad(() => client.listAccess({ limit: 100 }), []);
   const log = {
@@ -292,7 +292,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   return (
     <>
       <ScreenHeader
-        label={today.format(new Date())}
+        label={today().format(new Date())}
         title={s.greeting(new Date().getHours())}
         lede={info.recoveryKeySaved ? s.allWell : s.allWellBut}
       >
@@ -468,7 +468,7 @@ function Figure({
   note?: string;
 }) {
   const counted = useCountUp(count);
-  const shown = counted !== undefined ? counted.toLocaleString("en") : value;
+  const shown = counted !== undefined ? counted.toLocaleString(locale()) : value;
   return (
     <Link to={to} className="oik-card screen-figure screen-lift">
       <span className="screen-figure__top">

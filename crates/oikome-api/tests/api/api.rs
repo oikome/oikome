@@ -517,13 +517,17 @@ async fn an_invite_is_added_then_accepted_renewed_or_declined() {
 
     // It is not for the one who made it, nor for anyone but Sam, and it
     // has to be whole.
+    // Each says which failure it is, so the apps word it in their language.
     let e = add(&rosh, &made.invite).await.unwrap_err();
     assert!(e.message.contains("one you made"), "{e}");
+    assert_eq!(e.reason.as_deref(), Some("invite_own"));
     let other = node();
     let e = add(&other, &made.invite).await.unwrap_err();
     assert!(e.message.contains("another data center"), "{e}");
+    assert_eq!(e.reason.as_deref(), Some("invite_other"));
     let e = add(&sam, &made.invite[..60]).await.unwrap_err();
     assert_eq!(e.code, ErrorCode::Invalid);
+    assert_eq!(e.reason.as_deref(), Some("invite_incomplete"));
 
     // Sam adds it as a message wrapped it; the same code twice is one invite.
     let wrapped = format!("{}\n  {}", &made.invite[..40], &made.invite[40..]);
@@ -755,9 +759,87 @@ async fn an_identity_is_restored_only_into_an_empty_node() {
 }
 
 #[tokio::test]
+async fn the_examples_are_written_in_the_apps_language() {
+    let n = node();
+    let added = n
+        .api
+        .add_examples(
+            &OWNER,
+            AddExamples {
+                language: Some("zh-Hans".into()),
+            },
+        )
+        .await
+        .unwrap();
+    // The collections keep their names: they name folders and are typed in SQL.
+    let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["home-climate", "lisbon-photos", "oikome-guide", "spending"]
+    );
+    let root = std::path::PathBuf::from(n.catalog.root_path()).join("Examples");
+    let mut notes: Vec<String> = std::fs::read_dir(root.join("oikome-guide"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    notes.sort();
+    assert_eq!(notes.len(), 7);
+    assert!(
+        notes.iter().all(|f| f.ends_with(".md") && !f.is_ascii()),
+        "{notes:?}"
+    );
+    // The tables' columns are named in the language too, and still read.
+    let spending = std::fs::read_to_string(root.join("spending/spending.csv")).unwrap();
+    assert!(!spending.lines().next().unwrap().is_ascii(), "{spending}");
+    let readings = std::fs::read_to_string(root.join("home-climate/readings.csv")).unwrap();
+    let header = readings.lines().next().unwrap();
+    assert!(
+        header.contains("_celsius") && header.ends_with("_pct"),
+        "{header}"
+    );
+    for (space, table, count) in [
+        ("spending", "spending", 29),
+        ("home-climate", "readings", 14 * 24),
+    ] {
+        let rows = n
+            .api
+            .read_rows(
+                &OWNER,
+                ReadRows {
+                    space: space.into(),
+                    table: table.into(),
+                    limit: Some(1000),
+                    offset: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(row_count(&rows), count, "{space}");
+    }
+
+    // A language they aren't written in gets English.
+    let m = node();
+    m.api
+        .add_examples(
+            &OWNER,
+            AddExamples {
+                language: Some("pt-BR".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let root = std::path::PathBuf::from(m.catalog.root_path()).join("Examples");
+    assert!(root.join("oikome-guide/1 Welcome.md").is_file());
+}
+
+#[tokio::test]
 async fn a_new_data_center_gets_examples_once() {
     let n = node();
-    let added = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let added = n
+        .api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
     let names: Vec<&str> = added.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
@@ -920,7 +1002,11 @@ async fn a_new_data_center_gets_examples_once() {
         )
         .await
         .unwrap();
-    let again = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let again = n
+        .api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
     assert_eq!(again.len(), 3);
     let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
     assert_eq!(storages.len(), 1);
@@ -990,7 +1076,11 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
 
     // The examples' files go into the picked folder; their collections,
     // read from them, are kept with the data center.
-    let examples = n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    let examples = n
+        .api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
     assert_eq!(examples.len(), 4);
     assert!(picked.path().join("Oikome/Examples/oikome-guide").is_dir());
     n.api
@@ -1293,6 +1383,18 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     assert!(offered
         .iter()
         .any(|p| p.id == "spending-by-category" && p.built_in && !p.installed));
+    // Oikome's own come with their words in the app's languages.
+    let spending = offered
+        .iter()
+        .find(|p| p.id == "spending-by-category")
+        .unwrap();
+    for language in ["de", "fr", "ja", "ko", "ru", "zh-Hans", "zh-Hant"] {
+        let text = &spending.translations[language];
+        assert!(
+            text.name.is_some() && text.description.is_some() && text.reads.is_some(),
+            "{language}"
+        );
+    }
     let spending = n
         .api
         .install_plugin(
@@ -1392,9 +1494,12 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     let bad = tempfile::tempdir().unwrap();
     let bad_path = bad.path().to_string_lossy().into_owned();
     let inspect = |path: String| n.api.inspect_plugin(&OWNER, PluginFolder { path });
+    let e = inspect(bad_path.clone()).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert_eq!(e.reason.as_deref(), Some("plugin_no_manifest"));
     assert_eq!(
-        inspect(bad_path.clone()).await.unwrap_err().code,
-        ErrorCode::Invalid
+        e.params.get("path").map(String::as_str),
+        Some(bad.path().canonicalize().unwrap().to_str().unwrap())
     );
     std::fs::write(
         bad.path().join("oikome-plugin.json"),
@@ -1402,10 +1507,11 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     )
     .unwrap();
     std::fs::write(bad.path().join("index.html"), "").unwrap();
-    assert_eq!(
-        inspect(bad_path.clone()).await.unwrap_err().code,
-        ErrorCode::Invalid
-    );
+    // A rule for plugin makers: the detail stays in English, for them.
+    let e = inspect(bad_path.clone()).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert_eq!(e.reason.as_deref(), Some("plugin_invalid"));
+    assert_eq!(e.params.get("detail"), Some(&e.message));
     std::fs::write(bad.path().join("oikome-plugin.json"), manifest).unwrap();
     std::fs::write(bad.path().join("run.exe"), "").unwrap();
     assert_eq!(
@@ -1596,7 +1702,10 @@ async fn activity_names_who_it_was() {
 #[tokio::test]
 async fn a_source_pauses_and_comes_back_into_its_collection() {
     let n = node();
-    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    n.api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
     let guide = |sources: &[SourceSummary]| sources.iter().find(|s| s.name == "spending").cloned();
     let pause = |paused| PauseSource {
         source: "spending".into(),
@@ -1693,7 +1802,10 @@ async fn a_source_pauses_and_comes_back_into_its_collection() {
 #[tokio::test]
 async fn search_finds_what_sources_bring_in() {
     let n = node();
-    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    n.api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
     let search = |query: &str, collection: Option<&str>| Search {
         query: query.into(),
         collection: collection.map(Into::into),
@@ -1998,7 +2110,10 @@ async fn a_principal_searches_only_what_it_may_read() {
 #[tokio::test]
 async fn an_assistant_reads_only_the_collections_it_is_given() {
     let n = logged_node();
-    n.api.add_examples(&OWNER, Empty {}).await.unwrap();
+    n.api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
     let q = |query: &str, collection: Option<&str>| Search {
         query: query.into(),
         collection: collection.map(Into::into),

@@ -148,6 +148,7 @@ fn reachable(url: &str) -> bool {
 
 fn incomplete() -> ApiError {
     ApiError::invalid("that isn't a whole invite code; copy all of it and paste it again")
+        .because("invite_incomplete")
 }
 
 /// The token, address and sender's name in a pasted code. Line breaks and
@@ -156,7 +157,9 @@ fn incomplete() -> ApiError {
 fn decode(code: &str) -> Result<Code, ApiError> {
     let code: String = code.chars().filter(|c| !c.is_whitespace()).collect();
     if code.is_empty() {
-        return Err(ApiError::invalid("paste the invite code you were sent"));
+        return Err(
+            ApiError::invalid("paste the invite code you were sent").because("invite_empty")
+        );
     }
     if code.len() > MAX_CODE_BYTES {
         return Err(incomplete());
@@ -167,7 +170,8 @@ fn decode(code: &str) -> Result<Code, ApiError> {
         if wire.v != 1 {
             return Err(ApiError::invalid(
                 "this invite comes from a newer Oikome; update Oikome to add it",
-            ));
+            )
+            .because("invite_newer"));
         }
         let peer = wire
             .peer
@@ -354,20 +358,24 @@ impl Api {
         if ucan.root_issuer().is_ok_and(|owner| &owner == me) {
             return Err(ApiError::invalid(
                 "this invite is one you made; send it to the person you shared with",
-            ));
+            )
+            .because("invite_own"));
         }
         if &ucan.payload().aud != me {
             return Err(ApiError::invalid(
                 "this invite is for another data center; ask them to share with your ID, from Settings",
-            ));
+            )
+            .because("invite_other"));
         }
         let grant = grant_of(token).ok_or_else(|| {
             ApiError::invalid("this invite doesn't share a collection or lend a computer")
+                .because("invite_nothing")
         })?;
         if grant.expires_at <= now_secs() {
-            return Err(ApiError::invalid(
-                "this invite has ended; ask them to share again",
-            ));
+            return Err(
+                ApiError::invalid("this invite has ended; ask them to share again")
+                    .because("invite_ended"),
+            );
         }
         ucan::verify(
             token,
@@ -388,6 +396,7 @@ impl Api {
         )
         .map_err(|_| {
             ApiError::invalid("this invite code was changed after it was made; ask for it again")
+                .because("invite_changed")
         })?;
         Ok(grant)
     }
@@ -493,18 +502,29 @@ impl Api {
             What::Space { space, .. } => self.added_from(owner, space).and_then(|name| {
                 let held = self.catalog.remote_token(&name).ok()?;
                 (held.expose() == token).then(|| {
-                    format!("you added this invite already: it's {name}, under Shared With You")
+                    ApiError::new(
+                        ErrorCode::Conflict,
+                        format!(
+                            "you added this invite already: it's {name}, under Shared With You"
+                        ),
+                    )
+                    .because("invite_added_space")
+                    .with("name", name)
                 })
             }),
             What::Compute { .. } => self
                 .borrowed_from(owner)
                 .filter(|held| held.token == token)
                 .map(|_| {
-                    "you added this invite already: it's under Compute, on Sharing".to_string()
+                    ApiError::new(
+                        ErrorCode::Conflict,
+                        "you added this invite already: it's under Compute, on Sharing",
+                    )
+                    .because("invite_added_compute")
                 }),
         };
-        if let Some(message) = already {
-            return Err(ApiError::new(ErrorCode::Conflict, message));
+        if let Some(error) = already {
+            return Err(error);
         }
         let id = token_id(&token);
         let waiting = Waiting {
@@ -523,7 +543,8 @@ impl Api {
             if all.len() >= MAX_WAITING {
                 return Err(ApiError::invalid(
                     "too many invites are waiting; accept or decline some first",
-                ));
+                )
+                .because("invites_too_many"));
             }
             all.push(waiting.clone());
             Ok(waiting)
@@ -551,6 +572,7 @@ impl Api {
                 ApiError::not_found(
                     "this invite isn't waiting any more; it was accepted or declined",
                 )
+                .because("invite_not_waiting")
             })?;
         let grant = self.check_grant(&waiting.token)?;
         let owner = grant.owner.as_str().to_string();

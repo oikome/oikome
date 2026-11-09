@@ -14,6 +14,7 @@ import { DataType } from "apache-arrow";
 import { imageSrc } from "./content";
 import { useClient } from "./data";
 import { isoTime } from "./format";
+import { language } from "./i18n/languages";
 import { navigate } from "./router";
 import { strings } from "./strings";
 
@@ -125,6 +126,23 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * A plugin in the language in use, where its maker wrote that language:
+ * British English falls back to English, Traditional Chinese to Chinese.
+ */
+export function inLanguage(plugin: Plugin): Plugin {
+  const code = language();
+  const base = code.split("-")[0]!;
+  const text = plugin.translations?.[code] ?? (base !== code ? plugin.translations?.[base] : undefined);
+  if (!text) return plugin;
+  return {
+    ...plugin,
+    name: text.name ?? plugin.name,
+    description: text.description ?? plugin.description,
+    reads: text.reads ?? plugin.reads,
+  };
+}
+
 /** A plugin's card: its name and maker, and its page in a sandboxed frame. */
 export function PluginCard({ plugin }: { plugin: Plugin }) {
   const client = useClient();
@@ -146,7 +164,7 @@ export function PluginCard({ plugin }: { plugin: Plugin }) {
       }
       if (!current) return;
       setProblem(plugin.collections.length > 0 && collections.length === 0 ? s.nothingToRead : undefined);
-      post({ type: "data", collections, theme: pluginTheme(), today: today() });
+      post({ type: "data", collections, theme: pluginTheme(), today: today(), language: language() });
     };
     const onMessage = (event: MessageEvent) => {
       // Only this card's frame, and only what the bridge says.

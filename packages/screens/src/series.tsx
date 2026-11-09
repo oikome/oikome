@@ -15,6 +15,7 @@ import { measure, numberAt, withUnit } from "./content";
 import { dateTime, isoTime, monthAndDay, wallTime } from "./format";
 import { show } from "./parts";
 import { strings } from "./strings";
+import { locale } from "./i18n/languages";
 
 const s = strings.collections;
 
@@ -125,7 +126,12 @@ export function SeriesView({ table, shape }: { table: Table; shape: Shape }) {
   // Numbers as the column writes them: 21.0 for a DECIMAL(4, 1), 48 for an integer.
   const digits = DataType.isDecimal(field.type) ? field.type.scale : DataType.isInt(field.type) ? 0 : undefined;
   const text = (v: number | undefined) =>
-    v === undefined ? "—" : withUnit(digits === undefined ? String(v) : v.toFixed(digits), unit);
+    v === undefined
+      ? "—"
+      : withUnit(
+          new Intl.NumberFormat(locale(), digits === undefined ? {} : { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(v),
+          unit,
+        );
   const first = times.find((t) => t !== undefined);
   const lastTime = [...times].reverse().find((t) => t !== undefined);
   const summary =

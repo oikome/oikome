@@ -729,16 +729,22 @@ impl Api {
     pub async fn add_examples(
         &self,
         caller: &Caller,
-        _: Empty,
+        req: AddExamples,
     ) -> Result<Vec<SpaceSummary>, ApiError> {
         caller.require_owner()?;
+        // In the language the app is in, when it is one they are written in.
+        let language = req
+            .language
+            .as_deref()
+            .filter(|l| examples::LANGUAGES.contains(l))
+            .unwrap_or("en");
         let settings = self.settings()?;
         if settings.examples_added_at_ms.is_none() {
             let mut added = Vec::new();
             self.refresh()?;
             let session = self.session(None);
             let folder = self.examples_folder(&settings);
-            for example in examples::examples() {
+            for example in examples::examples(language) {
                 if self.catalog.get_space(example.name).is_ok()
                     || self.catalog.get_location(example.name).is_ok()
                     || self.catalog.get_source(example.name).is_ok()

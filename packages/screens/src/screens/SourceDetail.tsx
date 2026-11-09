@@ -10,7 +10,7 @@ import { Banner, Button, Card, ConfirmDialog, EmptyState, ErrorText, Segmented, 
 import type { SourceRun, SourceSummary } from "@oikome/client";
 import { forgetPreviews } from "../content";
 import { useAction, useClient, useLoad } from "../data";
-import { dayAndTime, homeRelative, sameDayTime } from "../format";
+import { dayAndTime, homeRelative, listNames, sameDayTime } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
@@ -18,8 +18,11 @@ import { Holds, lastText, nextText, placeName, statusOf } from "./Sources";
 
 const s = strings.sources;
 
+/** Where a value set apart goes in a sentence. */
+const PLACE = "\u0000";
+
 /** How often a source can be read, in seconds; `ask` only when asked. */
-const EVERY: { value: string; label: string }[] = [
+const EVERY = (): { value: string; label: string }[] => [
   { value: "60", label: s.every.minute },
   { value: "300", label: s.every.five },
   { value: "1800", label: s.every.thirty },
@@ -36,7 +39,7 @@ function runText(run: SourceRun): string {
     run.upserted > 0 ? s.runChanged(run.upserted) : null,
     run.deleted > 0 ? s.runRemoved(run.deleted) : null,
   ].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : `${s.runNothing}${since}`;
+  return parts.length > 0 ? listNames(parts as string[]) : `${s.runNothing}${since}`;
 }
 
 export function SourceDetail({ name }: { name: string }) {
@@ -68,6 +71,8 @@ export function SourceDetail({ name }: { name: string }) {
       {source.name}
     </Link>
   );
+  // The collection's link goes where the language puts it in the sentence.
+  const [before, after = ""] = s.brings(s.what[source.kind] ?? s.what.csv, PLACE).split(PLACE);
   const reload = () => {
     sources.reload();
     runs.reload();
@@ -82,7 +87,7 @@ export function SourceDetail({ name }: { name: string }) {
 
   return (
     <>
-      <ScreenHeader label={s.label} title={title} lede={<>{s.brings(s.what[source.kind] ?? s.what.csv)} {into}.</>}>
+      <ScreenHeader label={s.label} title={title} lede={<>{before}{into}{after}</>}>
         <Button
           variant="primary"
           icon="sync"
@@ -169,7 +174,7 @@ export function SourceDetail({ name }: { name: string }) {
                     client.setSourceEvery({ source: source.name, everySecs: value === "ask" ? null : Number(value) }),
                   )
                 }
-                options={EVERY}
+                options={EVERY()}
               />
             </div>
             <div className="screen-source-settings__row">

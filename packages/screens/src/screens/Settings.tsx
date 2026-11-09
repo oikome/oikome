@@ -28,8 +28,8 @@ import type { IconName, TileTone } from "@oikome/ui";
 import type { Network, NodeInfo, ReachPolicy, StorageSummary } from "@oikome/client";
 import type { StatusKind } from "@oikome/ui";
 import { useAction, useClient, useLoad } from "../data";
-import { RecoveryKeyPanel, ScreenHeader } from "../parts";
-import { bytes, dateFromMs, homeRelative, middle, shortId } from "../format";
+import { LanguageSelect, RecoveryKeyPanel, ScreenHeader } from "../parts";
+import { bytes, dateFromMs, homeRelative, listNames, middle, shortId } from "../format";
 import { addPlanned, useStoragePicker } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
@@ -221,10 +221,9 @@ function Appearance() {
           />
         }
       />
-      <Row
-        title={s.languageTitle}
-        trailing={<span className="oik-row__value">{s.language}</span>}
-      />
+      <GroupPanel>
+        <LanguageSelect label={s.languageTitle} />
+      </GroupPanel>
     </Group>
   );
 }
@@ -257,9 +256,9 @@ function NetworkSettings() {
   const openFor =
     n.openFor.length === 0
       ? s.openForNothing
-      : n.openFor
-          .map((o) => (o.kind === "share" ? s.openForShare(o.space ?? "", o.name) : s.openForLend(o.name)))
-          .join(", ");
+      : listNames(
+          n.openFor.map((o) => (o.kind === "share" ? s.openForShare(o.space ?? "", o.name) : s.openForLend(o.name))),
+        );
   const change = async (request: { policy?: ReachPolicy; helpContacts?: boolean }) => {
     const updated = await save.run(() => client.setNetwork(request));
     if (updated) {

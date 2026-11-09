@@ -1,0 +1,193 @@
+{
+  "guide": [
+    {
+      "title": "Welcome",
+      "text": "Welcome to Oikome. It keeps your photos, notes and tables on your own computer, in collections, and nowhere else unless you share them."
+    },
+    {
+      "title": "The examples",
+      "text": "Everything you see now is an example, kept as plain files in the Examples folder where your data lives. Edit a note, a CSV file or a photo's caption with any app, and Oikome reads the change within a minute. Photos and notes are read where they are; Sources shows where each table comes from."
+    },
+    {
+      "title": "New collections",
+      "text": "New Collection makes one of your own. Choose where it is stored: Local, a folder, a NAS or a cloud drive. Settings → Storage picks where new ones go."
+    },
+    {
+      "title": "Sharing",
+      "text": "To share a collection, add the person as a contact with their ID, then press Share. You choose whether they view it live or keep a copy, and until when; they get an invite code to open it."
+    },
+    {
+      "title": "Stopping and Activity",
+      "text": "Stop Sharing takes effect at once: their next read is turned away. Activity shows every read and every refusal, and it is kept only on this computer."
+    },
+    {
+      "title": "Recovery key",
+      "text": "Back up your recovery key. It is your identity: with it, this data center can be brought back on a new computer, and no one else has a copy."
+    },
+    {
+      "title": "Shortcuts",
+      "text": "Press ⌘K (Ctrl+K on Windows and Linux) to jump to a collection, a person or a page, or to switch between the Ink and Bold styles."
+    }
+  ],
+  "photos": [
+    {
+      "title": "Alfama from Santa Luzia",
+      "place": "Alfama"
+    },
+    {
+      "title": "Pastéis de Belém",
+      "place": "Belém"
+    },
+    {
+      "title": "Belém Tower",
+      "place": "Belém"
+    },
+    {
+      "title": "Tram 28E",
+      "place": "Graça"
+    },
+    {
+      "title": "Tiled houses",
+      "place": "Lisbon"
+    },
+    {
+      "title": "Sunset on the Tagus",
+      "place": "Riverside"
+    }
+  ],
+  "spending": {
+    "columns": [
+      "what",
+      "day",
+      "category",
+      "euros"
+    ],
+    "rows": [
+      {
+        "what": "Groceries for the week",
+        "category": "Food"
+      },
+      {
+        "what": "Monthly transit pass",
+        "category": "Transport"
+      },
+      {
+        "what": "Coffee with Ana",
+        "category": "Food"
+      },
+      {
+        "what": "Haircut",
+        "category": "Personal"
+      },
+      {
+        "what": "Lunch near the office",
+        "category": "Food"
+      },
+      {
+        "what": "Cinema tickets",
+        "category": "Going out"
+      },
+      {
+        "what": "Farmers' market",
+        "category": "Food"
+      },
+      {
+        "what": "Train to see my parents",
+        "category": "Transport"
+      },
+      {
+        "what": "Phone bill",
+        "category": "Bills"
+      },
+      {
+        "what": "Groceries after work",
+        "category": "Food"
+      },
+      {
+        "what": "A present for Mum",
+        "category": "Shopping"
+      },
+      {
+        "what": "A guidebook to Lisbon",
+        "category": "Shopping"
+      },
+      {
+        "what": "Dinner with friends",
+        "category": "Going out"
+      },
+      {
+        "what": "Electricity bill",
+        "category": "Bills"
+      },
+      {
+        "what": "Sunday brunch",
+        "category": "Food"
+      },
+      {
+        "what": "Groceries for the week ahead",
+        "category": "Food"
+      },
+      {
+        "what": "Bike repair",
+        "category": "Transport"
+      },
+      {
+        "what": "Flight to Lisbon",
+        "category": "Transport"
+      },
+      {
+        "what": "Travel adapter",
+        "category": "Shopping"
+      },
+      {
+        "what": "Pastéis de Belém and coffee",
+        "category": "Food"
+      },
+      {
+        "what": "24-hour transport pass",
+        "category": "Transport"
+      },
+      {
+        "what": "Belém Tower tickets",
+        "category": "Sights"
+      },
+      {
+        "what": "Dinner in Rua das Flores",
+        "category": "Food"
+      },
+      {
+        "what": "Lunch at Time Out Market",
+        "category": "Food"
+      },
+      {
+        "what": "Pessoa's poems at Ler Devagar",
+        "category": "Shopping"
+      },
+      {
+        "what": "Ginjinha in Rossio",
+        "category": "Going out"
+      },
+      {
+        "what": "A tile from Feira da Ladra",
+        "category": "Shopping"
+      },
+      {
+        "what": "Fado at Tasca do Chico",
+        "category": "Going out"
+      },
+      {
+        "what": "Metro to the airport",
+        "category": "Transport"
+      }
+    ]
+  },
+  "readings": {
+    "columns": [
+      "at",
+      "living_room_celsius",
+      "bedroom_celsius",
+      "outside_celsius",
+      "humidity_pct"
+    ]
+  }
+}

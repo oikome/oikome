@@ -224,9 +224,10 @@
    content's: 14 px above and below, as the prototype's. */
 .oik-group__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-1) var(--space-3);
   padding: 14px var(--space-4);
   border-bottom: var(--bw) solid var(--line2);
 }
@@ -1132,6 +1133,14 @@
 [data-theme="bold"] .oik-table td {
   height: 50px;
   border-top: 2px solid #111;
+}
+/* A value read as a whole (a date, a number): never broken across lines. */
+.oik-table td.oik-table__one-line {
+  white-space: nowrap;
+}
+/* Text wraps, but at a readable width, not a character a line. */
+.oik-table td.oik-table__text {
+  min-width: 10em;
 }
 .oik-table tbody tr:first-child td {
   border-top: 0;

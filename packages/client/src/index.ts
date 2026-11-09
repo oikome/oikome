@@ -10,6 +10,7 @@ import type {
   AcceptInvite,
   AcceptedInvite,
   AccessItem,
+  AddExamples,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -108,7 +109,8 @@ export interface NodeClient {
   createSpace(request: NewSpace): Promise<SpaceSummary>;
   dropSpace(request: SpaceRef): Promise<Empty>;
   listTables(request: SpaceRef): Promise<TableSummary[]>;
-  addExamples(): Promise<SpaceSummary[]>;
+  /** Once, on a new data center: the examples, in `language` when they are written in it. */
+  addExamples(request?: AddExamples): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
@@ -185,12 +187,24 @@ export class OikomeError extends Error {
   readonly code: ErrorCode | "network";
   /** The HTTP status; 0 when the node could not be reached. */
   readonly status: number;
+  /** For a failure written for people, which one (`invite_ended`), so the app words it in its language. */
+  readonly reason?: string;
+  /** The values the reason's sentence names. */
+  readonly params: Record<string, string>;
 
-  constructor(code: ErrorCode | "network", message: string, status: number) {
+  constructor(
+    code: ErrorCode | "network",
+    message: string,
+    status: number,
+    reason?: string,
+    params: Record<string, string> = {},
+  ) {
     super(message);
     this.name = "OikomeError";
     this.code = code;
     this.status = status;
+    this.reason = reason;
+    this.params = params;
   }
 }
 
@@ -228,14 +242,18 @@ export class HttpClient implements NodeClient {
     if (!response.ok) {
       let code: ErrorCode = "internal";
       let message = `the node answered ${response.status}`;
+      let reason: string | undefined;
+      let params: Record<string, string> = {};
       try {
         const error = (await response.json()) as ApiError;
         code = error.code;
         message = error.message;
+        reason = error.reason;
+        params = error.params ?? {};
       } catch {
         // Not a JSON error body.
       }
-      throw new OikomeError(code, message, response.status);
+      throw new OikomeError(code, message, response.status, reason, params);
     }
     return response;
   }
@@ -285,8 +303,8 @@ export class HttpClient implements NodeClient {
     return this.#json("list_tables", request);
   }
 
-  addExamples(): Promise<SpaceSummary[]> {
-    return this.#json("add_examples", {});
+  addExamples(request: AddExamples = {}): Promise<SpaceSummary[]> {
+    return this.#json("add_examples", request);
   }
 
   listStorages(): Promise<StorageSummary[]> {

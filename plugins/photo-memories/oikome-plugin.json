@@ -16,5 +16,42 @@
     "width": 4,
     "height": 300
   },
-  "entry": "index.html"
+  "entry": "index.html",
+  "translations": {
+    "de": {
+      "name": "Foto-Erinnerungen",
+      "description": "Ein Foto von etwa diesem Tag aus einem früheren Jahr, aus den Fotos, die du auswählst.",
+      "reads": "Fotos, mit dem Tag, an dem jedes aufgenommen wurde"
+    },
+    "fr": {
+      "name": "Souvenirs photo",
+      "description": "Une photo prise vers ce jour une année précédente, parmi les photos que vous choisissez.",
+      "reads": "Des photos, avec le jour où chacune a été prise"
+    },
+    "ja": {
+      "name": "写真の思い出",
+      "description": "選んだ写真の中から、以前の年のちょうど今ごろに撮った 1 枚を表示します。",
+      "reads": "写真と、それぞれを撮った日"
+    },
+    "ko": {
+      "name": "사진 추억",
+      "description": "고른 사진 가운데 예전 해의 오늘 무렵에 찍은 사진 한 장을 보여 줍니다.",
+      "reads": "사진과 각 사진을 찍은 날"
+    },
+    "ru": {
+      "name": "Фотовоспоминания",
+      "description": "Фото примерно из этого дня одного из прошлых лет, из выбранных вами фотографий.",
+      "reads": "Фотографии с днём, когда снята каждая"
+    },
+    "zh-Hans": {
+      "name": "照片回忆",
+      "description": "从你选的照片里，挑一张往年这几天拍的。",
+      "reads": "照片，以及每张的拍摄日期"
+    },
+    "zh-Hant": {
+      "name": "照片回憶",
+      "description": "從你選的照片裡，挑一張往年這幾天拍的。",
+      "reads": "照片，以及每張的拍攝日期"
+    }
+  }
 }

@@ -171,7 +171,7 @@ export function Cover({
           {space.example && <Tag>{s.example}</Tag>}
           {space.kind !== "remote" && (
             <span className="screen-cover__who" aria-hidden="true">
-              <AvatarStack names={names} label={s.whoSentence(names)} />
+              <AvatarStack names={names} label={s.whoSentence(names)} you={strings.common.you} />
             </span>
           )}
         </span>

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { OikomeError } from "@oikome/client";
 import type { NodeClient } from "@oikome/client";
 import { strings } from "./strings";
+import { sentence } from "./i18n/en";
 
 const ClientContext = createContext<NodeClient | null>(null);
 
@@ -56,12 +57,16 @@ export function errorMessage(e: unknown, describe?: Describe): string {
 export const rawMessage: Describe = (e) => e.message;
 
 /**
- * The node's message as a sentence, for calls whose messages are written
- * for people (invites): "this invite has ended" reads "This invite has ended."
+ * For calls whose failures are written for people (invites, plugins): the
+ * app's words for the node's reason, in the language in use, else the
+ * node's English message as a sentence ("this invite has ended" reads
+ * "This invite has ended.").
  */
 export const asSentence: Describe = (e) => {
-  const m = e.message.trim();
-  return m ? m.charAt(0).toUpperCase() + m.slice(1) + (/[.!?]$/.test(m) ? "" : ".") : undefined;
+  const words = e.reason ? (strings.reasons as Record<string, unknown>)[e.reason] : undefined;
+  if (typeof words === "string") return words;
+  if (typeof words === "function") return (words as (params: Record<string, string>) => string)(e.params);
+  return sentence(e.message) || undefined;
 };
 
 export interface Loaded<T> {

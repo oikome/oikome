@@ -23,6 +23,16 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Empty {}
 
+/// `add_examples`: the language the app is in (`de`, `zh-Hans`), so the
+/// examples are written in it; English when it is none they are in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct AddExamples {
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
 /// This node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1135,6 +1145,22 @@ pub struct Plugin {
     pub installed: bool,
     /// The collections it may read (installed plugins only).
     pub collections: Vec<String>,
+    /// Its name and descriptions in other languages, by language tag
+    /// (`de`, `zh-Hans`); an app falls back to the fields above.
+    pub translations: std::collections::BTreeMap<String, PluginText>,
+}
+
+/// A plugin's words in one language; a missing one falls back to English.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginText {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads: Option<String>,
 }
 
 /// `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on

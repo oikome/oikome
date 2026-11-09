@@ -26,7 +26,12 @@
 //! as it is; the owner removes an example like any other collection, and
 //! its files stay.
 //!
-//! Every value here is a constant of this file.
+//! Every value here is a constant of this file, and their words, in the
+//! language the owner first ran Oikome in (M8), are in
+//! `assets/examples/<language>.json`. The collections' names are the same
+//! in every language: they name the folders and are typed in SQL.
+
+use serde::Deserialize;
 
 /// How an example's folder is read.
 pub(crate) enum Feed {
@@ -54,11 +59,10 @@ pub(crate) struct Example {
 /// what the owner edits later comes first.
 const GUIDE_WRITTEN: u64 = 1_761_469_200;
 
-/// A photo of the trip. The pictures are from Wikimedia Commons; `credit`
-/// names each one's author and licence, and travels with the row.
+/// A photo of the trip, in the order of the words' `photos`. The pictures
+/// are from Wikimedia Commons; `credit` names each one's author and
+/// licence, in English as licences are written, and travels with the row.
 struct Photo {
-    title: &'static str,
-    place: &'static str,
     taken: &'static str,
     jpeg: &'static [u8],
     credit: &'static str,
@@ -66,123 +70,144 @@ struct Photo {
 
 const PHOTOS: &[Photo] = &[
     Photo {
-        title: "Alfama from Santa Luzia",
-        place: "Alfama",
         taken: "2025-11-07 09:40:00",
         jpeg: include_bytes!("../assets/lisbon/alfama.jpg"),
         credit: "\"Lisbon rooftops\" by Naval S from Berlin, CC BY 2.0, via Wikimedia Commons",
     },
     Photo {
-        title: "Pastéis de Belém",
-        place: "Belém",
         taken: "2025-11-07 11:05:00",
         jpeg: include_bytes!("../assets/lisbon/pasteis.jpg"),
         credit: "\"Pasteis de Belem\" by Heather Cowper from Bristol, UK, CC BY 2.0, via Wikimedia Commons",
     },
     Photo {
-        title: "Belém Tower",
-        place: "Belém",
         taken: "2025-11-07 12:30:00",
         jpeg: include_bytes!("../assets/lisbon/belem-tower.jpg"),
         credit: "\"Belem Tower\" by Neil, CC BY 2.0, via Wikimedia Commons",
     },
     Photo {
-        title: "Tram 28E",
-        place: "Graça",
         taken: "2025-11-08 10:15:00",
         jpeg: include_bytes!("../assets/lisbon/tram.jpg"),
         credit: "\"Tram of line 28E on Rua Augusto Rosa in Lisbon\" by Jakub Hałun, CC BY 4.0, via Wikimedia Commons",
     },
     Photo {
-        title: "Tiled houses",
-        place: "Lisbon",
         taken: "2025-11-08 15:20:00",
         jpeg: include_bytes!("../assets/lisbon/tiles.jpg"),
         credit: "\"Azulejos in Lisboa\" by Nan Palmero from San Antonio, TX, USA, CC BY 2.0, via Wikimedia Commons",
     },
     Photo {
-        title: "Sunset on the Tagus",
-        place: "Riverside",
         taken: "2025-11-09 18:05:00",
         jpeg: include_bytes!("../assets/lisbon/sunset.jpg"),
         credit: "\"Sunset in Lisbon\", CC0, via Wikimedia Commons",
     },
 ];
 
-/// Day, what, category, euros.
-const SPENDING: &[(&str, &str, &str, &str)] = &[
-    ("2025-10-20", "Groceries for the week", "Food", "46.20"),
-    ("2025-10-20", "Monthly transit pass", "Transport", "40.00"),
-    ("2025-10-21", "Coffee with Ana", "Food", "6.40"),
-    ("2025-10-22", "Haircut", "Personal", "18.00"),
-    ("2025-10-23", "Lunch near the office", "Food", "11.50"),
-    ("2025-10-24", "Cinema tickets", "Going out", "19.00"),
-    ("2025-10-25", "Farmers' market", "Food", "23.80"),
-    (
-        "2025-10-26",
-        "Train to see my parents",
-        "Transport",
-        "24.60",
-    ),
-    ("2025-10-27", "Phone bill", "Bills", "15.00"),
-    ("2025-10-28", "Groceries after work", "Food", "31.75"),
-    ("2025-10-29", "A present for Mum", "Shopping", "35.00"),
-    ("2025-10-30", "A guidebook to Lisbon", "Shopping", "16.90"),
-    ("2025-10-31", "Dinner with friends", "Going out", "42.00"),
-    ("2025-11-01", "Electricity bill", "Bills", "58.30"),
-    ("2025-11-02", "Sunday brunch", "Food", "21.40"),
-    (
-        "2025-11-03",
-        "Groceries for the week ahead",
-        "Food",
-        "52.10",
-    ),
-    ("2025-11-04", "Bike repair", "Transport", "28.00"),
-    ("2025-11-05", "Flight to Lisbon", "Transport", "89.00"),
-    ("2025-11-06", "Travel adapter", "Shopping", "12.99"),
-    ("2025-11-07", "Pastéis de Belém and coffee", "Food", "7.80"),
-    ("2025-11-07", "24-hour transport pass", "Transport", "6.80"),
-    ("2025-11-07", "Belém Tower tickets", "Sights", "16.00"),
-    ("2025-11-07", "Dinner in Rua das Flores", "Food", "38.50"),
-    ("2025-11-08", "Lunch at Time Out Market", "Food", "21.00"),
-    (
-        "2025-11-08",
-        "Pessoa's poems at Ler Devagar",
-        "Shopping",
-        "24.90",
-    ),
-    ("2025-11-08", "Ginjinha in Rossio", "Going out", "3.00"),
-    (
-        "2025-11-09",
-        "A tile from Feira da Ladra",
-        "Shopping",
-        "15.00",
-    ),
-    ("2025-11-09", "Fado at Tasca do Chico", "Going out", "27.00"),
-    ("2025-11-09", "Metro to the airport", "Transport", "1.85"),
+/// Day and euros of each line of spending, in the order of the words'
+/// `spending.rows`.
+const SPENDING: &[(&str, &str)] = &[
+    ("2025-10-20", "46.20"),
+    ("2025-10-20", "40.00"),
+    ("2025-10-21", "6.40"),
+    ("2025-10-22", "18.00"),
+    ("2025-10-23", "11.50"),
+    ("2025-10-24", "19.00"),
+    ("2025-10-25", "23.80"),
+    ("2025-10-26", "24.60"),
+    ("2025-10-27", "15.00"),
+    ("2025-10-28", "31.75"),
+    ("2025-10-29", "35.00"),
+    ("2025-10-30", "16.90"),
+    ("2025-10-31", "42.00"),
+    ("2025-11-01", "58.30"),
+    ("2025-11-02", "21.40"),
+    ("2025-11-03", "52.10"),
+    ("2025-11-04", "28.00"),
+    ("2025-11-05", "89.00"),
+    ("2025-11-06", "12.99"),
+    ("2025-11-07", "7.80"),
+    ("2025-11-07", "6.80"),
+    ("2025-11-07", "16.00"),
+    ("2025-11-07", "38.50"),
+    ("2025-11-08", "21.00"),
+    ("2025-11-08", "24.90"),
+    ("2025-11-08", "3.00"),
+    ("2025-11-09", "15.00"),
+    ("2025-11-09", "27.00"),
+    ("2025-11-09", "1.85"),
 ];
 
-/// What Oikome is and how to use it, a note at a time, in reading order.
-/// The UI's own words: collection, contact, share, Activity, recovery key.
-const GUIDE: &[&str] = &[
-    "Welcome to Oikome. It keeps your photos, notes and tables on your own computer, in \
-     collections, and nowhere else unless you share them.",
-    "Everything you see now is an example, kept as plain files in the Examples folder where \
-     your data lives. Edit a note, a CSV file or a photo's caption with any app, and Oikome \
-     reads the change within a minute. Photos and notes are read where they are; Sources \
-     shows where each table comes from.",
-    "New Collection makes one of your own. Choose where it is stored: Local, a \
-     folder, a NAS or a cloud drive. Settings \u{2192} Storage picks where new ones go.",
-    "To share a collection, add the person as a contact with their ID, then press Share. \
-     You choose whether they view it live or keep a copy, and until when; they get an invite \
-     code to open it.",
-    "Stop Sharing takes effect at once: their next read is turned away. Activity shows every \
-     read and every refusal, and it is kept only on this computer.",
-    "Back up your recovery key. It is your identity: with it, this data center can be brought \
-     back on a new computer, and no one else has a copy.",
-    "Press \u{2318}K (Ctrl+K on Windows and Linux) to jump to a collection, a person or a page, \
-     or to switch between the Ink and Bold styles.",
+/// The words of the examples in one language: the guide's notes, the
+/// photos' titles and places, the spending's lines and categories, and the
+/// tables' column names. Dates, amounts, readings and credits are the same
+/// in every language. `assets/examples/<language>.json`; British English
+/// reads the same words as American.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Words {
+    /// What Oikome is and how to use it, a note at a time, in reading
+    /// order, in the app's own words: collection, contact, share, Activity,
+    /// recovery key.
+    guide: Vec<Note>,
+    photos: Vec<PhotoWords>,
+    spending: Spending,
+    readings: Readings,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Note {
+    title: String,
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhotoWords {
+    title: String,
+    place: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Spending {
+    /// What, day, category, euros.
+    columns: [String; 4],
+    rows: Vec<Line>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Line {
+    what: String,
+    category: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Readings {
+    /// When, then the living room, the bedroom and outside in °C (each
+    /// name ends in `_celsius`), then humidity in percent (`_pct`).
+    columns: [String; 5],
+}
+
+/// The languages the examples are written in, as the apps name them.
+pub(crate) const LANGUAGES: [&str; 9] = [
+    "en", "en-GB", "de", "fr", "ja", "ko", "ru", "zh-Hans", "zh-Hant",
 ];
+
+fn words(language: &str) -> Words {
+    let text = match language {
+        "de" => include_str!("../assets/examples/de.json"),
+        "fr" => include_str!("../assets/examples/fr.json"),
+        "ja" => include_str!("../assets/examples/ja.json"),
+        "ko" => include_str!("../assets/examples/ko.json"),
+        "ru" => include_str!("../assets/examples/ru.json"),
+        "zh-Hans" => include_str!("../assets/examples/zh-Hans.json"),
+        "zh-Hant" => include_str!("../assets/examples/zh-Hant.json"),
+        _ => include_str!("../assets/examples/en.json"),
+    };
+    // Checked by the tests below for every language.
+    serde_json::from_str(text).expect("the examples' words are valid")
+}
 
 /// Hours of temperature and humidity readings: two weeks.
 const CLIMATE_HOURS: u32 = 14 * 24;
@@ -262,42 +287,41 @@ fn csv(header: &[&str], rows: impl IntoIterator<Item = Vec<String>>) -> Vec<u8> 
     out.into_bytes()
 }
 
-/// The examples, in the order they are created.
-pub(crate) fn examples() -> Vec<Example> {
-    let guide_titles = [
-        "Welcome",
-        "The examples",
-        "New collections",
-        "Sharing",
-        "Stopping and Activity",
-        "Recovery key",
-        "Shortcuts",
-    ];
-    let guide = GUIDE
+/// A table's column names, as the CSV writer takes them.
+fn header(columns: &[String]) -> Vec<&str> {
+    columns.iter().map(String::as_str).collect()
+}
+
+/// The examples, in `language` (one of [`LANGUAGES`], else English), in
+/// the order they are created.
+pub(crate) fn examples(language: &str) -> Vec<Example> {
+    let words = words(language);
+    let guide = words
+        .guide
         .iter()
-        .zip(guide_titles)
         .enumerate()
-        .map(|(i, (text, title))| {
+        .map(|(i, note)| {
             (
-                format!("{} {title}.md", i + 1),
-                format!("{text}\n").into_bytes(),
+                format!("{} {}.md", i + 1, note.title),
+                format!("{}\n", note.text).into_bytes(),
             )
         })
         .collect();
 
     let mut photos: Vec<(String, Vec<u8>)> = PHOTOS
         .iter()
-        .map(|p| (format!("{}.jpg", p.title), p.jpeg.to_vec()))
+        .zip(&words.photos)
+        .map(|(p, w)| (format!("{}.jpg", w.title), p.jpeg.to_vec()))
         .collect();
     photos.push((
         "captions.csv".to_string(),
         csv(
             &["file", "title", "place", "taken", "credit"],
-            PHOTOS.iter().map(|p| {
+            PHOTOS.iter().zip(&words.photos).map(|(p, w)| {
                 vec![
-                    format!("{}.jpg", p.title),
-                    p.title.to_string(),
-                    p.place.to_string(),
+                    format!("{}.jpg", w.title),
+                    w.title.clone(),
+                    w.place.clone(),
                     p.taken[..16].to_string(),
                     p.credit.to_string(),
                 ]
@@ -308,28 +332,25 @@ pub(crate) fn examples() -> Vec<Example> {
     let spending = vec![(
         "spending.csv".to_string(),
         csv(
-            &["what", "day", "category", "euros"],
-            SPENDING.iter().map(|(day, what, category, euros)| {
-                vec![
-                    what.to_string(),
-                    day.to_string(),
-                    category.to_string(),
-                    euros.to_string(),
-                ]
-            }),
+            &header(&words.spending.columns),
+            SPENDING
+                .iter()
+                .zip(&words.spending.rows)
+                .map(|((day, euros), line)| {
+                    vec![
+                        line.what.clone(),
+                        day.to_string(),
+                        line.category.clone(),
+                        euros.to_string(),
+                    ]
+                }),
         ),
     )];
 
     let readings = vec![(
         "readings.csv".to_string(),
         csv(
-            &[
-                "at",
-                "living_room_celsius",
-                "bedroom_celsius",
-                "outside_celsius",
-                "humidity_pct",
-            ],
+            &header(&words.readings.columns),
             (0..CLIMATE_HOURS).map(|hour| {
                 let (living, bedroom, outside, humidity) = climate(hour);
                 // From midnight on Monday, October 27, 2025, to the trip's last evening.
@@ -383,6 +404,43 @@ pub(crate) fn examples() -> Vec<Example> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_language_has_all_the_words() {
+        for language in LANGUAGES {
+            let words = words(language);
+            assert_eq!(words.guide.len(), 7, "{language}");
+            assert_eq!(words.photos.len(), PHOTOS.len(), "{language}");
+            assert_eq!(words.spending.rows.len(), SPENDING.len(), "{language}");
+            let columns = words.spending.columns.iter().chain(&words.readings.columns);
+            for name in columns {
+                assert!(
+                    !name.trim().is_empty() && !name.contains(['"', '.']),
+                    "{language}: {name}"
+                );
+            }
+            for (i, name) in words.readings.columns.iter().enumerate() {
+                let unit = match i {
+                    0 => continue,
+                    4 => "_pct",
+                    _ => "_celsius",
+                };
+                assert!(name.ends_with(unit), "{language}: {name}");
+            }
+            // File names: no separators, nothing hidden.
+            let names = words
+                .guide
+                .iter()
+                .map(|n| &n.title)
+                .chain(words.photos.iter().map(|p| &p.title));
+            for name in names {
+                assert!(
+                    !name.contains(['/', '\\', ':']) && !name.starts_with('.'),
+                    "{language}: {name}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn csv_fields_are_quoted_when_they_need_it() {

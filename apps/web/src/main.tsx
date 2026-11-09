@@ -7,7 +7,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { HttpClient } from "@oikome/client";
-import { App, savedTheme } from "@oikome/screens";
+import { App, savedTheme, startLanguage } from "@oikome/screens";
 import "@oikome/ui/tokens.css";
 import "@oikome/ui/ui.css";
 import "@oikome/screens/screens.css";
@@ -15,11 +15,15 @@ import "@oikome/screens/screens.css";
 // The style picked in Settings, on <html> before anything paints.
 document.documentElement.dataset.theme = savedTheme();
 
+// The language picked here, else the browser's, before the first paint, so
+// no English flashes first.
 const root = document.getElementById("root");
 if (root) {
-  createRoot(root).render(
-    <StrictMode>
-      <App client={new HttpClient()} />
-    </StrictMode>,
+  void startLanguage().then(() =>
+    createRoot(root).render(
+      <StrictMode>
+        <App client={new HttpClient()} />
+      </StrictMode>,
+    ),
   );
 }

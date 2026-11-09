@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Button, Checkbox, CopyField, ErrorText, Icon, InsetWell } from "@oikome/ui";
+import { Button, Checkbox, CopyField, ErrorText, Icon, InsetWell, Select } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
@@ -14,6 +14,8 @@ import { useAction, useClient, useLoad } from "./data";
 import { calendarDate, cell, columnLabel, dateTime, decimal, isoTime, wallTime } from "./format";
 import { navigate, plainClick, previousPage } from "./router";
 import { strings } from "./strings";
+import { LANGUAGES, locale, setLanguage, useLanguage } from "./i18n/languages";
+import type { Language } from "./i18n/languages";
 
 /** A screen's title, a small label over it and a line under it, actions on the right. */
 export function ScreenHeader({
@@ -143,7 +145,15 @@ export function RowsTable({ table, label }: { table: Table; label: string }) {
   const formats = fields.map((field, c) => {
     if (!DataType.isFloat(field.type)) return undefined;
     const digits = columnDecimals(table, c);
-    return new Intl.NumberFormat("en", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return new Intl.NumberFormat(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  });
+  // Days, times and numbers stay on one line: Chinese and Japanese may
+  // break between any two characters, which would stack a date a character
+  // a line in a narrow column. The table scrolls in its card instead.
+  const oneLine = fields.map((field, c) => {
+    if (numeric(field) || DataType.isDate(field.type) || DataType.isTimestamp(field.type)) return true;
+    const first = table.getChildAt(c)?.get(0) as unknown;
+    return typeof first === "string" && isoTime(first) !== undefined;
   });
   const rows = Array.from({ length: table.numRows }, (_, r) =>
     fields.map((field, c) => {
@@ -168,7 +178,10 @@ export function RowsTable({ table, label }: { table: Table; label: string }) {
           {rows.map((row, i) => (
             <tr key={i}>
               {row.map((value, j) => (
-                <td key={j} className={numeric(fields[j]!) ? "oik-num" : undefined}>
+                <td
+                  key={j}
+                  className={numeric(fields[j]!) ? "oik-num oik-table__one-line" : oneLine[j] ? "oik-table__one-line" : "oik-table__text"}
+                >
                   {value === null ? (
                     <span className="oik-table__null" aria-label="empty">
                       —
@@ -268,5 +281,24 @@ export function RecoveryKeyPanel({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The app's language on this device, each named in its own words. A pick
+ * draws the app in it at once and is kept here.
+ */
+export function LanguageSelect({ label, compact }: { label: string; compact?: boolean }) {
+  const current = useLanguage();
+  return (
+    <Select
+      label={label}
+      inline={compact}
+      hideLabel={compact}
+      value={current}
+      leading={<Icon name="globe" />}
+      onChange={(code) => void setLanguage(code as Language)}
+      options={LANGUAGES.map((l) => ({ value: l.code, label: l.name }))}
+    />
   );
 }

@@ -24,6 +24,7 @@
 //! the read in a session *as the plugin*, so the node's own grants decide;
 //! each read, and each refusal, goes to the access log.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use oikome_identity::NodeIdentity;
@@ -34,7 +35,8 @@ use serde::{Deserialize, Serialize};
 use crate::invites::read_private;
 use crate::{
     encode_rows, now_ms, Api, ApiError, Caller, Empty, ErrorCode, InstallPlugin, Plugin,
-    PluginCollections, PluginColumn, PluginFolder, PluginRead, PluginRef, PluginShape, Rows,
+    PluginCollections, PluginColumn, PluginFolder, PluginRead, PluginRef, PluginShape, PluginText,
+    Rows,
 };
 
 /// The bridge every plugin page loads first (`/plugins/sdk.js`).
@@ -114,6 +116,29 @@ struct Manifest {
     card: ManifestCard,
     #[serde(default = "index_html")]
     entry: String,
+    /// Its name and descriptions in other languages (M8).
+    #[serde(default)]
+    translations: BTreeMap<String, ManifestText>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestText {
+    name: Option<String>,
+    description: Option<String>,
+    reads: Option<String>,
+}
+
+/// Languages a manifest may name: about as many as the apps have.
+const MAX_LANGUAGES: usize = 40;
+
+/// A language tag as BCP 47 writes them: `de`, `pt-BR`, `zh-Hans`.
+fn valid_language(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= 20
+        && tag.split('-').all(|part| {
+            !part.is_empty() && part.len() <= 8 && part.chars().all(|c| c.is_ascii_alphanumeric())
+        })
 }
 
 #[derive(Deserialize)]
@@ -159,6 +184,9 @@ pub(crate) struct Installed {
     built_in: bool,
     collections: Vec<String>,
     installed_at_ms: u64,
+    /// Its words in other languages (M8); none for one added before.
+    #[serde(default)]
+    translations: BTreeMap<String, PluginText>,
 }
 
 impl Installed {
@@ -178,6 +206,14 @@ impl Installed {
             built_in: self.built_in,
             installed: true,
             collections: self.collections.clone(),
+            // Oikome's own speak the languages of the app they came with,
+            // also when added before it did.
+            translations: self
+                .built_in
+                .then(|| Api::built_in_manifest(&self.id))
+                .flatten()
+                .map(|plugin| plugin.translations)
+                .unwrap_or_else(|| self.translations.clone()),
         }
     }
 }
@@ -189,7 +225,7 @@ fn field(value: &str, what: &str, max: usize, required: bool) -> Result<String, 
         || value.chars().count() > max
         || value.chars().any(char::is_control)
     {
-        return Err(ApiError::invalid(format!(
+        return Err(unfit(format!(
             "the plugin's {what} must be {}up to {max} characters on one line",
             if required { "1 and " } else { "" }
         )));
@@ -230,30 +266,54 @@ pub(crate) fn safe_path(path: &str) -> bool {
 /// A manifest's contents, checked, as a plugin not yet installed.
 fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
     let m: Manifest = serde_json::from_slice(bytes)
-        .map_err(|e| ApiError::invalid(format!("{MANIFEST} can't be read: {e}")))?;
+        .map_err(|e| unfit(format!("{MANIFEST} can't be read: {e}")))?;
     if !valid_id(&m.id) {
-        return Err(ApiError::invalid(
+        return Err(unfit(
             "the plugin's id must be lowercase letters, digits and -, starting with a letter, up to 40",
         ));
     }
     let width = m.card.width.unwrap_or(4);
     let height = m.card.height.unwrap_or(240);
     if !(4..=12).contains(&width) || !(120..=600).contains(&height) {
-        return Err(ApiError::invalid(
+        return Err(unfit(
             "a plugin's card is 4 to 12 columns wide and 120 to 600 pixels high",
         ));
     }
     if !safe_path(&m.entry) || !m.entry.ends_with(".html") {
-        return Err(ApiError::invalid(
+        return Err(unfit(
             "the plugin's entry must be an .html file in its folder",
         ));
+    }
+    if m.translations.len() > MAX_LANGUAGES {
+        return Err(unfit(format!(
+            "a plugin's translations name up to {MAX_LANGUAGES} languages"
+        )));
+    }
+    let mut translations = BTreeMap::new();
+    for (tag, text) in m.translations {
+        if !valid_language(&tag) {
+            return Err(unfit(format!(
+                "{tag} isn't a language tag, such as de or zh-Hans"
+            )));
+        }
+        let optional = |value: Option<String>, what: &str, max: usize| {
+            value.map(|v| field(&v, what, max, true)).transpose()
+        };
+        translations.insert(
+            tag,
+            PluginText {
+                name: optional(text.name, "name", 60)?,
+                description: optional(text.description, "description", 300)?,
+                reads: optional(text.reads, "description of what it reads", 200)?,
+            },
+        );
     }
     let version = field(&m.version, "version", 20, true)?;
     if !version
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
     {
-        return Err(ApiError::invalid("the plugin's version must be like 1.2.0"));
+        return Err(unfit("the plugin's version must be like 1.2.0"));
     }
     Ok(Plugin {
         name: field(&m.name, "name", 60, true)?,
@@ -269,8 +329,18 @@ fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
         built_in,
         installed: false,
         collections: Vec::new(),
+        translations,
         id: m.id,
     })
+}
+
+/// A plugin that can't be added as it is: the detail is for its maker, in
+/// English, like a SQL error.
+fn unfit(detail: impl Into<String>) -> ApiError {
+    let detail = detail.into();
+    ApiError::invalid(detail.clone())
+        .because("plugin_invalid")
+        .with("detail", detail)
 }
 
 /// The files of a plugin folder on this computer, checked: no links, no
@@ -301,19 +371,19 @@ fn read_folder(root: &Path) -> Result<Files, ApiError> {
                 .to_string_lossy()
                 .replace('\\', "/");
             if meta.file_type().is_symlink() {
-                return Err(ApiError::invalid(format!(
+                return Err(unfit(format!(
                     "{rel} is a link; a plugin's folder holds its files themselves"
                 )));
             }
             if meta.is_dir() {
                 if depth + 1 >= MAX_DEPTH {
-                    return Err(ApiError::invalid("the plugin's folders go too deep"));
+                    return Err(unfit("the plugin's folders go too deep"));
                 }
                 walk(root, &entry.path(), depth + 1, out, total)?;
                 continue;
             }
             if !safe_path(&rel) {
-                return Err(ApiError::invalid(format!(
+                return Err(unfit(format!(
                     "{rel} isn't a file a plugin may have (names of letters, digits, . _ -; \
                      {} files)",
                     KINDS.join(" ")
@@ -321,7 +391,7 @@ fn read_folder(root: &Path) -> Result<Files, ApiError> {
             }
             *total += meta.len();
             if out.len() >= MAX_FILES || *total > MAX_BYTES {
-                return Err(ApiError::invalid(format!(
+                return Err(unfit(format!(
                     "a plugin has up to {MAX_FILES} files and {} MB in all",
                     MAX_BYTES >> 20
                 )));
@@ -369,7 +439,11 @@ impl Api {
         self.installed()?
             .into_iter()
             .find(|p| p.id == id)
-            .ok_or_else(|| ApiError::not_found(format!("there is no plugin {id}")))
+            .ok_or_else(|| {
+                ApiError::not_found(format!("there is no plugin {id}"))
+                    .because("plugin_unknown")
+                    .with("id", id)
+            })
     }
 
     fn built_in(id: &str) -> Option<&'static [(&'static str, &'static [u8])]> {
@@ -380,6 +454,14 @@ impl Api {
                 .and_then(|(_, bytes)| read_manifest(bytes, true).ok())
                 .is_some_and(|p| p.id == id)
         })
+    }
+
+    /// One of Oikome's own plugins, as its manifest in this build says.
+    fn built_in_manifest(id: &str) -> Option<Plugin> {
+        Self::built_in(id)?
+            .iter()
+            .find(|(name, _)| *name == MANIFEST)
+            .and_then(|(_, bytes)| read_manifest(bytes, true).ok())
     }
 
     /// Plugins installed here, then Oikome's own not added yet.
@@ -419,22 +501,29 @@ impl Api {
     fn plugin_in_folder(&self, path: &str) -> Result<(Plugin, Files), ApiError> {
         let given = Path::new(path.trim());
         if !given.is_absolute() {
-            return Err(ApiError::invalid("choose a folder on this computer"));
+            return Err(
+                ApiError::invalid("choose a folder on this computer").because("plugin_folder")
+            );
         }
-        let root = given
-            .canonicalize()
-            .map_err(|_| ApiError::invalid(format!("{} is not there", given.display())))?;
+        let root = given.canonicalize().map_err(|_| {
+            ApiError::invalid(format!("{} is not there", given.display()))
+                .because("plugin_not_there")
+                .with("path", given.display().to_string())
+        })?;
         if !root.is_dir() {
-            return Err(ApiError::invalid(format!(
-                "{} is not a folder",
-                root.display()
-            )));
+            return Err(
+                ApiError::invalid(format!("{} is not a folder", root.display()))
+                    .because("plugin_not_folder")
+                    .with("path", root.display().to_string()),
+            );
         }
         if !root.join(MANIFEST).is_file() {
             return Err(ApiError::invalid(format!(
                 "{} has no {MANIFEST}, so it isn't a plugin",
                 root.display()
-            )));
+            ))
+            .because("plugin_no_manifest")
+            .with("path", root.display().to_string()));
         }
         let files = read_folder(&root)?;
         let manifest = files
@@ -444,7 +533,7 @@ impl Api {
             .unwrap_or_default();
         let plugin = read_manifest(manifest, false)?;
         if !files.iter().any(|(name, _)| *name == plugin.entry) {
-            return Err(ApiError::invalid(format!(
+            return Err(unfit(format!(
                 "the plugin's entry, {}, isn't in its folder",
                 plugin.entry
             )));
@@ -464,8 +553,11 @@ impl Api {
         self.refresh()?;
         let (plugin, files) = match (&req.built_in, &req.path) {
             (Some(id), None) => {
-                let files = Self::built_in(id)
-                    .ok_or_else(|| ApiError::not_found(format!("Oikome has no plugin {id}")))?;
+                let files = Self::built_in(id).ok_or_else(|| {
+                    ApiError::not_found(format!("Oikome has no plugin {id}"))
+                        .because("plugin_not_built_in")
+                        .with("id", id)
+                })?;
                 let manifest = files
                     .iter()
                     .find(|(name, _)| *name == MANIFEST)
@@ -479,9 +571,10 @@ impl Api {
             }
             (None, Some(path)) => self.plugin_in_folder(path)?,
             _ => {
-                return Err(ApiError::invalid(
-                    "add one of Oikome's plugins or a plugin's folder",
-                ))
+                return Err(
+                    ApiError::invalid("add one of Oikome's plugins or a plugin's folder")
+                        .because("plugin_which"),
+                )
             }
         };
         let collections = self.readable_by_plugins(&req.collections)?;
@@ -489,7 +582,9 @@ impl Api {
         if existing.is_none() && self.installed()?.len() >= MAX_INSTALLED {
             return Err(ApiError::invalid(format!(
                 "up to {MAX_INSTALLED} plugins can be added; remove one first"
-            )));
+            ))
+            .because("plugins_too_many")
+            .with("max", MAX_INSTALLED.to_string()));
         }
         self.put_files(&plugin.id, files)?;
         let did = match &existing {
@@ -515,6 +610,7 @@ impl Api {
             built_in: plugin.built_in,
             collections: existing.map(|p| p.collections).unwrap_or_default(),
             installed_at_ms: now_ms(),
+            translations: plugin.translations,
         };
         let installed = self.grant_plugin(installed, collections)?;
         Ok(installed.plugin())
@@ -708,7 +804,9 @@ impl Api {
             if space.kind == oikome_core::SpaceKind::Remote {
                 return Err(ApiError::invalid(format!(
                     "{name} is shared with you; a plugin reads only your own collections"
-                )));
+                ))
+                .because("plugin_shared")
+                .with("name", name.as_str()));
             }
             if !out.contains(name) {
                 out.push(name.clone());

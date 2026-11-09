@@ -1,0 +1,193 @@
+{
+  "guide": [
+    {
+      "title": "Willkommen",
+      "text": "Willkommen bei Oikome. Es bewahrt deine Fotos, Notizen und Tabellen auf deinem eigenen Computer auf, in Sammlungen, und nirgends sonst, außer du teilst sie."
+    },
+    {
+      "title": "Die Beispiele",
+      "text": "Alles, was du jetzt siehst, ist ein Beispiel, gespeichert als einfache Dateien im Ordner Examples, dort, wo deine Daten liegen. Bearbeite eine Notiz, eine CSV-Datei oder die Bildunterschrift eines Fotos mit einer beliebigen App, und Oikome liest die Änderung innerhalb einer Minute. Fotos und Notizen werden dort gelesen, wo sie liegen; unter Quellen siehst du, woher jede Tabelle kommt."
+    },
+    {
+      "title": "Neue Sammlungen",
+      "text": "Mit „Neue Sammlung“ legst du eine eigene an. Wähle, wo sie gespeichert wird: Lokal, ein Ordner, ein NAS oder ein Cloudspeicher. Unter Einstellungen → Speicher legst du fest, wohin neue Sammlungen kommen."
+    },
+    {
+      "title": "Teilen",
+      "text": "Um eine Sammlung zu teilen, füge die Person mit ihrer ID als Kontakt hinzu und wähle dann „Teilen“. Du entscheidest, ob sie die Sammlung live ansieht oder eine Kopie behält, und bis wann; sie bekommt einen Einladungscode, um sie zu öffnen."
+    },
+    {
+      "title": "Beenden und Aktivität",
+      "text": "„Teilen beenden“ wirkt sofort: Der nächste Lesezugriff der Person wird abgewiesen. Aktivität zeigt jeden Lesezugriff und jede Ablehnung und wird nur auf diesem Computer gespeichert."
+    },
+    {
+      "title": "Wiederherstellungsschlüssel",
+      "text": "Sichere deinen Wiederherstellungsschlüssel. Er ist deine Identität: Mit ihm lässt sich dieses Datenzentrum auf einem neuen Computer wiederherstellen, und niemand sonst hat eine Kopie."
+    },
+    {
+      "title": "Tastenkürzel",
+      "text": "Drücke ⌘K (Ctrl+K unter Windows und Linux), um zu einer Sammlung, einer Person oder einer Seite zu springen oder zwischen den Stilen Ink und Bold zu wechseln."
+    }
+  ],
+  "photos": [
+    {
+      "title": "Alfama von Santa Luzia aus",
+      "place": "Alfama"
+    },
+    {
+      "title": "Pastéis de Belém",
+      "place": "Belém"
+    },
+    {
+      "title": "Turm von Belém",
+      "place": "Belém"
+    },
+    {
+      "title": "Straßenbahn 28E",
+      "place": "Graça"
+    },
+    {
+      "title": "Gekachelte Häuser",
+      "place": "Lissabon"
+    },
+    {
+      "title": "Sonnenuntergang am Tejo",
+      "place": "Flussufer"
+    }
+  ],
+  "spending": {
+    "columns": [
+      "was",
+      "tag",
+      "kategorie",
+      "euro"
+    ],
+    "rows": [
+      {
+        "what": "Wocheneinkauf",
+        "category": "Essen"
+      },
+      {
+        "what": "Monatskarte für den Nahverkehr",
+        "category": "Verkehr"
+      },
+      {
+        "what": "Kaffee mit Ana",
+        "category": "Essen"
+      },
+      {
+        "what": "Friseur",
+        "category": "Persönliches"
+      },
+      {
+        "what": "Mittagessen in Büronähe",
+        "category": "Essen"
+      },
+      {
+        "what": "Kinokarten",
+        "category": "Ausgehen"
+      },
+      {
+        "what": "Wochenmarkt",
+        "category": "Essen"
+      },
+      {
+        "what": "Zug zu meinen Eltern",
+        "category": "Verkehr"
+      },
+      {
+        "what": "Handyrechnung",
+        "category": "Rechnungen"
+      },
+      {
+        "what": "Einkauf nach der Arbeit",
+        "category": "Essen"
+      },
+      {
+        "what": "Ein Geschenk für Mama",
+        "category": "Einkäufe"
+      },
+      {
+        "what": "Ein Reiseführer für Lissabon",
+        "category": "Einkäufe"
+      },
+      {
+        "what": "Abendessen mit Freunden",
+        "category": "Ausgehen"
+      },
+      {
+        "what": "Stromrechnung",
+        "category": "Rechnungen"
+      },
+      {
+        "what": "Sonntagsbrunch",
+        "category": "Essen"
+      },
+      {
+        "what": "Einkauf für die kommende Woche",
+        "category": "Essen"
+      },
+      {
+        "what": "Fahrradreparatur",
+        "category": "Verkehr"
+      },
+      {
+        "what": "Flug nach Lissabon",
+        "category": "Verkehr"
+      },
+      {
+        "what": "Reiseadapter",
+        "category": "Einkäufe"
+      },
+      {
+        "what": "Pastéis de Belém und Kaffee",
+        "category": "Essen"
+      },
+      {
+        "what": "24-Stunden-Ticket für den Nahverkehr",
+        "category": "Verkehr"
+      },
+      {
+        "what": "Eintritt Turm von Belém",
+        "category": "Sehenswürdigkeiten"
+      },
+      {
+        "what": "Abendessen in der Rua das Flores",
+        "category": "Essen"
+      },
+      {
+        "what": "Mittagessen im Time Out Market",
+        "category": "Essen"
+      },
+      {
+        "what": "Gedichte von Pessoa bei Ler Devagar",
+        "category": "Einkäufe"
+      },
+      {
+        "what": "Ginjinha am Rossio",
+        "category": "Ausgehen"
+      },
+      {
+        "what": "Eine Fliese von der Feira da Ladra",
+        "category": "Einkäufe"
+      },
+      {
+        "what": "Fado in der Tasca do Chico",
+        "category": "Ausgehen"
+      },
+      {
+        "what": "Metro zum Flughafen",
+        "category": "Verkehr"
+      }
+    ]
+  },
+  "readings": {
+    "columns": [
+      "zeit",
+      "wohnzimmer_celsius",
+      "schlafzimmer_celsius",
+      "außen_celsius",
+      "luftfeuchte_pct"
+    ]
+  }
+}

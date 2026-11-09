@@ -1,0 +1,193 @@
+{
+  "guide": [
+    {
+      "title": "Bienvenue",
+      "text": "Bienvenue dans Oikome. Il conserve vos photos, vos notes et vos tableaux sur votre propre ordinateur, dans des collections, et nulle part ailleurs, sauf si vous les partagez."
+    },
+    {
+      "title": "Les exemples",
+      "text": "Tout ce que vous voyez maintenant est un exemple, conservé sous forme de fichiers ordinaires dans le dossier Examples, là où se trouvent vos données. Modifiez une note, un fichier CSV ou la légende d’une photo avec n’importe quelle app, et Oikome lit la modification en moins d’une minute. Les photos et les notes sont lues là où elles sont ; Sources indique d’où vient chaque tableau."
+    },
+    {
+      "title": "Nouvelles collections",
+      "text": "Le bouton Nouvelle collection en crée une à vous. Choisissez où la stocker : Local, un dossier, un NAS ou un stockage cloud. Réglages → Stockage définit où vont les nouvelles."
+    },
+    {
+      "title": "Partage",
+      "text": "Pour partager une collection, ajoutez la personne comme contact avec son identifiant, puis appuyez sur Partager. Vous choisissez si elle la voit en direct ou en garde une copie, et jusqu’à quand ; elle reçoit un code d’invitation pour l’ouvrir."
+    },
+    {
+      "title": "Arrêter un partage et Activité",
+      "text": "Arrêter le partage prend effet immédiatement : sa prochaine lecture est refusée. Activité montre chaque lecture et chaque refus, et elle est conservée uniquement sur cet ordinateur."
+    },
+    {
+      "title": "Clé de récupération",
+      "text": "Enregistrez votre clé de récupération. C’est votre identité : avec elle, ce centre de données peut être restauré sur un nouvel ordinateur, et personne d’autre n’en a de copie."
+    },
+    {
+      "title": "Raccourcis",
+      "text": "Appuyez sur ⌘K (Ctrl+K sous Windows et Linux) pour aller à une collection, une personne ou une page, ou pour passer du style Ink au style Bold."
+    }
+  ],
+  "photos": [
+    {
+      "title": "Alfama depuis Santa Luzia",
+      "place": "Alfama"
+    },
+    {
+      "title": "Pastéis de Belém",
+      "place": "Belém"
+    },
+    {
+      "title": "Tour de Belém",
+      "place": "Belém"
+    },
+    {
+      "title": "Tram 28E",
+      "place": "Graça"
+    },
+    {
+      "title": "Maisons aux azulejos",
+      "place": "Lisbonne"
+    },
+    {
+      "title": "Coucher de soleil sur le Tage",
+      "place": "Bord du fleuve"
+    }
+  ],
+  "spending": {
+    "columns": [
+      "libellé",
+      "jour",
+      "catégorie",
+      "euros"
+    ],
+    "rows": [
+      {
+        "what": "Courses de la semaine",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Abonnement mensuel de transport",
+        "category": "Transport"
+      },
+      {
+        "what": "Café avec Ana",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Coiffeur",
+        "category": "Soins"
+      },
+      {
+        "what": "Déjeuner près du bureau",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Places de cinéma",
+        "category": "Sorties"
+      },
+      {
+        "what": "Marché de producteurs",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Train pour aller voir mes parents",
+        "category": "Transport"
+      },
+      {
+        "what": "Facture de téléphone",
+        "category": "Factures"
+      },
+      {
+        "what": "Courses après le travail",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Un cadeau pour maman",
+        "category": "Achats"
+      },
+      {
+        "what": "Un guide de Lisbonne",
+        "category": "Achats"
+      },
+      {
+        "what": "Dîner entre amis",
+        "category": "Sorties"
+      },
+      {
+        "what": "Facture d’électricité",
+        "category": "Factures"
+      },
+      {
+        "what": "Brunch du dimanche",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Courses pour la semaine à venir",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Réparation du vélo",
+        "category": "Transport"
+      },
+      {
+        "what": "Vol pour Lisbonne",
+        "category": "Transport"
+      },
+      {
+        "what": "Adaptateur de voyage",
+        "category": "Achats"
+      },
+      {
+        "what": "Pastéis de Belém et café",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Pass transport 24 heures",
+        "category": "Transport"
+      },
+      {
+        "what": "Billets pour la tour de Belém",
+        "category": "Visites"
+      },
+      {
+        "what": "Dîner dans la Rua das Flores",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Déjeuner au Time Out Market",
+        "category": "Alimentation"
+      },
+      {
+        "what": "Poèmes de Pessoa chez Ler Devagar",
+        "category": "Achats"
+      },
+      {
+        "what": "Ginjinha au Rossio",
+        "category": "Sorties"
+      },
+      {
+        "what": "Un azulejo de la Feira da Ladra",
+        "category": "Achats"
+      },
+      {
+        "what": "Fado à la Tasca do Chico",
+        "category": "Sorties"
+      },
+      {
+        "what": "Métro pour l’aéroport",
+        "category": "Transport"
+      }
+    ]
+  },
+  "readings": {
+    "columns": [
+      "heure",
+      "salon_celsius",
+      "chambre_celsius",
+      "extérieur_celsius",
+      "humidité_pct"
+    ]
+  }
+}

@@ -49,12 +49,13 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, Api, ApiError, AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef,
-    Caller, ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty,
-    ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
-    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
-    PluginRead, PluginRef, ReadRow, ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery,
-    ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
+    AcceptInvite, AddExamples, Api, ApiError, AssistantCollections, AssistantRef, BorrowedJobsOf,
+    BorrowedRef, Caller, ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef,
+    Empty, ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess,
+    ListShares, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
+    PluginFolder, PluginRead, PluginRef, ReadRow, ReadRows, Rows, RunSql, Search, SetLending,
+    SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
+    PLUGIN_SDK,
 };
 use oikome_api::{FileRef, ListFiles, SetNetwork, ViewInPlace};
 use serde::de::DeserializeOwned;
@@ -417,7 +418,7 @@ impl WebState {
             "read_file" => json_op!(read_file, FileRef),
             "show_folder" => json_op!(show_folder, SpaceRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
-            "add_examples" => json_op!(add_examples, Empty),
+            "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),
             "set_default_storage" => json_op!(set_default_storage, DefaultStorage),

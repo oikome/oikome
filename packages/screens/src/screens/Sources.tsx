@@ -28,6 +28,7 @@ import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { FolderBrowser } from "../storage";
 import { strings } from "../strings";
+import { locale } from "../i18n/languages";
 
 const s = strings.sources;
 
@@ -112,7 +113,7 @@ function Row({
         if (!(e.target as Element).closest("a, button, dialog")) navigate(details);
       }}
     >
-      <td>
+      <td className="screen-source__cell">
         <span className="screen-source__what">
           <span className="oik-tile">
             <Icon name={SOURCE_ICONS[source.kind]} />
@@ -327,7 +328,7 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   }, []);
   // In the order they read: by the file or folder's name.
   const list = [...(sources.data ?? [])].sort((a, b) =>
-    placeName(a.place).localeCompare(placeName(b.place), "en", { sensitivity: "base" }),
+    placeName(a.place).localeCompare(placeName(b.place), locale(), { sensitivity: "base" }),
   );
   const paused = list.filter((x) => x.paused).length;
   const failing = list.filter((x) => !x.paused && x.failedAtMs != null).length;

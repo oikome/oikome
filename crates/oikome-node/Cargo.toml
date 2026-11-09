@@ -58,6 +58,11 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 base64 = { workspace = true }
 # A WebDAV server standing in for a NAS in tests/storage.rs.
 dav-server = "0.11"
+# RustFS, the object storage Oikome supports, in tests/storage.rs: its bucket is
+# made with a request signed here (already in the tree).
+hmac = "0.12"
+reqwest = { version = "0.12", default-features = false }
+sha2 = { workspace = true }
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 tempfile = { workspace = true }

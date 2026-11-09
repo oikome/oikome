@@ -212,6 +212,7 @@ export const de: Strings = {
       `Es können höchstens ${p.max} Plugins hinzugefügt werden. Entferne zuerst eines.`,
     plugin_shared: (p: { name: string }) =>
       `${p.name} wird mit dir geteilt. Ein Plugin liest nur deine eigenen Sammlungen.`,
+    storage_s3_incomplete: "RustFS braucht Adresse, Bucket, Access Key und Secret Key.",
   },
 
   errors: {
@@ -680,6 +681,16 @@ export const de: Strings = {
     unreachable: "Nicht erreichbar. Prüfe Adresse, Benutzername und Passwort und versuch es dann erneut.",
     pickFolder: "Wähle zuerst einen Ordner.",
     addressRequired: "Gib die Adresse deines NAS ein.",
+    s3: "RustFS",
+    s3Meta: "Objektspeicher, den du selbst betreibst: Adresse, Bucket und Schlüssel",
+    s3AddressHint: "Zum Beispiel http://192.168.1.20:9000. RustFS auf diesem Computer ist http://127.0.0.1:9000.",
+    bucket: "Bucket",
+    bucketHint: "Er muss schon bestehen: Lege ihn zuerst im Speicher an.",
+    accessKey: "Access Key",
+    secretKey: "Secret Key",
+    plainNote: "Ohne Verschlüsselung kann lesen, wer den Speicher betreibt.",
+    s3Required: "Gib Adresse, Bucket, Access Key und Secret Key ein.",
+    unreachableS3: "Nicht erreichbar. Prüfe Adresse, Bucket und Schlüssel und versuch es dann erneut.",
     usedShare: (percent: number) => `${percent} % belegt`,
     noRoom: "Wie viel Platz es hat, ist hier nicht bekannt.",
   },
@@ -975,7 +986,7 @@ export const de: Strings = {
     storageTitle: "Speicher",
     thisComputer: "Lokal",
     storageCount: (n: number) => `${num(n)} ${pl(n, { one: "Sammlung", other: "Sammlungen" })}`,
-    storageKind: { disk: "Lokal", webdav: "NAS", folder: "Ordner", drive: "Cloudspeicher" },
+    storageKind: { disk: "Lokal", webdav: "NAS", folder: "Ordner", drive: "Cloudspeicher", s3: "RustFS" },
     encrypted: "Verschlüsselt",
     networkTitle: "Netzwerk",
     reachableLabel: "Von außen erreichbar",

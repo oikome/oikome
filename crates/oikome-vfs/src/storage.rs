@@ -42,7 +42,7 @@ pub struct OpenDalStorageConfig {
     pub bucket: Option<String>,
     /// S3 region.
     pub region: Option<String>,
-    /// S3 endpoint URL (optional, for MinIO-compatible stores).
+    /// S3 endpoint URL (optional, such as a RustFS server's).
     pub endpoint: Option<String>,
 }
 
@@ -98,14 +98,13 @@ impl OpenDalStorage {
             "fs" => {
                 let root = self.config.root.as_deref().unwrap_or(".");
                 let builder = opendal::services::Fs::default().root(root);
-                Ok(Operator::new(builder)
-                    .map_err(|e| {
-                        Error::new(
-                            ErrorKind::Unexpected,
-                            format!("Failed to create Fs operator: {e}"),
-                        )
-                    })?
-                    .finish())
+                crate::ready();
+                Ok(Operator::new(builder).map_err(|e| {
+                    Error::new(
+                        ErrorKind::Unexpected,
+                        format!("Failed to create Fs operator: {e}"),
+                    )
+                })?)
             }
             "s3" => {
                 let bucket = self.config.bucket.as_ref().ok_or_else(|| {
@@ -118,26 +117,24 @@ impl OpenDalStorage {
                 if let Some(endpoint) = &self.config.endpoint {
                     builder = builder.endpoint(endpoint);
                 }
-                Ok(Operator::new(builder)
-                    .map_err(|e| {
-                        Error::new(
-                            ErrorKind::Unexpected,
-                            format!("Failed to create S3 operator: {e}"),
-                        )
-                    })?
-                    .finish())
+                crate::ready();
+                Ok(Operator::new(builder).map_err(|e| {
+                    Error::new(
+                        ErrorKind::Unexpected,
+                        format!("Failed to create S3 operator: {e}"),
+                    )
+                })?)
             }
             "opfs" => {
                 let root = self.config.root.as_deref().unwrap_or("/");
                 let builder = opendal::services::Fs::default().root(root);
-                Ok(Operator::new(builder)
-                    .map_err(|e| {
-                        Error::new(
-                            ErrorKind::Unexpected,
-                            format!("Failed to create OPFS operator: {e}"),
-                        )
-                    })?
-                    .finish())
+                crate::ready();
+                Ok(Operator::new(builder).map_err(|e| {
+                    Error::new(
+                        ErrorKind::Unexpected,
+                        format!("Failed to create OPFS operator: {e}"),
+                    )
+                })?)
             }
             other => Err(Error::new(
                 ErrorKind::Unexpected,
@@ -220,7 +217,7 @@ impl Storage for OpenDalStorage {
 
     async fn delete_prefix(&self, path: &str) -> Result<()> {
         let op = self.operator()?;
-        op.remove_all(path).await.map_err(|e| {
+        op.delete_with(path).recursive(true).await.map_err(|e| {
             Error::new(
                 ErrorKind::Unexpected,
                 format!("Failed to delete prefix {path}: {e}"),

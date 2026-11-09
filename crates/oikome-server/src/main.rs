@@ -121,7 +121,7 @@ enum StorageCommand {
         /// Lowercase letters, digits and `_`, starting with a letter.
         name: String,
         /// WebDAV address, https://host[:port][/path].
-        #[arg(long, group = "place", required_unless_present_any = ["folder", "drive"])]
+        #[arg(long, group = "place", required_unless_present_any = ["folder", "drive", "rustfs"])]
         webdav: Option<String>,
         /// WebDAV user name.
         #[arg(long, requires = "webdav")]
@@ -133,10 +133,25 @@ enum StorageCommand {
         /// Dropbox, OneDrive, Google Drive); always encrypted.
         #[arg(long, group = "place")]
         drive: Option<PathBuf>,
+        /// A RustFS object storage server, http(s)://host[:port]; give
+        /// --bucket and --access-key-id, and the secret key with
+        /// --password-stdin. Encrypted unless --no-encrypt.
+        #[arg(long, group = "place", requires_all = ["bucket", "access_key_id"])]
+        rustfs: Option<String>,
+        /// The bucket, which must exist already.
+        #[arg(long, requires = "rustfs")]
+        bucket: Option<String>,
+        /// The access key's id.
+        #[arg(long, requires = "rustfs")]
+        access_key_id: Option<String>,
         /// Encrypt files before they reach the storage. A new key is made
         /// unless --key-stdin gives one exported on another node.
         #[arg(long)]
         encrypt: bool,
+        /// RustFS only: keep files as they are, readable by whoever runs
+        /// the storage.
+        #[arg(long, requires = "rustfs", conflicts_with = "encrypt")]
+        no_encrypt: bool,
         /// Read the password from standard input (first line).
         #[arg(long, conflicts_with = "token_stdin")]
         password_stdin: bool,
@@ -538,12 +553,24 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     username,
                     folder,
                     drive,
+                    rustfs,
+                    bucket,
+                    access_key_id,
                     encrypt,
+                    no_encrypt,
                     password_stdin,
                     token_stdin,
                     key_stdin,
                 } => {
                     let (kind, encrypted) = match (webdav, folder, drive) {
+                        _ if rustfs.is_some() => (
+                            StorageKind::S3 {
+                                endpoint: rustfs.unwrap_or_default(),
+                                bucket: bucket.unwrap_or_default(),
+                                access_key_id: access_key_id.unwrap_or_default(),
+                            },
+                            !no_encrypt,
+                        ),
                         (Some(endpoint), _, _) => {
                             (StorageKind::Webdav { endpoint, username }, encrypt)
                         }
@@ -560,7 +587,7 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                             true,
                         ),
                         (None, None, None) => {
-                            return Err("give --webdav, --folder or --drive".into())
+                            return Err("give --webdav, --folder, --drive or --rustfs".into())
                         }
                     };
                     let mut lines = std::io::stdin().lines();
@@ -583,19 +610,29 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 }
                 StorageCommand::List => {
                     for def in catalog.list_storages() {
+                        // Name, kind, address, then the user name, or the
+                        // bucket and access key on object storage.
                         let (kind, address, user) = match &def.kind {
-                            StorageKind::Webdav { endpoint, username } => {
-                                ("webdav", endpoint.as_str(), username.as_deref())
-                            }
-                            StorageKind::Folder { path } => ("folder", path.as_str(), None),
-                            StorageKind::Drive { path } => ("drive", path.as_str(), None),
+                            StorageKind::Webdav { endpoint, username } => (
+                                "webdav",
+                                endpoint.clone(),
+                                username.clone().unwrap_or_default(),
+                            ),
+                            StorageKind::Folder { path } => ("folder", path.clone(), String::new()),
+                            StorageKind::Drive { path } => ("drive", path.clone(), String::new()),
+                            StorageKind::S3 {
+                                endpoint,
+                                bucket,
+                                access_key_id,
+                                ..
+                            } => (
+                                "rustfs",
+                                format!("{endpoint}/{bucket}"),
+                                access_key_id.clone(),
+                            ),
                         };
                         let encrypted = if def.encrypted { "encrypted" } else { "" };
-                        println!(
-                            "{}\t{kind}\t{address}\t{}\t{encrypted}",
-                            def.name,
-                            user.unwrap_or("")
-                        );
+                        println!("{}\t{kind}\t{address}\t{user}\t{encrypted}", def.name);
                     }
                 }
                 StorageCommand::ExportKey { name } => {

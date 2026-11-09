@@ -43,7 +43,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use oikome_catalog::{Location, LocationFormat, OikomeCatalog, StorageKind};
 use oikome_connect::folder::{captions_of, split_front_matter, wall_time, written_time, CAPTIONS};
 use oikome_engine::{FileFormat, TableSource};
-use oikome_vfs::{check_owner_path, Credentials, RemoteStore};
+use oikome_vfs::{check_owner_path, Bucket, Credentials, RemoteStore};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::SessionError;
@@ -178,8 +178,12 @@ pub enum Place {
     /// A folder on this computer: a local disk, a mounted share or a cloud
     /// drive's sync folder.
     Local(PathBuf),
-    /// A folder on a NAS, over WebDAV.
-    Remote { store: RemoteStore, label: String },
+    /// A folder on a NAS, over WebDAV, or on object storage (boxed: the
+    /// store is far larger than a path).
+    Remote {
+        store: Box<RemoteStore>,
+        label: String,
+    },
 }
 
 impl Place {
@@ -270,7 +274,7 @@ pub fn place_of(
             Ok(Place::Local(Path::new(root).join(within)))
         }
         StorageKind::Webdav { endpoint, username } => {
-            if def.kind.is_plaintext() && !engines.allow_http() {
+            if def.kind.needs_allow_http() && !engines.allow_http() {
                 return Err(SessionError::Store {
                     storage: def.name.clone(),
                     message: "it is reached over plaintext http://, which sends its password \
@@ -295,7 +299,46 @@ pub fn place_of(
             } else {
                 format!("{}/{within}", def.name)
             };
-            Ok(Place::Remote { store, label })
+            Ok(Place::Remote {
+                store: Box::new(store),
+                label,
+            })
+        }
+        StorageKind::S3 {
+            endpoint,
+            bucket,
+            access_key_id,
+        } => {
+            if def.kind.needs_allow_http() && !engines.allow_http() {
+                return Err(SessionError::Store {
+                    storage: def.name.clone(),
+                    message: "it is reached over plaintext http://, which sends the files \
+                              unencrypted; use https:// or allow it with --allow-http"
+                        .to_string(),
+                });
+            }
+            let store_err = |message: String| SessionError::Store {
+                storage: def.name.clone(),
+                message,
+            };
+            let secret = engines
+                .storage_secret(&def.name, SecretKind::Password)?
+                .ok_or_else(|| store_err("this node has no secret key for it".to_string()))?;
+            let bucket = Bucket {
+                endpoint,
+                name: bucket,
+            };
+            let store = RemoteStore::s3_view(bucket, within, access_key_id, &secret)
+                .map_err(|e| store_err(e.to_string()))?;
+            let label = if within.is_empty() {
+                def.name.clone()
+            } else {
+                format!("{}/{within}", def.name)
+            };
+            Ok(Place::Remote {
+                store: Box::new(store),
+                label,
+            })
         }
     }
 }

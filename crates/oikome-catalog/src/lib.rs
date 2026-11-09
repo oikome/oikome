@@ -40,7 +40,7 @@ pub use peer::Peer;
 pub use resolve::ResolvedTable;
 pub use source::{SourceDef, SourceFailure};
 pub use space::{Location, LocationFormat, LocationId, Space};
-pub use storage::{StorageBinding, StorageDef, StorageKind};
+pub use storage::{StorageBinding, StorageDef, StorageKind, OBJECT_STORAGE_FOLDER};
 pub use ucan::{
     is_plaintext_peer, validate_peer_url, HeldToken, IssuedUcan, Revocation, UcanCapability,
 };

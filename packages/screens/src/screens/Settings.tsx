@@ -30,7 +30,7 @@ import type { StatusKind } from "@oikome/ui";
 import { useAction, useClient, useLoad } from "../data";
 import { LanguageSelect, RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { bytes, dateFromMs, homeRelative, listNames, middle, shortId } from "../format";
-import { addPlanned, useStoragePicker } from "../storage";
+import { addPlanned, unreachableFor, useStoragePicker } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
 import { navigate } from "../router";
@@ -43,6 +43,7 @@ const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
   webdav: ["nas", "sage"],
   folder: ["folder", "oat"],
   drive: ["drive", "periwinkle"],
+  s3: ["bucket", "apricot"],
 };
 
 /** Free space and a bar, where the place says. */
@@ -342,7 +343,7 @@ function AddStorage({ onClose, onAdded }: { onClose: () => void; onAdded: (label
           }
           const added = await add.run(
             () => addPlanned(client, plan, makeDefault),
-            (err) => (err.code === "invalid" ? strings.storage.unreachable : undefined),
+            (err) => (err.code === "invalid" ? unreachableFor(plan) : undefined),
           );
           if (added) onAdded(added.label);
         }}

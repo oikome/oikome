@@ -213,6 +213,7 @@ export const fr: Strings = {
     plugins_too_many: (p: { max: string }) => `Vous pouvez ajouter jusqu’à ${p.max} plugins. Retirez-en un d’abord.`,
     plugin_shared: (p: { name: string }) =>
       `${p.name} est partagée avec vous. Un plugin ne lit que vos propres collections.`,
+    storage_s3_incomplete: "RustFS demande son adresse, son bucket, sa clé d’accès et sa clé secrète.",
   },
 
   errors: {
@@ -694,6 +695,16 @@ export const fr: Strings = {
     unreachable: "Impossible de joindre le NAS. Vérifiez l’adresse, le nom d’utilisateur et le mot de passe, puis réessayez.",
     pickFolder: "Choisissez d’abord un dossier.",
     addressRequired: "Saisissez l’adresse de votre NAS.",
+    s3: "RustFS",
+    s3Meta: "Stockage objet que vous hébergez : adresse, bucket et clés",
+    s3AddressHint: "Par exemple, http://192.168.1.20:9000. RustFS sur cet ordinateur : http://127.0.0.1:9000.",
+    bucket: "Bucket",
+    bucketHint: "Il doit déjà exister : créez-le d’abord sur le stockage.",
+    accessKey: "Clé d’accès",
+    secretKey: "Clé secrète",
+    plainNote: "Sans chiffrement, quiconque gère le stockage peut lire les fichiers.",
+    s3Required: "Saisissez l’adresse, le bucket, la clé d’accès et la clé secrète.",
+    unreachableS3: "Impossible de joindre le stockage. Vérifiez l’adresse, le bucket et les clés, puis réessayez.",
     usedShare: (percent: number) => `${percent} % utilisés`,
     /** "1,8 / 4 To": the unit once when both share it (a no-break space stands before it). */
     noRoom: "Son espace disponible n’est pas connu ici.",
@@ -999,7 +1010,7 @@ export const fr: Strings = {
     storageTitle: "Stockage",
     thisComputer: "Local",
     storageCount: (n: number) => `${num(n)} ${pl(n, { one: "collection", other: "collections" })}`,
-    storageKind: { disk: "Local", webdav: "NAS", folder: "Dossier", drive: "Stockage cloud" },
+    storageKind: { disk: "Local", webdav: "NAS", folder: "Dossier", drive: "Stockage cloud", s3: "RustFS" },
     encrypted: "Chiffré",
     networkTitle: "Réseau",
     reachableLabel: "Accessible depuis l’extérieur",

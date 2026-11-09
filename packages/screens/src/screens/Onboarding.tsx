@@ -8,7 +8,7 @@ import { Button, Card, ErrorText, Icon, TextField } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
-import { addPlanned, useStoragePicker } from "../storage";
+import { addPlanned, unreachableFor, useStoragePicker } from "../storage";
 import { LanguageSelect, RecoveryKeyPanel } from "../parts";
 import { language } from "../i18n/languages";
 import { strings } from "../strings";
@@ -72,7 +72,7 @@ export function Onboarding({
                   await client.addExamples({ language: language() }).catch(() => undefined);
                   return renamed;
                 },
-                (err) => (err.code === "invalid" && plan.add ? strings.storage.unreachable : undefined),
+                (err) => (err.code === "invalid" && plan.add ? unreachableFor(plan) : undefined),
               );
               if (updated) {
                 onInfo(updated);

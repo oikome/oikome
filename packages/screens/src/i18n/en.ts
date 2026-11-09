@@ -210,6 +210,7 @@ export const en = {
     plugin_which: "Add one of Oikome's plugins or a plugin's folder.",
     plugins_too_many: (p: { max: string }) => `Up to ${p.max} plugins can be added; remove one first.`,
     plugin_shared: (p: { name: string }) => `${p.name} is shared with you; a plugin reads only your own collections.`,
+    storage_s3_incomplete: "RustFS needs its address, bucket, access key and secret key.",
   },
 
   errors: {
@@ -684,8 +685,17 @@ export const en = {
     unreachable: "Couldn't reach it. Check the address, user name and password, then try again.",
     pickFolder: "Choose a folder first.",
     addressRequired: "Enter your NAS's address.",
+    s3: "RustFS",
+    s3Meta: "Object storage you run: its address, bucket and keys",
+    s3AddressHint: "For example, http://192.168.1.20:9000. RustFS on this computer is http://127.0.0.1:9000.",
+    bucket: "Bucket",
+    bucketHint: "It must exist already: create it on the storage first.",
+    accessKey: "Access key",
+    secretKey: "Secret key",
+    plainNote: "Without encryption, whoever runs the storage can read the files.",
+    s3Required: "Enter the address, bucket, access key and secret key.",
+    unreachableS3: "Couldn't reach it. Check the address, bucket and keys, then try again.",
     usedShare: (percent: number) => `${percent}% used`,
-    /** "1.8 / 4 TB", the unit once when both share it. */
     noRoom: "Its room isn't known here.",
   },
 
@@ -982,7 +992,7 @@ export const en = {
     storageTitle: "Storage",
     thisComputer: "Local",
     storageCount: (n: number) => (n === 1 ? "1 collection" : `${n} collections`),
-    storageKind: { disk: "Local", webdav: "NAS", folder: "Folder", drive: "Cloud drive" },
+    storageKind: { disk: "Local", webdav: "NAS", folder: "Folder", drive: "Cloud drive", s3: "RustFS" },
     encrypted: "Encrypted",
     networkTitle: "Network",
     reachableLabel: "Reachable from outside",

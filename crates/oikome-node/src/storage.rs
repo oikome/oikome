@@ -52,7 +52,9 @@ use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt};
 use oikome_catalog::lance::{lance_tables, DATASET_SUFFIX};
-use oikome_catalog::{Location, LocationFormat, StorageBinding, StorageDef, StorageKind};
+use oikome_catalog::{
+    Location, LocationFormat, StorageBinding, StorageDef, StorageKind, OBJECT_STORAGE_FOLDER,
+};
 use oikome_core::AccessMode;
 use oikome_engine::EngineError;
 use oikome_identity::unix_now_ms;
@@ -62,7 +64,7 @@ use oikome_network::protocol::{
 };
 use oikome_network::ChunkStream;
 use oikome_vfs::seal::{open_bytes, open_stream, seal_bytes, seal_stream, SealError};
-use oikome_vfs::{file_chunks, sealed_size, Credentials, RemoteStore, SealKey, StoreError};
+use oikome_vfs::{file_chunks, sealed_size, Bucket, Credentials, RemoteStore, SealKey, StoreError};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use zeroize::Zeroizing;
@@ -597,7 +599,7 @@ impl OikomeSession {
         let secret = |kind| self.engines().storage_secret(&def.name, kind);
         let store = match &def.kind {
             StorageKind::Webdav { endpoint, username } => {
-                if def.kind.is_plaintext() && !self.engines().allow_http() {
+                if def.kind.needs_allow_http() && !self.engines().allow_http() {
                     return Err(store_error(
                         &def.name,
                         "it is reached over plaintext http://, which sends its password \
@@ -613,6 +615,35 @@ impl OikomeSession {
             }
             StorageKind::Folder { path } | StorageKind::Drive { path } => {
                 RemoteStore::folder(Path::new(path), &binding.path).map_err(err)?
+            }
+            StorageKind::S3 {
+                endpoint,
+                bucket,
+                access_key_id,
+            } => {
+                if def.kind.needs_allow_http() && !self.engines().allow_http() {
+                    return Err(store_error(
+                        &def.name,
+                        "it is reached over plaintext http://, which sends its keys' signatures \
+                         and the files unencrypted; use https:// or allow it with --allow-http",
+                    ));
+                }
+                let secret = secret(SecretKind::Password)?.ok_or_else(|| {
+                    store_error(
+                        &def.name,
+                        "this node has no secret key for it; add it again with its secret key",
+                    )
+                })?;
+                // Oikome's files go in their own folder of the bucket.
+                let folder = match binding.path.as_str() {
+                    "" => OBJECT_STORAGE_FOLDER.to_string(),
+                    p => format!("{OBJECT_STORAGE_FOLDER}/{p}"),
+                };
+                let bucket = Bucket {
+                    endpoint,
+                    name: bucket,
+                };
+                RemoteStore::s3(bucket, &folder, access_key_id, &secret).map_err(err)?
             }
         };
         let layout = if def.encrypted {

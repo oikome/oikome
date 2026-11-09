@@ -72,8 +72,7 @@ mod tests {
         let op = opendal::Operator::new(
             opendal::services::Fs::default().root(dir.path().to_str().unwrap()),
         )
-        .unwrap()
-        .finish();
+        .unwrap();
         op.write("test.txt", "hello world").await.unwrap();
 
         let reader = OpenDalFileRead::new(op, "test.txt".to_string());

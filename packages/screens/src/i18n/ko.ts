@@ -228,6 +228,7 @@ export const ko: Strings = {
     plugin_which: "Oikome 플러그인이나 플러그인 폴더를 추가하세요.",
     plugins_too_many: (p: { max: string }) => `플러그인은 최대 ${p.max}개까지 추가할 수 있어요. 먼저 하나를 제거하세요.`,
     plugin_shared: (p: { name: string }) => `${p.name} 컬렉션은 나와 공유된 컬렉션이에요. 플러그인은 내 컬렉션만 읽을 수 있어요.`,
+    storage_s3_incomplete: "RustFS에는 주소, 버킷, 액세스 키, 시크릿 키가 필요해요.",
   },
 
   errors: {
@@ -686,6 +687,16 @@ export const ko: Strings = {
     unreachable: "연결하지 못했어요. 주소, 사용자 이름, 비밀번호를 확인한 다음 다시 시도하세요.",
     pickFolder: "먼저 폴더를 고르세요.",
     addressRequired: "NAS 주소를 입력하세요.",
+    s3: "RustFS",
+    s3Meta: "직접 운영하는 오브젝트 스토리지: 주소, 버킷, 키",
+    s3AddressHint: "예: http://192.168.1.20:9000. 이 컴퓨터의 RustFS는 http://127.0.0.1:9000이에요.",
+    bucket: "버킷",
+    bucketHint: "먼저 스토리지에서 만들어 두어야 해요.",
+    accessKey: "액세스 키",
+    secretKey: "시크릿 키",
+    plainNote: "암호화하지 않으면 스토리지를 운영하는 쪽에서 파일을 읽을 수 있어요.",
+    s3Required: "주소, 버킷, 액세스 키, 시크릿 키를 입력하세요.",
+    unreachableS3: "연결하지 못했어요. 주소, 버킷, 키를 확인한 다음 다시 시도하세요.",
     usedShare: (percent: number) => `${num(percent)}% 사용`,
     // Korean writes "1.8TB" with no space; the unit once when both share it: "1.8 / 4TB".
     noRoom: "여기서는 남은 공간을 알 수 없어요.",
@@ -981,7 +992,7 @@ export const ko: Strings = {
     storageTitle: "저장 공간",
     thisComputer: "로컬",
     storageCount: (n: number) => `컬렉션 ${num(n)}개`,
-    storageKind: { disk: "로컬", webdav: "NAS", folder: "폴더", drive: "클라우드 드라이브" },
+    storageKind: { disk: "로컬", webdav: "NAS", folder: "폴더", drive: "클라우드 드라이브", s3: "RustFS" },
     encrypted: "암호화됨",
     networkTitle: "네트워크",
     reachableLabel: "외부에서 연결",

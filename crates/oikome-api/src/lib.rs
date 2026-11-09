@@ -849,6 +849,9 @@ impl Api {
                 StorageKind::Webdav { endpoint, .. } => (StorageType::Webdav, endpoint.clone()),
                 StorageKind::Folder { path } => (StorageType::Folder, path.clone()),
                 StorageKind::Drive { path } => (StorageType::Drive, path.clone()),
+                StorageKind::S3 {
+                    endpoint, bucket, ..
+                } => (StorageType::S3, format!("{bucket} · {endpoint}")),
             };
             // A cloud drive's folder sits on this disk, but its room is the
             // drive's quota, which the folder doesn't tell.
@@ -914,6 +917,29 @@ impl Api {
                 } else {
                     (StorageKind::Folder { path }, req.encrypted.unwrap_or(false))
                 }
+            }
+            StorageType::S3 => {
+                let given =
+                    |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or("").to_string();
+                let (bucket, access_key_id) = (given(&req.bucket), given(&req.username));
+                if bucket.is_empty()
+                    || access_key_id.is_empty()
+                    || req.password.as_deref().unwrap_or("").is_empty()
+                {
+                    return Err(ApiError::invalid(
+                        "RustFS needs its address, bucket, access key and secret key",
+                    )
+                    .because("storage_s3_incomplete"));
+                }
+                (
+                    StorageKind::S3 {
+                        endpoint: req.address.trim().to_string(),
+                        bucket,
+                        access_key_id,
+                    },
+                    // Whoever runs the storage could read it otherwise.
+                    req.encrypted.unwrap_or(true),
+                )
             }
         };
         let taken: Vec<String> = self
@@ -1020,7 +1046,7 @@ impl Api {
             .into_iter()
             .filter_map(|d| match d.kind {
                 StorageKind::Folder { path } | StorageKind::Drive { path } => Some(path),
-                StorageKind::Webdav { .. } => None,
+                StorageKind::Webdav { .. } | StorageKind::S3 { .. } => None,
             })
             .collect();
         let home = places::home();

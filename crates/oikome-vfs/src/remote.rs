@@ -33,6 +33,9 @@ use zeroize::Zeroizing;
 
 /// Bytes read from a local file per upload chunk.
 const UPLOAD_CHUNK_BYTES: usize = 1 << 20;
+/// A part of a file written to object storage: S3's multipart uploads take
+/// parts of 5 MiB and up, and memory holds one part, not the file.
+const UPLOAD_PART_BYTES: usize = 8 << 20;
 /// Bytes requested per read from the storage.
 const READ_CHUNK_BYTES: usize = 1 << 20;
 
@@ -140,7 +143,21 @@ struct WebdavPut {
 pub struct RemoteStore {
     op: Operator,
     put: Option<WebdavPut>,
+    /// The bucket, on object storage, for what a person is told.
+    bucket: Option<String>,
 }
+
+/// A bucket on RustFS, reached over the S3 protocol, path-style.
+#[derive(Debug, Clone, Copy)]
+pub struct Bucket<'a> {
+    /// `http(s)://host[:port]`.
+    pub endpoint: &'a str,
+    pub name: &'a str,
+}
+
+/// The region requests to object storage are signed for: RustFS's own
+/// unless its owner sets another.
+pub const S3_REGION: &str = "us-east-1";
 
 impl fmt::Debug for RemoteStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -256,9 +273,9 @@ impl RemoteStore {
         if let Some(token) = &credentials.token {
             builder = builder.token(token.as_str());
         }
+        crate::ready();
         let op = Operator::new(builder)
-            .map_err(|e| StoreError::Invalid(format!("WebDAV: {}", e.kind())))?
-            .finish();
+            .map_err(|e| StoreError::Invalid(format!("WebDAV: {}", e.kind())))?;
         let client = reqwest::Client::builder()
             .build()
             .map_err(|e| StoreError::Other(format!("HTTP client: {e}")))?;
@@ -269,6 +286,7 @@ impl RemoteStore {
                 base,
                 credentials,
             }),
+            bucket: None,
         })
     }
 
@@ -312,10 +330,14 @@ impl RemoteStore {
         if let Some(token) = &credentials.token {
             builder = builder.token(token.as_str());
         }
+        crate::ready();
         let op = Operator::new(builder)
-            .map_err(|e| StoreError::Invalid(format!("WebDAV: {}", e.kind())))?
-            .finish();
-        Ok(Self { op, put: None })
+            .map_err(|e| StoreError::Invalid(format!("WebDAV: {}", e.kind())))?;
+        Ok(Self {
+            op,
+            put: None,
+            bucket: None,
+        })
     }
 
     /// The owner's entries in the folder `dir` (`""` for the top), with
@@ -361,7 +383,11 @@ impl RemoteStore {
                 name,
                 is_dir,
                 size,
-                modified_ms: modified.map_or(0, |t| t.timestamp_millis()),
+                modified_ms: modified.map_or(0, |t| {
+                    std::time::SystemTime::from(t)
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+                }),
             });
         }
         Ok(out)
@@ -427,10 +453,81 @@ impl RemoteStore {
         let dir = dir
             .to_str()
             .ok_or_else(|| StoreError::Invalid("a folder path that is not UTF-8".into()))?;
+        crate::ready();
         let op = Operator::new(opendal::services::Fs::default().root(dir))
-            .map_err(|e| StoreError::Invalid(format!("folder: {}", e.kind())))?
-            .finish();
-        Ok(Self { op, put: None })
+            .map_err(|e| StoreError::Invalid(format!("folder: {}", e.kind())))?;
+        Ok(Self {
+            op,
+            put: None,
+            bucket: None,
+        })
+    }
+
+    /// The folder `folder` (plain segments; `""` for the bucket's top) in
+    /// a bucket on RustFS, over the S3 protocol, signed with exactly
+    /// `access_key_id` and `secret`: never with keys from the environment,
+    /// `~/.aws` or a cloud machine's metadata.
+    pub fn s3(
+        bucket: Bucket<'_>,
+        folder: &str,
+        access_key_id: &str,
+        secret: &str,
+    ) -> Result<Self, StoreError> {
+        if !folder.is_empty() {
+            check_relative_path(folder)?;
+        }
+        Self::s3_at(bucket, folder, access_key_id, secret)
+    }
+
+    /// The owner's folder `folder` in a bucket, to view in place: read
+    /// only, so its names need only be the owner's own ([`check_owner_path`]).
+    pub fn s3_view(
+        bucket: Bucket<'_>,
+        folder: &str,
+        access_key_id: &str,
+        secret: &str,
+    ) -> Result<Self, StoreError> {
+        let folder = folder.trim_matches('/');
+        if !folder.is_empty() {
+            check_owner_path(folder)?;
+        }
+        Self::s3_at(bucket, folder, access_key_id, secret)
+    }
+
+    fn s3_at(
+        bucket: Bucket<'_>,
+        folder: &str,
+        access_key_id: &str,
+        secret: &str,
+    ) -> Result<Self, StoreError> {
+        let root = match folder {
+            "" => "/".to_string(),
+            f => format!("/{f}/"),
+        };
+        crate::ready();
+        let builder = opendal::services::S3::default()
+            .endpoint(bucket.endpoint)
+            .bucket(bucket.name)
+            .region(S3_REGION)
+            .root(&root)
+            .access_key_id(access_key_id)
+            .secret_access_key(secret)
+            .disable_config_load()
+            .disable_ec2_metadata();
+        let op = Operator::new(builder)
+            .map_err(|e| StoreError::Invalid(format!("object storage: {}", e.kind())))?;
+        Ok(Self {
+            op,
+            put: None,
+            bucket: Some(bucket.name.to_string()),
+        })
+    }
+
+    /// Whether a write lands whole at its path, so it needs no temporary
+    /// name to rename: object storage has no rename, and a PUT there is
+    /// seen complete or not at all.
+    fn writes_whole(&self) -> bool {
+        !self.op.info().capability().rename
     }
 
     /// Check that the folder exists, the storage answers and it accepts
@@ -440,9 +537,18 @@ impl RemoteStore {
         // storage.
         match self.op.list("/").await {
             Ok(_) => Ok(()),
-            Err(e) if e.kind() == ErrorKind::NotFound => Err(StoreError::Invalid(
-                "the folder does not exist on the storage".into(),
-            )),
+            // opendal's S3 calls NoSuchBucket (404) a configuration error.
+            Err(e)
+                if e.kind() == ErrorKind::NotFound
+                    || (self.bucket.is_some() && e.kind() == ErrorKind::ConfigInvalid) =>
+            {
+                Err(StoreError::Invalid(match &self.bucket {
+                    Some(bucket) => {
+                        format!("the bucket {bucket} doesn't exist; create it on the storage first")
+                    }
+                    None => "the folder does not exist on the storage".into(),
+                }))
+            }
             Err(e) => Err(StoreError::from_dal("/", e)),
         }
     }
@@ -539,18 +645,25 @@ impl RemoteStore {
     /// Write `bytes` to `path`, replacing any file there.
     pub async fn write(&self, path: &str, bytes: Bytes) -> Result<(), StoreError> {
         check_relative_path(path)?;
-        let tmp = temp_name(path);
+        let whole = self.writes_whole();
+        let target = if whole {
+            path.to_string()
+        } else {
+            temp_name(path)
+        };
         let size = bytes.len() as u64;
         let written = async {
             self.op
-                .write(&tmp, bytes)
+                .write(&target, bytes)
                 .await
                 .map_err(|e| StoreError::from_dal(path, e))?;
-            self.finish(&tmp, path, size).await
+            self.finish(&target, path, size).await
         }
         .await;
-        if written.is_err() {
-            let _ = self.op.delete(&tmp).await;
+        // A failed PUT leaves the file there before as it was: only a
+        // temporary file is cleaned up.
+        if written.is_err() && !whole {
+            let _ = self.op.delete(&target).await;
         }
         written
     }
@@ -571,14 +684,20 @@ impl RemoteStore {
         chunks: BoxStream<'static, std::io::Result<Bytes>>,
     ) -> Result<u64, StoreError> {
         check_relative_path(path)?;
-        let tmp = temp_name(path);
+        let whole = self.writes_whole();
+        let tmp = if whole {
+            path.to_string()
+        } else {
+            temp_name(path)
+        };
         let written = async {
             match &self.put {
                 Some(put) => self.put_stream(put, &tmp, size, chunks).await?,
                 None => {
                     let mut writer = self
                         .op
-                        .writer(&tmp)
+                        .writer_with(&tmp)
+                        .chunk(UPLOAD_PART_BYTES)
                         .await
                         .map_err(|e| StoreError::from_dal(path, e))?;
                     let mut chunks = chunks;
@@ -601,7 +720,7 @@ impl RemoteStore {
             self.finish(&tmp, path, size).await
         }
         .await;
-        if written.is_err() {
+        if written.is_err() && !whole {
             let _ = self.op.delete(&tmp).await;
         }
         written.map(|_| size)
@@ -654,7 +773,8 @@ impl RemoteStore {
         }
     }
 
-    /// Check the size of the uploaded `tmp`, then rename it to `path`.
+    /// Check the size of the uploaded `tmp`, then rename it to `path`
+    /// (unless it was written there whole).
     async fn finish(&self, tmp: &str, path: &str, size: u64) -> Result<(), StoreError> {
         let written = self
             .op
@@ -666,6 +786,9 @@ impl RemoteStore {
             return Err(StoreError::Other(format!(
                 "{path}: the storage holds {written} of {size} bytes"
             )));
+        }
+        if tmp == path {
+            return Ok(());
         }
         self.op
             .rename(tmp, path)
@@ -686,7 +809,8 @@ impl RemoteStore {
     pub async fn delete_dir(&self, dir: &str) -> Result<(), StoreError> {
         check_relative_path(dir)?;
         self.op
-            .remove_all(&format!("{dir}/"))
+            .delete_with(&format!("{dir}/"))
+            .recursive(true)
             .await
             .map_err(|e| StoreError::from_dal(dir, e))
     }

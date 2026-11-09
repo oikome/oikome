@@ -43,6 +43,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { auditContrast } from "./contrast.mjs";
+import { createBucket, startRustfs } from "./rustfs.mjs";
 import { BIN, ENV, oikome } from "./node.mjs";
 
 const WEB_ROOT = fileURLToPath(new URL("../apps/web/dist", import.meta.url));
@@ -654,6 +655,57 @@ test("a place picked on this computer keeps new collections", async () => {
     await page.getByRole("button", { name: "More actions for Local" }).waitFor({ state: "detached" });
   } finally {
     rmSync(picked, { recursive: true, force: true });
+  }
+});
+
+test("a bucket on RustFS keeps new collections, encrypted", async () => {
+  const rustfs = await startRustfs();
+  test.skip(!rustfs, "no RustFS here (brew install rustfs/tap/rustfs)");
+  try {
+    await createBucket(rustfs, "family");
+    await page.goto(`${base}/settings`);
+    await page.getByRole("button", { name: "Add Storage" }).click();
+    const add = page.getByRole("dialog", { name: "Add Storage" });
+    await add.getByRole("radio", { name: /^RustFS/ }).check();
+    // The choices' notes mention an address and keys too: the fields by role.
+    await add.getByRole("textbox", { name: "Address", exact: true }).fill(rustfs.endpoint);
+    await add.getByRole("textbox", { name: "Bucket", exact: true }).fill("family");
+    await add.getByRole("textbox", { name: "Access key", exact: true }).fill(rustfs.accessKey);
+    await add.getByLabel("Secret key", { exact: true }).fill("not-the-secret-key");
+    // Encrypted unless the owner says no, and then told who can read it.
+    const encrypt = add.getByLabel("Encrypt files before they leave this computer");
+    await expect(encrypt).toBeChecked();
+    await encrypt.uncheck();
+    await expect(add).toContainText("Without encryption, whoever runs the storage can read the files.");
+    await encrypt.check();
+    await add.getByRole("button", { name: "Add Storage" }).click();
+    await expect(add).toContainText("Couldn't reach it. Check the address, bucket and keys, then try again.");
+    await add.getByLabel("Secret key", { exact: true }).fill(rustfs.secretKey);
+    await add.getByLabel("Use for New Collections").check();
+    await add.getByRole("button", { name: "Add Storage" }).click();
+    await expect(add).toHaveCount(0);
+    const [added] = (await api("list_storages")).filter((p) => p.type === "s3");
+    expect(added).toMatchObject({ label: "family", isDefault: true, encrypted: true });
+    await expect(page.locator(".oik-row", { hasText: "family" }).first()).toContainText("RustFS");
+
+    await page.goto(`${base}/collections`);
+    await page.getByRole("button", { name: "New Collection" }).first().click();
+    await expect(page.getByLabel("Store on")).toHaveValue(added.name);
+    await page.getByLabel("Name").fill("trip");
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page).toHaveURL(/\/collections\/trip$/);
+    await expect(page.locator(".screen-facts")).toContainText("family");
+
+    // Back to this computer, and the bucket's place goes once nothing is on it.
+    await api("set_default_storage", { storage: null });
+    await api("drop_space", { space: "trip" });
+    await page.goto(`${base}/settings`);
+    await page.getByRole("button", { name: "More actions for family" }).click();
+    await page.getByRole("menuitem", { name: "Remove Place" }).click();
+    await page.getByRole("dialog", { name: "Remove family?" }).getByRole("button", { name: "Remove" }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Removed family.");
+  } finally {
+    rustfs?.stop();
   }
 });
 

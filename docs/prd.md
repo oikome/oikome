@@ -46,7 +46,7 @@ The interface uses the words on the left; underneath are the mechanisms in the m
 | In the interface | In the system | Notes |
 | --- | --- | --- |
 | Collection | Space | A body of data on one subject, such as "flomo notes", "Family photos" or "Smart home" |
-| Place (this computer is Local) | Storage / Location | This computer (Local), a NAS (3.4a), cloud drives (from 3.4b, with files and names encrypted on this computer; 3.4c through the drives' APIs; 3.4d Baidu Netdisk), object storage (3.4e). Files already on a place can be viewed in place (3.9). A collection a source fills goes on Local by default; another place is asked about first, and this computer keeps the working copy and sends a copy there after every sync |
+| Place (this computer is Local) | Storage / Location | This computer (Local), a NAS (3.4a), cloud drives (from 3.4b, with files and names encrypted on this computer; 3.4c through the drives' APIs; 3.4d Baidu Netdisk), object storage on RustFS, the one supported (3.4e, encrypted by default; the bucket must exist). Files already on a place can be viewed in place (3.9). A collection a source fills goes on Local by default; another place is asked about first, and this computer keeps the working copy and sends a copy there after every sync |
 | Source | Connector | Pulls data in from an app or a folder, with sync status; can be paused (3.5) |
 | Viewing in place ("View a Folder") | An in-place Space (`InPlace` Location) + an index on this computer | Files already on a storage or drive are viewed and queried where they are, not copied; the index and thumbnails stay on this computer and can be rebuilt (3.9) |
 | Save To | Save rules (node configuration) | The owner picks the target place, folder and naming rule, once or continuously; the target is plain files or a new collection; only files Oikome wrote itself are changed (3.10) |
@@ -193,7 +193,7 @@ A milestone starts only once its gate phases are done; no skipping (architecture
 | M9 Family | Give family members their own identity and what each may see | M7 | Not started |
 | M10 Plugins from others | Install source and card plugins other people make, one at a time, signed, from a directory | M4 | Not started; last, with M5 |
 
-**Order (2026-11-09).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen), 3.12 (brought forward), then M8 (brought forward). Next: 3.4e and 3.4c, MinIO and Google Drive only, then working with data in the apps (explored first), then 3.8, 3.7, 3.10, M6, M7, M9, 3.13. Last: M5 and M10.
+**Order (2026-11-09).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen), 3.12 (brought forward), then M8 (brought forward). Next: 3.4e and 3.4c, RustFS and Google Drive only, then working with data in the apps (explored first), then 3.8, 3.7, 3.10, M6, M7, M9, 3.13. Last: M5 and M10.
 
 Device pairing comes with the phone app (M7). The smart home reference plugin also depends on which phase the Home Assistant source lands in (see Open Questions).
 

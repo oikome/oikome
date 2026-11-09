@@ -213,6 +213,7 @@ export const ru: Strings = {
     plugins_too_many: (p: { max: string }) => `Плагинов можно добавить не больше ${p.max}. Сначала уберите один.`,
     plugin_shared: (p: { name: string }) =>
       `Коллекцией ${p.name} поделились с вами, а плагин читает только ваши собственные коллекции.`,
+    storage_s3_incomplete: "Для RustFS нужны адрес, бакет, ключ доступа и секретный ключ.",
   },
 
   errors: {
@@ -697,6 +698,16 @@ export const ru: Strings = {
     unreachable: "Не удалось подключиться. Проверьте адрес, имя пользователя и пароль и попробуйте снова.",
     pickFolder: "Сначала выберите папку.",
     addressRequired: "Введите адрес NAS.",
+    s3: "RustFS",
+    s3Meta: "Объектное хранилище, которое вы держите сами: адрес, бакет и ключи",
+    s3AddressHint: "Например, http://192.168.1.20:9000. RustFS на этом компьютере — http://127.0.0.1:9000.",
+    bucket: "Бакет",
+    bucketHint: "Он должен уже существовать — сначала создайте его в хранилище.",
+    accessKey: "Ключ доступа",
+    secretKey: "Секретный ключ",
+    plainNote: "Без шифрования файлы сможет прочитать тот, кто управляет хранилищем.",
+    s3Required: "Введите адрес, бакет, ключ доступа и секретный ключ.",
+    unreachableS3: "Не удалось подключиться. Проверьте адрес, бакет и ключи и попробуйте снова.",
     usedShare: (percent: number) => `Занято ${percent}%`,
     noRoom: "Объём здесь неизвестен.",
   },
@@ -996,7 +1007,7 @@ export const ru: Strings = {
     storageTitle: "Хранилище",
     thisComputer: LOCAL,
     storageCount: (n: number) => `${n.toLocaleString("ru")} ${p(n, COLLECTIONS)}`,
-    storageKind: { disk: "Локально", webdav: "NAS", folder: "Папка", drive: "Облачный диск" },
+    storageKind: { disk: "Локально", webdav: "NAS", folder: "Папка", drive: "Облачный диск", s3: "RustFS" },
     encrypted: "Зашифровано",
     networkTitle: "Сеть",
     reachableLabel: "Доступ извне",

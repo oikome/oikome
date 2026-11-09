@@ -632,6 +632,7 @@ const P = {
   computer: '<rect x="4" y="5" width="16" height="11" rx="1.75"/><path d="M2.5 19h19"/>',
   nas: '<rect x="6" y="3.5" width="12" height="17" rx="2"/><path d="M9 8h6M9 11h6"/><circle cx="12" cy="16" r="1" fill="currentColor" stroke="none"/>',
   drive: '<path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 11.6 3.5 3.5 0 0 0 7 18.5z"/>',
+  bucket: '<ellipse cx="12" cy="6.5" rx="7" ry="2.5"/><path d="M5 6.5v11c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-11M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>',
   phone: '<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 17.5h2"/>',
   key: '<circle cx="8" cy="15" r="3.5"/><path d="m10.5 12.5 8-8M15.5 7.5l2 2M17.5 5.5l2 2"/>',
   cpu: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/><path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3"/>',
@@ -1247,7 +1248,7 @@ const langBtn = (cls) => `<button class="btn btn--ghost top__lang ${cls || ''}" 
 screens.welcome = () => {
   const n = S.welcome;
   const foot2 = (text, back) => `<div class="welcome__foot faint">${back ? `<button class="btn btn--ghost" data-act="wback" style="height:28px;padding:0 8px">${t('back')}</button>` : '<span></span>'}<span>${text}</span></div>`;
-  const wp = { icloud: 'iCloud Drive', nas: t('w.theNas') }[S.wplace];
+  const wp = { icloud: 'iCloud Drive', nas: t('w.theNas'), s3: t('w.theBucket') }[S.wplace];
   let inner;
   if (n === 1) inner = `
     <div class="row row--between"><span class="ws__mark" style="width:40px;height:40px">${I('mark')}</span>${langBtn()}</div>
@@ -1258,9 +1259,11 @@ screens.welcome = () => {
       <div class="opt ${S.wplace === 'computer' ? 'on' : ''}" data-act="wplace" data-v="computer"><span class="radio"></span><span class="ico">${I('computer')}</span><div style="flex:1"><b>${t('place.local')}</b><div class="faint" style="font-size:12px">${t('place.localMeta', { path: H(`<span class="mono">${esc(S.dataDir)}</span>`) })}</div></div><button class="btn btn--ghost" data-act="pickdir">${t('change')}</button></div>
       <div class="opt ${S.wplace === 'icloud' ? 'on' : ''}" data-act="wplace" data-v="icloud"><span class="radio"></span><span class="ico">${I('drive')}</span>${twoLine('iCloud Drive', t('w.foundEnc'))}</div>
       <div class="opt ${S.wplace === 'nas' ? 'on' : ''}" data-act="wplace" data-v="nas"><span class="radio"></span><span class="ico">${I('nas')}</span>${twoLine(t('w.aNas'), t('w.addrPw'))}</div>
+      <div class="opt ${S.wplace === 's3' ? 'on' : ''}" data-act="wplace" data-v="s3"><span class="radio"></span><span class="ico">${I('bucket')}</span>${twoLine(t('ap.s3'), t('ap.s3.sub'))}</div>
     </div>
     ${S.wplace !== 'computer' ? `<p class="hint" style="margin:-12px 0 18px">${t('w.placeNote', { place: wp })}</p>` : ''}
     ${S.wplace === 'nas' ? `<div style="display:grid;gap:10px;margin:-8px 0 22px"><div class="input"><input placeholder="nas.local/oikome" aria-label="${t('ap.address')}"></div><div class="input"><input type="password" placeholder="${t('place.password')}" aria-label="${t('place.password')}"></div><span class="hint">${t('w.pwKeychain')}</span></div>` : ''}
+    ${S.wplace === 's3' ? `<div style="display:grid;gap:10px;margin:-8px 0 22px"><div class="input"><input placeholder="https://s3.example.com" aria-label="${t('ap.address')}"></div><div class="input"><input placeholder="${t('ap.bucket')}" aria-label="${t('ap.bucket')}"></div><div class="input"><input placeholder="${t('ap.accessKey')}" aria-label="${t('ap.accessKey')}"></div><div class="input"><input type="password" placeholder="${t('ap.secretKey')}" aria-label="${t('ap.secretKey')}"></div><span class="hint">${t('w.pwKeychain')}</span></div>` : ''}
     <button class="btn btn--primary" data-act="wnext" style="width:100%;height:40px">${t('next')}</button>
     ${foot2(t('w.step1'))}`;
   else if (n === 2) inner = `
@@ -1486,7 +1489,8 @@ DLG.addplace = (D) => {
   if (D.kind === 'folder') form = `<div class="field"><span class="label">${t('as.folder')}</span><div class="opts">${[['/Volumes/Backup', t('ap.external', { free: sz([1.8, 'TB']) })], ['~/Documents/Archive', t('ap.thisComputer', { free: sz([412, 'GB']) })]].map(([n, m]) => opt('pick', n, D.pick, `<span class="ico">${I('folder')}</span>${nameCell(n, m)}`)).join('')}</div><span class="hint">${t('ap.makesFolder')}</span></div>`;
   if (D.kind === 'drive') form = `<div class="field"><span class="label">${t('ap.found')}</span><div class="opts">${[['Dropbox', '~/Dropbox', [1.2, 'TB']], ['OneDrive', '~/OneDrive', [860, 'GB']]].map(([n, path, f]) => opt('pick', n, D.pick, `<span class="ico">${I('drive')}</span><div style="flex:1"><b>${n}</b><div class="faint mono" style="font-size:12px">${path} · ${t('place.free', { size: sz(f) })}</div></div>`)).join('')}</div></div><div class="box">${t('ap.encrypted', { drive: D.pick || 'Dropbox' })}</div>`;
   if (D.kind === 'nas') form = `<div class="field"><span class="label">${t('ap.address')}</span><div class="input"><input data-bind="addr" value="${esc(D.addr)}" placeholder="nas.local" autocomplete="off" data-autofocus></div></div><div class="field"><span class="label">${t('ap.nasFolder')}</span><div class="input"><input data-bind="folder" value="${esc(D.folder)}" autocomplete="off"></div><span class="hint">${t('ap.folderHint')}</span></div><div class="field"><span class="label">${t('ap.user')}</span><div class="input"><input data-bind="user" value="${esc(D.user)}" autocomplete="off"></div><span class="hint">${t('ap.userHint')}</span></div><div class="field"><span class="label">${t('place.password')}</span><div class="input"><input type="password" data-bind="pw" autocomplete="off"></div><span class="hint">${t('ap.pwHint')}</span></div>`;
-  return dlg(t('ap.title'), `<div class="opts">${[['folder', 'computer'], ['drive', 'drive'], ['nas', 'nas']].map(([v, ic]) => opt('kind', v, D.kind, `<span class="ico">${I(ic)}</span>${twoLine(t(`ap.${v}`), t(`ap.${v}.sub`))}`)).join('')}</div>${form}${D.err ? `<span class="err">${D.err}</span>` : ''}`,
+  if (D.kind === 's3') form = `<div class="field"><span class="label">${t('ap.address')}</span><div class="input"><input data-bind="addr" value="${esc(D.addr)}" placeholder="http://192.168.1.20:9000" autocomplete="off" data-autofocus></div><span class="hint">${t('ap.s3AddrHint')}</span></div><div class="field"><span class="label">${t('ap.bucket')}</span><div class="input"><input data-bind="bucket" value="${esc(D.bucket)}" autocomplete="off"></div><span class="hint">${t('ap.bucketHint')}</span></div><div class="field"><span class="label">${t('ap.accessKey')}</span><div class="input"><input data-bind="user" value="${esc(D.user)}" autocomplete="off"></div></div><div class="field"><span class="label">${t('ap.secretKey')}</span><div class="input"><input type="password" data-bind="pw" autocomplete="off"></div><span class="hint">${t('ap.pwHint')}</span></div><div class="box">${t('ap.s3Encrypted')}</div>`;
+  return dlg(t('ap.title'), `<div class="opts">${[['folder', 'computer'], ['drive', 'drive'], ['nas', 'nas'], ['s3', 'bucket']].map(([v, ic]) => opt('kind', v, D.kind, `<span class="ico">${I(ic)}</span>${twoLine(t(`ap.${v}`), t(`ap.${v}.sub`))}`)).join('')}</div>${form}${D.err ? `<span class="err">${D.err}</span>` : ''}`,
     foot('', `${cancel()}<button class="btn btn--primary" data-act="placeok">${t('addPlace')}</button>`));
 };
 
@@ -1836,7 +1840,7 @@ const ACT = {
     });
   },
   logrow: (el) => { const l = LOG[+el.dataset.i]; info(l.st === 'bad' ? t('log.refusedTitle') : `${esc(logWho(l))} · ${ago(l.min)}`, t(l.detail[0], Object.assign({}, l.detail[1], l.detail[1].date ? { date: md(l.detail[1].date) } : {})), l.go, l.goLabel ? t(l.goLabel) : ''); },
-  addplace: () => open('addplace', { kind: 'drive', pick: 'Dropbox', addr: '', folder: '/oikome', user: '', err: '' }),
+  addplace: () => open('addplace', { kind: 'drive', pick: 'Dropbox', addr: '', folder: '/oikome', user: '', bucket: '', err: '' }),
   placeok: () => {
     let p;
     if (D.kind === 'nas') {
@@ -1844,6 +1848,9 @@ const ACT = {
       if (!host) return upd({ err: t('err.addr') });
       const folder = (D.folder || '/oikome').trim();
       p = { ico: 'nas', name: host, kind: 'nas', addr: `https://${host}${folder.startsWith('/') ? '' : '/'}${folder}`, host, folder, user: D.user.trim() || 'oikome', admin: false, free: null, used: null, total: null, p: 0, oik: [0, 'MB'], oikP: 0, other: null, enc: true };
+    } else if (D.kind === 's3') {
+      if (!D.addr.trim() || !D.bucket.trim() || !D.user.trim()) return upd({ err: t('err.s3') });
+      p = { ico: 'bucket', name: D.bucket.trim(), kind: 's3', addr: `${D.bucket.trim()} · ${D.addr.trim()}`, free: null, used: null, total: null, p: 0, oik: [0, 'MB'], oikP: 0, other: null, enc: true };
     } else if (D.kind === 'drive') {
       const big = D.pick === 'Dropbox';
       p = { ico: 'drive', name: D.pick, kind: 'drive', addr: `${D.pick}/Oikome`, free: big ? [1.2, 'TB'] : [860, 'GB'], used: big ? [300, 'GB'] : [140, 'GB'], total: big ? [1.5, 'TB'] : [1, 'TB'], p: big ? 20 : 14, oik: [0, 'MB'], oikP: 0, other: big ? [300, 'GB'] : [140, 'GB'], enc: true };

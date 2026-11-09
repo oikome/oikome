@@ -83,6 +83,14 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
+      # RustFS, the object storage Oikome supports, for the e2e tests (3.4e):
+      # its official tap, whose formula checks each binary's SHA-256.
+      - name: Install RustFS
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install rustfs/tap/rustfs
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
       - name: Browser tests
         working-directory: e2e
         env:

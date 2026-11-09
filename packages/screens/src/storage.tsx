@@ -45,6 +45,12 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [encrypt, setEncrypt] = useState(true);
+  // Object storage: its own fields, encrypted unless the owner says no.
+  const [s3Address, setS3Address] = useState("");
+  const [bucket, setBucket] = useState("");
+  const [accessKey, setAccessKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [s3Encrypt, setS3Encrypt] = useState(true);
 
   const found = places.data ?? [];
   const choices: Choice[] = [];
@@ -104,6 +110,36 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
     ),
   });
   choices.push({
+    value: "s3",
+    title: s.s3,
+    meta: s.s3Meta,
+    leading: <Icon name="bucket" />,
+    more: (
+      <>
+        <TextField
+          label={s.address}
+          name="s3-address"
+          type="url"
+          hint={s.s3AddressHint}
+          value={s3Address}
+          onChange={setS3Address}
+        />
+        <TextField label={s.bucket} name="s3-bucket" hint={s.bucketHint} value={bucket} onChange={setBucket} />
+        <TextField label={s.accessKey} name="s3-access-key" value={accessKey} onChange={setAccessKey} />
+        <TextField
+          label={s.secretKey}
+          name="s3-secret-key"
+          type="password"
+          hint={s.passwordHint}
+          value={secretKey}
+          onChange={setSecretKey}
+        />
+        <Checkbox label={s.encrypt} checked={s3Encrypt} onChange={setS3Encrypt} />
+        {!s3Encrypt && <p className="screen-help">{s.plainNote}</p>}
+      </>
+    ),
+  });
+  choices.push({
     value: "folder",
     title: s.folder,
     meta: otherFolder ? s.pickedFolder(homeRelative(keptIn(otherFolder))) : s.folderMeta,
@@ -142,6 +178,20 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
         },
       };
     }
+    if (choice === "s3") {
+      if (![s3Address, bucket, accessKey].every((v) => v.trim()) || !secretKey) return { error: s.s3Required };
+      return {
+        add: {
+          label: bucket.trim(),
+          type: "s3",
+          address: s3Address.trim(),
+          bucket: bucket.trim(),
+          username: accessKey.trim(),
+          password: secretKey,
+          encrypted: s3Encrypt,
+        },
+      };
+    }
     if (!otherFolder) return { error: s.pickFolder };
     return { add: { label: folderName(otherFolder), type: "folder", address: otherFolder } };
   };
@@ -162,6 +212,11 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
     </>
   );
   return { picker, plan };
+}
+
+/** What to say when the place picked couldn't be reached or refused what was entered. */
+export function unreachableFor(plan: Plan): string {
+  return "add" in plan && plan.add?.type === "s3" ? s.unreachableS3 : s.unreachable;
 }
 
 /** Add what `plan` says, if anything; the storage, or undefined for this computer. */

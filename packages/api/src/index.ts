@@ -182,7 +182,7 @@ storage?: string, };
 /**
  * Where a storage keeps its files.
  */
-export type StorageType = "disk" | "webdav" | "folder" | "drive";
+export type StorageType = "disk" | "webdav" | "folder" | "drive" | "s3";
 
 /**
  * A place Spaces can be kept: this computer, or a registered storage.
@@ -227,20 +227,32 @@ export type NewStorage = {
  */
 label: string, 
 /**
- * `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+ * `webdav`, `folder`, `drive` or `s3`; a folder inside a cloud drive is
+ * a drive.
  */
 type: StorageType, 
 /**
- * The WebDAV address, or the folder picked: the files go in an
- * `Oikome` folder inside it.
+ * The WebDAV or object storage address, or the folder picked: the
+ * files go in an `Oikome` folder inside it (on object storage, in the
+ * bucket).
  */
-address: string, username?: string, 
+address: string, 
 /**
- * Kept in the system keychain, never in the registry or a log.
+ * The user name; on object storage, the access key.
+ */
+username?: string, 
+/**
+ * The password; on object storage, the secret key. Kept in the system
+ * keychain, never in the registry or a log.
  */
 password?: string, 
 /**
- * Encrypt files before they leave this computer; a cloud drive always is.
+ * Object storage: the bucket, which must exist already.
+ */
+bucket?: string, 
+/**
+ * Encrypt files before they leave this computer; a cloud drive always
+ * is, and object storage is unless this says no.
  */
 encrypted?: boolean, 
 /**

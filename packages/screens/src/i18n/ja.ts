@@ -202,6 +202,7 @@ export const ja: Strings = {
     plugins_too_many: (p: { max: string }) => `追加できるプラグインは ${p.max} 個までです。先に 1 つ削除してください。`,
     plugin_shared: (p: { name: string }) =>
       `${p.name} はあなたと共有されたコレクションです。プラグインが読み取れるのは自分のコレクションだけです。`,
+    storage_s3_incomplete: "RustFS には、アドレス、バケット、アクセスキー、シークレットキーが必要です。",
   },
 
   errors: {
@@ -660,6 +661,16 @@ export const ja: Strings = {
     unreachable: "接続できませんでした。アドレス、ユーザ名、パスワードを確認してから、もう一度お試しください。",
     pickFolder: "先にフォルダを選んでください。",
     addressRequired: "NAS のアドレスを入力してください。",
+    s3: "RustFS",
+    s3Meta: "自分で動かすオブジェクトストレージ: アドレス、バケット、キー",
+    s3AddressHint: "例: http://192.168.1.20:9000。このコンピュータの RustFS は http://127.0.0.1:9000 です。",
+    bucket: "バケット",
+    bucketHint: "先にストレージ側で作成しておいてください。",
+    accessKey: "アクセスキー",
+    secretKey: "シークレットキー",
+    plainNote: "暗号化しない場合、ストレージの運営者がファイルを読めます。",
+    s3Required: "アドレス、バケット、アクセスキー、シークレットキーを入力してください。",
+    unreachableS3: "接続できませんでした。アドレス、バケット、キーを確認してから、もう一度お試しください。",
     usedShare: (percent: number) => `${num(percent)}% 使用`,
     noRoom: "容量はここではわかりません。",
   },
@@ -954,7 +965,7 @@ export const ja: Strings = {
     storageTitle: "ストレージ",
     thisComputer: "ローカル",
     storageCount: (n: number) => `コレクション ${num(n)} 個`,
-    storageKind: { disk: "ローカル", webdav: "NAS", folder: "フォルダ", drive: "クラウドドライブ" },
+    storageKind: { disk: "ローカル", webdav: "NAS", folder: "フォルダ", drive: "クラウドドライブ", s3: "RustFS" },
     encrypted: "暗号化済み",
     networkTitle: "ネットワーク",
     reachableLabel: "外部からの接続",

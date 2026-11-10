@@ -664,25 +664,21 @@ impl RemoteStore {
     /// bytes; for small files.
     pub async fn read(&self, path: &str, max: u64) -> Result<Bytes, StoreError> {
         check_relative_path(path)?;
-        let size = self
+        // One request, not a stat and then a read: on a drive each is a
+        // round trip. The files read so are Oikome's own small ones (its
+        // record, snapshots, claims), so reading one whole is no burden.
+        let bytes = self
             .op
-            .stat(path)
+            .read(path)
             .await
-            .map_err(|e| StoreError::from_dal(path, e))?
-            .content_length();
-        if size > max {
+            .map(|b| b.to_bytes())
+            .map_err(|e| StoreError::from_dal(path, e))?;
+        if bytes.len() as u64 > max {
             return Err(StoreError::Invalid(format!(
                 "{path} is larger than {max} bytes"
             )));
         }
-        // Exactly the size seen: a file that grows meanwhile is cut short
-        // rather than read past the limit.
-        self.op
-            .read_with(path)
-            .range(0..size)
-            .await
-            .map(|b| b.to_bytes())
-            .map_err(|e| StoreError::from_dal(path, e))
+        Ok(bytes)
     }
 
     /// The file at `path` as a stream of chunks.
@@ -722,6 +718,10 @@ impl RemoteStore {
                 .write(&target, bytes)
                 .await
                 .map_err(|e| StoreError::from_dal(path, e))?;
+            // Written in place, the storage holds it whole or not at all.
+            if whole {
+                return Ok(());
+            }
             self.finish(&target, path, size).await
         }
         .await;
@@ -766,20 +766,34 @@ impl RemoteStore {
                         .await
                         .map_err(|e| StoreError::from_dal(path, e))?;
                     let mut chunks = chunks;
+                    let mut sent = 0u64;
                     while let Some(chunk) = chunks
                         .try_next()
                         .await
                         .map_err(|e| StoreError::Other(format!("{path}: {e}")))?
                     {
+                        sent += chunk.len() as u64;
                         writer
                             .write(chunk)
                             .await
                             .map_err(|e| StoreError::from_dal(path, e))?;
                     }
+                    // Written in place, the upload completes whole or not at
+                    // all: the bytes sent tell its size, without asking the
+                    // storage again.
+                    if whole && sent != size {
+                        let _ = writer.abort().await;
+                        return Err(StoreError::Other(format!(
+                            "{path}: {sent} of {size} bytes were read to send"
+                        )));
+                    }
                     writer
                         .close()
                         .await
                         .map_err(|e| StoreError::from_dal(path, e))?;
+                    if whole {
+                        return Ok(());
+                    }
                 }
             }
             self.finish(&tmp, path, size).await

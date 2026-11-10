@@ -18,7 +18,9 @@
 // MODIFIED BY THE OIKOME AUTHORS (2026-11-09): a file larger than one
 // chunk (8 MiB) is written through a resumable upload session, a chunk at a
 // time, instead of being held whole and sent in one request
-// (third_party/README.md, apache/opendal#8503).
+// (third_party/README.md, apache/opendal#8503). 2026-11-10: a new file's
+// path is looked up once; the cache is refreshed only when the upload finds
+// a folder gone.
 
 use std::sync::Arc;
 
@@ -79,18 +81,14 @@ impl GdriveWriter {
         }
     }
 
-    /// The id of the file at the writer's path, if there is one.
+    /// The id of the file at the writer's path, if there is one. A path
+    /// not found was just asked of the drive: the cache is refreshed only
+    /// if the upload then finds a folder or the file gone, not before every
+    /// new file (that would look every folder of the path up again).
     async fn current_file_id(&self) -> Result<Option<String>> {
         Ok(match &self.file_id {
             Some(file_id) => Some(file_id.clone()),
-            None => match self.core.resolve_path(&self.ctx, &self.path).await? {
-                Some(id) => Some(id),
-                None => {
-                    self.core
-                        .resolve_path_after_refresh(&self.ctx, &self.path)
-                        .await?
-                }
-            },
+            None => self.core.resolve_path(&self.ctx, &self.path).await?,
         })
     }
 
@@ -117,8 +115,9 @@ impl GdriveWriter {
                         })?;
                     return Ok((location.to_string(), current_file_id.is_none()));
                 }
-                // The id cached for the path is gone: look the path up again.
-                StatusCode::NOT_FOUND if !retried && current_file_id.is_some() => {
+                // An id cached for the path or its folder is gone: look the
+                // path up again.
+                StatusCode::NOT_FOUND if !retried => {
                     retried = true;
                     self.core.refresh_path(&self.path).await;
                     current_file_id = self.core.resolve_path(&self.ctx, &self.path).await?;
@@ -182,7 +181,7 @@ impl GdriveWriter {
                     self.finished(size as u64, made).await;
                     return Ok(MetadataBuilder::unknown().build());
                 }
-                StatusCode::NOT_FOUND if !retried && current_file_id.is_some() => {
+                StatusCode::NOT_FOUND if !retried => {
                     retried = true;
                     self.core.refresh_path(&self.path).await;
                     current_file_id = self.core.resolve_path(&self.ctx, &self.path).await?;

@@ -26,4 +26,10 @@
   is written through a resumable upload session, a chunk at a time,
   instead of being held whole in memory and sent in one request. Smaller
   files are sent as before.
-- Drop this copy once an opendal release has the change.
+- Change, 2026-11-10: in `src/writer.rs`, a new file's path is looked up
+  once; the path cache (the file and every folder above it) is refreshed
+  only when the upload answers not found, and then the upload is tried once
+  more. opendal refreshed it before every new file, so writing one file
+  looked every folder of its path up again: four requests more for a file
+  three folders deep.
+- Drop this copy once an opendal release has the changes.

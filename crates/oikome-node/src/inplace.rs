@@ -43,7 +43,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use oikome_catalog::{Location, LocationFormat, OikomeCatalog, StorageKind};
 use oikome_connect::folder::{captions_of, split_front_matter, wall_time, written_time, CAPTIONS};
 use oikome_engine::{FileFormat, TableSource};
-use oikome_vfs::{check_owner_path, Bucket, Credentials, RemoteStore};
+use oikome_vfs::{check_owner_path, Bucket, Credentials, GoogleClient, RemoteStore};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::SessionError;
@@ -272,6 +272,40 @@ pub fn place_of(
     match &def.kind {
         StorageKind::Folder { path: root } | StorageKind::Drive { path: root } => {
             Ok(Place::Local(Path::new(root).join(within)))
+        }
+        // Without the drive's read access Oikome sees only the files it made.
+        StorageKind::Gdrive {
+            reads_all: false, ..
+        } => Err(SessionError::Unsupported(
+            "Oikome may read only the files it made on this Google Drive; connect it again \
+             letting it view your other files to view a folder there"
+                .to_string(),
+        )),
+        StorageKind::Gdrive {
+            client_id,
+            reads_all: true,
+        } => {
+            let store_err = |message: String| SessionError::Store {
+                storage: def.name.clone(),
+                message,
+            };
+            let secret = |kind| engines.storage_secret(&def.name, kind);
+            let client_secret = secret(SecretKind::Password)?
+                .ok_or_else(|| store_err("this node has no secret of its Google app".into()))?;
+            let token = secret(SecretKind::Token)?
+                .ok_or_else(|| store_err("this node isn't signed in to its Google Drive".into()))?;
+            let client = GoogleClient::new(client_id.as_str(), client_secret.as_str());
+            let store = RemoteStore::gdrive_view(within, &client, &token)
+                .map_err(|e| store_err(e.to_string()))?;
+            let label = if within.is_empty() {
+                def.name.clone()
+            } else {
+                format!("{}/{within}", def.name)
+            };
+            Ok(Place::Remote {
+                store: Box::new(store),
+                label,
+            })
         }
         StorageKind::Webdav { endpoint, username } => {
             if def.kind.needs_allow_http() && !engines.allow_http() {

@@ -15,6 +15,9 @@ oikome-identity = { path = "../oikome-identity" }
 oikome-network = { path = "../oikome-network" }
 oikome-node = { path = "../oikome-node" }
 oikome-semantic = { path = "../oikome-semantic" }
+# Signing in to Google Drive (google.rs).
+oikome-vfs = { path = "../oikome-vfs" }
+zeroize = { workspace = true }
 arrow-array = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }

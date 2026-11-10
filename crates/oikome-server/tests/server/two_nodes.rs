@@ -503,6 +503,8 @@ async fn mounting_checks_the_token_and_peer_up_front() {
             NodeConfig {
                 identity: Some(b.identity.clone()),
                 allow_http: true,
+                // Never the machine's keychain.
+                secret_backend: Some(Arc::new(oikome_node::MemorySecrets::default())),
                 ..Default::default()
             },
         )

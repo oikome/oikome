@@ -28,6 +28,10 @@ Apache Iceberg Rust (iceberg)
 Apache OpenDAL (opendal)
   https://opendal.apache.org/  -  Apache License 2.0
   Copyright The Apache Software Foundation
+  opendal-service-gdrive 0.59.5 is vendored in
+  third_party/opendal-service-gdrive and modified by The Oikome Authors:
+  large files are written through resumable upload sessions (see
+  third_party/README.md).
 
 datafusion-federation
   https://github.com/datafusion-contrib/datafusion-federation  -  Apache License 2.0

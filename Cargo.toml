@@ -124,6 +124,8 @@ tokio-test = "0.4"
 # this copy only declares `default-features = false` (third_party/README.md).
 [patch.crates-io]
 datafusion-federation = { path = "third_party/datafusion-federation" }
+# Resumable uploads (third_party/README.md).
+opendal-service-gdrive = { path = "third_party/opendal-service-gdrive" }
 
 # The browser node's WebAssembly (packages/node/scripts/build.sh): smallest code,
 # no symbol names. Native release builds are unaffected.

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 //! The folder of one Space on a storage (architecture v3 §7.5): a NAS
-//! reached over WebDAV, or a folder such as a NAS share mounted over SMB or
-//! NFS.
+//! reached over WebDAV, a folder such as a NAS share mounted over SMB or
+//! NFS, a bucket on RustFS, or Google Drive.
 //!
 //! Paths are relative to the Space's folder and made of plain segments.
 //! Files are written under a temporary name and renamed into place, so a
@@ -523,16 +523,81 @@ impl RemoteStore {
         })
     }
 
+    /// The folder `folder` (plain segments) of the owner's Google Drive,
+    /// reached as Oikome with `client` and the owner's `refresh_token`.
+    /// Only files Oikome made are seen (scope `drive.file`).
+    pub fn gdrive(
+        folder: &str,
+        client: &crate::GoogleClient,
+        refresh_token: &str,
+    ) -> Result<Self, StoreError> {
+        check_relative_path(folder)?;
+        crate::ready();
+        let builder = opendal::services::Gdrive::default()
+            .root(&format!("/{folder}/"))
+            .client_id(client.client_id())
+            .client_secret(client.client_secret())
+            .refresh_token(refresh_token);
+        let op = Operator::new(builder)
+            .map_err(|e| StoreError::Invalid(format!("Google Drive: {}", e.kind())))?;
+        Ok(Self {
+            op,
+            put: None,
+            bucket: None,
+        })
+    }
+
+    /// The owner's folder `folder` (`""` for the top) of their Google
+    /// Drive, to view in place: read only, so its names need only be the
+    /// owner's own ([`check_owner_path`]). Needs the drive's read access
+    /// (`drive.readonly`).
+    pub fn gdrive_view(
+        folder: &str,
+        client: &crate::GoogleClient,
+        refresh_token: &str,
+    ) -> Result<Self, StoreError> {
+        let folder = folder.trim_matches('/');
+        let root = if folder.is_empty() {
+            "/".to_string()
+        } else {
+            check_owner_path(folder)?;
+            format!("/{folder}/")
+        };
+        crate::ready();
+        let builder = opendal::services::Gdrive::default()
+            .root(&root)
+            .client_id(client.client_id())
+            .client_secret(client.client_secret())
+            .refresh_token(refresh_token);
+        let op = Operator::new(builder)
+            .map_err(|e| StoreError::Invalid(format!("Google Drive: {}", e.kind())))?;
+        Ok(Self {
+            op,
+            put: None,
+            bucket: None,
+        })
+    }
+
     /// Whether a write lands whole at its path, so it needs no temporary
     /// name to rename: object storage has no rename, and a PUT there is
-    /// seen complete or not at all.
+    /// seen complete or not at all. So is an upload to Google Drive, whose
+    /// rename would also put the file it replaces in the drive's trash.
     fn writes_whole(&self) -> bool {
-        !self.op.info().capability().rename
+        let info = self.op.info();
+        !info.capability().rename || info.scheme() == opendal::services::GDRIVE_SCHEME
     }
 
     /// Check that the folder exists, the storage answers and it accepts
     /// the credentials.
     pub async fn check(&self) -> Result<(), StoreError> {
+        // On Google Drive Oikome sees only what it made, its folder too:
+        // made here when it isn't there yet.
+        if self.op.info().scheme() == opendal::services::GDRIVE_SCHEME {
+            self.op
+                .create_dir("/")
+                .await
+                .map_err(|e| StoreError::from_dal("/", e))?;
+        }
         // opendal answers a stat of the root itself; a listing asks the
         // storage.
         match self.op.list("/").await {

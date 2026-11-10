@@ -46,7 +46,7 @@ The interface uses the words on the left; underneath are the mechanisms in the m
 | In the interface | In the system | Notes |
 | --- | --- | --- |
 | Collection | Space | A body of data on one subject, such as "flomo notes", "Family photos" or "Smart home" |
-| Place (this computer is Local) | Storage / Location | This computer (Local), a NAS (3.4a), cloud drives (from 3.4b, with files and names encrypted on this computer; 3.4c through the drives' APIs; 3.4d Baidu Netdisk), object storage on RustFS, the one supported (3.4e, encrypted by default; the bucket must exist). Files already on a place can be viewed in place (3.9). A collection a source fills goes on Local by default; another place is asked about first, and this computer keeps the working copy and sends a copy there after every sync |
+| Place (this computer is Local) | Storage / Location | This computer (Local), a NAS (3.4a), cloud drives (from 3.4b, with files and names encrypted on this computer; 3.4c Google Drive through its API, signed in to on Google's page, Dropbox later; 3.4d Baidu Netdisk), object storage on RustFS, the one supported (3.4e, encrypted by default; the bucket must exist). Files already on a place can be viewed in place (3.9). A collection a source fills goes on Local by default; another place is asked about first, and this computer keeps the working copy and sends a copy there after every sync |
 | Source | Connector | Pulls data in from an app or a folder, with sync status; can be paused (3.5) |
 | Viewing in place ("View a Folder") | An in-place Space (`InPlace` Location) + an index on this computer | Files already on a storage or drive are viewed and queried where they are, not copied; the index and thumbnails stay on this computer and can be rebuilt (3.9) |
 | Save To | Save rules (node configuration) | The owner picks the target place, folder and naming rule, once or continuously; the target is plain files or a new collection; only files Oikome wrote itself are changed (3.10) |
@@ -77,13 +77,13 @@ The sidebar has eight items, with the places below them. For now only the owner 
 | Plugins | Install and manage dashboard plugins | Installed plugins and the collections they read, install from a file, remove |
 | Activity | See who read what | One line per read, filtered by everyone, contacts, plugins or you; a line opens what it means and where to act on it |
 | Settings | A few one-time settings | Places, recovery key, appearance (Ink or Bold style; light, dark or system), language, network (whether this computer is reached from outside, what for, ask / always / never, helping contacts meet; 3.12), security mode (3.7) |
-| A place's page | One place's state | Whether it is reachable, which collections are on it, space used, recent uploads, the one folder it uses, what happens if it breaks; browsing the files already there (3.9) |
+| A place's page | One place's state, opened from the places in the sidebar | Space used of total (Google Drive's from Google), whether it is encrypted and whether new collections go there, which collections are on it, how Oikome reaches it (the one folder it uses, where its password or sign-in is kept, whether Oikome may view the owner's other files), what is lost if it breaks; recent uploads and browsing the files already there (3.9) come later |
 
 First run:
 
 1. The owner runs `oikome serve --web`, then `oikome web open` to open the page. The one-time sign-in link is written to a file only the owner can read and is never printed to the terminal.
-2. Name the data center (suggested from the system account's name, such as "Rosh's data center"; Continue alone is fine) and choose where data goes: `~/Oikome` by default, or another folder, a cloud drive or external disk found on the computer, or a NAS.
-3. Examples are made: a weekend in Lisbon (photos, notes, spending) and a home's temperature and humidity readings. They are plain files under `Examples/` in the chosen folder, marked Example and removable.
+2. Name the data center (suggested from the system account's name, such as "Rosh's data center"; Continue alone is fine) and choose the one place new collections go: Local (`~/Oikome`, or another folder of this computer through Change…), a cloud drive or external disk found on the computer, Google Drive, a NAS, or RustFS. A small Advanced link under it adds other places as well, for owners who want several from the start; everything else can be added later in Settings › Storage.
+3. Examples are made: a weekend in Lisbon (photos, notes, spending) and a home's temperature and humidity readings. They are plain files under `Examples/` on this computer, marked Example and removable, so the examples stay on Local whichever place new collections go to; the first step says so.
 4. Back up the recovery key: the identity is already made, and the owner is asked to export and keep the key. It can be skipped, but Home keeps reminding.
 5. Connect a first app or import a folder, and see one's own data for the first time.
 6. Optional: add one's other devices (comes with the phone and desktop apps).

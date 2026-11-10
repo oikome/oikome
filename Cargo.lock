@@ -597,6 +597,9 @@ name = "asyncband"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d2050892d4691cf110586070786712b504985a4d37ed64a9cd8a402718e1706"
+dependencies = [
+ "hashbrown 0.17.1",
+]
 
 [[package]]
 name = "asynchronous-codec"
@@ -5566,6 +5569,7 @@ dependencies = [
  "oikome-network",
  "oikome-node",
  "oikome-semantic",
+ "oikome-vfs",
  "rustix 1.1.5",
  "serde",
  "serde_json",
@@ -5574,6 +5578,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ts-rs",
+ "zeroize",
 ]
 
 [[package]]
@@ -5878,6 +5883,7 @@ dependencies = [
  "oikome-network",
  "oikome-node",
  "oikome-semantic",
+ "oikome-vfs",
  "oikome-webrtc",
  "serde",
  "serde_json",
@@ -5940,6 +5946,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6032,6 +6039,7 @@ dependencies = [
  "opendal-core",
  "opendal-http-transport-reqwest",
  "opendal-service-fs",
+ "opendal-service-gdrive",
  "opendal-service-s3",
  "opendal-service-webdav",
 ]
@@ -6088,6 +6096,19 @@ dependencies = [
  "serde",
  "tokio",
  "xattr",
+]
+
+[[package]]
+name = "opendal-service-gdrive"
+version = "0.59.5"
+dependencies = [
+ "asyncband",
+ "bytes",
+ "http",
+ "log",
+ "opendal-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

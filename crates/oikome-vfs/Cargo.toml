@@ -13,6 +13,7 @@ opendal = { version = "0.59.5", default-features = false, features = [
     "executors-tokio",
     "http-transport-reqwest-rustls-no-provider",
     "services-fs",
+    "services-gdrive",
     "services-s3",
     "services-webdav",
 ] }
@@ -26,6 +27,8 @@ reqwest = { version = "0.12", default-features = false, features = ["stream", "r
 thiserror = { workspace = true }
 url = "2"
 zeroize = { workspace = true }
+# PKCE's S256 challenge, signing in to Google Drive (google.rs).
+sha2 = { workspace = true }
 # Client-side encryption of files on a storage (seal.rs).
 base64 = { workspace = true }
 blake3 = { workspace = true }

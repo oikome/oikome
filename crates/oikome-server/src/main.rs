@@ -167,6 +167,10 @@ enum StorageCommand {
     List,
     /// Print the key of an encrypted storage, to add it on another node.
     ExportKey { name: String },
+    /// Remember your own Google app for Google Drive: its client ID and
+    /// then its secret, one per line on standard input. The apps then
+    /// connect Google Drive without asking for them.
+    GoogleApp,
     /// Unregister a storage no Space is on and forget its credentials; its
     /// files are left in place.
     Remove { name: String },
@@ -610,8 +614,9 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 }
                 StorageCommand::List => {
                     for def in catalog.list_storages() {
-                        // Name, kind, address, then the user name, or the
-                        // bucket and access key on object storage.
+                        // Name, kind, address, then the user name: the
+                        // access key on RustFS, the Google app's client ID
+                        // on Google Drive.
                         let (kind, address, user) = match &def.kind {
                             StorageKind::Webdav { endpoint, username } => (
                                 "webdav",
@@ -620,6 +625,11 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                             ),
                             StorageKind::Folder { path } => ("folder", path.clone(), String::new()),
                             StorageKind::Drive { path } => ("drive", path.clone(), String::new()),
+                            StorageKind::Gdrive { client_id, .. } => (
+                                "gdrive",
+                                format!("Google Drive/{}", oikome_catalog::OBJECT_STORAGE_FOLDER),
+                                client_id.clone(),
+                            ),
                             StorageKind::S3 {
                                 endpoint,
                                 bucket,
@@ -638,6 +648,16 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 StorageCommand::ExportKey { name } => {
                     let session = OikomeSession::new(catalog, engines, SessionConfig::default());
                     println!("{}", session.export_storage_key(&name)?.as_str());
+                }
+                StorageCommand::GoogleApp => {
+                    // Read from standard input, kept out of the process list.
+                    let mut id = String::new();
+                    std::io::stdin().read_line(&mut id)?;
+                    let mut secret = Zeroizing::new(String::new());
+                    std::io::stdin().read_line(&mut secret)?;
+                    let session = OikomeSession::new(catalog, engines, SessionConfig::default());
+                    session.set_google_app(id.trim(), secret.trim())?;
+                    println!("Remembered the Google app {}.", id.trim());
                 }
                 StorageCommand::Remove { name } => {
                     let session = OikomeSession::new(catalog, engines, SessionConfig::default());

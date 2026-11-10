@@ -4,10 +4,9 @@
 // Settings, as grouped rows: the recovery key, the data center itself,
 // where collections are kept, language.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
-  Checkbox,
   ConfirmDialog,
   CopyButton,
   Dialog,
@@ -30,7 +29,7 @@ import type { StatusKind } from "@oikome/ui";
 import { useAction, useClient, useLoad } from "../data";
 import { LanguageSelect, RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { bytes, dateFromMs, homeRelative, listNames, middle, shortId } from "../format";
-import { addPlanned, unreachableFor, useStoragePicker } from "../storage";
+import { AddStorage, googleMessage } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
 import { navigate } from "../router";
@@ -44,6 +43,7 @@ const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
   folder: ["folder", "oat"],
   drive: ["drive", "periwinkle"],
   s3: ["bucket", "apricot"],
+  gdrive: ["drive", "mist"],
 };
 
 /** Free space and a bar, where the place says. */
@@ -60,11 +60,23 @@ function Room({ place }: { place: StorageSummary }) {
   );
 }
 
-/** Where collections can be kept, with how many are on each, and which one new ones go to. */
-function Storage() {
+/**
+ * Where collections can be kept, with how many are on each, and which one
+ * new ones go to. `google` is how connecting Google Drive went, on coming
+ * back from Google's page.
+ */
+function Storage({ google }: { google: string | null }) {
   const client = useClient();
   const toast = useToast();
   const storages = useLoad(() => client.listStorages(), []);
+  // Said once: the flag leaves the address, so a reload doesn't say it again.
+  const [googleNote] = useState(() => googleMessage(google));
+  useEffect(() => {
+    if (!google) return;
+    if (google === "added") toast(strings.toast.storageAdded(strings.storage.gdrive));
+    navigate("/settings", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const spaces = useLoad(() => client.listSpaces(), []);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<StorageSummary>();
@@ -84,6 +96,7 @@ function Storage() {
       }
     >
       {storages.error && <Row title={storages.error} muted />}
+      {googleNote && <Row title={googleNote} muted />}
       {(storages.data ?? []).map((x) => {
         const [icon, tone] = STORAGE_LOOK[x.type];
         const label = x.name === null ? s.thisComputer : x.label;
@@ -167,7 +180,13 @@ function Storage() {
       {removing && removing.spaces === 0 && removing.name !== null && (
         <ConfirmDialog
           title={strings.storage.removeTitle(removing.label)}
-          body={removing.encrypted ? strings.storage.removeBodyEncrypted : strings.storage.removeBody}
+          body={
+            removing.type === "gdrive"
+              ? strings.storage.removeBodyGdrive
+              : removing.encrypted
+                ? strings.storage.removeBodyEncrypted
+                : strings.storage.removeBody
+          }
           confirmLabel={strings.storage.removeYes}
           cancelLabel={strings.common.cancel}
           busy={remove.busy}
@@ -187,6 +206,7 @@ function Storage() {
       )}
       {adding && (
         <AddStorage
+          returnTo="settings"
           onClose={() => setAdding(false)}
           onAdded={(label) => {
             toast(strings.toast.storageAdded(label));
@@ -312,58 +332,17 @@ function NetworkSettings() {
   );
 }
 
-/** Add a place: a cloud drive or drive found here, a NAS, or a folder. */
-function AddStorage({ onClose, onAdded }: { onClose: () => void; onAdded: (label: string) => void }) {
-  const client = useClient();
-  const storage = useStoragePicker({ withThisComputer: false });
-  const [makeDefault, setMakeDefault] = useState(false);
-  const add = useAction();
-  return (
-    <Dialog
-      title={strings.storage.add}
-      closeLabel={strings.common.close}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button type="submit" form="add-storage" variant="primary" disabled={add.busy}>
-            {add.busy ? strings.storage.connecting : strings.storage.add}
-          </Button>
-        </>
-      }
-    >
-      <form
-        id="add-storage"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const plan = storage.plan();
-          if ("error" in plan) {
-            add.fail(plan.error);
-            return;
-          }
-          const added = await add.run(
-            () => addPlanned(client, plan, makeDefault),
-            (err) => (err.code === "invalid" ? unreachableFor(plan) : undefined),
-          );
-          if (added) onAdded(added.label);
-        }}
-      >
-        {storage.picker}
-        <Checkbox label={strings.storage.useForNew} checked={makeDefault} onChange={setMakeDefault} />
-        {add.error && <ErrorText>{add.error}</ErrorText>}
-      </form>
-    </Dialog>
-  );
-}
-
 export function Settings({
   info,
   onInfo,
   backup,
+  google,
 }: {
   info: NodeInfo;
   onInfo: (info: NodeInfo) => void;
   backup: boolean;
+  /** How connecting Google Drive went (`?google=`), on coming back from Google's page. */
+  google: string | null;
 }) {
   const client = useClient();
   const [showKey, setShowKey] = useState(backup);
@@ -383,7 +362,7 @@ export function Settings({
       <ScreenHeader title={s.title} lede={s.lede} />
       <div className="screen-dash screen-dash--start screen-dash--split">
         <div>
-          <Storage />
+          <Storage google={google} />
           <Group
             title={s.recoveryTitle}
             action={

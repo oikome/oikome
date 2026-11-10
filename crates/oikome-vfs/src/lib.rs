@@ -14,6 +14,7 @@
 
 pub mod file_read;
 pub mod file_write;
+pub mod google;
 pub mod remote;
 pub mod seal;
 pub mod storage;
@@ -32,6 +33,7 @@ pub(crate) fn ready() {
 
 pub use file_read::OpenDalFileRead;
 pub use file_write::OpenDalFileWrite;
+pub use google::{GoogleClient, GoogleError};
 pub use remote::{
     check_owner_path, check_relative_path, file_chunks, Bucket, Credentials, OwnerEntry,
     RemoteStore, StoreEntry, StoreError, S3_REGION,

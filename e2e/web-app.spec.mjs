@@ -23,7 +23,7 @@
 // and phone width without sideways scrolling and with readable text (WCAG
 // AA). No fake data: everything goes through the node.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import dgram from "node:dgram";
 import {
   appendFileSync,
@@ -709,6 +709,103 @@ test("a bucket on RustFS keeps new collections, encrypted", async () => {
   }
 });
 
+test("a place picked in the sidebar opens its page: what is kept there and how it is reached", async () => {
+  await page.goto(`${base}/`);
+  await page.getByRole("button", { name: "Local", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/places/this-computer`);
+  await expect(page.getByRole("heading", { level: 1, name: "Local" })).toBeVisible();
+  const kept = page.getByRole("region", { name: "Kept here" });
+  await expect(kept.getByRole("link", { name: "spending" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "How Oikome reaches it" })).toContainText("Writes in");
+  await expect(page.getByRole("region", { name: "If It Breaks" })).toContainText("kept only on this computer");
+  // A place that isn't there says so.
+  await page.goto(`${base}/places/nowhere`);
+  await expect(page.getByText("There Is No Such Place")).toBeVisible();
+});
+
+test("Google Drive is connected through the owner's own Google app, on Google's page", async ({ browser }) => {
+  // The choice says how to register an app with Google, and asks for it.
+  await page.goto(`${base}/settings`);
+  await page.getByRole("button", { name: "Add Storage" }).click();
+  const add = page.getByRole("dialog", { name: "Add Storage" });
+  await add.getByRole("radio", { name: /^Google Drive/ }).check();
+  await expect(add.getByRole("link", { name: "Turn on the Google Drive API" })).toHaveAttribute(
+    "href",
+    "https://console.cloud.google.com/apis/library/drive.googleapis.com",
+  );
+  await expect(add).toContainText("none of this is needed: pick its folder instead");
+  await add.getByRole("button", { name: "Continue to Google" }).click();
+  await expect(add).toContainText("Paste your Google app's client ID and secret.");
+  // The file Google lets one download fills both, read in the page only.
+  const appFile = add.locator('input[type="file"]');
+  await appFile.setInputFiles({
+    name: "client_secret_made-up.apps.googleusercontent.com.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        installed: { client_id: "from-file.apps.googleusercontent.com", client_secret: "from-file-secret" },
+      }),
+    ),
+  });
+  await expect(add.getByLabel("Client ID")).toHaveValue("from-file.apps.googleusercontent.com");
+  await expect(add.getByLabel("Client secret")).toHaveValue("from-file-secret");
+  await appFile.setInputFiles({ name: "notes.json", mimeType: "application/json", buffer: Buffer.from("{}") });
+  await expect(add).toContainText("That isn't a Google app's file");
+  await add.getByRole("button", { name: "Cancel" }).click();
+
+  // A new data center, on its first run, with a (made-up) app of the
+  // owner's given on the command line: the page asks for nothing, and
+  // goes to Google's page, which is never reached here.
+  const root = mkdtempSync(join(tmpdir(), "oikome-app-google-"));
+  execFileSync(BIN, ["--root", root, "storage", "google-app"], {
+    input: "made-up.apps.googleusercontent.com\nmade-up-secret\n",
+    env: ENV,
+  });
+  const node = await serveWeb(root);
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const signIns = [];
+    await fresh.route("https://accounts.google.com/**", (route) => {
+      signIns.push(route.request().url());
+      return route.fulfill({ contentType: "text/html", body: "<title>Google</title>" });
+    });
+    const tab = await fresh.newPage();
+    const link = readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim();
+    const origin = new URL(link).origin;
+    await tab.goto(link);
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await tab.getByRole("radio", { name: /^Google Drive/ }).check();
+    await expect(tab.locator(".oik-choice--on")).toContainText("Your Google app: made-up.apps.googleusercontent.com");
+    await expect(tab.getByLabel("Client secret")).toHaveCount(0);
+    await tab.getByRole("button", { name: "Continue to Google" }).click();
+    await expect.poll(() => signIns.length).toBe(1);
+    const params = new URL(signIns[0]).searchParams;
+    // The owner's app; back to this data center on loopback; only the files
+    // Oikome makes; the secret stays on the computer.
+    expect(params.get("client_id")).toBe("made-up.apps.googleusercontent.com");
+    expect(params.get("redirect_uri")).toBe(`${origin}/oauth/google/callback`);
+    expect(params.get("scope")).toBe("https://www.googleapis.com/auth/drive.file");
+    expect(params.get("code_challenge_method")).toBe("S256");
+    expect(signIns[0]).not.toContain("made-up-secret");
+
+    // The owner says no on Google's page: back to the first step, told so.
+    await tab.goto(`${origin}/oauth/google/callback?state=${params.get("state")}&error=access_denied`);
+    await expect(tab).toHaveURL(`${origin}/onboarding`);
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await expect(tab.locator("main")).toContainText(
+      "Google Drive wasn't connected: access wasn't given on Google's page.",
+    );
+    // The same way back again finds nothing to finish.
+    await tab.goto(`${origin}/oauth/google/callback?state=${params.get("state")}&code=x`);
+    await expect(tab).toHaveURL(`${origin}/settings`);
+    await expect(tab.locator("main")).toContainText("Couldn't connect Google Drive. Try again.");
+  } finally {
+    await fresh.close();
+    node.kill();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a contact adds the invite in their own Oikome, reads it, and leaves it once the share stops", async ({
   browser,
 }) => {
@@ -1280,6 +1377,7 @@ test("screens use words for people, also when something fails", async () => {
   for (const path of [
     "/onboarding",
     "/",
+    "/places/this-computer",
     "/collections",
     "/collections/notes",
     "/collections/lisbon-photos",
@@ -1393,6 +1491,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/onboarding", "Save Your Recovery Key"],
     ["/", /^Good (morning|afternoon|evening)$/],
     ["/collections", "Collections"],
+    ["/places/this-computer", "Local"],
     ["/collections/lisbon-photos", "lisbon-photos"],
     ["/collections/oikome-guide", "oikome-guide"],
     ["/collections/home-climate", "home-climate"],
@@ -1445,6 +1544,7 @@ test("the language picked in Settings applies at once and is kept, and every scr
   const screens = [
     "/onboarding",
     "/",
+    "/places/this-computer",
     "/collections",
     "/collections/lisbon-photos",
     "/collections/oikome-guide",

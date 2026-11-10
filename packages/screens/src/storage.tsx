@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Where collections are kept: this computer (in its data folder, or a
-// folder the owner picks), a cloud drive or a drive found on it, or a NAS.
+// folder the owner picks), a cloud drive or a drive found on it, Google
+// Drive (through an app the owner registers with Google, signed in to on
+// Google's page), a NAS, or RustFS.
 // A web page cannot ask the system for a folder, so the node lists them and
 // a folder browser picks one, as NAS and media server apps do.
 
@@ -10,8 +12,8 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, TextField } from "@oikome/ui";
 import type { Choice, IconName } from "@oikome/ui";
-import type { FolderListing, NewStorage, StorageSummary } from "@oikome/client";
-import { useClient, useLoad } from "./data";
+import type { FolderListing, GoogleReturn, NewStorage, StorageSummary } from "@oikome/client";
+import { useAction, useClient, useLoad } from "./data";
 import { homeRelative } from "./format";
 import { strings } from "./strings";
 
@@ -28,14 +30,47 @@ function folderName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** What a picked place becomes: nothing to add (this computer), or a storage. */
-export type Plan = { add?: Omit<NewStorage, "makeDefault"> } | { error: string };
+/**
+ * What a picked place becomes: nothing to add (this computer), a storage,
+ * or Google Drive, connected on Google's page.
+ */
+export type Plan =
+  | { add?: Omit<NewStorage, "makeDefault"> }
+  // Without an app: the one the node remembers.
+  | { google: { clientId?: string; clientSecret?: string; readAll?: boolean } }
+  | { error: string };
+
+/** The client ID and secret in a Google app's downloaded file (`client_secret_….json`). */
+async function googleAppFile(file: File): Promise<{ clientId: string; clientSecret: string } | undefined> {
+  try {
+    const json = JSON.parse(await file.text());
+    const app = json.installed ?? json.web ?? json;
+    if (typeof app.client_id === "string" && typeof app.client_secret === "string") {
+      return { clientId: app.client_id, clientSecret: app.client_secret };
+    }
+  } catch {
+    // Not JSON: said below.
+  }
+  return undefined;
+}
+
+/** Where the owner registers their Google app, step by step. */
+const GOOGLE_STEPS: [string, () => string][] = [
+  ["https://console.cloud.google.com/projectcreate", () => s.gdriveStep1],
+  ["https://console.cloud.google.com/apis/library/drive.googleapis.com", () => s.gdriveStep2],
+  ["https://console.cloud.google.com/auth/overview", () => s.gdriveStep3],
+  ["https://console.cloud.google.com/auth/clients/create", () => s.gdriveStep4],
+];
 
 /** The choices and their fields; `plan()` says what to add. */
 export function useStoragePicker({ withThisComputer }: { withThisComputer: boolean }) {
   const client = useClient();
   const info = useLoad(() => client.nodeInfo(), []);
   const places = useLoad(() => client.findPlaces(), []);
+  // The Google app remembered from the last Google Drive connected.
+  const googleApp = useLoad(() => client.googleApp(), []);
+  const [otherApp, setOtherApp] = useState(false);
+  const [appFileError, setAppFileError] = useState<string>();
   const [choice, setChoice] = useState(withThisComputer ? "here" : "folder");
   // A folder on this computer the owner picked instead of the data folder.
   const [hereFolder, setHereFolder] = useState<string>();
@@ -51,6 +86,11 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   const [accessKey, setAccessKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [s3Encrypt, setS3Encrypt] = useState(true);
+  // Google Drive: the owner's own Google app.
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  // Also read the rest of the drive, to view folders there in place.
+  const [readAll, setReadAll] = useState(false);
 
   const found = places.data ?? [];
   const choices: Choice[] = [];
@@ -80,6 +120,78 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       meta: place.type === "drive" ? s.foundDrive : s.found,
       leading: <Icon name={(place.type === "drive" ? "drive" : "folder") as IconName} />,
     });
+  });
+  // The app the node remembers, unless the owner picks another one.
+  const rememberedApp = otherApp ? undefined : (googleApp.data?.clientId ?? undefined);
+  // The app's two fields filled from the file Google lets one download.
+  const fillFromFile = async (file: File | undefined) => {
+    if (!file) return;
+    const app = await googleAppFile(file);
+    setAppFileError(app ? undefined : s.googleFileUnreadable);
+    if (app) {
+      setClientId(app.clientId);
+      setClientSecret(app.clientSecret);
+    }
+  };
+  const googleAppFields = (
+    <>
+      <p className="screen-help">{s.gdriveEasier}</p>
+      <p className="screen-help">{s.gdriveSteps}</p>
+      <ol className="screen-steps">
+        {GOOGLE_STEPS.map(([href, step]) => (
+          <li key={href}>
+            <a href={href} target="_blank" rel="noreferrer">
+              {step()}
+            </a>
+          </li>
+        ))}
+      </ol>
+      <label className="oik-button oik-button--quiet screen-file-pick">
+        {s.fillFromFile}
+        <input
+          type="file"
+          accept="application/json,.json"
+          onChange={(e) => {
+            void fillFromFile(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      {appFileError && <p className="screen-help">{appFileError}</p>}
+      <TextField label={s.clientId} name="google-client-id" value={clientId} onChange={setClientId} />
+      <TextField
+        label={s.clientSecret}
+        name="google-client-secret"
+        type="password"
+        hint={s.passwordHint}
+        value={clientSecret}
+        onChange={setClientSecret}
+      />
+    </>
+  );
+  choices.push({
+    value: "gdrive",
+    title: s.gdrive,
+    meta: s.gdriveMeta,
+    leading: <Icon name="drive" />,
+    more: (
+      <>
+        {rememberedApp ? (
+          <div className="screen-app-row">
+            <span className="screen-help screen-ellipsis" translate="no">
+              {s.gdriveApp(rememberedApp)}
+            </span>
+            <Button variant="quiet" onClick={() => setOtherApp(true)}>
+              {s.otherApp}
+            </Button>
+          </div>
+        ) : (
+          googleAppFields
+        )}
+        <Checkbox label={s.gdriveReadAll} checked={readAll} onChange={setReadAll} />
+        <p className="screen-help">{s.gdriveNote}</p>
+      </>
+    ),
   });
   choices.push({
     value: "nas",
@@ -139,23 +251,27 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       </>
     ),
   });
-  choices.push({
-    value: "folder",
-    title: s.folder,
-    meta: otherFolder ? s.pickedFolder(homeRelative(keptIn(otherFolder))) : s.folderMeta,
-    leading: <Icon name="folder" />,
-    aside: (
-      <Button
-        variant="quiet"
-        onClick={() => {
-          setChoice("folder");
-          setBrowsing("folder");
-        }}
-      >
-        {otherFolder ? s.change : s.chooseFolder}
-      </Button>
-    ),
-  });
+  // On the first run Local's Change… picks a folder of this computer; later,
+  // another folder (a mounted share, a drive plugged in) is added here.
+  if (!withThisComputer) {
+    choices.push({
+      value: "folder",
+      title: s.folder,
+      meta: otherFolder ? s.pickedFolder(homeRelative(keptIn(otherFolder))) : s.folderMeta,
+      leading: <Icon name="folder" />,
+      aside: (
+        <Button
+          variant="quiet"
+          onClick={() => {
+            setChoice("folder");
+            setBrowsing("folder");
+          }}
+        >
+          {otherFolder ? s.change : s.chooseFolder}
+        </Button>
+      ),
+    });
+  }
 
   const plan = (): Plan => {
     if (choice === "here") {
@@ -177,6 +293,11 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
           encrypted: encrypt,
         },
       };
+    }
+    if (choice === "gdrive") {
+      if (rememberedApp) return { google: { readAll } };
+      if (!clientId.trim() || !clientSecret.trim()) return { error: s.googleClientRequired };
+      return { google: { clientId: clientId.trim(), clientSecret: clientSecret.trim(), readAll } };
     }
     if (choice === "s3") {
       if (![s3Address, bucket, accessKey].every((v) => v.trim()) || !secretKey) return { error: s.s3Required };
@@ -211,23 +332,100 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       )}
     </>
   );
-  return { picker, plan };
+  // Google Drive is added on Google's page: the button says so.
+  return { picker, plan, choice, toGoogle: choice === "gdrive" };
 }
 
 /** What to say when the place picked couldn't be reached or refused what was entered. */
 export function unreachableFor(plan: Plan): string {
+  if ("google" in plan) return s.googleFailed;
   return "add" in plan && plan.add?.type === "s3" ? s.unreachableS3 : s.unreachable;
 }
 
-/** Add what `plan` says, if anything; the storage, or undefined for this computer. */
+/**
+ * Add what `plan` says, if anything; the storage, or undefined for this
+ * computer. Google Drive goes to Google's page instead, and comes back to
+ * `returnTo`: the promise doesn't settle, so the page stays busy as it goes.
+ */
 export async function addPlanned(
   client: ReturnType<typeof useClient>,
   plan: Plan,
   makeDefault: boolean,
+  returnTo: GoogleReturn,
 ): Promise<StorageSummary | undefined> {
   if ("error" in plan) throw new Error(plan.error);
+  if ("google" in plan) {
+    const { url } = await client.startGoogleDrive({ ...plan.google, label: s.gdrive, makeDefault, returnTo });
+    window.location.assign(url);
+    return new Promise<never>(() => undefined);
+  }
   if (!plan.add) return undefined;
   return client.addStorage({ ...plan.add, makeDefault });
+}
+
+/** What to say on coming back from Google's page (`?google=`), if anything. */
+export function googleMessage(outcome: string | null): string | undefined {
+  if (outcome === "denied") return s.googleDenied;
+  if (outcome === "failed") return s.googleFailed;
+  return undefined;
+}
+
+/**
+ * Add a place beside the ones already there: a cloud drive or drive found
+ * here, Google Drive, a NAS, RustFS, or a folder. Google Drive comes back
+ * to `returnTo` from Google's page.
+ */
+export function AddStorage({
+  returnTo,
+  onClose,
+  onAdded,
+}: {
+  returnTo: GoogleReturn;
+  onClose: () => void;
+  onAdded: (label: string) => void;
+}) {
+  const client = useClient();
+  const storage = useStoragePicker({ withThisComputer: false });
+  const [makeDefault, setMakeDefault] = useState(false);
+  const add = useAction();
+  return (
+    <Dialog
+      title={s.add}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button type="submit" form="add-storage" variant="primary" disabled={add.busy}>
+            {add.busy ? s.connecting : storage.toGoogle ? s.toGoogle : s.add}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="add-storage"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const plan = storage.plan();
+          if ("error" in plan) {
+            add.fail(plan.error);
+            return;
+          }
+          const added = await add.run(
+            () => addPlanned(client, plan, makeDefault, returnTo),
+            (err) => (err.code === "invalid" ? unreachableFor(plan) : undefined),
+          );
+          if (added) onAdded(added.label);
+        }}
+      >
+        {storage.picker}
+        {returnTo === "settings" && (
+          <Checkbox label={s.useForNew} checked={makeDefault} onChange={setMakeDefault} />
+        )}
+        {add.error && <ErrorText>{add.error}</ErrorText>}
+      </form>
+    </Dialog>
+  );
 }
 
 /** Folders of this computer, one level at a time, to pick one. */

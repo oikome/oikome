@@ -31,6 +31,7 @@ mod assistants;
 mod borrowing;
 pub mod error;
 mod examples;
+mod google;
 mod in_place;
 mod invites;
 mod lending;
@@ -216,6 +217,10 @@ pub enum SqlResult {
     Done(SqlDone),
 }
 
+/// Storages' room (free and total bytes, if known) by name, and when it
+/// was asked.
+type Rooms = HashMap<String, (std::time::Instant, Option<(u64, u64)>)>;
+
 /// The API over one node.
 #[derive(Clone)]
 pub struct Api {
@@ -233,6 +238,12 @@ pub struct Api {
     totals: Arc<std::sync::Mutex<HashMap<borrowing::KeptKey, borrowing::Kept>>>,
     /// The node's peer-to-peer layer, in the serving process (3.12).
     network: Option<Arc<dyn oikome_network::NodeNetwork>>,
+    /// Where Google's sign-in is (3.4c): Google's own, or a test's.
+    google_endpoints: oikome_vfs::google::Endpoints,
+    /// Google sign-ins under way.
+    sign_ins: google::SignIns,
+    /// Google Drive's room by storage, and when it was asked.
+    rooms: Arc<std::sync::Mutex<Rooms>>,
 }
 
 impl std::fmt::Debug for Api {
@@ -291,6 +302,21 @@ fn first_count(batches: &[RecordBatch]) -> Option<u64> {
         .map(|a| a.value(0))
 }
 
+/// A storage's name as the owner gave it: 1 to [`MAX_NODE_NAME_CHARS`]
+/// characters, none of them control characters.
+fn storage_label(label: &str) -> Result<&str, ApiError> {
+    let label = label.trim();
+    if label.is_empty()
+        || label.chars().count() > MAX_NODE_NAME_CHARS
+        || label.chars().any(char::is_control)
+    {
+        return Err(ApiError::invalid(format!(
+            "a storage's name has 1 to {MAX_NODE_NAME_CHARS} characters"
+        )));
+    }
+    Ok(label)
+}
+
 fn parse_did(text: &str) -> Result<String, ApiError> {
     Did::parse(text)
         .map(|d| d.to_string())
@@ -325,6 +351,9 @@ impl Api {
             plugin_reads: Arc::default(),
             totals: Arc::default(),
             network: None,
+            google_endpoints: oikome_vfs::google::Endpoints::default(),
+            sign_ins: google::SignIns::default(),
+            rooms: Arc::default(),
         }
     }
 
@@ -843,6 +872,7 @@ impl Api {
             spaces: counts.get(&None).copied().unwrap_or(0),
             free_bytes: room.map(|r| r.0),
             total_bytes: room.map(|r| r.1),
+            views_in_place: false,
         }];
         for def in self.catalog.list_storages() {
             let (kind, place) = match &def.kind {
@@ -852,12 +882,23 @@ impl Api {
                 StorageKind::S3 {
                     endpoint, bucket, ..
                 } => (StorageType::S3, format!("{bucket} · {endpoint}")),
+                StorageKind::Gdrive { .. } => (
+                    StorageType::Gdrive,
+                    oikome_catalog::OBJECT_STORAGE_FOLDER.to_string(),
+                ),
             };
             // A cloud drive's folder sits on this disk, but its room is the
-            // drive's quota, which the folder doesn't tell.
+            // drive's quota, which the folder doesn't tell; Google Drive says
+            // its own.
             let room = match kind {
                 StorageType::Folder => places::space(std::path::Path::new(&place)),
+                StorageType::Gdrive => self.drive_room(&def.name).await,
                 _ => None,
+            };
+            let views_in_place = match &def.kind {
+                StorageKind::Webdav { .. } | StorageKind::S3 { .. } => true,
+                StorageKind::Gdrive { reads_all, .. } => *reads_all,
+                StorageKind::Folder { .. } | StorageKind::Drive { .. } => false,
             };
             out.push(StorageSummary {
                 spaces: counts.get(&Some(def.name.clone())).copied().unwrap_or(0),
@@ -873,9 +914,39 @@ impl Api {
                 encrypted: def.encrypted,
                 free_bytes: room.map(|r| r.0),
                 total_bytes: room.map(|r| r.1),
+                views_in_place,
             });
         }
         Ok(out)
+    }
+
+    /// Google Drive's room, asked of Google at most every few minutes and
+    /// never waited on for long: the list of places doesn't hang on it.
+    async fn drive_room(&self, name: &str) -> Option<(u64, u64)> {
+        const KEPT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+        if let Some((at, room)) = self.lock_rooms().get(name) {
+            if at.elapsed() < KEPT {
+                return *room;
+            }
+        }
+        let room = match tokio::time::timeout(WAIT, self.session(None).storage_room(name)).await {
+            Ok(Ok(room)) => room,
+            Ok(Err(e)) => {
+                tracing::debug!(storage = %name, error = %e, "Google Drive's room is unknown");
+                None
+            }
+            Err(_) => None,
+        };
+        self.lock_rooms()
+            .insert(name.to_string(), (std::time::Instant::now(), room));
+        room
+    }
+
+    fn lock_rooms(&self) -> std::sync::MutexGuard<'_, Rooms> {
+        self.rooms
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Add a place to keep Spaces in, as the owner picked it: a folder (an
@@ -888,15 +959,7 @@ impl Api {
         req: NewStorage,
     ) -> Result<StorageSummary, ApiError> {
         caller.require_owner()?;
-        let label = req.label.trim();
-        if label.is_empty()
-            || label.chars().count() > MAX_NODE_NAME_CHARS
-            || label.chars().any(char::is_control)
-        {
-            return Err(ApiError::invalid(format!(
-                "a storage's name has 1 to {MAX_NODE_NAME_CHARS} characters"
-            )));
-        }
+        let label = storage_label(&req.label)?;
         self.refresh()?;
         let home = places::home();
         let (kind, encrypted) = match req.kind {
@@ -917,6 +980,11 @@ impl Api {
                 } else {
                     (StorageKind::Folder { path }, req.encrypted.unwrap_or(false))
                 }
+            }
+            StorageType::Gdrive => {
+                return Err(ApiError::invalid(
+                    "Google Drive is connected through Google's sign-in (start_google_drive)",
+                ));
             }
             StorageType::S3 => {
                 let given =
@@ -1046,7 +1114,9 @@ impl Api {
             .into_iter()
             .filter_map(|d| match d.kind {
                 StorageKind::Folder { path } | StorageKind::Drive { path } => Some(path),
-                StorageKind::Webdav { .. } | StorageKind::S3 { .. } => None,
+                StorageKind::Webdav { .. }
+                | StorageKind::S3 { .. }
+                | StorageKind::Gdrive { .. } => None,
             })
             .collect();
         let home = places::home();

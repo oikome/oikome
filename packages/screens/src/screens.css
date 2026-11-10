@@ -798,6 +798,90 @@
   font: var(--text-small);
   color: var(--ink3);
 }
+/* A place's page: its collections, how it is reached, what breaks with it. */
+.screen-place-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  list-style: none;
+}
+.screen-place-facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+.screen-place-fact {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.screen-place-fact dt {
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-place-fact dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.screen-place-text {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) 0;
+  color: var(--ink2);
+}
+.screen-place-text:last-child {
+  padding-bottom: var(--space-4);
+}
+
+/* Steps to do somewhere else, each a link there (Google Drive's app). */
+.screen-steps {
+  margin: 0 0 var(--space-3);
+  padding-left: 20px;
+  font: var(--text-small);
+  color: var(--ink2);
+}
+.screen-steps li + li {
+  margin-top: 2px;
+}
+.screen-steps a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.screen-steps a:hover {
+  color: var(--ink);
+}
+/* The Google app the node remembers, and Use another one beside it. */
+.screen-app-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0 0 var(--space-3);
+}
+.screen-app-row .screen-help {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A file picked with a button: the input itself stays out of sight. */
+.screen-file-pick {
+  margin: 0 0 var(--space-3) -12px;
+}
+.screen-file-pick:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.screen-file-pick input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
 .screen-footnote {
   margin: var(--space-3) 0 0;
   padding: 0 2px;

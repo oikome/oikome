@@ -74,10 +74,24 @@ pub enum StorageKind {
         bucket: String,
         access_key_id: String,
     },
+    /// Google Drive over its API, signed in with the owner's Google
+    /// account (OAuth, scope `drive.file`: only what Oikome made itself),
+    /// through `client_id`, an app the owner registered with Google
+    /// themselves. Files go in an [`OBJECT_STORAGE_FOLDER`] folder it makes
+    /// at the top of the drive. Always encrypted; the client secret and the
+    /// refresh token are secrets, kept apart. With `reads_all`, the owner
+    /// also let Oikome read the rest of the drive, to view folders there in
+    /// place (§7.7).
+    Gdrive {
+        client_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        reads_all: bool,
+    },
 }
 
 /// The folder (key prefix) of a bucket Oikome keeps its files in, as it
-/// does inside a folder the owner picks.
+/// does inside a folder the owner picks; on Google Drive, the folder it
+/// makes at the top of the drive.
 pub const OBJECT_STORAGE_FOLDER: &str = "Oikome";
 
 impl StorageKind {
@@ -87,7 +101,9 @@ impl StorageKind {
             StorageKind::Webdav { endpoint, .. } | StorageKind::S3 { endpoint, .. } => {
                 endpoint.starts_with("http://")
             }
-            StorageKind::Folder { .. } | StorageKind::Drive { .. } => false,
+            StorageKind::Folder { .. } | StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => {
+                false
+            }
         }
     }
 
@@ -99,7 +115,9 @@ impl StorageKind {
             StorageKind::Webdav { endpoint, .. } | StorageKind::S3 { endpoint, .. } => {
                 endpoint.starts_with("http://") && !is_loopback_endpoint(endpoint)
             }
-            StorageKind::Folder { .. } | StorageKind::Drive { .. } => false,
+            StorageKind::Folder { .. } | StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => {
+                false
+            }
         }
     }
 }
@@ -306,7 +324,7 @@ impl OikomeCatalog {
     ) -> Result<StorageDef, CatalogError> {
         validate_storage_name(name)?;
         let on_drive = match &kind {
-            StorageKind::Drive { .. } => true,
+            StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => true,
             StorageKind::Folder { path } => {
                 home_dir().is_some_and(|home| is_drive_folder(path, &home))
             }
@@ -339,6 +357,24 @@ impl OikomeCatalog {
             StorageKind::Drive { path } => StorageKind::Drive {
                 path: validate_folder(&path)?,
             },
+            StorageKind::Gdrive {
+                client_id,
+                reads_all,
+            } => {
+                let client_id = client_id.trim().to_string();
+                if client_id.is_empty()
+                    || client_id.len() > 256
+                    || !client_id.chars().all(|c| c.is_ascii_graphic())
+                {
+                    return Err(CatalogError::InvalidProperty(
+                        "a Google client ID is 1 to 256 visible characters".to_string(),
+                    ));
+                }
+                StorageKind::Gdrive {
+                    client_id,
+                    reads_all,
+                }
+            }
             StorageKind::S3 {
                 endpoint,
                 bucket,

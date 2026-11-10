@@ -22,7 +22,16 @@ use iceberg::io::FileIO;
 use oikome_api::*;
 use oikome_catalog::OikomeCatalog;
 use oikome_identity::NodeIdentity;
-use oikome_node::{EngineRegistry, NodeConfig};
+use oikome_node::{EngineRegistry, MemorySecrets, NodeConfig};
+
+/// A node's settings for a test: credentials in memory, never in the
+/// machine's keychain.
+fn test_config() -> NodeConfig {
+    NodeConfig {
+        secret_backend: Some(Arc::new(MemorySecrets::default())),
+        ..NodeConfig::default()
+    }
+}
 
 struct Node {
     _dir: tempfile::TempDir,
@@ -35,7 +44,7 @@ fn node() -> Node {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
-    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
     let api = Api::new(catalog.clone(), engines.clone());
     Node {
         _dir: dir,
@@ -1630,7 +1639,7 @@ async fn activity_names_who_it_was() {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
-    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
     let log = AccessLog::open(&catalog.oikome_dir()).unwrap();
     let api = Api::new(catalog.clone(), engines.clone()).with_access_log(log.clone());
     let n = Node {
@@ -1999,7 +2008,7 @@ fn logged_node() -> Node {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
-    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
     let log = oikome_node::AccessLog::open(&catalog.oikome_dir()).unwrap();
     let api = Api::new(catalog.clone(), engines.clone()).with_access_log(log);
     Node {

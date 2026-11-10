@@ -28,6 +28,7 @@ const SAME = new Set([
   "Bold",
   "WebDAV",
   "RustFS",
+  "Google Drive",
   "CSV",
   "OK",
   "flomo",

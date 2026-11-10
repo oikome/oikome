@@ -29,6 +29,8 @@ const SAME = new Set([
   "WebDAV",
   "RustFS",
   "Google Drive",
+  "iCloud Drive",
+  "Google Drive, Dropbox, OneDrive, iCloud Drive",
   "CSV",
   "OK",
   "flomo",

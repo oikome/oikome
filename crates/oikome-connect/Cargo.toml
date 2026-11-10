@@ -10,9 +10,12 @@ description = "Oikome connectors: bring an app's data into a transactional Space
 oikome-engine = { path = "../oikome-engine" }
 arrow-array = { workspace = true }
 arrow-csv = "58"
+arrow-json = "58"
 arrow-schema = { workspace = true }
+parquet = { workspace = true }
 async-trait = { workspace = true }
 blake3 = { workspace = true }
+bytes = { workspace = true }
 # A file's time on this computer's clock; already in the tree (arrow).
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # The same reqwest and TLS stack as oikome-vfs (and iceberg): ring.

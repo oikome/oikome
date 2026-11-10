@@ -635,6 +635,16 @@
   cursor: pointer;
   transition: background-color 150ms var(--ease), color 150ms var(--ease);
 }
+.oik-seg__option--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+}
+.oik-seg__option--icon .oik-icon {
+  width: 16px;
+  height: 16px;
+}
 .oik-seg__option + .oik-seg__option {
   border-left: var(--bw) solid var(--line);
 }
@@ -1073,6 +1083,26 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+}
+.oik-menu__item .oik-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink2);
+}
+.oik-menu__item {
+  gap: 10px;
+}
+.oik-menu__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oik-menu__shown {
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .oik-menu__item:hover,
 .oik-menu__item:focus-visible {

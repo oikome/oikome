@@ -10,11 +10,12 @@ import { Button, Card, ErrorText, Icon, TextField } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
-import { listNames } from "../format";
+import { homeRelative } from "../format";
 import { AddStorage, addPlanned, googleMessage, unreachableFor, useStoragePicker } from "../storage";
 import { LanguageSelect, RecoveryKeyPanel } from "../parts";
 import { language } from "../i18n/languages";
 import { navigate } from "../router";
+import { STORAGE_ICONS } from "./Collections";
 import { strings } from "../strings";
 
 const STEPS = 3;
@@ -55,7 +56,7 @@ export function Onboarding({
   const save = useAction();
   // Where collections are kept: this computer unless the owner picks another place.
   const storage = useStoragePicker({ withThisComputer: true });
-  // Places added besides the one new collections go to (Advanced).
+  // Places added besides the one new collections go to.
   const [addingMore, setAddingMore] = useState(false);
   const places = useLoad(() => client.listStorages(), []);
   const others = (places.data ?? []).filter((x) => x.name !== null);
@@ -64,8 +65,8 @@ export function Onboarding({
     const message = googleMessage(google);
     if (message) save.fail(message);
     // Back from connecting the drive new collections go to (the data
-    // center was named first): the examples now. A drive added besides it,
-    // under Advanced, comes back before that.
+    // center was named first): the examples now. A drive added besides it
+    // comes back before that.
     if (google === "added" && info.name) {
       void client.addExamples({ language: language() }).catch(() => undefined);
     }
@@ -126,9 +127,33 @@ export function Onboarding({
             {storage.picker}
             {/* The examples' files are on this computer, so they stay on Local. */}
             {storage.choice !== "here" && <p className="screen-help">{s.examplesStayHere}</p>}
+            {/* Other places, for those who want several from the start: beside
+                the places, quieter than they are; the ones added listed above. */}
             {others.length > 0 && (
-              <p className="screen-help">{s.alsoAdded(listNames(others.map((x) => x.label)))}</p>
+              <div className="screen-added">
+                <span className="oik-field__label">{s.alsoAddedLabel}</span>
+                {others.map((x) => (
+                  <div key={x.name} className="screen-added__row">
+                    <Icon name={STORAGE_ICONS[x.type]} />
+                    <span className="screen-added__name" translate="no">
+                      {x.label}
+                    </span>
+                    <span className="screen-path" translate="no">
+                      {homeRelative(x.place)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
+            <button type="button" className="screen-add-place" onClick={() => setAddingMore(true)}>
+              <span className="screen-add-place__icon">
+                <Icon name="plus" />
+              </span>
+              <span className="screen-add-place__text">
+                <span className="screen-add-place__title">{s.addMore}</span>
+                <span className="screen-add-place__meta">{s.addMoreSub}</span>
+              </span>
+            </button>
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" large disabled={save.busy}>
@@ -136,9 +161,6 @@ export function Onboarding({
               </Button>
             </div>
             <p className="screen-onboarding__step">{s.stepNext(1, STEPS, s.nextKey)}</p>
-            <button type="button" className="screen-onboarding__restore" onClick={() => setAddingMore(true)}>
-              {s.addMore}
-            </button>
             <button type="button" className="screen-onboarding__restore" onClick={() => setRestoreHelp((v) => !v)}>
               {s.restoreLink}
             </button>

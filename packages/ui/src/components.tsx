@@ -155,7 +155,8 @@ export function Segmented({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: { value: string; label: string }[];
+  /** With an icon, the option shows only the icon; its label is what it is called. */
+  options: { value: string; label: string; icon?: IconName }[];
 }) {
   return (
     <span className="oik-seg" role="radiogroup" aria-label={label}>
@@ -165,10 +166,12 @@ export function Segmented({
           type="button"
           role="radio"
           aria-checked={option.value === value}
-          className="oik-seg__option"
+          aria-label={option.icon ? option.label : undefined}
+          title={option.icon ? option.label : undefined}
+          className={cx("oik-seg__option", option.icon && "oik-seg__option--icon")}
           onClick={() => onChange(option.value)}
         >
-          {option.label}
+          {option.icon ? <Icon name={option.icon} /> : option.label}
         </button>
       ))}
     </span>
@@ -808,20 +811,34 @@ export interface MenuItem {
   onSelect: () => void;
   /** Removes or ends something: shown in the error color. */
   destructive?: boolean;
+  /** One of a choice (a place, an order): the chosen one is ticked. */
+  checked?: boolean;
+  icon?: IconName;
 }
 
 /**
- * A More (…) button and the actions behind it. Opens from the button,
- * moves with the arrow keys, closes on Escape, Tab or a click elsewhere.
- * The list is a popover above the page, so a table or card that scrolls
- * never cuts it off; it opens upward when there is no room below.
+ * A More (…) button and the actions behind it, or, with `trigger`, a
+ * button that names what is chosen (Sort: Name) and the choices behind
+ * it. Opens from the button, moves with the arrow keys, closes on Escape,
+ * Tab or a click elsewhere. The list is a popover above the page, so a
+ * table or card that scrolls never cuts it off; it opens upward when there
+ * is no room below.
  */
-export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
+export function Menu({
+  label,
+  items,
+  trigger: shown,
+}: {
+  label: string;
+  items: MenuItem[];
+  trigger?: { icon: IconName; text: string };
+}) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const listId = useId();
+  const named = shown !== undefined;
 
   useLayoutEffect(() => {
     const ul = list.current;
@@ -833,7 +850,10 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
       const height = ul.offsetHeight;
       const below = at.bottom + 6 + height <= window.innerHeight - 8 || at.top - 6 - height < 8;
       ul.style.top = `${below ? at.bottom + 6 : at.top - 6 - height}px`;
-      ul.style.left = `${Math.max(8, at.right - ul.offsetWidth)}px`;
+      // A More button sits at the end of a row: its list ends where it
+      // does. A named button starts a toolbar: its list starts with it.
+      const left = named ? Math.min(at.left, window.innerWidth - 8 - ul.offsetWidth) : at.right - ul.offsetWidth;
+      ul.style.left = `${Math.max(8, left)}px`;
       ul.dataset.side = below ? "below" : "above";
     };
     place();
@@ -843,11 +863,13 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open]);
+  }, [open, named]);
 
   useEffect(() => {
     if (!open) return;
-    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    // The chosen one, if it is a choice; else the first.
+    const at = root.current;
+    (at?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? at?.querySelector<HTMLButtonElement>('[role^="menuitem"]'))?.focus();
     const away = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -860,7 +882,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
     trigger.current?.focus();
   };
   const move = (e: KeyboardEvent<HTMLUListElement>) => {
-    const all = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const all = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]') ?? []);
     const at = all.indexOf(document.activeElement as HTMLButtonElement);
     const focus = (i: number) => all[(i + all.length) % all.length]?.focus();
     if (e.key === "Escape") {
@@ -888,15 +910,16 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
       <button
         ref={trigger}
         type="button"
-        className="oik-icon-button oik-icon-button--filled"
-        aria-label={label}
+        className={shown ? "oik-button oik-button--secondary" : "oik-icon-button oik-icon-button--filled"}
+        aria-label={shown ? undefined : label}
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
-        <Icon name="more" />
+        <Icon name={shown?.icon ?? "more"} />
+        {shown && <span className="oik-menu__shown">{shown.text}</span>}
       </button>
       {open && (
         <ul
@@ -912,14 +935,17 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
             <li key={item.label} role="none">
               <button
                 type="button"
-                role="menuitem"
+                role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+                aria-checked={item.checked}
                 className={cx("oik-menu__item", item.destructive && "oik-menu__item--destructive")}
                 onClick={() => {
                   close();
                   item.onSelect();
                 }}
               >
-                {item.label}
+                {item.icon && <Icon name={item.icon} />}
+                <span className="oik-menu__label">{item.label}</span>
+                {item.checked && <Icon name="check" />}
               </button>
             </li>
           ))}

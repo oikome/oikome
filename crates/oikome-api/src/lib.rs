@@ -638,6 +638,7 @@ impl Api {
                     .flatten()
                     .and_then(|t| oikome_identity::Ucan::decode(t.expose()).ok())
                     .map(|u| u.payload().exp);
+                let footprint = self.footprint(&space.location);
                 SpaceSummary {
                     kind: match space.kind {
                         oikome_core::SpaceKind::Analytical => SpaceKind::Analytical,
@@ -654,6 +655,8 @@ impl Api {
                     from_name,
                     expires_at,
                     in_place: self.in_place_summary(&space.location),
+                    size_bytes: footprint.0,
+                    changed_at_ms: footprint.1,
                     name: space.name,
                 }
             })

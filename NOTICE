@@ -12,8 +12,8 @@ Oikome depends on the following third-party projects. Their licenses are
 checked on every change with `cargo deny check licenses` (see deny.toml).
 The complete, exact dependency set is recorded in Cargo.lock.
 
-Apache Arrow (arrow, arrow-array, arrow-schema, arrow-select, arrow-cast, arrow-ipc, arrow-flight, parquet;
-  apache-arrow for JavaScript in packages/node and e2e)
+Apache Arrow (arrow, arrow-array, arrow-schema, arrow-select, arrow-cast, arrow-ipc, arrow-csv,
+  arrow-json, arrow-flight, parquet; apache-arrow for JavaScript in packages/node and e2e)
   https://arrow.apache.org/  -  Apache License 2.0
   Copyright The Apache Software Foundation
 

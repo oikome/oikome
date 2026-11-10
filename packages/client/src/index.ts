@@ -49,6 +49,7 @@ import type {
   PluginFolder,
   PluginRead,
   PluginRef,
+  ReadFileRows,
   ReadRow,
   ReadRows,
   RecoveryKey,
@@ -60,6 +61,7 @@ import type {
   Share,
   ShareRef,
   ShareSpace,
+  ShowFolder,
   SetLending,
   SetNetwork,
   UseBorrowed,
@@ -169,8 +171,10 @@ export interface NodeClient {
   listFiles(request: ListFiles): Promise<FileListing>;
   /** One file of a collection viewed in place, with all of a note's text. */
   readFile(request: FileRef): Promise<FileItem>;
-  /** Open a folder viewed in place on this computer in its file manager. */
-  showFolder(request: SpaceRef): Promise<Empty>;
+  /** A page of one CSV, TSV, Parquet or JSON file, read where it is. */
+  readFileRows(request: ReadFileRows): Promise<RowsResult>;
+  /** Open a folder viewed in place, or reveal one of its files, on this computer. */
+  showFolder(request: ShowFolder): Promise<Empty>;
   /** Where the app shows a photo's thumbnail or original from. */
   fileUrl(kind: "thumb" | "original", file: FileRef): string;
   listPlugins(): Promise<Plugin[]>;
@@ -498,7 +502,11 @@ export class HttpClient implements NodeClient {
     return this.#json("read_file", request);
   }
 
-  showFolder(request: SpaceRef): Promise<Empty> {
+  async readFileRows(request: ReadFileRows): Promise<RowsResult> {
+    return this.#rows(await this.#post("read_file_rows", request));
+  }
+
+  showFolder(request: ShowFolder): Promise<Empty> {
     return this.#json("show_folder", request);
   }
 

@@ -912,6 +912,8 @@ async fn a_new_data_center_gets_examples_once() {
                 limit: None,
                 deep: None,
                 kind: None,
+                sort: None,
+                descending: None,
             },
         )
         .await
@@ -2701,6 +2703,8 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         limit: Some(limit),
         deep: None,
         kind: None,
+        sort: None,
+        descending: None,
     };
     let first = n.api.list_files(&OWNER, page(None, 0, 2)).await.unwrap();
     assert_eq!(first.total, 4);
@@ -2716,6 +2720,31 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .await
         .unwrap();
     assert_eq!(notes.files[0].path, "Notes/ferry.md");
+    // In the order asked, either way; a folder says its bytes and newest file.
+    assert!(first.folders[0].size > 0 && first.folders[0].modified_ms.is_some());
+    // And what its cover shows, as a collection's does.
+    assert!(first.folders.iter().all(|f| !f.cover.is_empty()));
+    let by_size = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                sort: Some(FileSort::Size),
+                descending: Some(true),
+                ..page(None, 0, 10)
+            },
+        )
+        .await
+        .unwrap();
+    let sizes: Vec<u64> = by_size.files.iter().map(|f| f.size).collect();
+    assert!(sizes.windows(2).all(|w| w[0] >= w[1]), "{sizes:?}");
+    // A file says when it changed as a moment too, not only as the clock read.
+    assert!(by_size.files.iter().all(|f| f.modified_ms > 0));
+    // The list of collections says how big it is and when it last changed.
+    let listed = n.api.list_spaces(&OWNER, Empty {}).await.unwrap();
+    let trip = listed.iter().find(|s| s.name == "trip-2025").unwrap();
+    assert!(trip.size_bytes.unwrap_or(0) > 0);
+    assert!(trip.changed_at_ms.is_some());
     // Every folder at once, of one kind: what a cover shows.
     let deep = n
         .api
@@ -2728,6 +2757,8 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
                 limit: None,
                 deep: Some(true),
                 kind: Some(FileKind::Note),
+                sort: None,
+                descending: None,
             },
         )
         .await
@@ -2889,6 +2920,178 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .downcast_ref::<arrow_array::BinaryArray>()
         .unwrap();
     assert!(photo.value(0).starts_with(&[0xff, 0xd8]), "its thumbnail");
+}
+
+#[tokio::test]
+async fn a_folders_files_open_as_tables_read_where_they_are() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+
+    // The owner's folder: data files at its top and deeper, a photo with
+    // captions beside it, and a file that is not a table.
+    let trip = root.join("Trip tables");
+    std::fs::create_dir_all(trip.join("2025")).unwrap();
+    std::fs::write(
+        trip.join("budget.csv"),
+        "item,amount\nflights,240\nhotel,410\ntrams,18\n",
+    )
+    .unwrap();
+    std::fs::write(
+        trip.join("2025").join("q4.tsv"),
+        "day\tspent\n2025-11-01\t33.5\n2025-11-02\t21\n",
+    )
+    .unwrap();
+    std::fs::write(
+        trip.join("2025").join("rides.jsonl"),
+        "{\"from\": \"Alfama\", \"to\": \"Belém\"}\n{\"from\": \"Porto\", \"to\": \"Ribeira\"}\n",
+    )
+    .unwrap();
+    let mut png = Vec::new();
+    image_png(&mut png);
+    std::fs::write(trip.join("tram.png"), &png).unwrap();
+    std::fs::write(
+        trip.join("captions.csv"),
+        "file,caption\ntram.png,A tram at dawn\n",
+    )
+    .unwrap();
+    std::fs::write(trip.join("scan.dat"), [0u8, 1, 2, 3]).unwrap();
+    let viewed = n
+        .api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: trip.to_string_lossy().into_owned(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(viewed.name, "trip-tables");
+
+    let rows = |path: &str, offset: u64, limit: u32| ReadFileRows {
+        space: "trip-tables".into(),
+        path: path.into(),
+        limit: Some(limit),
+        offset: Some(offset),
+    };
+    let page = |rows: &Rows| {
+        StreamReader::try_new(rows.ipc.as_slice(), None)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let strings = |batch: &arrow_array::RecordBatch, column: usize| -> Vec<String> {
+        batch
+            .column(column)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .iter()
+            .map(|v| v.unwrap_or_default().to_string())
+            .collect()
+    };
+
+    // A CSV at the top: every cell the text it is, the header naming the
+    // columns.
+    let budget = n
+        .api
+        .read_file_rows(&OWNER, rows("budget.csv", 0, 100))
+        .await
+        .unwrap();
+    assert!(!budget.truncated);
+    let read = page(&budget);
+    assert_eq!(read[0].num_rows(), 3);
+    assert_eq!(read[0].schema().fields().len(), 2);
+    assert_eq!(strings(&read[0], 0), ["flights", "hotel", "trams"]);
+    assert_eq!(
+        strings(&read[0], 1),
+        ["240", "410", "18"],
+        "money is as written"
+    );
+    // Paged: a page past the first rows is the rest.
+    let tail = n
+        .api
+        .read_file_rows(&OWNER, rows("budget.csv", 2, 2))
+        .await
+        .unwrap();
+    let read = page(&tail);
+    assert_eq!(read[0].num_rows(), 1);
+    assert_eq!(strings(&read[0], 0), ["trams"]);
+
+    // A TSV and JSON lines deeper in the folder read the same way.
+    let tsv = n
+        .api
+        .read_file_rows(&OWNER, rows("2025/q4.tsv", 0, 100))
+        .await
+        .unwrap();
+    let read = page(&tsv);
+    assert_eq!(strings(&read[0], 1), ["33.5", "21"]);
+    let json = n
+        .api
+        .read_file_rows(&OWNER, rows("2025/rides.jsonl", 0, 100))
+        .await
+        .unwrap();
+    let read = page(&json);
+    let from = read[0]
+        .schema()
+        .fields()
+        .iter()
+        .position(|f| f.name() == "from")
+        .unwrap();
+    assert_eq!(strings(&read[0], from), ["Alfama", "Porto"]);
+
+    // The captions beside a photo are a table too when asked.
+    let captions = n
+        .api
+        .read_file_rows(&OWNER, rows("captions.csv", 0, 100))
+        .await
+        .unwrap();
+    assert_eq!(row_count(&captions), 1);
+
+    // The examples' captions, with their titles, places, times and credits.
+    n.api
+        .add_examples(&OWNER, AddExamples::default())
+        .await
+        .unwrap();
+    let captions = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "lisbon-photos".into(),
+                path: "captions.csv".into(),
+                limit: Some(100),
+                offset: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&captions), 6);
+
+    // What is not a table is said so; a path outside the folder, and a
+    // file the index doesn't know, are not found.
+    for (path, code) in [
+        ("scan.dat", ErrorCode::Invalid),
+        ("tram.png", ErrorCode::Invalid),
+        ("../../etc/passwd", ErrorCode::NotFound),
+        ("nope.csv", ErrorCode::NotFound),
+    ] {
+        let e = n
+            .api
+            .read_file_rows(&OWNER, rows(path, 0, 100))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, code, "{path}: {e}");
+    }
+
+    // Only the owner reads a folder's files.
+    let stranger = Caller::Principal { did: did(9) };
+    assert!(n
+        .api
+        .read_file_rows(&stranger, rows("budget.csv", 0, 100))
+        .await
+        .is_err());
 }
 
 fn image_png(out: &mut Vec<u8>) {

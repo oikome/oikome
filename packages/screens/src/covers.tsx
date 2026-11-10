@@ -6,12 +6,12 @@
 
 import { AvatarStack, Icon, Tag, Tile } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
-import type { Share, SpaceSummary } from "@oikome/client";
+import type { FileFolder, Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
-import { PREVIEW_ROWS, loadPreview } from "./content";
+import { PREVIEW_ROWS, loadPreview, withoutTagLines } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
-import { calendarDate, dateTime, wallTime } from "./format";
+import { calendarDate, dateTime, monthAndDay, wallTime } from "./format";
 import { SeriesCover } from "./series";
 import { numeric, show } from "./parts";
 import { Link } from "./router";
@@ -126,6 +126,15 @@ function Art({
   );
 }
 
+/**
+ * What a collection is called: its name, or for a folder viewed in place
+ * the folder's own name, in whatever script it is written.
+ */
+export function collectionTitle(space: SpaceSummary): string {
+  const path = space.inPlace?.path.replace(/[\\/]+$/, "");
+  return (path && path.split(/[\\/]/).pop()) || space.name;
+}
+
 /** Whom a collection shared with you is from: their contact name, else words for it. */
 export function fromOf(space: SpaceSummary): string {
   return space.fromName ?? s.fromElsewhere;
@@ -136,15 +145,22 @@ export function Cover({
   space,
   tone,
   names,
+  place,
 }: {
   space: SpaceSummary;
   tone: TileTone;
   names: string[];
+  /** Where it is kept, named: said first for a folder viewed in place. */
+  place?: string;
 }) {
   const client = useClient();
   const preview = useLoad(() => loadPreview(client, space), [space.name]);
   const from = fromOf(space);
+  // A folder viewed where it is looks like one: so its label says, and
+  // its line starts with where it is.
+  const folder = space.kind !== "remote" && space.inPlace !== null;
   const meta = [
+    folder ? place : undefined,
     countOf(preview.data),
     ...(space.kind === "remote"
       ? [s.fromPerson(from), s.viewLive]
@@ -157,17 +173,32 @@ export function Cover({
       <span className="screen-cover__frame">
         <Art tone={tone} preview={preview.data} failed={preview.error !== undefined} />
         <span className="screen-cover__chip" aria-hidden="true">
-          <Icon name={space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]} />
-          {space.kind === "remote"
-            ? from
-            : space.example
-              ? s.example
-              : s.kinds[preview.data?.shape.view ?? "table"]}
+          <Icon
+            name={
+              folder ? "folder" : space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]
+            }
+          />
+          {folder
+            ? s.folderKind
+            : space.kind === "remote"
+              ? from
+              : space.example
+                ? s.example
+                : s.kinds[preview.data?.shape.view ?? "table"]}
         </span>
       </span>
       <span className="screen-cover__caption">
         <span className="screen-cover__line">
-          <span className="screen-cover__name">{space.name}</span>
+          {folder ? (
+            <span className="screen-cover__name screen-cover__name--folder" translate="no">
+              <Icon name="folder" />
+              <span className="screen-cover__title">{collectionTitle(space)}</span>
+            </span>
+          ) : (
+            <span className="screen-cover__name" translate="no">
+              {collectionTitle(space)}
+            </span>
+          )}
           {space.example && <Tag>{s.example}</Tag>}
           {space.kind !== "remote" && (
             <span className="screen-cover__who" aria-hidden="true">
@@ -178,5 +209,65 @@ export function Cover({
         <span className="screen-cover__meta">{meta}</span>
       </span>
     </Link>
+  );
+}
+
+/**
+ * A folder inside a folder viewed in place, as a collection of its own: its
+ * cover shows its newest photos or its newest note, the folder sign only
+ * beside its name. The whole card opens it.
+ */
+export function FolderCover({
+  folder,
+  items,
+  onOpen,
+}: {
+  folder: FileFolder;
+  /** What its cover shows, as items: photos with their thumbnails, or a note. */
+  items: Item[];
+  onOpen: () => void;
+}) {
+  const photos = items.filter((item) => item.image).slice(0, 3);
+  const note = photos.length === 0 ? items.find((item) => item.text) : undefined;
+  const holds =
+    folder.photos > 0
+      ? s.count(Number(folder.photos), "photos")
+      : folder.notes > 0
+        ? s.count(Number(folder.notes), "notes")
+        : s.folderFiles(Number(folder.files));
+  const meta = [holds, folder.modifiedMs != null ? monthAndDay(Number(folder.modifiedMs)) : undefined]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <button type="button" className="screen-cover screen-cover--button" onClick={onOpen}>
+      <span className="screen-cover__frame">
+        {photos.length > 0 ? (
+          <span aria-hidden="true" className={`screen-cover__art screen-collage screen-collage--${photos.length}`}>
+            {photos.map((item, i) => (
+              <img key={i} src={item.image} alt="" decoding="async" loading="lazy" />
+            ))}
+          </span>
+        ) : note ? (
+          <span aria-hidden="true" className="screen-cover__art screen-paper">
+            {itemDate(note) && <span className="screen-paper__date">{itemDate(note)}</span>}
+            <span className="screen-paper__text">{withoutTagLines(note.text)}</span>
+            {folder.notes > 1 && <span className="screen-paper__more">{s.moreNotes(Number(folder.notes) - 1)}</span>}
+          </span>
+        ) : (
+          <span aria-hidden="true" className="screen-cover__art screen-cover__art--plain">
+            <span className="screen-cover__empty">{s.folderFiles(Number(folder.files))}</span>
+          </span>
+        )}
+      </span>
+      <span className="screen-cover__caption">
+        <span className="screen-cover__line">
+          <span className="screen-cover__name screen-cover__name--folder" translate="no">
+            <Icon name="folder" />
+            <span className="screen-cover__title">{folder.name}</span>
+          </span>
+        </span>
+        <span className="screen-cover__meta">{meta}</span>
+      </span>
+    </button>
   );
 }

@@ -159,7 +159,17 @@ expiresAt: number | null,
 /**
  * For a collection that views a folder where it is (§7.7): which.
  */
-inPlace: InPlace | null, };
+inPlace: InPlace | null, 
+/**
+ * Its bytes on this computer (a folder viewed in place: the files it
+ * views), where this computer can tell.
+ */
+sizeBytes: number | null, 
+/**
+ * When it last changed, in milliseconds since the Unix epoch, where
+ * this computer can tell.
+ */
+changedAtMs: number | null, };
 
 /**
  * `create_space`: a new local Space.
@@ -1025,7 +1035,16 @@ deep?: boolean,
 /**
  * Only files of this kind.
  */
-kind?: FileKind, };
+kind?: FileKind, 
+/**
+ * In what order the files come: photos first, then notes, tables and
+ * the rest, each by name, when left out.
+ */
+sort?: FileSort, 
+/**
+ * The other way round.
+ */
+descending?: boolean, };
 
 /**
  * A folder of a collection viewed in place: the folders in it, and a page
@@ -1038,9 +1057,25 @@ export type FileListing = { folders: Array<FileFolder>, files: Array<FileItem>,
 total: number, };
 
 /**
- * A folder within the one listed, with how many files are under it.
+ * A folder within the one listed, with how many files are under it,
+ * their bytes, and when the newest of them was changed (milliseconds since
+ * the Unix epoch).
  */
-export type FileFolder = { name: string, files: number, };
+export type FileFolder = { name: string, files: number, size: number, modifiedMs: number | null, 
+/**
+ * Photos and notes under it, in all its folders.
+ */
+photos: number, notes: number, 
+/**
+ * What its cover shows, as a collection's does: its newest photos that
+ * have a thumbnail (up to three), else its newest note.
+ */
+cover: Array<FileItem>, };
+
+/**
+ * What a folder's files are put in order by.
+ */
+export type FileSort = "name" | "modified" | "size" | "kind";
 
 /**
  * What a file is, as far as showing it goes.
@@ -1056,9 +1091,13 @@ export type FileItem = {
  */
 path: string, name: string, kind: FileKind, size: number, 
 /**
- * When it was last changed: `2025-11-07 09:40:00`.
+ * When it was last changed, on this computer's clock: `2025-11-07 09:40:00`.
  */
 modified: string, 
+/**
+ * The same moment, in milliseconds since the Unix epoch.
+ */
+modifiedMs: number, 
 /**
  * A photo's caption or a note's name.
  */
@@ -1084,6 +1123,35 @@ thumbnail: boolean, };
  * One file of a collection viewed in place.
  */
 export type FileRef = { space: string, path: string, };
+
+/**
+ * `read_file_rows`: a page of the rows of one data file (a CSV, TSV,
+ * Parquet or JSON, at any folder) of a collection that views a folder in
+ * place, read where the file is, as an Arrow IPC stream.
+ */
+export type ReadFileRows = { space: string, 
+/**
+ * The file, `/`-separated, within the folder viewed.
+ */
+path: string, 
+/**
+ * Rows per page, 1 to 1000; default 100.
+ */
+limit?: number, 
+/**
+ * Rows to skip.
+ */
+offset?: number, };
+
+/**
+ * `show_folder`: open a folder viewed in place on this computer in its
+ * file manager, or one file of it in its folder.
+ */
+export type ShowFolder = { space: string, 
+/**
+ * The file to show; the folder itself when left out.
+ */
+path?: string, };
 
 /**
  * What a plugin reads, as its manifest says: one kind of collection.

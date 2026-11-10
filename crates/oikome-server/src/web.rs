@@ -59,11 +59,13 @@ use oikome_api::{
     BorrowedRef, Caller, ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef,
     Empty, ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess,
     ListShares, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
-    PluginFolder, PluginRead, PluginRef, ReadRow, ReadRows, Rows, RunSql, Search, SetLending,
-    SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
-    PLUGIN_SDK,
+    PluginFolder, PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search,
+    SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef,
+    UseBorrowed, PLUGIN_SDK,
 };
-use oikome_api::{FileRef, GoogleCallback, ListFiles, SetNetwork, StartGoogleDrive, ViewInPlace};
+use oikome_api::{
+    FileRef, GoogleCallback, ListFiles, SetNetwork, ShowFolder, StartGoogleDrive, ViewInPlace,
+};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
@@ -424,7 +426,14 @@ impl WebState {
             "refresh_space" => json_op!(refresh_space, SpaceRef),
             "list_files" => json_op!(list_files, ListFiles),
             "read_file" => json_op!(read_file, FileRef),
-            "show_folder" => json_op!(show_folder, SpaceRef),
+            "read_file_rows" => match parse::<ReadFileRows>(&body) {
+                Ok(request) => match api.read_file_rows(&caller, request).await {
+                    Ok(rows) => arrow(rows),
+                    Err(e) => error(e),
+                },
+                Err(e) => error(e),
+            },
+            "show_folder" => json_op!(show_folder, ShowFolder),
             "list_tables" => json_op!(list_tables, SpaceRef),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),

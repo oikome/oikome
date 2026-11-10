@@ -1,17 +1,18 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Where collections are kept: this computer (in its data folder, or a
-// folder the owner picks), a cloud drive or a drive found on it, Google
-// Drive (through an app the owner registers with Google, signed in to on
-// Google's page), a NAS, or RustFS.
+// Where collections are kept: this computer (in its data folder, a folder
+// the owner picks, or a drive plugged in), a NAS, a cloud drive (its
+// desktop app's folder, or Google Drive signed in to on Google's page,
+// through an app the owner registers with Google), or object storage
+// (RustFS).
 // A web page cannot ask the system for a folder, so the node lists them and
 // a folder browser picks one, as NAS and media server apps do.
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, TextField } from "@oikome/ui";
-import type { Choice, IconName } from "@oikome/ui";
+import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, InsetWell, TextField } from "@oikome/ui";
+import type { Choice } from "@oikome/ui";
 import type { FolderListing, GoogleReturn, NewStorage, StorageSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "./data";
 import { homeRelative } from "./format";
@@ -62,6 +63,25 @@ const GOOGLE_STEPS: [string, () => string][] = [
   ["https://console.cloud.google.com/auth/clients/create", () => s.gdriveStep4],
 ];
 
+/** Google Drive's name in the places found here, as the node gives it. */
+const GOOGLE_DRIVE = "Google Drive";
+
+/**
+ * A cloud drive: its desktop app's folder, where the app is on this
+ * computer (nothing to register), and whether Oikome can sign in to it on
+ * its page instead (an app of the owner's own, registered once).
+ */
+interface Drive {
+  label: string;
+  sync?: string;
+  signIn: boolean;
+}
+
+/** Each drive by the name its maker gives it in the language in use. */
+function driveName(label: string): string {
+  return label === GOOGLE_DRIVE ? s.gdrive : label === "iCloud Drive" ? s.icloud : label;
+}
+
 /** The choices and their fields; `plan()` says what to add. */
 export function useStoragePicker({ withThisComputer }: { withThisComputer: boolean }) {
   const client = useClient();
@@ -71,11 +91,15 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   const googleApp = useLoad(() => client.googleApp(), []);
   const [otherApp, setOtherApp] = useState(false);
   const [appFileError, setAppFileError] = useState<string>();
+  // What kind of place: this computer or a folder, a NAS, a cloud drive, object storage.
   const [choice, setChoice] = useState(withThisComputer ? "here" : "folder");
   // A folder on this computer the owner picked instead of the data folder.
   const [hereFolder, setHereFolder] = useState<string>();
   const [otherFolder, setOtherFolder] = useState<string>();
   const [browsing, setBrowsing] = useState<"here" | "folder">();
+  // Which cloud drive, and how it connects.
+  const [drivePick, setDrivePick] = useState(GOOGLE_DRIVE);
+  const [how, setHow] = useState<"sync" | "signIn">("sync");
   const [address, setAddress] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -93,34 +117,41 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   const [readAll, setReadAll] = useState(false);
 
   const found = places.data ?? [];
-  const choices: Choice[] = [];
-  if (withThisComputer) {
-    choices.push({
-      value: "here",
-      title: s.thisComputer,
-      meta: homeRelative(hereFolder ? keptIn(hereFolder) : (info.data?.dataDir ?? "…")),
-      leading: <Icon name="computer" />,
-      aside: (
-        <Button
-          variant="quiet"
-          onClick={() => {
-            setChoice("here");
-            setBrowsing("here");
-          }}
-        >
-          {s.change}
-        </Button>
-      ),
-    });
-  }
-  found.forEach((place, i) => {
-    choices.push({
-      value: `found-${i}`,
-      title: place.label,
-      meta: place.type === "drive" ? s.foundDrive : s.found,
-      leading: <Icon name={(place.type === "drive" ? "drive" : "folder") as IconName} />,
-    });
-  });
+  // Google Drive can always be signed in to; the others are used through
+  // their desktop app's folder, where it is here.
+  const drives: Drive[] = found
+    .filter((place) => place.type === "drive")
+    .map((place) => ({ label: place.label, sync: place.path, signIn: place.label === GOOGLE_DRIVE }));
+  if (!drives.some((d) => d.label === GOOGLE_DRIVE)) drives.push({ label: GOOGLE_DRIVE, signIn: true });
+  drives.sort((a, b) => Number(b.label === GOOGLE_DRIVE) - Number(a.label === GOOGLE_DRIVE));
+  const drive = drives.find((d) => d.label === drivePick) ?? drives[0]!;
+  const driveHow = drive.sync && drive.signIn ? how : drive.sync ? "sync" : "signIn";
+
+  const kinds: Choice[] = [
+    withThisComputer
+      ? {
+          value: "here",
+          title: s.thisComputer,
+          meta: homeRelative(hereFolder ? keptIn(hereFolder) : (info.data?.dataDir ?? "…")),
+          leading: <Icon name="computer" />,
+          aside: (
+            <Button
+              variant="quiet"
+              onClick={() => {
+                setChoice("here");
+                setBrowsing("here");
+              }}
+            >
+              {s.change}
+            </Button>
+          ),
+        }
+      : { value: "folder", title: s.folder, meta: s.folderMeta, leading: <Icon name="computer" /> },
+    { value: "nas", title: s.nas, meta: s.nasMeta, leading: <Icon name="nas" /> },
+    { value: "drive", title: s.drive, meta: s.driveMeta, leading: <Icon name="drive" /> },
+    { value: "s3", title: s.s3, meta: s.s3Meta, leading: <Icon name="bucket" /> },
+  ];
+
   // The app the node remembers, unless the owner picks another one.
   const rememberedApp = otherApp ? undefined : (googleApp.data?.clientId ?? undefined);
   // The app's two fields filled from the file Google lets one download.
@@ -133,72 +164,90 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       setClientSecret(app.clientSecret);
     }
   };
+  // Registering the app, then giving it to Oikome: two steps, each its own group.
   const googleAppFields = (
-    <>
-      <p className="screen-help">{s.gdriveEasier}</p>
-      <p className="screen-help">{s.gdriveSteps}</p>
-      <ol className="screen-steps">
-        {GOOGLE_STEPS.map(([href, step]) => (
-          <li key={href}>
-            <a href={href} target="_blank" rel="noreferrer">
-              {step()}
-            </a>
-          </li>
-        ))}
-      </ol>
-      <label className="oik-button oik-button--quiet screen-file-pick">
-        {s.fillFromFile}
-        <input
-          type="file"
-          accept="application/json,.json"
-          onChange={(e) => {
-            void fillFromFile(e.target.files?.[0]);
-            e.target.value = "";
-          }}
+    <div className="screen-gapp">
+      {!drive.sync && <p className="screen-help">{s.gdriveEasier}</p>}
+      <section className="screen-gapp__step" aria-labelledby="gapp-register">
+        <h3 id="gapp-register" className="screen-gapp__title">
+          <span className="screen-gapp__n" aria-hidden="true">
+            1
+          </span>
+          {s.gdriveRegister}
+        </h3>
+        <p className="screen-help">{s.gdriveRegisterHint}</p>
+        <ol className="screen-steps">
+          {GOOGLE_STEPS.map(([href, step]) => (
+            <li key={href}>
+              <a href={href} target="_blank" rel="noreferrer">
+                {step()}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <section className="screen-gapp__step" aria-labelledby="gapp-give">
+        <h3 id="gapp-give" className="screen-gapp__title">
+          <span className="screen-gapp__n" aria-hidden="true">
+            2
+          </span>
+          {s.gdriveGive}
+        </h3>
+        <div className="screen-gapp__file">
+          <label className="oik-button oik-button--secondary screen-file-pick">
+            <Icon name="upload" />
+            {s.fillFromFile}
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(e) => {
+                void fillFromFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <span className={appFileError ? "screen-help screen-help--error" : "screen-help"} role={appFileError ? "alert" : undefined}>
+            {appFileError ?? s.gdriveFileHint}
+          </span>
+        </div>
+        <p className="screen-gapp__or">{s.gdriveOrPaste}</p>
+        <TextField label={s.clientId} name="google-client-id" value={clientId} onChange={setClientId} />
+        <TextField
+          label={s.clientSecret}
+          name="google-client-secret"
+          type="password"
+          hint={s.passwordHint}
+          value={clientSecret}
+          onChange={setClientSecret}
         />
-      </label>
-      {appFileError && <p className="screen-help">{appFileError}</p>}
-      <TextField label={s.clientId} name="google-client-id" value={clientId} onChange={setClientId} />
-      <TextField
-        label={s.clientSecret}
-        name="google-client-secret"
-        type="password"
-        hint={s.passwordHint}
-        value={clientSecret}
-        onChange={setClientSecret}
-      />
-    </>
+      </section>
+    </div>
   );
-  choices.push({
-    value: "gdrive",
-    title: s.gdrive,
-    meta: s.gdriveMeta,
-    leading: <Icon name="drive" />,
-    more: (
-      <>
-        {rememberedApp ? (
-          <div className="screen-app-row">
-            <span className="screen-help screen-ellipsis" translate="no">
-              {s.gdriveApp(rememberedApp)}
+
+  let form: ReactNode = null;
+  if (choice === "folder") {
+    // The owner picks the folder: on this computer, or on a drive plugged in.
+    form = (
+      <div className="oik-field">
+        <span className="oik-field__label">{s.whichFolder}</span>
+        <div className="screen-folder-pick">
+          <Icon name="folder" />
+          {otherFolder ? (
+            <span className="screen-path" translate="no" title={otherFolder}>
+              {homeRelative(otherFolder)}
             </span>
-            <Button variant="quiet" onClick={() => setOtherApp(true)}>
-              {s.otherApp}
-            </Button>
-          </div>
-        ) : (
-          googleAppFields
-        )}
-        <Checkbox label={s.gdriveReadAll} checked={readAll} onChange={setReadAll} />
-        <p className="screen-help">{s.gdriveNote}</p>
-      </>
-    ),
-  });
-  choices.push({
-    value: "nas",
-    title: s.nas,
-    meta: s.nasMeta,
-    leading: <Icon name="nas" />,
-    more: (
+          ) : (
+            <span className="screen-folder-pick__none">{s.noFolder}</span>
+          )}
+          <Button onClick={() => setBrowsing("folder")}>{otherFolder ? s.change : s.chooseFolder}</Button>
+        </div>
+        <span className="oik-field__hint">
+          {otherFolder ? s.willKeep(homeRelative(keptIn(otherFolder))) : s.makesFolder}
+        </span>
+      </div>
+    );
+  } else if (choice === "nas") {
+    form = (
       <>
         <TextField
           label={s.address}
@@ -219,14 +268,64 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
         />
         <Checkbox label={s.encrypt} checked={encrypt} onChange={setEncrypt} />
       </>
-    ),
-  });
-  choices.push({
-    value: "s3",
-    title: s.s3,
-    meta: s.s3Meta,
-    leading: <Icon name="bucket" />,
-    more: (
+    );
+  } else if (choice === "drive") {
+    form = (
+      <>
+        <ChoiceList
+          label={s.whichDrive}
+          name="which-drive"
+          value={drive.label}
+          onChange={setDrivePick}
+          choices={drives.map((d) => ({
+            value: d.label,
+            title: driveName(d.label),
+            meta: d.sync && d.signIn ? `${s.foundHere} · ${s.orSignIn}` : d.sync ? s.foundHere : s.signInOnly,
+            leading: <Icon name="drive" />,
+          }))}
+        />
+        {drive.sync && drive.signIn && (
+          <ChoiceList
+            label={s.howConnects}
+            name="how-connects"
+            value={driveHow}
+            onChange={(value) => setHow(value as "sync" | "signIn")}
+            choices={[
+              { value: "sync", title: s.howSync, meta: s.howSyncMeta(homeRelative(drive.sync)) },
+              { value: "signIn", title: s.howSignIn, meta: s.howSignInMeta },
+            ]}
+          />
+        )}
+        {driveHow === "sync" && drive.sync ? (
+          <InsetWell>
+            <p className="screen-well-text">
+              {s.syncKept(homeRelative(keptIn(drive.sync)))} {s.driveEncrypted(driveName(drive.label))}
+            </p>
+          </InsetWell>
+        ) : (
+          <>
+            {rememberedApp ? (
+              <div className="screen-app-row">
+                <span className="screen-help screen-ellipsis" translate="no">
+                  {s.gdriveApp(rememberedApp)}
+                </span>
+                <Button variant="quiet" onClick={() => setOtherApp(true)}>
+                  {s.otherApp}
+                </Button>
+              </div>
+            ) : (
+              googleAppFields
+            )}
+            <Checkbox label={s.gdriveReadAll} checked={readAll} onChange={setReadAll} />
+            <InsetWell>
+              <p className="screen-well-text">{s.gdriveNote}</p>
+            </InsetWell>
+          </>
+        )}
+      </>
+    );
+  } else if (choice === "s3") {
+    form = (
       <>
         <TextField
           label={s.address}
@@ -249,37 +348,12 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
         <Checkbox label={s.encrypt} checked={s3Encrypt} onChange={setS3Encrypt} />
         {!s3Encrypt && <p className="screen-help">{s.plainNote}</p>}
       </>
-    ),
-  });
-  // On the first run Local's Change… picks a folder of this computer; later,
-  // another folder (a mounted share, a drive plugged in) is added here.
-  if (!withThisComputer) {
-    choices.push({
-      value: "folder",
-      title: s.folder,
-      meta: otherFolder ? s.pickedFolder(homeRelative(keptIn(otherFolder))) : s.folderMeta,
-      leading: <Icon name="folder" />,
-      aside: (
-        <Button
-          variant="quiet"
-          onClick={() => {
-            setChoice("folder");
-            setBrowsing("folder");
-          }}
-        >
-          {otherFolder ? s.change : s.chooseFolder}
-        </Button>
-      ),
-    });
+    );
   }
 
   const plan = (): Plan => {
     if (choice === "here") {
       return hereFolder ? { add: { label: folderName(hereFolder), type: "folder", address: hereFolder } } : {};
-    }
-    if (choice.startsWith("found-")) {
-      const place = found[Number(choice.slice("found-".length))];
-      return place ? { add: { label: place.label, type: place.type, address: place.path } } : {};
     }
     if (choice === "nas") {
       if (!address.trim()) return { error: s.addressRequired };
@@ -294,7 +368,10 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
         },
       };
     }
-    if (choice === "gdrive") {
+    if (choice === "drive") {
+      if (driveHow === "sync" && drive.sync) {
+        return { add: { label: drive.label, type: "drive", address: drive.sync } };
+      }
       if (rememberedApp) return { google: { readAll } };
       if (!clientId.trim() || !clientSecret.trim()) return { error: s.googleClientRequired };
       return { google: { clientId: clientId.trim(), clientSecret: clientSecret.trim(), readAll } };
@@ -319,7 +396,8 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
 
   const picker = (
     <>
-      <ChoiceList label={s.keepOn} name="keep-on" value={choice} onChange={setChoice} choices={choices} />
+      <ChoiceList label={s.keepOn} name="keep-on" value={choice} onChange={setChoice} choices={kinds} />
+      {form && <div className="screen-place-form">{form}</div>}
       {browsing && (
         <FolderBrowser
           onClose={() => setBrowsing(undefined)}
@@ -332,8 +410,8 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       )}
     </>
   );
-  // Google Drive is added on Google's page: the button says so.
-  return { picker, plan, choice, toGoogle: choice === "gdrive" };
+  // Google Drive signed in to is added on Google's page: the button says so.
+  return { picker, plan, choice, toGoogle: choice === "drive" && driveHow === "signIn" };
 }
 
 /** What to say when the place picked couldn't be reached or refused what was entered. */

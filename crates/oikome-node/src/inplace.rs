@@ -32,7 +32,7 @@
 //! can't be reached, `files`, search and thumbnails still answer from the
 //! index; reading a table or an original says the place is offline.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -74,6 +74,11 @@ const REACH_FOR: Duration = Duration::from_secs(5);
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
 const NOTE_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
+/// Tables written as text: their first lines are kept, to show some rows.
+const TEXT_TABLE_EXTENSIONS: &[&str] = &["csv", "tsv"];
+/// The bytes of a text table read for its first lines, and how many are kept.
+const HEAD_BYTES: u64 = 2048;
+const HEAD_LINES: usize = 4;
 
 /// A file's state in the index: not read yet, read, or listed only.
 const UNREAD: i64 = 0;
@@ -583,8 +588,9 @@ fn apply_listing(
     }
     for (path, file) in listed {
         let kind = kind_of(name_of(path));
-        // Tables and other files have nothing to read beyond their listing.
-        let state = if matches!(kind, IMAGE | NOTE) {
+        // Other files have nothing to read beyond their listing; a text
+        // table, its first lines.
+        let state = if matches!(kind, IMAGE | NOTE) || is_text_table(path) {
             UNREAD
         } else {
             READ
@@ -639,8 +645,40 @@ fn apply_listing(
         )
         .map_err(sql)?;
     }
+    // Text tables indexed before their first lines were kept: once.
+    let unread = tx
+        .execute(
+            "UPDATE files SET state = ?1 WHERE state = ?2 AND kind = 'table' AND text IS NULL \
+             AND (lower(name) LIKE '%.csv' OR lower(name) LIKE '%.tsv')",
+            params![UNREAD, READ],
+        )
+        .map_err(sql)?;
     tx.commit().map_err(sql)?;
-    Ok(changed)
+    Ok(changed || unread > 0)
+}
+
+/// Whether a file is a table written as text (CSV, TSV), by its name.
+fn is_text_table(path: &str) -> bool {
+    Path::new(name_of(path))
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| TEXT_TABLE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// The first lines of a text table, from the start of the file: a line cut
+/// off by the end of what was read is left out.
+fn head_lines(bytes: &[u8], cut: bool) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim_start_matches('\u{feff}');
+    let mut lines: Vec<&str> = text.lines().collect();
+    if cut && !text.ends_with('\n') {
+        lines.pop();
+    }
+    lines
+        .into_iter()
+        .take(HEAD_LINES)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A thumbnail of the image in `bytes`: at most [`THUMB_EDGE`] pixels on
@@ -782,6 +820,17 @@ async fn fill(place: &Place, dir: &Path, budget: Option<Duration>) -> Result<usi
                             read.text = Some(body.to_string());
                             read.state = READ;
                         }
+                    }
+                    read
+                }
+                TABLE if is_text_table(&path) => {
+                    let mut read = Read {
+                        state: LISTED_ONLY,
+                        ..Read::default()
+                    };
+                    if let Ok(bytes) = place.read(&path, 0..HEAD_BYTES, HEAD_BYTES).await {
+                        read.text = Some(head_lines(&bytes, size > HEAD_BYTES));
+                        read.state = READ;
                     }
                     read
                 }
@@ -1270,6 +1319,8 @@ pub struct FileEntry {
     pub kind: String,
     pub size: u64,
     pub modified: String,
+    /// The same moment, in milliseconds since the Unix epoch.
+    pub modified_ms: i64,
     pub title: Option<String>,
     pub taken: Option<String>,
     pub written: Option<String>,
@@ -1280,11 +1331,55 @@ pub struct FileEntry {
     pub thumbnail: bool,
 }
 
-/// A folder inside the folder listed, with the files under it.
+/// A folder inside the folder listed, with the files under it: how many,
+/// their bytes, and when the newest of them was changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubFolder {
     pub name: String,
     pub files: u64,
+    pub size: u64,
+    pub modified_ms: Option<i64>,
+    /// Photos and notes under it, in all its folders.
+    pub photos: u64,
+    pub notes: u64,
+    /// What its cover shows, as a collection's does: its newest photos
+    /// that have a thumbnail (up to three), else its newest note.
+    pub cover: Vec<FileEntry>,
+}
+
+/// How a folder's files are put in order when listed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FileOrder {
+    /// Photos, then notes, tables and the rest, each by name.
+    #[default]
+    Kinds,
+    Name,
+    Modified,
+    Size,
+    /// By kind (photos, notes, tables, the rest) then name, either way.
+    Kind,
+}
+
+impl FileOrder {
+    /// Its `ORDER BY`, made of these fixed words only.
+    fn sql(self, descending: bool) -> &'static str {
+        match (self, descending) {
+            (FileOrder::Kinds, _) | (FileOrder::Kind, false) => {
+                "CASE f.kind WHEN 'image' THEN 0 WHEN 'note' THEN 1 WHEN 'table' THEN 2 ELSE 3 END, \
+                 f.name COLLATE NOCASE"
+            }
+            (FileOrder::Kind, true) => {
+                "CASE f.kind WHEN 'image' THEN 0 WHEN 'note' THEN 1 WHEN 'table' THEN 2 ELSE 3 END \
+                 DESC, f.name COLLATE NOCASE"
+            }
+            (FileOrder::Name, false) => "f.name COLLATE NOCASE, f.path",
+            (FileOrder::Name, true) => "f.name COLLATE NOCASE DESC, f.path DESC",
+            (FileOrder::Modified, false) => "f.modified_ms, f.name COLLATE NOCASE",
+            (FileOrder::Modified, true) => "f.modified_ms DESC, f.name COLLATE NOCASE",
+            (FileOrder::Size, false) => "f.size, f.name COLLATE NOCASE",
+            (FileOrder::Size, true) => "f.size DESC, f.name COLLATE NOCASE",
+        }
+    }
 }
 
 /// One folder of a folder viewed in place, from the index.
@@ -1297,7 +1392,45 @@ pub struct Listing {
 }
 
 const ENTRY_COLUMNS: &str = "f.path, f.name, f.kind, f.size, f.modified, f.title, f.taken, \
-     f.written, f.place, f.credit, f.text, t.path IS NOT NULL";
+     f.written, f.place, f.credit, f.text, t.path IS NOT NULL, f.modified_ms";
+
+/// The newest photos with a thumbnail under each folder inside `?1` (the
+/// top when `''`; `?2` its `LIKE` prefix), at most `?3` a folder, newest
+/// first, each with that folder's name as column 13.
+const COVER_PHOTOS: &str = "
+WITH under AS (
+  SELECT f.rowid AS id, coalesce(f.taken, f.modified) AS at,
+         CASE WHEN ?1 = '' THEN f.folder ELSE substr(f.folder, length(?1) + 2) END AS rest
+  FROM files f JOIN thumbs t ON t.path = f.path
+  WHERE f.kind = 'image' AND f.folder != ?1 AND (?1 = '' OR f.folder LIKE ?2 ESCAPE '\\')
+), ranked AS (
+  SELECT id, CASE WHEN instr(rest, '/') > 0 THEN substr(rest, 1, instr(rest, '/') - 1) ELSE rest END AS child, at
+  FROM under
+), numbered AS (
+  SELECT id, child, row_number() OVER (PARTITION BY child ORDER BY at DESC, id) AS n FROM ranked
+)
+SELECT f.path, f.name, f.kind, f.size, f.modified, f.title, f.taken, f.written, f.place, f.credit,
+       f.text, t.path IS NOT NULL, f.modified_ms, n.child
+FROM numbered n JOIN files f ON f.rowid = n.id LEFT JOIN thumbs t ON t.path = f.path
+WHERE n.n <= ?3 ORDER BY n.child, n.n";
+
+/// The newest notes under each folder inside `?1`, as [`COVER_PHOTOS`].
+const COVER_NOTES: &str = "
+WITH under AS (
+  SELECT f.rowid AS id, coalesce(f.written, f.modified) AS at,
+         CASE WHEN ?1 = '' THEN f.folder ELSE substr(f.folder, length(?1) + 2) END AS rest
+  FROM files f
+  WHERE f.kind = 'note' AND f.folder != ?1 AND (?1 = '' OR f.folder LIKE ?2 ESCAPE '\\')
+), ranked AS (
+  SELECT id, CASE WHEN instr(rest, '/') > 0 THEN substr(rest, 1, instr(rest, '/') - 1) ELSE rest END AS child, at
+  FROM under
+), numbered AS (
+  SELECT id, child, row_number() OVER (PARTITION BY child ORDER BY at DESC, id) AS n FROM ranked
+)
+SELECT f.path, f.name, f.kind, f.size, f.modified, f.title, f.taken, f.written, f.place, f.credit,
+       f.text, t.path IS NOT NULL, f.modified_ms, n.child
+FROM numbered n JOIN files f ON f.rowid = n.id LEFT JOIN thumbs t ON t.path = f.path
+WHERE n.n <= ?3 ORDER BY n.child, n.n";
 
 fn entry_of(r: &rusqlite::Row<'_>, excerpt: Option<usize>) -> rusqlite::Result<FileEntry> {
     let text: Option<String> = r.get(10)?;
@@ -1317,6 +1450,7 @@ fn entry_of(r: &rusqlite::Row<'_>, excerpt: Option<usize>) -> rusqlite::Result<F
             None => text,
         },
         thumbnail: r.get(11)?,
+        modified_ms: r.get(12)?,
     })
 }
 
@@ -1335,33 +1469,40 @@ fn excerpt_of(text: &str, chars: usize) -> String {
 }
 
 /// The folder `folder` (`""` for the top) of a folder viewed in place: its
-/// folders, and a page of its files (photos first, then notes, tables and
-/// the rest, each by name).
+/// folders, and a page of its files in `order` (`descending` turns it).
 pub fn list(
     catalog: &OikomeCatalog,
     location: &Location,
     folder: &str,
+    (order, descending): (FileOrder, bool),
     offset: u64,
     limit: u64,
 ) -> Result<Listing, SessionError> {
     let folder = folder.trim_matches('/');
     let conn = open_index(&catalog.index_dir(location))?;
-    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    let mut counts: BTreeMap<String, SubFolder> = BTreeMap::new();
     {
         let mut stmt = conn
             .prepare(
-                "SELECT folder, count(*) FROM files \
+                "SELECT folder, count(*), coalesce(sum(size), 0), max(modified_ms), \
+                 sum(kind = 'image'), sum(kind = 'note') FROM files \
                  WHERE ?1 = '' OR folder = ?1 OR folder LIKE ?2 ESCAPE '\\' GROUP BY folder",
             )
             .map_err(sql)?;
         let prefix = format!("{}/%", like_escape(folder));
         let rows = stmt
             .query_map(params![folder, prefix], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                    (r.get::<_, i64>(4)?, r.get::<_, i64>(5)?),
+                ))
             })
             .map_err(sql)?;
         for row in rows {
-            let (sub, n) = row.map_err(sql)?;
+            let (sub, n, size, modified_ms, (photos, notes)) = row.map_err(sql)?;
             let rest = if folder.is_empty() {
                 sub.as_str()
             } else {
@@ -1374,7 +1515,44 @@ pub fn list(
                 continue;
             }
             let child = rest.split('/').next().unwrap_or(rest).to_string();
-            *counts.entry(child).or_default() += u64::try_from(n).unwrap_or(0);
+            let entry = counts.entry(child.clone()).or_insert(SubFolder {
+                name: child,
+                files: 0,
+                size: 0,
+                modified_ms: None,
+                photos: 0,
+                notes: 0,
+                cover: Vec::new(),
+            });
+            entry.files += u64::try_from(n).unwrap_or(0);
+            entry.size += u64::try_from(size).unwrap_or(0);
+            entry.modified_ms = entry.modified_ms.max(modified_ms);
+            entry.photos += u64::try_from(photos).unwrap_or(0);
+            entry.notes += u64::try_from(notes).unwrap_or(0);
+        }
+    }
+    if !counts.is_empty() {
+        let prefix = format!("{}/%", like_escape(folder));
+        // A folder's newest photos are its cover; its newest note only when
+        // it has none.
+        for (sql_text, per, only_without) in [(COVER_PHOTOS, 3_i64, false), (COVER_NOTES, 1, true)]
+        {
+            let mut stmt = conn.prepare(sql_text).map_err(sql)?;
+            let rows = stmt
+                .query_map(params![folder, prefix, per], |r| {
+                    Ok((r.get::<_, String>(13)?, entry_of(r, Some(240))?))
+                })
+                .map_err(sql)?;
+            let mut taken: HashSet<String> = HashSet::new();
+            for row in rows {
+                let (child, entry) = row.map_err(sql)?;
+                if let Some(sub) = counts.get_mut(&child) {
+                    if !only_without || sub.cover.is_empty() || taken.contains(&child) {
+                        taken.insert(child);
+                        sub.cover.push(entry);
+                    }
+                }
+            }
         }
     }
     let total = conn
@@ -1387,9 +1565,8 @@ pub fn list(
     let mut stmt = conn
         .prepare(&format!(
             "SELECT {ENTRY_COLUMNS} FROM files f LEFT JOIN thumbs t ON t.path = f.path \
-             WHERE f.folder = ?1 \
-             ORDER BY CASE f.kind WHEN 'image' THEN 0 WHEN 'note' THEN 1 WHEN 'table' THEN 2 \
-             ELSE 3 END, f.name LIMIT ?2 OFFSET ?3"
+             WHERE f.folder = ?1 ORDER BY {} LIMIT ?2 OFFSET ?3",
+            order.sql(descending)
         ))
         .map_err(sql)?;
     let files = stmt
@@ -1405,13 +1582,32 @@ pub fn list(
         .collect::<Result<Vec<_>, _>>()
         .map_err(sql)?;
     Ok(Listing {
-        folders: counts
-            .into_iter()
-            .map(|(name, files)| SubFolder { name, files })
-            .collect(),
+        folders: counts.into_values().collect(),
         files,
         total: u64::try_from(total).unwrap_or(0),
     })
+}
+
+/// What a folder viewed in place holds, from its index: its files, their
+/// bytes, and when the newest of them was changed (milliseconds since the
+/// Unix epoch).
+pub fn totals(
+    catalog: &OikomeCatalog,
+    location: &Location,
+) -> Result<(u64, u64, Option<i64>), SessionError> {
+    let conn = open_index(&catalog.index_dir(location))?;
+    conn.query_row(
+        "SELECT count(*), coalesce(sum(size), 0), max(modified_ms) FROM files",
+        [],
+        |r| {
+            Ok((
+                u64::try_from(r.get::<_, i64>(0)?).unwrap_or(0),
+                u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                r.get::<_, Option<i64>>(2)?,
+            ))
+        },
+    )
+    .map_err(sql)
 }
 
 fn like_escape(text: &str) -> String {
@@ -1482,6 +1678,63 @@ pub fn file(
     )
     .optional()
     .map_err(sql)
+}
+
+/// A page of the rows of one data file (a CSV, TSV, Parquet or JSON) of a
+/// folder viewed in place, read where the file is: a NAS's or a drive's is
+/// fetched through its cache. No SQL is involved; the file is parsed by its
+/// own reader. At most [`oikome_connect::rows::MAX_VIEW_BYTES`] of the file
+/// are read, the view says when it shows only the first part.
+pub async fn file_rows(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    location: &Location,
+    path: &str,
+    offset: u64,
+    limit: usize,
+) -> Result<oikome_connect::rows::FileRows, SessionError> {
+    check_owner_path(path).map_err(io)?;
+    let file = file(catalog, location, path)?
+        .ok_or_else(|| SessionError::Unsupported(format!("{path} is not a file in it")))?;
+    let format = Path::new(&file.name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .and_then(FileFormat::of_extension)
+        .ok_or_else(|| SessionError::Unsupported(format!("{path} is not a table to view")))?;
+    let place = place_of(catalog, engines, location)?;
+    if !place.reachable().await {
+        return Err(offline(&place.label()));
+    }
+    let local = match &place {
+        Place::Local(root) => root.join(path),
+        Place::Remote { .. } => {
+            cached(catalog, location, &place, path, file.size, file.modified_ms).await?
+        }
+    };
+    let name = file.name.clone();
+    tokio::task::spawn_blocking(move || {
+        let (bytes, cut) = read_capped(&local)?;
+        oikome_connect::rows::read_page(format, &name, &bytes, offset, limit, cut)
+            .map_err(|e| SessionError::Unsupported(format!("viewing {name} as a table: {e}")))
+    })
+    .await
+    .map_err(io)?
+}
+
+/// The first [`oikome_connect::rows::MAX_VIEW_BYTES`] of `file`, and whether
+/// the file goes on past them.
+fn read_capped(file: &Path) -> Result<(Vec<u8>, bool), SessionError> {
+    use std::io::Read;
+    let mut opened = std::fs::File::open(file).map_err(io)?;
+    let mut bytes = Vec::new();
+    opened
+        .by_ref()
+        .take(oikome_connect::rows::MAX_VIEW_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(io)?;
+    let cut = bytes.len() > oikome_connect::rows::MAX_VIEW_BYTES;
+    bytes.truncate(oikome_connect::rows::MAX_VIEW_BYTES);
+    Ok((bytes, cut))
 }
 
 /// The photos of a folder viewed in place (all its folders), newest

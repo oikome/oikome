@@ -34,6 +34,7 @@ pub mod flomo_export;
 pub mod flomo_mcp;
 pub mod folder;
 pub mod mcp;
+pub mod rows;
 
 use async_trait::async_trait;
 pub use oikome_engine::value::Value;

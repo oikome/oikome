@@ -125,9 +125,9 @@
   --sh-pop: 0 2px 6px rgba(20, 19, 16, 0.06), 0 16px 40px rgba(20, 19, 16, 0.12);
 
   /* Type */
-  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --display: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font: "IBM Plex Sans", var(--cjk), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, var(--cjk), monospace;
+  --display: "IBM Plex Sans", var(--cjk), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --text: 400 14px/20px var(--font);
   --text-small: 400 12px/16px var(--font);
   --text-data: 400 13px/18px var(--mono);
@@ -214,9 +214,9 @@
   --sh-l: 9px 9px 0 0 #111111;
   --sh-pop: 9px 9px 0 0 #111111;
 
-  --font: "Space Grotesk", system-ui, sans-serif;
-  --mono: "Space Mono", ui-monospace, monospace;
-  --display: "Archivo Black", "Space Grotesk", system-ui, sans-serif;
+  --font: "Space Grotesk", var(--cjk), system-ui, sans-serif;
+  --mono: "Space Mono", ui-monospace, var(--cjk), monospace;
+  --display: "Archivo Black", "Space Grotesk", var(--cjk), system-ui, sans-serif;
   --text: 500 14px/20px var(--font);
   --text-small: 500 12px/16px var(--font);
   --text-data: 400 13px/18px var(--mono);
@@ -240,6 +240,40 @@
   --field-height: 40px;
 
   --focus-ring: 3px solid #111111;
+}
+
+/* Languages written in Han characters, kana or hangul (M8). The Latin
+   faces have none of them, so each such character falls back to the
+   system's face for the language (the prototype's): Latin letters keep the
+   style's face. Their letters aren't spaced out (uppercase does nothing to
+   them), and a heavy heading takes its weight from that face rather than a
+   bold synthesized from the Latin one. */
+:root {
+  --cjk: system-ui;
+}
+:root:lang(ja) {
+  --cjk: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP";
+}
+:root:lang(ko) {
+  --cjk: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR";
+}
+:root:lang(zh-Hans) {
+  --cjk: "PingFang SC", "Microsoft YaHei", "Noto Sans SC";
+}
+:root:lang(zh-Hant) {
+  --cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC";
+}
+:root:is(:lang(ja), :lang(ko), :lang(zh-Hans), :lang(zh-Hant)) {
+  --label-spacing: 0;
+  --tracking-display: 0;
+  font-synthesis-weight: none;
+}
+/* Bold's display face is one heavy weight; its CJK fallback is asked for a heavy one too. */
+[data-theme="bold"]:is(:lang(ja), :lang(ko), :lang(zh-Hans), :lang(zh-Hant)) {
+  --text-heading: 800 18px/22px var(--display);
+  --text-display: 800 34px/40px var(--display);
+  --text-display-compact: 800 26px/32px var(--display);
+  --label-font: 700 12px/16px var(--display);
 }
 
 /* Sizes include the border, as the prototype's: a 20 px tag is 20 px

@@ -130,6 +130,16 @@ test.afterAll(async () => {
 test("first run: name the data center and save its recovery key", async () => {
   await page.goto(loginLink());
   await expect(page.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+  // The language comes first, as the examples are written in it: English
+  // here, like this browser; another one redraws the page at once.
+  const language = page.getByLabel("Language");
+  await expect(language).toHaveValue("en");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await language.selectOption("de");
+  await expect(page.locator("html")).toHaveAttribute("lang", "de");
+  await expect(page.getByRole("heading", { level: 1 })).not.toHaveText("Welcome to Oikome");
+  await page.getByLabel("Sprache").selectOption("en");
+  await expect(page.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
   // A lazy Continue is a fine answer: the name is filled in already.
   // The storage choices also mention a user name: the field is "Name" exactly.
   const name = page.getByLabel("Name", { exact: true });
@@ -1365,6 +1375,62 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
   }
   await page.evaluate(() => localStorage.removeItem("oikome.theme"));
   await page.setViewportSize({ width: 1280, height: 800 });
+});
+
+test("the language picked in Settings applies at once and is kept, and every screen fits in each one", async () => {
+  await page.goto(`${base}/settings`);
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByLabel("Language").selectOption("zh-Hans");
+  await expect(page.locator("html")).toHaveAttribute("lang", "zh-Hans");
+  await expect(page.getByRole("heading", { name: "设置", level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "资料库" })).toBeVisible();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", "zh-Hans");
+  await expect(page.getByRole("heading", { name: "设置", level: 1 })).toBeVisible();
+
+  // Longer words (German, Russian) and other scripts still fit, at both
+  // widths, in Bold, whose type is the largest.
+  const screens = [
+    "/onboarding",
+    "/",
+    "/collections",
+    "/collections/lisbon-photos",
+    "/collections/oikome-guide",
+    "/collections/home-climate",
+    "/sources",
+    "/sources/spending",
+    "/sharing",
+    "/assistants",
+    "/plugins",
+    "/activity",
+    "/settings",
+  ];
+  await page.evaluate(() => localStorage.setItem("oikome.theme", "bold"));
+  for (const language of ["en-GB", "de", "fr", "ru", "ja", "ko", "zh-Hans", "zh-Hant"]) {
+    await page.evaluate((l) => localStorage.setItem("oikome.language", l), language);
+    for (const [width, height] of [
+      [1280, 800],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      for (const path of screens) {
+        await page.goto(`${base}${path}`);
+        await expect(page.locator("html")).toHaveAttribute("lang", language);
+        await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        expect(overflow, `${path} at ${width}px in ${language} scrolls sideways`).toBeLessThanOrEqual(0);
+      }
+    }
+  }
+  // With no language picked, the browser's: English here.
+  await page.evaluate(() => {
+    localStorage.removeItem("oikome.theme");
+    localStorage.removeItem("oikome.language");
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/settings`);
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
 });
 
 test("the style picked in Settings applies at once and is kept", async () => {

@@ -403,10 +403,10 @@ export function Avatar({ name, small, you }: { name: string; small?: boolean; yo
  * neutral disc, then each contact. The product's signature detail, written
  * the same way wherever it appears.
  */
-export function AvatarStack({ names, label }: { names: string[]; label: string }) {
+export function AvatarStack({ names, label, you }: { names: string[]; label: string; you: string }) {
   return (
     <span className="oik-avatar-stack" role="img" aria-label={label}>
-      <Avatar name="You" you small />
+      <Avatar name={you} you small />
       {names.slice(0, 3).map((name) => (
         <Avatar key={name} name={name} small />
       ))}
@@ -570,6 +570,7 @@ export function Select({
   options,
   leading,
   inline,
+  hideLabel,
 }: FieldProps & {
   value: string;
   onChange: (value: string) => void;
@@ -578,11 +579,13 @@ export function Select({
   leading?: ReactNode;
   /** The label beside the control, for a filter in a header. */
   inline?: boolean;
+  /** The label for screen readers only, where the control says what it is (a globe beside a language). */
+  hideLabel?: boolean;
 }) {
   const id = useId();
   return (
     <div className={cx("oik-field", inline && "oik-field--inline")}>
-      <label className="oik-field__label" htmlFor={id}>
+      <label className={cx("oik-field__label", hideLabel && "oik-visually-hidden")} htmlFor={id}>
         {label}
       </label>
       <span className={cx("oik-select-wrap", leading !== undefined && "oik-select-wrap--leading")}>

@@ -9,7 +9,8 @@ import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { addPlanned, useStoragePicker } from "../storage";
-import { RecoveryKeyPanel } from "../parts";
+import { LanguageSelect, RecoveryKeyPanel } from "../parts";
+import { language } from "../i18n/languages";
 import { strings } from "../strings";
 
 const STEPS = 3;
@@ -68,7 +69,7 @@ export function Onboarding({
                   await addPlanned(client, plan, true);
                   // Something to look at on the first day; once, and only on
                   // a data center with nothing in it yet.
-                  await client.addExamples().catch(() => undefined);
+                  await client.addExamples({ language: language() }).catch(() => undefined);
                   return renamed;
                 },
                 (err) => (err.code === "invalid" && plan.add ? strings.storage.unreachable : undefined),
@@ -79,7 +80,10 @@ export function Onboarding({
               }
             }}
           >
-            <Hero icon="mark" />
+            <div className="screen-onboarding__top">
+              <Hero icon="mark" />
+              <LanguageSelect label={s.language} compact />
+            </div>
             <h1 className="screen-title">{s.welcomeTitle}</h1>
             <p className="screen-lede">{s.welcomeLede}</p>
             <TextField

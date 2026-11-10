@@ -39,7 +39,7 @@ import {
 import type { Item, Shape } from "../content";
 import { countOf, fromOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
-import { bytes, dateFromSeconds, homeRelative, monthAndDay } from "../format";
+import { bytes, dateFromSeconds, homeRelative, listNames, monthAndDay } from "../format";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
@@ -244,8 +244,8 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
           <div>
             <dt className="oik-label">{s.factWho}</dt>
             <dd className="screen-facts__who">
-              <AvatarStack names={names} label={s.whoSentence(names)} />
-              <span>{[strings.common.you, ...names].join(", ")}</span>
+              <AvatarStack names={names} label={s.whoSentence(names)} you={strings.common.you} />
+              <span>{listNames([strings.common.you, ...names])}</span>
               <Link to="/sharing">{s.manage}</Link>
             </dd>
           </div>
@@ -322,7 +322,7 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
                 ? s.fromExample
                 : s.fromYou,
           keptOn,
-          who: [strings.common.you, ...names].join(", "),
+          who: listNames([strings.common.you, ...names]),
         };
         return folder ? (
           <FolderContents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} />

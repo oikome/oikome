@@ -21,12 +21,13 @@ import {
 import type { NodeInfo, Plugin, SpaceSummary } from "@oikome/client";
 import { loadPreview } from "../content";
 import type { View } from "../content";
-import { pluginCollection } from "../plugins";
+import { inLanguage, pluginCollection } from "../plugins";
 import { asSentence, useAction, useClient, useLoad } from "../data";
 import type { Describe } from "../data";
 import { ScreenHeader } from "../parts";
 import { FolderBrowser } from "../storage";
 import { strings } from "../strings";
+import { listNames } from "../format";
 
 const s = strings.plugins;
 
@@ -86,7 +87,7 @@ function onHome(info: NodeInfo, plugin: Plugin): boolean {
 
 export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo) => void }) {
   const client = useClient();
-  const plugins = useLoad(() => client.listPlugins(), []);
+  const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
   const { mine, views } = useCollectionViews();
   const [adding, setAdding] = useState<{ plugin: Plugin; source: Source }>();
   const [browsing, setBrowsing] = useState(false);
@@ -133,7 +134,7 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
                     </span>
                   </td>
                   <td className="screen-cell-mono" translate="no">
-                    {plugin.collections.length > 0 ? plugin.collections.join(", ") : s.nothing}
+                    {plugin.collections.length > 0 ? listNames(plugin.collections) : s.nothing}
                   </td>
                   <td>
                     <span className="screen-plugin-net">
@@ -197,7 +198,7 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
           onClose={() => setBrowsing(false)}
           onChoose={async (path) => {
             setBrowsing(false);
-            const plugin = await inspect.run(() => client.inspectPlugin({ path }), asSentence);
+            const plugin = await inspect.run(async () => inLanguage(await client.inspectPlugin({ path })), asSentence);
             if (plugin) setAdding({ plugin, source: { path } });
           }}
         />
@@ -361,8 +362,8 @@ function AddPlugin({
                 describe,
               );
               if (added) {
-                toast(s.added(added.name));
-                onAdded(added);
+                toast(s.added(inLanguage(added).name));
+                onAdded(inLanguage(added));
               }
             }}
           >

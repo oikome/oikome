@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { Avatar, Button, Card, Dialog, EmptyState, ErrorText, Segmented, Status } from "@oikome/ui";
 import type { AccessItem } from "@oikome/client";
 import { useAction, useClient } from "../data";
-import { ago } from "../format";
+import { ago, listNames } from "../format";
 import { ScreenHeader } from "../parts";
 import { navigate } from "../router";
 import { strings } from "../strings";
@@ -39,15 +39,13 @@ function lends(item: AccessItem): boolean {
 
 /** What happened, without who: "read lisbon-photos". */
 function deed(item: AccessItem): string {
-  const line = sentence(item);
-  const name = who(item);
-  return line.startsWith(`${name} `) ? line.slice(name.length + 1) : line;
+  return s.withoutWho(sentence(item), who(item));
 }
 
 /** What happened, with the collections it touched set apart. */
 function Deed({ item }: { item: AccessItem }) {
   const line = deed(item);
-  const what = item.spaces.join(", ");
+  const what = listNames(item.spaces);
   const at = what ? line.indexOf(what) : -1;
   if (at < 0) return <>{line}</>;
   return (
@@ -79,7 +77,7 @@ export function sentence(item: AccessItem): string {
     if (item.outcome === "failed") return s.taskFailed(name);
     return item.method === "do_exchange:oikome.compute" ? s.ranTask(name) : s.checkedLending(name);
   }
-  const what = item.spaces.length > 0 ? item.spaces.join(", ") : s.yourData;
+  const what = item.spaces.length > 0 ? listNames(item.spaces) : s.yourData;
   // Turned away at the door: not a contact, from outside the network (3.12).
   if (item.method === "connect") return s.turnedAwayOutside(name);
   if (item.method === "owner_setup") return s.setUp(name);
@@ -105,7 +103,7 @@ export function sentence(item: AccessItem): string {
 /** What a line means, and where to act on it. */
 function detail(item: AccessItem): { body: string; go?: { to: string; label: string } } {
   const name = who(item);
-  const what = item.spaces.join(", ");
+  const what = listNames(item.spaces);
   switch (item.method) {
     case "owner_setup":
       return { body: s.detailSetUp, go: { to: "/settings", label: s.goSettings } };
@@ -255,7 +253,7 @@ export function Activity() {
                           {who(item)}
                         </span>
                       </td>
-                      <td>
+                      <td className="screen-log-table__what">
                         {/* The line opens what it means; a button, for the keyboard too. */}
                         <button type="button" className="screen-log-table__open" onClick={() => setOpen(item)}>
                           <Deed item={item} />

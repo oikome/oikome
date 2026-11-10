@@ -16,6 +16,7 @@ import { calendarDate, isoTime, monthAndDay } from "./format";
 import { show } from "./parts";
 import { Link } from "./router";
 import { strings } from "./strings";
+import { locale } from "./i18n/languages";
 
 const s = strings.home;
 
@@ -71,7 +72,7 @@ async function totalsOf(client: NodeClient, space: string) {
 
 /** Numbers as people read money and counts: 161.85, 1,284. */
 function amount(n: number): string {
-  return n.toLocaleString("en", { maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(n) ? 0 : 2 });
+  return n.toLocaleString(locale(), { maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(n) ? 0 : 2 });
 }
 
 /** Bars of a day's totals over two weeks, from zero, with the day under the pointer. */

@@ -17,5 +17,42 @@
     "width": 5,
     "height": 280
   },
-  "entry": "index.html"
+  "entry": "index.html",
+  "translations": {
+    "de": {
+      "name": "Ausgaben nach Kategorie",
+      "description": "Wofür das Geld in den letzten 30 Tagen einer Ausgabentabelle ausgegeben wurde, nach Kategorie, die größte zuerst.",
+      "reads": "Eine Ausgabentabelle: ein Tag, ein Betrag und eine Kategorie"
+    },
+    "fr": {
+      "name": "Dépenses par catégorie",
+      "description": "Où est passé l’argent sur les 30 derniers jours d’une table de dépenses, par catégorie, la plus grosse en premier.",
+      "reads": "Une table de dépenses : un jour, un montant et une catégorie"
+    },
+    "ja": {
+      "name": "カテゴリ別の支出",
+      "description": "支出の表の直近 30 日に、お金を何に使ったかをカテゴリ別に、多い順に示します。",
+      "reads": "支出の表：日付、金額、カテゴリ"
+    },
+    "ko": {
+      "name": "카테고리별 지출",
+      "description": "지출 표의 최근 30일 동안 돈을 어디에 썼는지 카테고리별로, 큰 것부터 보여 줍니다.",
+      "reads": "지출 표: 날짜, 금액, 카테고리"
+    },
+    "ru": {
+      "name": "Расходы по категориям",
+      "description": "На что ушли деньги за последние 30 дней таблицы расходов, по категориям, от самой крупной.",
+      "reads": "Таблица расходов: день, сумма и категория"
+    },
+    "zh-Hans": {
+      "name": "按类别看消费",
+      "description": "一张消费表最近 30 天的钱花在了哪里，按类别列出，金额大的在前。",
+      "reads": "一张消费表：日期、金额和类别"
+    },
+    "zh-Hant": {
+      "name": "依類別看消費",
+      "description": "一張消費表最近 30 天的錢花在了哪裡，依類別列出，金額大的在前。",
+      "reads": "一張消費表：日期、金額和類別"
+    }
+  }
 }

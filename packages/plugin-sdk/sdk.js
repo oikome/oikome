@@ -9,7 +9,7 @@
 // the node, as the plugin, and sends them here. The node serves this file
 // as the first script of every plugin page, before the plugin's own.
 //
-//   oikome.onData(({ collections, theme, today }) => { ... })
+//   oikome.onData(({ collections, theme, today, language }) => { ... })
 //     collections: [{ name, columns: [{ name, type }], rows: [{ ... }] }]
 //       type: "text" | "number" | "date" | "image" | "bool" | "other";
 //       a date is ISO text ("2025-11-07" or "2025-11-07T09:40"), an image a
@@ -18,6 +18,10 @@
 //       --oik-raised, --oik-line, --oik-accent, --oik-font, --oik-mono,
 //       --oik-display, --oik-radius...) are set to match it.
 //     today: ISO date of the owner's today.
+//     language: the app's language, a BCP 47 tag ("en", "en-GB", "de",
+//       "zh-Hans"); the page's <html lang> is set to it. Write numbers and
+//       dates with Intl in it, and the plugin's own words in it where the
+//       plugin has them.
 //   oikome.open(name)  opens one of the plugin's collections in the app.
 (() => {
   "use strict";
@@ -76,11 +80,17 @@
     }
   }
 
+  /** A language tag as BCP 47 writes them, else English. */
+  function languageOf(tag) {
+    return typeof tag === "string" && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,3}$/.test(tag) ? tag : "en";
+  }
+
   function view(message) {
     return Object.freeze({
       collections: Array.isArray(message.collections) ? message.collections : [],
       theme: message.theme && message.theme.name === "bold" ? "bold" : "ink",
       today: typeof message.today === "string" ? message.today : new Date().toISOString().slice(0, 10),
+      language: languageOf(message.language),
     });
   }
 
@@ -91,6 +101,7 @@
     if (message.type === "data") {
       last = message;
       applyTheme(message.theme);
+      document.documentElement.lang = languageOf(message.language);
       for (const listener of listeners) {
         try {
           listener(view(message));

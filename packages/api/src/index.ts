@@ -13,12 +13,32 @@ export type ErrorCode = "invalid" | "unauthenticated" | "permission_denied" | "n
 /**
  * A failed call.
  */
-export type ApiError = { code: ErrorCode, message: string, };
+export type ApiError = { code: ErrorCode, 
+/**
+ * In English, for the log, the command line and the SQL workbench.
+ */
+message: string, 
+/**
+ * Which of the failures written for people this is
+ * (`invite_ended`), so an app words it in its own language; the
+ * message is the fallback for a reason it doesn't know.
+ */
+reason?: string, 
+/**
+ * The values the reason's sentence names (`name`, `path`).
+ */
+params?: { [key in string]: string }, };
 
 /**
  * No arguments.
  */
 export type Empty = Record<symbol, never>;
+
+/**
+ * `add_examples`: the language the app is in (`de`, `zh-Hans`), so the
+ * examples are written in it; English when it is none they are in.
+ */
+export type AddExamples = { language?: string, };
 
 /**
  * This node.
@@ -1044,7 +1064,17 @@ builtIn: boolean, installed: boolean,
 /**
  * The collections it may read (installed plugins only).
  */
-collections: Array<string>, };
+collections: Array<string>, 
+/**
+ * Its name and descriptions in other languages, by language tag
+ * (`de`, `zh-Hans`); an app falls back to the fields above.
+ */
+translations: { [key in string]: PluginText }, };
+
+/**
+ * A plugin's words in one language; a missing one falls back to English.
+ */
+export type PluginText = { name?: string, description?: string, reads?: string, };
 
 /**
  * `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on

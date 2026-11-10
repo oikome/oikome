@@ -11,9 +11,10 @@ import { Button, Card, EmptyState, ErrorText, Icon, Status, ToastProvider } from
 import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo, StorageSummary } from "@oikome/client";
 import { ClientProvider, useClient, useLoad } from "./data";
-import { bytes } from "./format";
+import { usedOfTotal } from "./format";
 import { Palette } from "./palette";
 import { BackLink } from "./parts";
+import { useLanguage } from "./i18n/languages";
 import { Link, navigate, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
 import { Assistants } from "./screens/Assistants";
@@ -29,10 +30,13 @@ import { Sharing } from "./screens/Sharing";
 import { strings } from "./strings";
 
 export function App({ client }: { client: NodeClient }) {
+  // A new language draws the app again from the start, so every word,
+  // date and number is in it.
+  const language = useLanguage();
   return (
     <ClientProvider client={client}>
       <ToastProvider>
-        <Root />
+        <Root key={language} />
       </ToastProvider>
     </ClientProvider>
   );
@@ -44,7 +48,8 @@ interface NavItem {
   icon: IconName;
 }
 
-const NAV: NavItem[] = [
+// Functions, so their labels are those of the language in use.
+const NAV = (): NavItem[] => [
   { to: "/", label: strings.nav.home, icon: "home" },
   { to: "/collections", label: strings.nav.collections, icon: "collection" },
   { to: "/sources", label: strings.nav.sources, icon: "download" },
@@ -54,11 +59,11 @@ const NAV: NavItem[] = [
   { to: "/activity", label: strings.nav.activity, icon: "activity" },
 ];
 /** At the foot of the sidebar, as settings usually are. */
-const FOOT: NavItem[] = [{ to: "/settings", label: strings.nav.settings, icon: "sliders" }];
+const FOOT = (): NavItem[] => [{ to: "/settings", label: strings.nav.settings, icon: "sliders" }];
 
 /** The section a path belongs to: Home only for "/" itself. */
 function sectionOf(path: string): NavItem | undefined {
-  return [...NAV, ...FOOT].find((item) =>
+  return [...NAV(), ...FOOT()].find((item) =>
     item.to === "/" ? path === "/" : path === item.to || path.startsWith(`${item.to}/`),
   );
 }
@@ -237,7 +242,7 @@ function RoomCard({ place }: { place?: StorageSummary }) {
         <span className="oik-label">{placeLabel(place)}</span>
         <span className="screen-room__figure">
           {place.totalBytes != null && place.freeBytes != null
-            ? strings.storage.usedOf(bytes(place.totalBytes - place.freeBytes), bytes(place.totalBytes))
+            ? usedOfTotal(place.totalBytes - place.freeBytes, place.totalBytes)
             : strings.settings.storageCount(place.spaces)}
         </span>
       </div>
@@ -295,7 +300,7 @@ function Shell({
   const client = useClient();
   const name = info.name || strings.defaultName;
   const host = info.host || name;
-  const sectionLabel = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
+  const sectionLabel = [...NAV(), ...FOOT()].find((item) => item.to === current)?.label;
   const spaces = useLoad(() => client.listSpaces(), [path]);
   const sources = useLoad(() => client.listSources(), [path]);
   // A source is called by its file or folder, as on its page.
@@ -327,7 +332,7 @@ function Shell({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   useEffect(() => {
-    const label = [...NAV, ...FOOT].find((item) => item.to === current)?.label;
+    const label = [...NAV(), ...FOOT()].find((item) => item.to === current)?.label;
     document.title = label ? `${label} · ${strings.brand}` : strings.brand;
   }, [current]);
 
@@ -356,7 +361,7 @@ function Shell({
           </button>
           <nav className="screen-sidebar__nav" aria-label={strings.nav.label}>
             <NavList
-              items={NAV}
+              items={NAV()}
               current={current}
               counts={{ "/collections": spaces.data?.length, "/sources": sources.data?.length || undefined }}
             />
@@ -364,7 +369,7 @@ function Shell({
           <PlaceList places={places} current={place} onPick={pick} />
           <div className="screen-sidebar__foot">
             <nav aria-label={strings.nav.more}>
-              <NavList items={FOOT} current={current} />
+              <NavList items={FOOT()} current={current} />
             </nav>
             <RoomCard place={place} />
             {/* The data center this page is served by: it runs here, on this computer. */}

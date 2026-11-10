@@ -2421,6 +2421,11 @@ a.screen-lift:hover {
   gap: 2px;
   min-width: 0;
 }
+/* The source keeps a readable width: on a phone the table scrolls sideways
+   in its card rather than breaking the name letter by letter. */
+.screen-source__cell {
+  min-width: 14em;
+}
 .screen-source__name {
   overflow: hidden;
   font-weight: 600;
@@ -2625,6 +2630,11 @@ tr.screen-source {
 }
 .screen-log-table__empty {
   color: var(--ink3);
+}
+/* What happened keeps a readable width: on a phone the table scrolls
+   sideways in its card rather than breaking the line letter by letter. */
+.screen-log-table__what {
+  min-width: 12em;
 }
 .screen-log-table__via {
   color: var(--ink3);
@@ -2900,6 +2910,20 @@ tr.screen-source {
 }
 .screen-onboarding__card .screen-actions {
   justify-content: flex-start;
+}
+/* The mark, and the language beside it: picked before anything else, as
+   the examples are written in it. */
+.screen-onboarding__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-onboarding__top .oik-select-wrap {
+  min-width: 0;
+}
+.screen-onboarding__top .oik-select {
+  width: auto;
 }
 .screen-form .screen-actions {
   flex-direction: column;

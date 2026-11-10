@@ -37,7 +37,7 @@ Core scenarios:
 3. **Deny by default.** A newly installed plugin, connected AI or paired device sees nothing until the owner grants it, as in principle 5 of the architecture. A public share is the owner's explicit grant to anyone; without one, strangers see nothing.
 4. **Data stays home.** The apps and plugins never send data to third parties, and plugins cannot reach the network. Data kept on a cloud drive is encrypted on this computer by default. When saving files to a cloud drive, the owner may choose not to encrypt them so other apps can open them; the interface says the drive's provider can then see them. Data leaves home in only two ways: the owner shares or publishes it, or the owner saves it to a place outside home.
 5. **One set of screens, several clients.** Screens live in `packages/screens`; the web app uses them now, and the desktop and phone apps will reuse them. A phone pairs through the phone app, not a phone browser: a browser needs an HTTPS page, which the local server cannot give it.
-6. **Strings are translatable; user data is not translated.** UI text is made of translatable strings from the start, never hard-coded in components. The web app is English only for now. The prototype has nine interface languages (English US and UK, German, French, Russian, Japanese, Korean, Simplified and Traditional Chinese) and picks US or UK English by the computer's time zone; the web app will follow it. Collection names, notes, people's names and room names are the user's data and are not translated.
+6. **Strings are translatable; user data is not translated.** UI text is made of translatable strings, never hard-coded in components. The apps have the prototype's nine interface languages (English US and UK, German, French, Russian, Japanese, Korean, Simplified and Traditional Chinese, M8): each device picks its own, in Settings or on the first screen, and starts in the browser's language, with US or UK English by its region or time zone. Dates and numbers are written the language's way, and the examples a new data center starts with are written in the language picked at first run. Collection names, notes, people's names and room names are the user's data and are not translated.
 
 ## Concepts
 
@@ -189,11 +189,11 @@ A milestone starts only once its gate phases are done; no skipping (architecture
 | M5 Pay | Pricing, payment plugins, buyers, orders in Activity | 3.8, M4 | Not started; last, with third-party plugins |
 | M6 Desktop app | Install Oikome and run it without a command line, on macOS, Windows and Linux | M4 | Not started |
 | M7 Phone app and devices | Pair a phone by QR code and read Home and collections on it, away from home too (with 3.12) | M6, 3.12 | Not started |
-| M8 Languages | Use the apps in Chinese and other languages | M1c | Not started |
+| M8 Languages | Use the apps in Chinese and other languages | M1c | Done |
 | M9 Family | Give family members their own identity and what each may see | M7 | Not started |
 | M10 Plugins from others | Install source and card plugins other people make, one at a time, signed, from a directory | M4 | Not started; last, with M5 |
 
-**Order (2026-11-06).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen), then 3.12 (brought forward). Next: 3.8, 3.7, 3.10, 3.4c–3.4e (their real accounts tested together), M6, M7, M8, M9, 3.13. Last: M5 and M10.
+**Order (2026-11-09).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen), 3.12 (brought forward), then M8 (brought forward). Next: 3.4e and 3.4c, MinIO and Google Drive only, then working with data in the apps (explored first), then 3.8, 3.7, 3.10, M6, M7, M9, 3.13. Last: M5 and M10.
 
 Device pairing comes with the phone app (M7). The smart home reference plugin also depends on which phase the Home Assistant source lands in (see Open Questions).
 

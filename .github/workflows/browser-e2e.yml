@@ -73,6 +73,9 @@ jobs:
       - name: Type-check the TypeScript packages
         run: npm run typecheck
 
+      - name: Check every language says what English says
+        run: npm run check-i18n --workspace @oikome/screens
+
       - name: Build the Full Node
         run: cargo build --locked -p oikome-server --bin oikome
 

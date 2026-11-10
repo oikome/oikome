@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Errors every transport reports the same way: a code and a message.
+//! Errors every transport reports the same way: a code and a message,
+//! and, for a failure the app tells people about in their own language, a
+//! reason and its values (M8).
 
 use oikome_core::CatalogError;
 use oikome_engine::EngineError;
@@ -20,6 +22,7 @@ use oikome_node::access_log::AccessLogError;
 use oikome_node::SessionError;
 use oikome_semantic::SemanticError;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use ts_rs::TS;
 
 /// What kind of failure an [`ApiError`] is. Transports map it to their own
@@ -46,7 +49,18 @@ pub enum ErrorCode {
 #[error("{message}")]
 pub struct ApiError {
     pub code: ErrorCode,
+    /// In English, for the log, the command line and the SQL workbench.
     pub message: String,
+    /// Which of the failures written for people this is
+    /// (`invite_ended`), so an app words it in its own language; the
+    /// message is the fallback for a reason it doesn't know.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reason: Option<String>,
+    /// The values the reason's sentence names (`name`, `path`).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[ts(as = "Option<BTreeMap<String, String>>", optional)]
+    pub params: BTreeMap<String, String>,
 }
 
 impl ApiError {
@@ -54,7 +68,21 @@ impl ApiError {
         Self {
             code,
             message: message.into(),
+            reason: None,
+            params: BTreeMap::new(),
         }
+    }
+
+    /// Name the failure for people, `invite_ended`, so apps can word it.
+    pub fn because(mut self, reason: &str) -> Self {
+        self.reason = Some(reason.to_string());
+        self
+    }
+
+    /// A value the reason's sentence names.
+    pub fn with(mut self, key: &str, value: impl Into<String>) -> Self {
+        self.params.insert(key.to_string(), value.into());
+        self
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {

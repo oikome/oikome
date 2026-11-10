@@ -9,7 +9,7 @@
 import { DataType } from "apache-arrow";
 import type { Field, Table } from "apache-arrow";
 import type { FileItem, NodeClient, SpaceSummary, TableSummary } from "@oikome/client";
-import { isoTime, measureLabel } from "./format";
+import { decimal, isoTime, listNames, measureLabel } from "./format";
 import { numeric, show } from "./parts";
 
 export type View = "photos" | "notes" | "table" | "series";
@@ -110,8 +110,12 @@ export function withUnit(value: string, unit?: string): string {
 
 /** A number cell as a number, for drawing; undefined when empty. */
 export function numberAt(table: Table, column: number, row: number): number | undefined {
-  const text = show(table.schema.fields[column]!, table.getChildAt(column)?.get(row));
-  if (text === null) return undefined;
+  const field = table.schema.fields[column]!;
+  const value = table.getChildAt(column)?.get(row) as unknown;
+  if (value === null || value === undefined) return undefined;
+  if (DataType.isDate(field.type) || DataType.isTimestamp(field.type)) return undefined;
+  // Read from the value, not as the language writes it ("21,4").
+  const text = DataType.isDecimal(field.type) ? decimal(String(value), field.type.scale, ".") : String(value);
   const n = Number(text.replace(/,/g, ""));
   return Number.isFinite(n) ? n : undefined;
 }
@@ -193,16 +197,17 @@ export function itemsOf(table: Table, shape: Shape): Item[] {
   const whenField = shape.when === undefined ? undefined : table.schema.fields[shape.when];
   // A reading reads as its first two measures: "Living room 21.4 °C, Bedroom 19.9 °C".
   const reading = (r: number) =>
-    (shape.measures ?? [])
-      .slice(0, 2)
-      .map((c) => {
-        const value = text(c, r);
-        if (value === undefined) return undefined;
-        const { label, unit } = measure(table.schema.fields[c]!.name);
-        return `${label} ${withUnit(value, unit)}`;
-      })
-      .filter(Boolean)
-      .join(", ") || undefined;
+    listNames(
+      (shape.measures ?? [])
+        .slice(0, 2)
+        .map((c) => {
+          const value = text(c, r);
+          if (value === undefined) return undefined;
+          const { label, unit } = measure(table.schema.fields[c]!.name);
+          return `${label} ${withUnit(value, unit)}`;
+        })
+        .filter((part): part is string => part !== undefined),
+    ) || undefined;
   return Array.from({ length: table.numRows }, (_, r) => {
     const bytes = at(shape.image, r);
     const raw = at(shape.when, r);

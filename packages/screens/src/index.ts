@@ -6,5 +6,8 @@
 
 export { App } from "./App";
 export { strings } from "./strings";
+export type { Strings } from "./strings";
+export { LANGUAGES, language, setLanguage, startLanguage } from "./i18n/languages";
+export type { Language } from "./i18n/languages";
 export { applyTheme, savedTheme } from "./theme";
 export type { Theme } from "./theme";

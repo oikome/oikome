@@ -1872,6 +1872,8 @@ a.screen-list__row:hover .screen-list__thumb {
 
 .screen-series {
   display: grid;
+  /* One column that may be narrower than its table, which scrolls inside. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   margin-bottom: var(--space-4);
   padding: var(--space-4) var(--space-5) var(--space-5);

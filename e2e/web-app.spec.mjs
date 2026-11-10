@@ -94,6 +94,25 @@ async function serveWeb(root) {
   return child;
 }
 
+/**
+ * How far the page scrolls sideways, and the innermost elements sticking out
+ * past its right edge, so a failure says which.
+ */
+const sideways = () =>
+  page.evaluate(() => {
+    const vw = window.innerWidth;
+    const over = document.documentElement.scrollWidth - vw;
+    const out = (e) => e.getBoundingClientRect().right > vw + 0.5;
+    const culprits =
+      over <= 0
+        ? []
+        : [...document.querySelectorAll("body *")]
+            .filter((e) => out(e) && ![...e.children].some(out))
+            .slice(0, 4)
+            .map((e) => `${e.tagName.toLowerCase()}.${String(e.className).split(" ")[0]} "${(e.textContent ?? "").trim().slice(0, 40)}"`);
+    return { over, culprits: culprits.join(", ") };
+  });
+
 /** Call the node's API from the page, as the app does. */
 const api = (op, body = {}) =>
   page.evaluate(
@@ -1516,10 +1535,8 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
         await page.goto(`${base}${path}`);
         await expect(page.locator("html")).toHaveAttribute("data-theme", style);
         await expect(page.getByRole("heading", { name: heading, level: 1 })).toBeVisible();
-        const overflow = await page.evaluate(
-          () => document.documentElement.scrollWidth - window.innerWidth,
-        );
-        expect(overflow, `${path} at ${width}px (${style}) scrolls sideways`).toBeLessThanOrEqual(0);
+        const { over, culprits } = await sideways();
+        expect(over, `${path} at ${width}px (${style}) scrolls sideways: ${culprits}`).toBeLessThanOrEqual(0);
         expect(await page.evaluate(auditContrast), `${path} at ${width}px (${style})`).toEqual([]);
       }
     }
@@ -1569,8 +1586,8 @@ test("the language picked in Settings applies at once and is kept, and every scr
         await page.goto(`${base}${path}`);
         await expect(page.locator("html")).toHaveAttribute("lang", language);
         await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
-        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-        expect(overflow, `${path} at ${width}px in ${language} scrolls sideways`).toBeLessThanOrEqual(0);
+        const { over, culprits } = await sideways();
+        expect(over, `${path} at ${width}px in ${language} scrolls sideways: ${culprits}`).toBeLessThanOrEqual(0);
       }
     }
   }

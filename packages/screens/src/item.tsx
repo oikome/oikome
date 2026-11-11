@@ -12,8 +12,7 @@ import { useEffect, useId, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { ErrorText, IconButton, Tag } from "@oikome/ui";
 import type { Table } from "apache-arrow";
-import type { FileItem, NodeClient } from "@oikome/client";
-import { fileItems, itemsOf, shapeOf, tagsOf, withoutTagLines } from "./content";
+import { itemsOf, shapeOf, tagsOf, withoutTagLines } from "./content";
 import type { Item, Shape } from "./content";
 import { itemDate } from "./covers";
 import { useClient, useLoad } from "./data";
@@ -32,6 +31,32 @@ export interface ItemRef {
 }
 
 /** The address of an item, on its collection's page. */
+/** The folder a path is in, within a folder viewed in place; `""` is its top. */
+export function parentOf(path: string): string {
+  const at = path.lastIndexOf("/");
+  return at < 0 ? "" : path.slice(0, at);
+}
+
+/**
+ * The address of one folder of a collection viewed in place: each folder
+ * has its own, so Back goes up a folder and the top crumb can name them.
+ */
+export function folderPath(collection: string, folder: string): string {
+  const page = `/collections/${encodeURIComponent(collection)}`;
+  return folder ? `${page}?${new URLSearchParams({ folder }).toString()}` : page;
+}
+
+/**
+ * The folder a collection's page shows, from its address: the one named,
+ * else the one of the file opened over it.
+ */
+export function folderOf(query: URLSearchParams): string {
+  const named = query.get("folder");
+  if (named !== null) return named.replace(/^\/+|\/+$/g, "");
+  const item = query.getAll("item");
+  return query.get("table") === "files" && item.length === 1 ? parentOf(item[0]!) : "";
+}
+
 export function itemPath(ref: ItemRef): string {
   const query = new URLSearchParams({ table: ref.table });
   for (const part of ref.key) query.append("item", part);
@@ -60,37 +85,9 @@ function shapeFor(row: Table, known?: { shape: Shape; columns: string[] }): Shap
   return shapeOf(row);
 }
 
-/** A file of a folder viewed in place, read as one row of `files`: a photo
- * shown from where it is, a note by its text, anything else by its fields. */
-function fileShown(client: NodeClient, space: string, table: Table): { table: Table; shape: Shape; it: Item } {
-  const value = (name: string) => {
-    const v = table.getChild(name)?.get(0) as unknown;
-    return v === null || v === undefined ? null : String(v);
-  };
-  const file = {
-    path: value("path") ?? "",
-    name: value("name") ?? "",
-    kind: (value("kind") ?? "other") as FileItem["kind"],
-    size: Number(value("size") ?? 0),
-    modified: value("modified") ?? "",
-    title: value("title"),
-    taken: value("taken"),
-    written: value("written"),
-    place: value("place"),
-    credit: value("credit"),
-    text: value("text"),
-    thumbnail: false,
-  } satisfies FileItem;
-  const it = fileItems(client, space, [file])[0]!;
-  if (file.kind === "image") it.image = client.fileUrl("original", { space, path: file.path });
-  const view = file.kind === "image" ? "photos" : file.kind === "note" ? "notes" : "table";
-  return { table, shape: { view }, it };
-}
-
 export function ItemDialog({
   item,
   known,
-  inPlace = false,
   cameFrom,
   keptOn,
   who,
@@ -98,8 +95,6 @@ export function ItemDialog({
   onClose,
 }: {
   item: ItemRef;
-  /** A file of a folder viewed in place (`files`, by its path). */
-  inPlace?: boolean;
   /** The shape the collection's page read this table as, and its columns. */
   known?: { shape: Shape; columns: string[] };
   cameFrom: ReactNode;
@@ -125,10 +120,9 @@ export function ItemDialog({
   const shown = useMemo(() => {
     const table = row.data?.table;
     if (!table || table.numRows === 0) return undefined;
-    if (inPlace) return fileShown(client, item.collection, table);
     const shape = shapeFor(table, known);
     return { table, shape, it: itemsOf(table, shape)[0]! };
-  }, [row.data, known, inPlace, client, item.collection]);
+  }, [row.data, known]);
 
   // Laid out as the page knows the table before the row is read, so the
   // view does not change under the person once it is.

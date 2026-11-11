@@ -262,7 +262,7 @@ async fn a_folder_is_browsed_queried_and_searched_where_it_is_and_never_written(
     assert_eq!((small.width(), small.height()), (512, 256));
 
     // Browsing: folders with what they hold, files photos first.
-    let top = inplace::list(&n.catalog, &location, "", 0, 50).unwrap();
+    let top = inplace::list(&n.catalog, &location, "", Default::default(), 0, 50).unwrap();
     let folders: Vec<(String, u64)> = top
         .folders
         .iter()
@@ -275,9 +275,52 @@ async fn a_folder_is_browsed_queried_and_searched_where_it_is_and_never_written(
     assert_eq!(top.total, 5);
     assert_eq!(top.files[0].path, "tram.png");
     assert!(top.files[0].thumbnail);
-    let deeper = inplace::list(&n.catalog, &location, "Lisbon", 0, 50).unwrap();
+    let deeper = inplace::list(&n.catalog, &location, "Lisbon", Default::default(), 0, 50).unwrap();
     assert_eq!(deeper.folders[0].name, "Belém");
     assert_eq!(deeper.total, 0);
+    // A folder's cover, as a collection's: its newest photos from any depth,
+    // else its newest note; and what it holds.
+    let cover = |f: &inplace::SubFolder| f.cover.iter().map(|e| e.path.clone()).collect::<Vec<_>>();
+    assert_eq!(cover(&top.folders[0]), ["Lisbon/Belém/Pastéis.png"]);
+    assert_eq!((top.folders[0].photos, top.folders[0].notes), (1, 0));
+    assert_eq!(cover(&top.folders[1]), ["Notes/1 Hello.md"]);
+    assert!(top.folders[1].cover[0]
+        .text
+        .as_deref()
+        .is_some_and(|t| t.contains("trams of Lisbon")));
+    assert_eq!((top.folders[1].photos, top.folders[1].notes), (0, 1));
+    assert_eq!(cover(&deeper.folders[0]), ["Lisbon/Belém/Pastéis.png"]);
+    // A CSV file keeps its first lines, to show some rows.
+    let csv = top.files.iter().find(|f| f.path == "2025.csv").unwrap();
+    assert_eq!(
+        csv.text.as_deref(),
+        Some("day,euros\n2025-01-01,3.5\n2025-01-02,4")
+    );
+    // In the order asked, either way; a folder says its bytes and newest file.
+    assert!(top
+        .folders
+        .iter()
+        .all(|f| f.size > 0 && f.modified_ms.is_some()));
+    let in_order = |order, descending| {
+        inplace::list(&n.catalog, &location, "", (order, descending), 0, 50).unwrap()
+    };
+    let sizes: Vec<u64> = in_order(inplace::FileOrder::Size, true)
+        .files
+        .iter()
+        .map(|f| f.size)
+        .collect();
+    assert!(sizes.windows(2).all(|w| w[0] >= w[1]), "{sizes:?}");
+    let names: Vec<String> = in_order(inplace::FileOrder::Name, false)
+        .files
+        .iter()
+        .map(|f| f.name.to_lowercase())
+        .collect();
+    let mut sorted_names = names.clone();
+    sorted_names.sort();
+    assert_eq!(names, sorted_names);
+    let (files, bytes, newest) = inplace::totals(&n.catalog, &location).unwrap();
+    assert_eq!(files, 7);
+    assert!(bytes > 0 && newest.is_some());
 
     // Search goes through the index.
     let found = n
@@ -311,6 +354,45 @@ async fn a_folder_is_browsed_queried_and_searched_where_it_is_and_never_written(
     n.sql("DROP SPACE trip").await;
     assert!(!n.catalog.index_dir(&location).exists());
     assert_eq!(state(folder.path()), before);
+}
+
+#[tokio::test]
+async fn a_file_opens_as_rows_where_it_is_until_its_place_goes_offline() {
+    let n = node();
+    let folder = trip();
+    let path = folder.path().to_path_buf();
+    n.sql(&format!(
+        "CREATE SPACE trip WITH PLACE = 'local', PATH = '{}'",
+        path.display()
+    ))
+    .await;
+    n.sql("REFRESH SPACE trip").await;
+    let location = n.location("trip");
+
+    let page = inplace::file_rows(&n.catalog, &n.engines, &location, "2025.csv", 1, 1)
+        .await
+        .unwrap();
+    assert_eq!(page.rows.iter().map(|b| b.num_rows()).sum::<usize>(), 1);
+    let days = page.rows[0]
+        .column(0)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(days.value(0), "2025-01-02");
+    let captions = inplace::file_rows(&n.catalog, &n.engines, &location, "captions.csv", 0, 100)
+        .await
+        .unwrap();
+    assert_eq!(captions.rows.iter().map(|b| b.num_rows()).sum::<usize>(), 1);
+
+    let away = path.with_extension("away");
+    std::fs::rename(&path, &away).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    n.owner.refresh_in_place("trip").await.unwrap();
+    let error = inplace::file_rows(&n.catalog, &n.engines, &location, "2025.csv", 0, 100)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("can't be reached"), "{error}");
 }
 
 #[tokio::test]

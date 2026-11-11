@@ -65,7 +65,7 @@ let bobBase;
 const loginLink = () => readFileSync(join(owner, ".oikome", "web", "login"), "utf8").trim();
 
 /** Start the data center at `root` with its web app; resolves once it can be logged in to. */
-async function serveWeb(root) {
+async function serveWeb(root, env = ENV) {
   const child = spawn(
     BIN,
     [
@@ -85,7 +85,7 @@ async function serveWeb(root) {
       "--web-root",
       WEB_ROOT,
     ],
-    { stdio: ["ignore", "inherit", "inherit"], env: ENV },
+    { stdio: ["ignore", "inherit", "inherit"], env },
   );
   for (let i = 0; !existsSync(join(root, ".oikome", "web", "login")); i++) {
     if (i === 200 || child.exitCode !== null) throw new Error("the node did not start its web app");
@@ -166,6 +166,14 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(name).toHaveValue("My data center");
   // Where collections are kept is chosen already: Local, on this computer.
   await expect(page.getByRole("radio", { name: /^Local/ })).toBeChecked();
+  // Other places can be added beside it; the dialog starts at its kinds, a
+  // folder the owner picks.
+  await page.getByRole("button", { name: /^Add another place/ }).click();
+  const another = page.getByRole("dialog", { name: "Add Storage" });
+  await expect(another.getByRole("radio", { name: /^Folder/ })).toBeChecked();
+  await expect(another).toContainText("No folder chosen yet");
+  await expect(another.getByRole("button", { name: "Choose…" })).toBeVisible();
+  await another.getByRole("button", { name: "Cancel" }).click();
   await name.fill("Home");
   await page.getByRole("button", { name: "Continue" }).click();
 
@@ -195,17 +203,27 @@ test("the examples open as photos, notes, a table and readings; a collection of 
   await page.getByRole("link", { name: "Collections" }).first().click();
   await expect(page.locator(".screen-cover")).toHaveCount(4);
   await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(4);
+  // A folder viewed where it is looks like one, and says where it is first.
+  const lisbonCover = page.locator(".screen-cover", { hasText: "lisbon-photos" });
+  await expect(lisbonCover.locator(".screen-cover__chip")).toHaveText("Folder");
+  await expect(lisbonCover.locator(".screen-cover__meta")).toHaveText(/^Local · 6 photos/);
 
   await page.getByRole("link", { name: /^lisbon-photos/ }).click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
-  const photos = page.locator(".screen-photo img");
+  // A folder viewed where it is, as in a file manager: a tile each, by name,
+  // a photo showing itself (real images, decoded).
+  const photos = page.locator(".screen-ftile img");
   await expect(photos).toHaveCount(6);
-  // Real images, decoded, in the order they were taken, each with its credit.
   await expect
     .poll(() => photos.evaluateAll((imgs) => imgs.every((img) => img.naturalWidth > 0)))
     .toBe(true);
-  await expect(page.locator(".screen-photo__title").first()).toHaveText("Alfama from Santa Luzia");
-  await expect(page.locator(".screen-photo__credit")).toHaveCount(6);
+  await expect(page.locator(".screen-ftile__name").first()).toHaveText("Alfama from Santa Luzia.jpg");
+  // Opened under its file name, it has its caption and credit.
+  await page.locator("a.screen-ftile").first().click();
+  const alfama = page.getByRole("dialog", { name: "Alfama from Santa Luzia.jpg" });
+  await expect(alfama).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(alfama).toHaveCount(0);
 
   await page.locator(".screen-back").click();
   await page.getByRole("link", { name: /^spending/ }).click();
@@ -218,8 +236,8 @@ test("the examples open as photos, notes, a table and readings; a collection of 
   // The guide reads in order.
   await page.locator(".screen-back").click();
   await page.getByRole("link", { name: /^oikome-guide/ }).click();
-  await expect(page.locator(".screen-note")).toHaveCount(7);
-  await expect(page.locator(".screen-note__text").first()).toHaveText(/^Welcome to Oikome\./);
+  await expect(page.locator(".screen-ftile__text")).toHaveCount(7);
+  await expect(page.locator(".screen-ftile__text").first()).toHaveText(/^Welcome to Oikome\./);
 
   // Readings open at the latest ones, as a line with the rows below it.
   await page.locator(".screen-back").click();
@@ -323,6 +341,43 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await api("add_source", { kind: "csv", path: readings });
 });
 
+test("collections are shown as in a file manager: as covers or a list, in the order picked, kept", async () => {
+  await page.goto(`${base}/collections`);
+  const tools = page.locator(".screen-cols-tools");
+  // The newest first, as covers, until the owner picks otherwise.
+  await expect(tools.getByRole("button", { name: "Last Changed" })).toBeVisible();
+  await tools.getByRole("radio", { name: "List" }).click();
+  const list = page.locator(".screen-rows-table").first();
+  await expect(list.getByRole("columnheader", { name: /Last Changed/ })).toHaveAttribute("aria-sort", "descending");
+  await expect(list.getByRole("row", { name: /spending/ })).toContainText("Local");
+  // By name from A, and again the other way round.
+  const names = () => list.locator(".screen-rows-table__link").allTextContents();
+  await list.getByRole("button", { name: "Name" }).click();
+  await expect(list.getByRole("columnheader", { name: /Name/ })).toHaveAttribute("aria-sort", "ascending");
+  const fromA = await names();
+  expect(fromA).toEqual([...fromA].sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" })));
+  await list.getByRole("button", { name: "Name" }).click();
+  await expect.poll(names).toEqual([...fromA].reverse());
+  // Folders viewed in place, and only them: the examples of photos and notes.
+  await tools.getByRole("radio", { name: "Folders" }).click();
+  await expect(list.locator(".screen-rows-table__link")).toHaveText(["oikome-guide", "lisbon-photos"]);
+  await tools.getByRole("radio", { name: "All" }).click();
+  // A row opens its collection.
+  await list.getByRole("row", { name: /spending/ }).getByRole("cell").nth(2).click();
+  await expect(page).toHaveURL(/\/collections\/spending$/);
+  // Kept in this browser: a list, by name, Z first.
+  await page.goto(`${base}/collections`);
+  await expect(tools.getByRole("radio", { name: "List" })).toHaveAttribute("aria-checked", "true");
+  await expect(list.getByRole("columnheader", { name: /Name/ })).toHaveAttribute("aria-sort", "descending");
+  // The sort button picks the same orders.
+  await tools.getByRole("button", { name: "Name" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Name" })).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("menuitemradio", { name: "Last Changed" }).click();
+  await expect(list.getByRole("columnheader", { name: /Last Changed/ })).toHaveAttribute("aria-sort", "descending");
+  await tools.getByRole("radio", { name: "Covers" }).click();
+  await expect(page.locator(".screen-cover").first()).toBeVisible();
+});
+
 test("⌘K searches what the collections hold, and a hit opens that one on its own", async () => {
   await page.goto(`${base}/`);
   const palette = page.getByRole("dialog", { name: "Search" });
@@ -339,9 +394,10 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   await expect.poll(() => pasteis.locator("img").evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
   await pasteis.click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=[^&]+&item=/);
-  const photo = page.getByRole("dialog", { name: "Pastéis de Belém" });
+  const photo = page.getByRole("dialog", { name: "Pastéis de Belém.jpg" });
   await expect(photo.getByRole("img", { name: "Pastéis de Belém" })).toBeVisible();
-  await expect(photo).toContainText("Taken");
+  await expect(photo).not.toContainText("Kept on");
+  await photo.getByRole("button", { name: "Info" }).click();
   await expect(photo).toContainText("Kept on");
   // Its address opens it again; closing it leaves its collection.
   await page.reload();
@@ -359,7 +415,7 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   await expect(notes.getByRole("option").first()).toContainText("Welcome to Oikome");
   await expect(palette.getByRole("group", { name: "Pages" })).toHaveCount(0);
   await notes.getByRole("option").first().click();
-  const note = page.getByRole("dialog", { name: "Note" });
+  const note = page.getByRole("dialog", { name: "1 Welcome.md" });
   await expect(note).toContainText("Welcome to Oikome.");
   await note.getByRole("button", { name: "Close" }).click();
   await expect(note).toHaveCount(0);
@@ -388,45 +444,56 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   await page.keyboard.press("Escape");
 });
 
-test("a photo opens large and the arrow keys move through them; a note opens in full with its tags", async () => {
+test("a photo opens large and the arrow keys move through every file; a note opens in full with its tags", async () => {
   await page.goto(`${base}/collections/lisbon-photos`);
-  const links = page.locator(".screen-photo__link");
-  await expect(links).toHaveCount(6);
-  const titles = await page.locator(".screen-photo__title").allTextContents();
+  const links = page.locator("a.screen-ftile");
+  await expect(links).toHaveCount(7);
 
-  // Opened over the page, which stays where it was.
-  const fifth = page.getByRole("link", { name: `Open ${titles[4]}` });
+  // Opened over the page, which stays where it was. Its full details are
+  // behind Info, not beside the picture.
+  const fifth = links.nth(4);
   await fifth.scrollIntoViewIfNeeded();
   const y = await page.evaluate(() => window.scrollY);
   await fifth.click();
-  let photo = page.getByRole("dialog", { name: titles[4] });
-  await expect(photo).toContainText("5 of 6 · ← → to move");
+  const photo = page.getByRole("dialog");
+  await expect(photo).toContainText("5 of 7 · ← → to move");
+  await expect(photo).not.toContainText("Who can see this");
+  await photo.getByRole("button", { name: "Info" }).click();
   await expect(photo).toContainText("Who can see this");
+  await photo.getByRole("button", { name: "Info" }).click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=files&item=/);
   expect(await page.evaluate(() => window.scrollY)).toBe(y);
 
   await page.keyboard.press("ArrowRight");
-  photo = page.getByRole("dialog", { name: titles[5] });
-  await expect(photo).toContainText("6 of 6");
+  await expect(photo).toContainText("6 of 7");
+  await photo.getByRole("button", { name: "Next" }).click();
+  await expect(photo).toContainText("7 of 7");
   await expect(photo.getByRole("button", { name: "Next" })).toBeDisabled();
   await photo.getByRole("button", { name: "Previous" }).click();
-  await expect(page.getByRole("dialog", { name: titles[4] })).toContainText("5 of 6");
+  await photo.getByRole("button", { name: "Previous" }).click();
+  await expect(photo).toContainText("5 of 7");
   // Moving kept one step in history: closing goes back to the page as it was.
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page).toHaveURL(/\/collections\/lisbon-photos$/);
   expect(await page.evaluate(() => window.scrollY)).toBe(y);
 
+  // The captions are a file too, and open as a table read in place.
+  await page.locator("a.screen-ftile", { hasText: "captions.csv" }).click();
+  const captions = page.getByRole("dialog", { name: "captions.csv" });
+  await expect(captions.getByRole("table", { name: "captions.csv" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
   // A note with a line of tags: the tags show as tags, the note in full.
   const tram = join(owner, "Examples", "oikome-guide", "10 Tram.md");
   writeFileSync(tram, "Took the 28 up to Graça, then walked down.\n\n#lisbon #trams\n");
   await api("refresh_space", { space: "oikome-guide" });
   await page.goto(`${base}/collections/oikome-guide`);
-  const card = page.locator(".screen-note").filter({ hasText: "Took the 28" });
-  await expect(card.locator(".oik-tag")).toHaveText(["#lisbon", "#trams"]);
-  await expect(card.locator(".screen-note__text")).toHaveText("Took the 28 up to Graça, then walked down.");
-  await card.getByRole("link").click();
-  const note = page.getByRole("dialog", { name: "Note" });
+  // Its tile shows its first lines, without the line of tags.
+  const card = page.locator("a.screen-ftile").filter({ hasText: "Took the 28" });
+  await expect(card.locator(".screen-ftile__text")).toHaveText("Took the 28 up to Graça, then walked down.");
+  await card.click();
+  const note = page.getByRole("dialog", { name: "10 Tram.md" });
   await expect(note).toContainText("Took the 28 up to Graça, then walked down.");
   await expect(note.locator(".oik-tag")).toHaveText(["#lisbon", "#trams"]);
   await expect(note).toContainText(/\d+ of 9/);
@@ -434,6 +501,36 @@ test("a photo opens large and the arrow keys move through them; a note opens in 
   await expect(page).toHaveURL(/\/collections\/oikome-guide$/);
   rmSync(tram);
   await api("refresh_space", { space: "oikome-guide" });
+});
+
+test("a CSV opens as a table where it is, with its details behind Info", async () => {
+  const tips = join(owner, "Examples", "oikome-guide", "tips.csv");
+  writeFileSync(tips, "what,where\nTram 28,Graça\nFerry,Cacilhas\n");
+  try {
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.goto(`${base}/collections/oikome-guide`);
+    await page.locator("a.screen-ftile", { hasText: "tips.csv" }).click();
+    const viewer = page.getByRole("dialog", { name: "tips.csv" });
+    const table = viewer.getByRole("table", { name: "tips.csv" });
+    await expect(table.getByRole("columnheader", { name: "What" })).toBeVisible();
+    await expect(table.getByRole("columnheader", { name: "Where" })).toBeVisible();
+    await expect(table.getByRole("cell", { name: "Tram 28" })).toBeVisible();
+    await expect(table.getByRole("cell", { name: "Cacilhas" })).toBeVisible();
+    await expect(viewer).not.toContainText("Kept on");
+    await viewer.getByRole("button", { name: "Info" }).click();
+    await expect(viewer).toContainText("Kept on");
+    await expect(viewer).toContainText("CSV");
+    // Moving goes through notes and data files alike, then Escape comes out.
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.getByRole("dialog", { name: "8 Ferry.md" })).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(viewer).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  } finally {
+    rmSync(tips, { force: true });
+    await api("refresh_space", { space: "oikome-guide" });
+  }
 });
 
 /** One MCP request from outside the browser, as an AI assistant sends it. */
@@ -652,6 +749,17 @@ test("a place picked on this computer keeps new collections", async () => {
     await expect(page).toHaveURL(/\/collections\/plans$/);
     await expect(page.locator(".screen-facts")).toContainText("Projects");
 
+    // Collections by place: only what is kept on Projects; nothing shared
+    // with you is kept at a place of yours.
+    await page.goto(`${base}/collections`);
+    const tools = page.locator(".screen-cols-tools");
+    await tools.getByRole("button", { name: "All Places" }).click();
+    await page.getByRole("menuitemradio", { name: "Projects" }).click();
+    await expect(tools.getByRole("button", { name: "Projects" })).toBeVisible();
+    await expect(page.locator(".screen-cover")).toHaveCount(1);
+    await expect(page.locator(".screen-cover")).toContainText("plans");
+    await expect(page.getByRole("heading", { name: "Shared With You" })).toHaveCount(0);
+
     // Back to this computer for what comes next.
     await page.goto(`${base}/settings`);
     await page.getByRole("button", { name: "More actions for Local" }).click();
@@ -685,7 +793,7 @@ test("a bucket on RustFS keeps new collections, encrypted", async () => {
     await page.goto(`${base}/settings`);
     await page.getByRole("button", { name: "Add Storage" }).click();
     const add = page.getByRole("dialog", { name: "Add Storage" });
-    await add.getByRole("radio", { name: /^RustFS/ }).check();
+    await add.getByRole("radio", { name: /^Object storage/ }).check();
     // The choices' notes mention an address and keys too: the fields by role.
     await add.getByRole("textbox", { name: "Address", exact: true }).fill(rustfs.endpoint);
     await add.getByRole("textbox", { name: "Bucket", exact: true }).fill("family");
@@ -747,14 +855,32 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
   await page.goto(`${base}/settings`);
   await page.getByRole("button", { name: "Add Storage" }).click();
   const add = page.getByRole("dialog", { name: "Add Storage" });
-  await add.getByRole("radio", { name: /^Google Drive/ }).check();
-  await expect(add.getByRole("link", { name: "Turn on the Google Drive API" })).toHaveAttribute(
+  await expect.poll(() => add.evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(64);
+  // A cloud drive, then its provider from a scalable menu; Google Drive comes first.
+  await add.getByRole("radio", { name: /^Cloud drive/ }).check();
+  await expect(add.getByLabel("Cloud drive provider")).toHaveValue("Google Drive");
+  // Where Google Drive for desktop is on this computer, its folder comes first.
+  const signIn = add.getByRole("radio", { name: /^Sign in on the web/ });
+  if (await signIn.count()) await signIn.check();
+  else await expect(add).toContainText("Install Google Drive for desktop on this computer");
+  // Two steps: register the app, then give it to Oikome.
+  await expect(add.getByRole("heading", { name: /Register your app with Google/ })).toBeVisible();
+  await expect(add.getByRole("heading", { name: /Give Oikome your app/ })).toBeVisible();
+  await expect(add.getByRole("link", { name: "Enable the Google Drive API" })).toHaveAttribute(
     "href",
     "https://console.cloud.google.com/apis/library/drive.googleapis.com",
   );
-  await expect(add).toContainText("none of this is needed: pick its folder instead");
+  await expect(add.getByRole("link", { name: "Name and publish the app" })).toHaveAttribute(
+    "href",
+    "https://console.cloud.google.com/auth/branding",
+  );
+  await expect(add.getByRole("link", { name: "Create a Desktop app client and download its file" })).toHaveAttribute(
+    "href",
+    "https://console.cloud.google.com/auth/clients/create",
+  );
+  await expect(add).toContainText("The JSON downloaded when you created your Desktop app OAuth client.");
   await add.getByRole("button", { name: "Continue to Google" }).click();
-  await expect(add).toContainText("Paste your Google app's client ID and secret.");
+  await expect(add).toContainText("Paste your Google app's Client ID and Client secret.");
   // The file Google lets one download fills both, read in the page only.
   const appFile = add.locator('input[type="file"]');
   await appFile.setInputFiles({
@@ -768,8 +894,9 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
   });
   await expect(add.getByLabel("Client ID")).toHaveValue("from-file.apps.googleusercontent.com");
   await expect(add.getByLabel("Client secret")).toHaveValue("from-file-secret");
+  await expect(add).toContainText("client_secret_made-up.apps.googleusercontent.com.json");
   await appFile.setInputFiles({ name: "notes.json", mimeType: "application/json", buffer: Buffer.from("{}") });
-  await expect(add).toContainText("That isn't a Google app's file");
+  await expect(add).toContainText("That isn't a Google OAuth client JSON file.");
   await add.getByRole("button", { name: "Cancel" }).click();
 
   // A new data center, on its first run, with a (made-up) app of the
@@ -793,8 +920,10 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
     const origin = new URL(link).origin;
     await tab.goto(link);
     await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
-    await tab.getByRole("radio", { name: /^Google Drive/ }).check();
-    await expect(tab.locator(".oik-choice--on")).toContainText("Your Google app: made-up.apps.googleusercontent.com");
+    await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
+    const tabSignIn = tab.getByRole("radio", { name: /^Sign in on the web/ });
+    if (await tabSignIn.count()) await tabSignIn.check();
+    await expect(tab.locator(".screen-place-form")).toContainText("Your Google app: made-up.apps.googleusercontent.com");
     await expect(tab.getByLabel("Client secret")).toHaveCount(0);
     await tab.getByRole("button", { name: "Continue to Google" }).click();
     await expect.poll(() => signIns.length).toBe(1);
@@ -818,6 +947,116 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
     await tab.goto(`${origin}/oauth/google/callback?state=${params.get("state")}&code=x`);
     await expect(tab).toHaveURL(`${origin}/settings`);
     await expect(tab.locator("main")).toContainText("Couldn't connect Google Drive. Try again.");
+  } finally {
+    await fresh.close();
+    node.kill();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("iCloud Drive and OneDrive stay visible before desktop sync is set up", async ({ browser }) => {
+  const root = mkdtempSync(join(tmpdir(), "oikome-app-sync-drives-"));
+  const node = await serveWeb(root, { ...ENV, HOME: root });
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const tab = await fresh.newPage();
+    await tab.goto(readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim());
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
+    const form = tab.locator(".screen-place-form");
+    const next = tab.getByRole("button", { name: "Continue", exact: true });
+
+    const provider = tab.getByLabel("Cloud drive provider");
+    await provider.selectOption("iCloud Drive");
+    await expect(form).toContainText("Turn on iCloud Drive in your Apple Account settings");
+    await expect(next).toBeDisabled();
+
+    await provider.selectOption("OneDrive");
+    await expect(form).toContainText("Install OneDrive and sign in");
+    await expect(next).toBeDisabled();
+  } finally {
+    await fresh.close();
+    node.kill();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Dropbox uses a copied authorization code with PKCE and offline access", async ({ browser }) => {
+  const root = mkdtempSync(join(tmpdir(), "oikome-app-dropbox-"));
+  execFileSync(BIN, ["--root", root, "storage", "dropbox-app"], {
+    input: "made-up-dropbox-app\n",
+    env: ENV,
+  });
+  const node = await serveWeb(root);
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const signIns = [];
+    await fresh.route("https://www.dropbox.com/**", (route) => {
+      signIns.push(route.request().url());
+      return route.fulfill({ contentType: "text/html", body: "<title>Dropbox</title>" });
+    });
+    const tab = await fresh.newPage();
+    const link = readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim();
+    await tab.goto(link);
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
+    await tab.getByLabel("Cloud drive provider").selectOption("Dropbox");
+    const signIn = tab.getByRole("radio", { name: /^Sign in on the web/ });
+    if (await signIn.count()) await signIn.check();
+    await expect(tab.locator(".screen-place-form")).toContainText("Your Dropbox app: made-up-dropbox-app");
+    await expect(tab.getByLabel("App secret", { exact: true })).toHaveCount(0);
+    await tab.getByRole("button", { name: "Use another app" }).click();
+    // No redirect registration: create the app, tick its permissions, then
+    // give Oikome its App key. The Permissions tab links to this app directly.
+    const form = tab.locator(".screen-place-form");
+    await expect(tab.getByRole("heading", { name: "Register your app with Dropbox" })).toBeVisible();
+    await expect(tab.getByRole("heading", { name: "Give Oikome your app" })).toBeVisible();
+    await expect(tab.getByRole("link", { name: "Create an app" })).toHaveAttribute(
+      "href",
+      "https://www.dropbox.com/developers/apps/create",
+    );
+    await expect(form).toContainText("App folder, or Full Dropbox to view your other files too");
+    await expect(form).not.toContainText("redirect URI");
+    await expect(form).toContainText("On its Permissions tab, tick these, then Save changes at the top right:");
+    const listedScopes = await form.locator(".screen-steps__values li").allTextContents();
+    await expect(form.locator("details")).toHaveCount(0);
+    await expect(form.getByRole("link", { name: /On its Permissions tab/ })).toHaveCount(0);
+    await expect(form).not.toContainText("Your other files are viewed read only");
+    const readAll = tab.getByRole("checkbox", { name: /Also view your other Dropbox files/ });
+    await readAll.check();
+    await expect(form).toContainText("Your other files are viewed read only and stay in Dropbox.");
+    await readAll.uncheck();
+    await tab.getByLabel("App key", { exact: true }).fill("made-up-dropbox-app");
+    await expect(form.getByRole("link", { name: /On its Permissions tab/ })).toHaveAttribute(
+      "href",
+      "https://www.dropbox.com/developers/console/apps/made-up-dropbox-app/permissions",
+    );
+    await expect(tab.getByLabel("Client ID", { exact: true })).toHaveCount(0);
+    await expect(tab.getByLabel("Client secret", { exact: true })).toHaveCount(0);
+
+    const dropboxPage = fresh.waitForEvent("page");
+    await tab.getByRole("button", { name: "Continue to Dropbox" }).click();
+    await dropboxPage;
+    await expect.poll(() => signIns.length).toBe(1);
+    const params = new URL(signIns[0]).searchParams;
+    expect(params.get("client_id")).toBe("made-up-dropbox-app");
+    expect(params.has("redirect_uri")).toBe(false);
+    expect(params.has("state")).toBe(false);
+    expect(params.get("token_access_type")).toBe("offline");
+    expect(params.get("code_challenge_method")).toBe("S256");
+    expect(params.get("scope")).toBe(
+      "account_info.read files.content.read files.content.write files.metadata.read files.metadata.write",
+    );
+    expect([...listedScopes, "account_info.read", "files.metadata.read"].sort()).toEqual(
+      params.get("scope").split(" ").sort(),
+    );
+
+    // Oikome keeps its place and asks for the code shown on Dropbox's page.
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await expect(tab.getByRole("textbox", { name: "Authorization code", exact: true })).toBeFocused();
+    await expect(tab.getByRole("link", { name: "Open Dropbox again" })).toHaveAttribute("href", signIns[0]);
+    await tab.getByRole("button", { name: "Connect Dropbox" }).click();
+    await expect(tab.locator("main")).toContainText("Paste the authorization code shown on Dropbox's page.");
   } finally {
     await fresh.close();
     node.kill();
@@ -1199,25 +1438,54 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     // Its page: where it is, its photo from the index, its folders.
     await page.goto(`${base}/collections/${name}`);
     await expect(page.locator(".screen-facts")).toContainText("Read where it is");
-    const thumb = page.locator(".screen-photo img").first();
+    // Its folders first, as covers like a collection's: the note in Notes
+    // shows. Then its files, each showing some of itself: a CSV its rows.
+    const notesFolder = page.locator(".screen-subfolders .screen-cover", { hasText: "Notes" });
+    await expect(notesFolder).toContainText("Took the ferry to Cacilhas at sunset.");
+    await expect(page.locator(".screen-ftile__name")).toHaveText(["2025.csv", "Tram 28.jpg"]);
+    await expect(page.locator(".screen-ftile", { hasText: "2025.csv" })).toContainText("euros");
+    const thumb = page.locator(".screen-ftile img").first();
     await expect.poll(() => thumb.evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
     expect(await thumb.getAttribute("src")).toMatch(/^\/files\/thumb\//);
+    // As a list, by size, the largest first; the folder stays first.
+    await page.locator(".screen-folder-bar").getByRole("radio", { name: "List" }).click();
+    const files = page.getByRole("table", { name: "Files" });
+    await files.getByRole("button", { name: "Size" }).click();
+    await expect(files.getByRole("columnheader", { name: /Size/ })).toHaveAttribute("aria-sort", "descending");
+    await expect(files.locator("tbody tr").first()).toContainText("Notes");
+    await expect(files.locator("tbody tr").nth(1)).toContainText("Tram 28.jpg");
+    await page.locator(".screen-folder-bar").getByRole("radio", { name: "Covers" }).click();
+    await files.waitFor({ state: "detached" });
     // Opened large, from the folder itself.
-    await page.locator(".screen-photo__link").first().click();
+    await page.locator("a.screen-ftile").filter({ hasText: "Tram 28.jpg" }).click();
     await expect(page).toHaveURL(/table=files&item=Tram\+28\.jpg/);
-    const photo = page.getByRole("dialog", { name: "Tram 28" });
+    const photo = page.getByRole("dialog", { name: "Tram 28.jpg" });
     const large = photo.locator("img").first();
     await expect.poll(() => large.evaluate((img) => img.naturalWidth)).toBeGreaterThan(512);
     expect(await large.getAttribute("src")).toMatch(/^\/files\/original\//);
     await page.keyboard.press("Escape");
     // Into a folder and back.
-    await page.getByRole("button", { name: /Notes/ }).click();
-    await expect(page.getByText("Took the ferry to Cacilhas at sunset.")).toBeVisible();
-    await page.getByRole("navigation", { name: "Files" }).getByRole("button", { name }).click();
-    await expect(page.locator(".screen-photo")).toHaveCount(1);
-    // Its table, read where it is.
-    await page.getByRole("combobox", { name: "Table" }).selectOption("t_2025");
-    await expect(page.getByRole("table", { name: "t_2025" }).getByRole("cell", { name: "Jan 2, 2025" })).toBeVisible();
+    // Into a folder: an address of its own, named in the one crumb at the
+    // top; Back comes out, and so does the crumb.
+    await notesFolder.click();
+    await expect(page).toHaveURL(/\?folder=Notes$/);
+    await expect(page.locator(".screen-ftile__text")).toHaveText("Took the ferry to Cacilhas at sunset.");
+    const crumb = page.getByRole("navigation", { name: "Where you are" });
+    await expect(crumb.locator(".screen-crumb__here")).toHaveText("Notes");
+    await expect(crumb.getByRole("link", { name: "Collections" })).toBeVisible();
+    await page.goBack();
+    await expect(page.locator(".screen-ftile img")).toHaveCount(1);
+    await notesFolder.click();
+    await crumb.locator(".screen-crumb__up").getByRole("link").last().click();
+    await expect(page).toHaveURL(new RegExp(`/collections/${name}$`));
+    await expect(page.locator(".screen-ftile img")).toHaveCount(1);
+    // Back to the order a folder starts in, for what comes next.
+    await page.evaluate(() => localStorage.removeItem("oikome.folder.order"));
+    // Its CSV opens as a table, read where it is, not through a table picker.
+    await page.locator("a.screen-ftile", { hasText: "2025.csv" }).click();
+    const csv = page.getByRole("dialog", { name: "2025.csv" });
+    await expect(csv.getByRole("table", { name: "2025.csv" }).getByRole("cell", { name: "Jan 2, 2025" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     // A photo is sent only to the owner's own pages.
     const outside = await fetch(`${base}/files/thumb/${name}/Tram%2028.jpg`);
@@ -1228,7 +1496,7 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     await page.goto(`${base}/collections/${name}`);
     await page.getByRole("button", { name: "Read Again" }).click();
     await expect(page.getByRole("status").filter({ hasText: "can't be reached right now" })).toBeVisible();
-    await expect.poll(() => page.locator(".screen-photo img").first().evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+    await expect.poll(() => page.locator(".screen-ftile img").first().evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
     renameSync(away, trip);
     await page.getByRole("button", { name: "Read Again" }).click();
     await expect(page.getByRole("status").filter({ hasText: "can't be reached right now" })).toHaveCount(0);

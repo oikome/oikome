@@ -22,6 +22,7 @@ export type IconName =
   | "error"
   | "folder"
   | "home"
+  | "info"
   | "key"
   | "lock"
   | "mark"
@@ -40,13 +41,27 @@ export type IconName =
   | "updown"
   | "bucket"
   | "globe"
+  | "grid"
+  | "rows"
+  | "sort"
   | "sync"
   | "up"
+  | "upload"
   | "warning";
 
 const PATHS: Record<IconName, ReactElement> = {
   activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
   ai: <path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 10.9 10.1 9z" />,
+  grid: (
+    <>
+      <rect x="4" y="4" width="7" height="7" rx="1.5" />
+      <rect x="13" y="4" width="7" height="7" rx="1.5" />
+      <rect x="4" y="13" width="7" height="7" rx="1.5" />
+      <rect x="13" y="13" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  rows: <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />,
+  sort: <path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M17 20V4M13.5 7.5 17 4l3.5 3.5" />,
   drive: <path d="M7 18.5h10a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.1 11.6 3.5 3.5 0 0 0 7 18.5z" />,
   folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
   bucket: (
@@ -142,11 +157,19 @@ const PATHS: Record<IconName, ReactElement> = {
   // A plug: something that fits in.
   plugin: <path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0zM12 16v4.5" />,
   up: <path d="M6 15l6-6 6 6" />,
+  // A file given to the page: download's arrow, the other way.
+  upload: <path d="M12 15.5v-11m-5 5 5-5 5 5M5 19.5h14" />,
   sync: <path d="M19.5 12a7.5 7.5 0 0 1-13 5.1M4.5 12a7.5 7.5 0 0 1 13-5.1M17.5 3.5v3.4h-3.4M6.5 20.5v-3.4h3.4" />,
   error: (
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 7.5v5.5m0 3v.01" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5.5m0-9v.01" />
     </>
   ),
   key: (

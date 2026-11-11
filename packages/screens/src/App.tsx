@@ -10,12 +10,14 @@ import type { ReactNode } from "react";
 import { Button, Card, EmptyState, ErrorText, Icon, Status, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo, StorageSummary } from "@oikome/client";
+import { collectionTitle } from "./covers";
+import { folderOf, folderPath } from "./item";
 import { ClientProvider, useClient, useLoad } from "./data";
 import { usedOfTotal } from "./format";
 import { Palette } from "./palette";
 import { BackLink } from "./parts";
 import { useLanguage } from "./i18n/languages";
-import { Link, navigate, useLocation } from "./router";
+import { Link, navigate, previousPage, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
 import { Assistants } from "./screens/Assistants";
 import { Plugins } from "./screens/Plugins";
@@ -125,7 +127,14 @@ function Root() {
     } catch {
       // A malformed address names no collection; the page says so.
     }
-    screen = <Collection key={name} name={name} item={{ table: query.get("table"), key: query.getAll("item") }} />;
+    screen = (
+      <Collection
+        key={name}
+        name={name}
+        item={{ table: query.get("table"), key: query.getAll("item") }}
+        folder={folderOf(query)}
+      />
+    );
   } else if (path === "/sharing") {
     screen = (
       <Sharing
@@ -152,7 +161,12 @@ function Root() {
     screen = <Activity />;
   } else if (path === "/settings") {
     screen = (
-      <Settings info={info} onInfo={setInfo} backup={query.get("backup") === "1"} google={query.get("google")} />
+      <Settings
+        info={info}
+        onInfo={setInfo}
+        backup={query.get("backup") === "1"}
+        google={query.get("google")}
+      />
     );
   } else {
     screen = (
@@ -173,7 +187,7 @@ function Root() {
         ? decodeSafe(path.slice("/places/".length))
         : undefined;
   return (
-    <Shell info={info} current={section?.to} path={path} sub={sub}>
+    <Shell info={info} current={section?.to} path={path} sub={sub} folder={folderOf(query)}>
       {screen}
     </Shell>
   );
@@ -297,6 +311,7 @@ function Shell({
   current,
   path,
   sub,
+  folder,
   children,
 }: {
   info: NodeInfo;
@@ -304,6 +319,8 @@ function Shell({
   path: string;
   /** A collection's name, when its page is open. */
   sub?: string;
+  /** The folder open in a collection viewed in place; `""` is its top. */
+  folder: string;
   children: ReactNode;
 }) {
   const client = useClient();
@@ -319,7 +336,15 @@ function Shell({
   const opened = path.startsWith("/places/")
     ? storages.data?.find((x) => (x.name ?? THIS_COMPUTER) === sub)
     : undefined;
-  const subLabel = source ? placeName(source.place) : opened ? placeLabel(opened) : sub;
+  // A folder viewed in place is called by the folder's own name, as on its page.
+  const collection = path.startsWith("/collections/") ? spaces.data?.find((x) => x.name === sub) : undefined;
+  const subLabel = source
+    ? placeName(source.place)
+    : opened
+      ? placeLabel(opened)
+      : collection
+        ? collectionTitle(collection)
+        : sub;
   const [picked, setPicked] = useState<string | null>(rememberedPlace);
   const [searching, setSearching] = useState(false);
   const places = storages.data ?? [];
@@ -410,7 +435,13 @@ function Shell({
             {sectionLabel && current !== "/" && (
               <>
                 <span className="screen-crumb__sep" aria-hidden="true">/</span>
-                {sub ? (
+                {collection?.inPlace && previousPage()?.split("?")[0] === path ? (
+                  // Its folders have addresses of their own: from another
+                  // folder of it, the way out is the section, not Back.
+                  <Link to={current ?? "/"} className="screen-crumb__link screen-back">
+                    {sectionLabel}
+                  </Link>
+                ) : sub ? (
                   <BackLink bare parent={current ?? "/"} parentLabel={sectionLabel} />
                 ) : (
                   <span className="screen-crumb__here" aria-current="page">{sectionLabel}</span>
@@ -426,9 +457,31 @@ function Shell({
             {sub && (
               <>
                 <span className="screen-crumb__sep" aria-hidden="true">/</span>
-                <span className="screen-crumb__here screen-crumb__here--mono" aria-current="page" translate="no">
-                  {subLabel}
-                </span>
+                {collection?.inPlace ? (
+                  // A folder viewed in place goes on into its folders, each a
+                  // way back up: the page has no path bar of its own.
+                  [subLabel, ...(folder ? folder.split("/") : [])].map((part, i, parts) =>
+                    i === parts.length - 1 ? (
+                      <span key={i} className="screen-crumb__here" aria-current="page" translate="no">
+                        {part}
+                      </span>
+                    ) : (
+                      <span key={i} className="screen-crumb__up">
+                        <Link
+                          to={folderPath(collection.name, parts.slice(1, i + 1).join("/"))}
+                          className="screen-crumb__link"
+                        >
+                          <span translate="no">{part}</span>
+                        </Link>
+                        <span className="screen-crumb__sep" aria-hidden="true">/</span>
+                      </span>
+                    ),
+                  )
+                ) : (
+                  <span className="screen-crumb__here screen-crumb__here--mono" aria-current="page" translate="no">
+                    {subLabel}
+                  </span>
+                )}
               </>
             )}
           </nav>

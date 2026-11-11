@@ -210,9 +210,11 @@ export function PlaceDetail({ name }: { name: string }) {
                   here.map((x) => x.name),
                   here.length,
                 )
-              : place.type === "gdrive"
-                ? strings.storage.removeBodyGdrive
-                : place.encrypted
+              : place.type === "dropbox"
+                ? strings.storage.removeBodyDropbox
+                : place.type === "gdrive"
+                  ? strings.storage.removeBodyGdrive
+                  : place.encrypted
                   ? strings.storage.removeBodyEncrypted
                   : strings.storage.removeBody
           }

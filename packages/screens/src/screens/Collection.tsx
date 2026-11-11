@@ -19,12 +19,14 @@ import {
   ErrorText,
   Icon,
   Menu,
+  Segmented,
   Select,
   Tag,
   collectionTones,
   useToast,
 } from "@oikome/ui";
-import type { SpaceSummary } from "@oikome/client";
+import type { IconName } from "@oikome/ui";
+import type { FileFolder, FileItem, FileSort, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import {
   chronological,
@@ -37,18 +39,22 @@ import {
   withoutTagLines,
 } from "../content";
 import type { Item, Shape } from "../content";
-import { countOf, fromOf, itemDate, sharedNames } from "../covers";
+import { FolderCover, collectionTitle, countOf, fromOf, itemDate, sharedNames } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
-import { bytes, dateFromSeconds, homeRelative, listNames, monthAndDay } from "../format";
+import { bytes, dateFromSeconds, dayAndTime, homeRelative, listNames, monthAndDay } from "../format";
+import { SORT_KEYS, SortHeader, nextOrder, sortBy, useLayout, useOrder } from "../order";
+import type { Layout, SortKey } from "../order";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
 import { RowsTable, ScreenHeader } from "../parts";
-import { ItemDialog, itemPath } from "../item";
+import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
+import { FileView } from "../viewer";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
+import { storageLabel } from "./Collections";
 
 const s = strings.collections;
 /** Rows a page reads: fewer of photos, which are large. */
@@ -61,7 +67,7 @@ export interface ItemQuery {
   key: string[];
 }
 
-export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
+export function Collection({ name, item, folder: openFolder = "" }: { name: string; item?: ItemQuery; folder?: string }) {
   const client = useClient();
   const toast = useToast();
   const spaces = useLoad(() => client.listSpaces(), []);
@@ -108,6 +114,7 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
   const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
   const source = sources.data?.find((x) => x.name === space.name);
   const folder = space.inPlace;
+  const folderPlace = folder ? storages.data?.find((x) => x.name === folder.place) : undefined;
   // Where a folder viewed in place is: its path, on this computer or a NAS.
   const folderWhere = folder
     ? folder.place
@@ -143,13 +150,15 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
   return (
     <>
       <ScreenHeader
-        mono
+        mono={!folder}
         label={
-          local
-            ? [kind ? s.kinds[kind] : null, space.example ? s.fromExampleShort : s.fromYouShort].filter(Boolean).join(" · ")
-            : s.sharedWithYouFrom(from)
+          folder
+            ? s.viewedOn(folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer))
+            : local
+              ? [kind ? s.kinds[kind] : null, space.example ? s.fromExampleShort : s.fromYouShort].filter(Boolean).join(" · ")
+              : s.sharedWithYouFrom(from)
         }
-        title={space.name}
+        title={<span translate="no">{collectionTitle(space)}</span>}
       >
         {local && (
           <Button icon="search" onClick={() => setSearching(true)}>
@@ -325,7 +334,14 @@ export function Collection({ name, item }: { name: string; item?: ItemQuery }) {
           who: listNames([strings.common.you, ...names]),
         };
         return folder ? (
-          <FolderContents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} />
+          <FolderContents
+            key={`${space.name}:${contentsKey}`}
+            space={space}
+            item={item}
+            facts={facts}
+            folder={openFolder}
+            placeLabel={folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer)}
+          />
         ) : (
           <Contents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} />
         );
@@ -341,32 +357,21 @@ interface Facts {
   who: string;
 }
 
-function Contents({
-  space,
-  item,
-  facts,
-  only,
-}: {
-  space: SpaceSummary;
-  item?: ItemQuery;
-  facts: Facts;
-  /** One table only, chosen elsewhere (a folder's data file). */
-  only?: string;
-}) {
+function Contents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuery; facts: Facts }) {
   const client = useClient();
   // A shared collection is read from its owner's computer, which can be off
   // or may have stopped sharing; say so instead of the node's message.
   const unreadable = space.kind === "remote" ? () => s.cantRead : undefined;
   const tables = useLoad(() => client.listTables({ space: space.name }), [space.name], unreadable);
   // An address that names an item opens its table.
-  const [table, setTable] = useState<string | undefined>(only ?? item?.table ?? undefined);
+  const [table, setTable] = useState<string | undefined>(item?.table ?? undefined);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(PAGE_ROWS);
 
   useEffect(() => {
-    if (!tables.data || only) return;
+    if (!tables.data) return;
     if (!table || !tables.data.some((t) => t.name === table)) setTable(tables.data[0]?.name);
-  }, [tables.data, table, only]);
+  }, [tables.data, table]);
 
   const rows = useLoad(
     async () =>
@@ -460,7 +465,7 @@ function Contents({
   }
   return (
     <div className="screen-contents">
-      {!only && tables.data && tables.data.length > 1 && table && (
+      {tables.data && tables.data.length > 1 && table && (
         <div className="screen-toolbar">
           <Select
             inline
@@ -657,45 +662,111 @@ function kindLabel(name: string, kind: string): string {
 /** Files of a folder viewed in place are read a page at a time. */
 const FOLDER_PAGE = 120;
 
-function parentOf(path: string): string {
-  const at = path.lastIndexOf("/");
-  return at < 0 ? "" : path.slice(0, at);
+/** The node's names for the orders a folder's files come in. */
+const FILE_SORTS: Record<SortKey, FileSort> = { name: "name", changed: "modified", size: "size", kind: "kind" };
+
+/** One thing in a folder, as a tile or a row: a folder, else a file. */
+type Entry =
+  | { folder: FileFolder }
+  | { file: FileItem; item?: Item };
+
+/**
+ * The first rows of a CSV or TSV file, from the lines its index keeps: as
+ * many as a tile shows, three columns each.
+ */
+function headRows(name: string, text: string): string[][] {
+  const separator = name.toLowerCase().endsWith(".tsv") ? "\t" : ",";
+  return text
+    .split("\n")
+    .filter((line) => line.trim())
+    .slice(0, 3)
+    .map((line) => {
+      const cells: string[] = [];
+      let cell = "";
+      let quoted = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]!;
+        if (quoted) {
+          if (c === '"' && line[i + 1] === '"') {
+            cell += '"';
+            i++;
+          } else if (c === '"') quoted = false;
+          else cell += c;
+        } else if (c === '"') quoted = true;
+        else if (c === separator) {
+          cells.push(cell);
+          cell = "";
+        } else cell += c;
+      }
+      cells.push(cell);
+      return cells.slice(0, 3);
+    });
 }
 
 /**
- * A folder viewed in place, browsed from its index: its folders, then its
- * photos, notes and other files; a photo or note opens at its own address
- * and ← → move through the folder's. Its data files are tables of their own.
+ * A folder viewed in place, browsed as in a file manager: its folders
+ * first, as covers like the collections outside, then its files, each
+ * showing some of itself, in the order picked, as covers or a list. Each
+ * folder has its own address, named in the top crumb. Every file opens at
+ * its own address and ← → move through all the folder's files; a data file
+ * opens as a table read where it is.
  */
-function FolderContents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuery; facts: Facts }) {
+function FolderContents({
+  space,
+  item,
+  facts,
+  folder,
+  placeLabel,
+}: {
+  space: SpaceSummary;
+  item?: ItemQuery;
+  facts: Facts;
+  /** The folder open, from the address; `""` is the top. */
+  folder: string;
+  /** The place it is on, named. */
+  placeLabel: string;
+}) {
   const client = useClient();
-  const tables = useLoad(() => client.listTables({ space: space.name }), [space.name]);
-  const dataTables = (tables.data ?? []).filter((t) => t.name !== "files");
   const opened = item?.table === "files" && item.key.length === 1 ? item.key[0] : undefined;
-  const [shown, setShown] = useState<string>(item?.table && item.table !== "files" ? item.table : "files");
-  const [folder, setFolder] = useState(() => (opened ? parentOf(opened) : ""));
   const [limit, setLimit] = useState(FOLDER_PAGE);
+  // Another folder starts at its first page.
+  useEffect(() => setLimit(FOLDER_PAGE), [folder]);
+  const [order, setOrder] = useOrder("folder", { key: "name", descending: false });
+  const [layout, setLayout] = useLayout("folder");
   const listing = useLoad(
-    () => client.listFiles({ space: space.name, folder, limit }),
-    [space.name, folder, limit],
+    () =>
+      client.listFiles({
+        space: space.name,
+        folder,
+        limit,
+        sort: FILE_SORTS[order.key],
+        descending: order.descending,
+      }),
+    [space.name, folder, limit, order.key, order.descending],
   );
   const files = listing.data?.files ?? [];
-  const photos = useMemo(
-    () => fileItems(client, space.name, files.filter((f) => f.kind === "image")),
-    [client, space.name, files],
+  // Every file opens over the page; a photo's item carries its thumbnail.
+  const openable = useMemo(() => fileItems(client, space.name, files), [client, space.name, files]);
+  const itemOf = new Map(openable.map((it) => [it.path, it]));
+  // Folders first, in the same order; all of one kind, they go by name then.
+  const folders = sortBy(
+    listing.data?.folders ?? [],
+    order,
+    (f, key) => (key === "changed" ? f.modifiedMs : key === "size" ? Number(f.size) : key === "name" ? f.name : null),
+    (f) => f.name,
   );
-  const notes = useMemo(
-    () => fileItems(client, space.name, files.filter((f) => f.kind === "note")),
-    [client, space.name, files],
-  );
-  const others = files.filter((f) => f.kind !== "image" && f.kind !== "note");
-  const openable = [...photos, ...notes];
+  const entries: Entry[] = [
+    ...folders.map((f) => ({ folder: f })),
+    ...files.map((f) => ({ file: f, item: itemOf.get(f.path) })),
+  ];
   const linkOf = (it: Item) =>
     it.path ? itemPath({ collection: space.name, table: "files", key: [it.path] }) : undefined;
   const open = (it: Item | undefined, replace: boolean) => {
     const to = it && linkOf(it);
     if (to) navigate(to, { replace, keepScroll: true });
   };
+  // Into a folder: an address of its own, so Back comes out again.
+  const into = (name: string) => navigate(folderPath(space.name, folder ? `${folder}/${name}` : name));
   const here = opened ? openable.findIndex((it) => it.path === opened) : -1;
   const nav: ItemNav | undefined =
     here >= 0
@@ -706,120 +777,207 @@ function FolderContents({ space, item, facts }: { space: SpaceSummary; item?: It
           next: here < openable.length - 1 ? () => open(openable[here + 1], true) : undefined,
         }
       : undefined;
-  const crumbs = folder ? folder.split("/") : [];
   const offline = space.inPlace?.reachable === false;
-  const label = space.inPlace?.place ?? homeRelative(space.inPlace?.path ?? "");
 
-  const picker = dataTables.length > 0 && (
-    <Select
-      inline
-      label={s.tableLabel}
-      value={shown}
-      onChange={setShown}
-      options={[{ value: "files", label: s.files }, ...dataTables.map((t) => ({ value: t.name, label: t.name }))]}
-    />
-  );
-  if (shown !== "files") {
-    return (
-      <div className="screen-contents">
-        <div className="screen-toolbar">{picker}</div>
-        <Contents space={space} facts={facts} only={shown} />
-      </div>
-    );
-  }
+  // A plain click opens the file over the page; others keep the browser's.
+  const opener = (it: Item) => (e: MouseEvent<HTMLAnchorElement>) => {
+    if (!plainClick(e)) return;
+    e.preventDefault();
+    open(it, false);
+  };
+  const nameOf = (entry: Entry) => ("folder" in entry ? entry.folder.name : entry.file.name);
+  const iconOf = (entry: Entry): IconName =>
+    "folder" in entry
+      ? "folder"
+      : entry.file.kind === "image"
+        ? "photo"
+        : entry.file.kind === "note"
+          ? "note"
+          : entry.file.kind === "table"
+            ? "table"
+            : "collection";
+  const metaOf = (entry: Entry) =>
+    "folder" in entry ? s.folderFiles(Number(entry.folder.files)) : bytes(Number(entry.file.size));
+  const changedOf = (entry: Entry) => {
+    const ms = "folder" in entry ? entry.folder.modifiedMs : entry.file.modifiedMs;
+    return ms != null ? dayAndTime(Number(ms)) : "—";
+  };
+
   return (
     <div className="screen-contents">
-      {offline && <Banner title={s.offlineTitle(label)} body={s.offlineBody} />}
-      {(folder || (listing.data?.folders.length ?? 0) > 0 || picker) && (
+      {offline && <Banner title={s.offlineTitle(placeLabel)} body={s.offlineBody} />}
       <div className="screen-toolbar screen-folder-bar">
-        {(folder || (listing.data?.folders.length ?? 0) > 0) ? (
-        <nav className="screen-crumbs" aria-label={s.files}>
-          <button type="button" className="screen-crumbs__step" onClick={() => setFolder("")} aria-current={folder ? undefined : "page"}>
-            {space.name}
-          </button>
-          {crumbs.map((name, i) => {
-            const to = crumbs.slice(0, i + 1).join("/");
-            return (
-              <span key={to} className="screen-crumbs__part">
-                <Icon name="chevron" />
-                <button
-                  type="button"
-                  className="screen-crumbs__step"
-                  onClick={() => setFolder(to)}
-                  aria-current={i === crumbs.length - 1 ? "page" : undefined}
-                  translate="no"
-                >
-                  {name}
-                </button>
-              </span>
-            );
-          })}
-        </nav>
-        ) : (
-          <span />
-        )}
-        {picker}
+        <span className="screen-folder-bar__tools">
+          <Menu
+            label={s.sortBy}
+            trigger={{ icon: "sort", text: s.sorts[order.key] }}
+            items={SORT_KEYS.map((key) => ({
+              label: s.sorts[key],
+              checked: order.key === key,
+              onSelect: () => {
+                setOrder(nextOrder(order, key));
+                setLimit(FOLDER_PAGE);
+              },
+            }))}
+          />
+          <Segmented
+            label={s.layout}
+            value={layout}
+            onChange={(value) => setLayout(value as Layout)}
+            options={[
+              { value: "covers", label: s.layouts.covers, icon: "grid" },
+              { value: "list", label: s.layouts.list, icon: "rows" },
+            ]}
+          />
+        </span>
       </div>
-      )}
       {listing.error && <ErrorText>{listing.error}</ErrorText>}
       {!listing.data && !listing.error && <div className="screen-page-skeleton oik-skel" aria-hidden="true" />}
-      {listing.data && listing.data.folders.length > 0 && (
-        <ul className="screen-folders" aria-label={s.files}>
-          {listing.data.folders.map((sub) => (
-            <li key={sub.name}>
-              <button
-                type="button"
-                className="screen-folders__item"
-                onClick={() => {
-                  setFolder(folder ? `${folder}/${sub.name}` : sub.name);
-                  setLimit(FOLDER_PAGE);
-                }}
-              >
-                <Icon name="folder" />
-                <span className="screen-folders__name" translate="no">
-                  {sub.name}
-                </span>
-                <span className="screen-folders__count">{s.folderFiles(Number(sub.files))}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+      {listing.data && entries.length > 0 && layout === "covers" && (
+        <>
+          {folders.length > 0 && (
+            <div className="screen-covers screen-subfolders">
+              {folders.map((sub) => (
+                <FolderCover
+                  key={sub.name}
+                  folder={sub}
+                  items={fileItems(client, space.name, sub.cover)}
+                  onOpen={() => into(sub.name)}
+                />
+              ))}
+            </div>
+          )}
+          {files.length > 0 && (
+            <ul className="screen-ftiles" aria-label={s.files}>
+              {entries.flatMap((entry) => {
+                if (!("file" in entry)) return [];
+                const name = entry.file.name;
+                const rows = entry.file.kind === "table" && entry.file.text ? headRows(name, entry.file.text) : [];
+                // A photo shows itself, a note its first lines and a CSV its
+                // first rows, as a file manager previews them.
+                const art = entry.item?.image ? (
+                  <span className="screen-ftile__art">
+                    <img src={entry.item.image} alt="" decoding="async" loading="lazy" />
+                  </span>
+                ) : entry.file.kind === "note" && entry.item?.text ? (
+                  <span className="screen-ftile__art screen-ftile__art--paper">
+                    <span className="screen-ftile__text">{withoutTagLines(entry.item.text)}</span>
+                  </span>
+                ) : rows.length > 0 ? (
+                  <span className="screen-ftile__art screen-ftile__art--rows">
+                    <table className="screen-cover__table" aria-hidden="true">
+                      <tbody>
+                        {rows.map((row, r) => (
+                          <tr key={r}>
+                            {row.map((value, c) => (
+                              <td key={c}>{value || "—"}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </span>
+                ) : (
+                  <span className="screen-ftile__art screen-ftile__art--icon">
+                    <Icon name={iconOf(entry)} />
+                  </span>
+                );
+                const body = (
+                  <>
+                    {art}
+                    <span className="screen-ftile__name" translate="no" title={name}>
+                      {name}
+                    </span>
+                    <span className="screen-ftile__meta">{metaOf(entry)}</span>
+                  </>
+                );
+                const href = entry.item ? linkOf(entry.item) : undefined;
+                return [
+                  <li key={entry.file.path}>
+                    {href && entry.item ? (
+                      <a className="screen-ftile" href={href} onClick={opener(entry.item)}>
+                        {body}
+                      </a>
+                    ) : (
+                      <div className="screen-ftile screen-ftile--still">{body}</div>
+                    )}
+                  </li>,
+                ];
+              })}
+            </ul>
+          )}
+        </>
       )}
-      {photos.length > 0 && (
-        <View shape={{ view: "photos" }} items={photos} label={s.kinds.photos} linkOf={linkOf} onOpen={(it) => open(it, false)} />
-      )}
-      {notes.length > 0 && (
-        <View shape={{ view: "notes" }} items={notes} label={s.kinds.notes} linkOf={linkOf} onOpen={(it) => open(it, false)} />
-      )}
-      {others.length > 0 && (
+      {listing.data && entries.length > 0 && layout === "list" && (
         <div className="screen-table-card oik-table-wrap">
-          <table className="oik-table" aria-label={s.otherFiles}>
+          <table className="oik-table screen-rows-table" aria-label={s.files}>
             <thead>
               <tr>
-                <th scope="col">{s.colName}</th>
-                <th scope="col">{s.colKind}</th>
-                <th scope="col" className="oik-num">
-                  {s.colSize}
-                </th>
-                <th scope="col">{s.colModified}</th>
+                <SortHeader label={s.sorts.name} sortKey="name" order={order} onSort={setOrder} />
+                <SortHeader
+                  label={s.sorts.kind}
+                  sortKey="kind"
+                  order={order}
+                  onSort={setOrder}
+                  className="screen-wide-only"
+                />
+                <SortHeader label={s.sorts.size} sortKey="size" order={order} onSort={setOrder} className="oik-num" />
+                <SortHeader
+                  label={s.colModified}
+                  sortKey="changed"
+                  order={order}
+                  onSort={setOrder}
+                  className="screen-wide-only"
+                />
               </tr>
             </thead>
             <tbody>
-              {others.map((f) => (
-                <tr key={f.path}>
-                  <td translate="no">{f.name}</td>
-                  <td>{kindLabel(f.name, f.kind)}</td>
-                  <td className="oik-num">{bytes(Number(f.size))}</td>
-                  <td>{f.modified}</td>
-                </tr>
-              ))}
+              {entries.map((entry) => {
+                const name = nameOf(entry);
+                const it = "file" in entry ? entry.item : undefined;
+                const href = it ? linkOf(it) : undefined;
+                const go = "folder" in entry ? () => into(name) : it ? () => open(it, false) : undefined;
+                return (
+                  <tr
+                    key={"folder" in entry ? `d:${name}` : `f:${entry.file.path}`}
+                    className={go ? "screen-rows-table__row" : undefined}
+                    onClick={(e) => {
+                      if (go && !(e.target as HTMLElement).closest("a, button")) go();
+                    }}
+                  >
+                    <td>
+                      <span className="screen-rows-table__name">
+                        {it?.image ? (
+                          <img className="screen-rows-table__thumb" src={it.image} alt="" decoding="async" loading="lazy" />
+                        ) : (
+                          <Icon name={iconOf(entry)} />
+                        )}
+                        {"folder" in entry ? (
+                          <button type="button" className="screen-rows-table__link screen-rows-table__button" onClick={go} translate="no">
+                            {name}
+                          </button>
+                        ) : href && it ? (
+                          <a className="screen-rows-table__link" href={href} onClick={opener(it)} translate="no">
+                            {name}
+                          </a>
+                        ) : (
+                          <span translate="no">{name}</span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="screen-wide-only">
+                      {"folder" in entry ? s.folderKind : kindLabel(entry.file.name, entry.file.kind)}
+                    </td>
+                    <td className="oik-num oik-table__one-line">{metaOf(entry)}</td>
+                    <td className="screen-wide-only oik-table__one-line">{changedOf(entry)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
-      {listing.data && files.length === 0 && listing.data.folders.length === 0 && (
-        <p className="screen-muted">{s.emptyFolder}</p>
-      )}
+      {listing.data && entries.length === 0 && <p className="screen-none">{s.emptyFolder}</p>}
       {listing.data && Number(listing.data.total) > files.length && (
         <div className="screen-pager">
           <span className="screen-muted">{s.folderFiles(Number(listing.data.total))}</span>
@@ -829,17 +987,20 @@ function FolderContents({ space, item, facts }: { space: SpaceSummary; item?: It
         </div>
       )}
       {opened && (
-        <ItemDialog
-          inPlace
-          item={{ collection: space.name, table: "files", key: [opened] }}
-          cameFrom={facts.cameFrom}
-          keptOn={facts.keptOn}
-          who={facts.who}
+        <FileView
+          key={opened}
+          space={space.name}
+          path={opened}
+          file={files.find((file) => file.path === opened)}
+          facts={facts}
+          placeLabel={placeLabel}
+          local={!space.inPlace?.place}
           nav={nav}
           onClose={() => {
+            // Back to the folder it was opened from.
             const page = `/collections/${encodeURIComponent(space.name)}`;
             if (previousPage()?.split("?")[0] === page) window.history.back();
-            else navigate(page, { replace: true, keepScroll: true });
+            else navigate(folderPath(space.name, folder), { replace: true, keepScroll: true });
           }}
         />
       )}

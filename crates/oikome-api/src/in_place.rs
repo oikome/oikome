@@ -29,8 +29,9 @@ use oikome_node::inplace;
 
 use crate::sources::slug;
 use crate::{
-    Api, ApiError, Caller, Empty, FileFolder, FileItem, FileKind, FileListing, FileRef, InPlace,
-    ListFiles, SpaceRef, SpaceSummary, ViewInPlace,
+    encode_rows, Api, ApiError, Caller, Empty, FileFolder, FileItem, FileKind, FileListing,
+    FileRef, FileSort, InPlace, ListFiles, ReadFileRows, Rows, ShowFolder, SpaceRef, SpaceSummary,
+    ViewInPlace, DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS, MAX_RESULT_BYTES,
 };
 
 /// Files listed per page at most.
@@ -49,6 +50,50 @@ pub struct Original {
     pub content_type: &'static str,
 }
 
+/// The bytes of the file or folder at `path` and when the newest file in it
+/// changed (milliseconds since the Unix epoch); `None` if there is nothing
+/// there. Links are not followed, and a folder of more files than
+/// [`MEASURE_FILES`] is measured that far.
+fn measure(path: &Path) -> Option<(u64, Option<u64>)> {
+    let ms = |meta: &std::fs::Metadata| {
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .and_then(|d| u64::try_from(d.as_millis()).ok())
+    };
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if meta.is_file() {
+        return Some((meta.len(), ms(&meta)));
+    }
+    if !meta.is_dir() {
+        return None;
+    }
+    let (mut bytes, mut newest, mut seen) = (0u64, None, 0usize);
+    let mut folders = vec![path.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                folders.push(entry.path());
+            } else if meta.is_file() {
+                bytes += meta.len();
+                newest = newest.max(ms(&meta));
+                seen += 1;
+                if seen >= MEASURE_FILES {
+                    return Some((bytes, newest));
+                }
+            }
+        }
+    }
+    Some((bytes, newest))
+}
+
+/// Files measured at most for one collection's size.
+const MEASURE_FILES: usize = 100_000;
+
 fn kind_of(kind: &str) -> FileKind {
     match kind {
         inplace::IMAGE => FileKind::Image,
@@ -65,6 +110,7 @@ fn item_of(entry: inplace::FileEntry) -> FileItem {
         name: entry.name,
         size: entry.size,
         modified: entry.modified,
+        modified_ms: u64::try_from(entry.modified_ms).unwrap_or(0),
         title: entry.title,
         taken: entry.taken,
         written: entry.written,
@@ -96,6 +142,43 @@ impl Api {
     }
 
     /// What a collection's summary says of the folder it views, if it does.
+    /// A collection's bytes and when it last changed, where this computer
+    /// can tell: a folder viewed in place from its index, a SQLite file
+    /// from the file, Iceberg and Lance tables from their files here.
+    pub(crate) fn footprint(&self, location: &str) -> (Option<u64>, Option<u64>) {
+        let Ok(location) = self.catalog.get_location(location) else {
+            return (None, None);
+        };
+        let root = Path::new(self.catalog.root_path());
+        let measured = match &location.format {
+            LocationFormat::InPlace { .. } => inplace::totals(&self.catalog, &location)
+                .ok()
+                .map(|(_, bytes, newest)| (bytes, newest.and_then(|ms| u64::try_from(ms).ok()))),
+            LocationFormat::SqliteFile { path } => {
+                // The database and its write-ahead log.
+                let file = root.join(path);
+                let mut wal = file.clone().into_os_string();
+                wal.push("-wal");
+                let parts = [measure(&file), measure(Path::new(&wal))];
+                (parts.iter().any(Option::is_some)).then(|| {
+                    parts
+                        .iter()
+                        .flatten()
+                        .fold((0, None), |(bytes, newest), (b, n)| {
+                            (bytes + b, newest.max(*n))
+                        })
+                })
+            }
+            LocationFormat::IcebergParquet { namespace } => measure(&root.join(namespace)),
+            LocationFormat::Lance { root: dir } => measure(&root.join(dir)),
+            _ => None,
+        };
+        match measured {
+            Some((bytes, newest)) => (Some(bytes), newest),
+            None => (None, None),
+        }
+    }
+
     pub(crate) fn in_place_summary(&self, location: &str) -> Option<InPlace> {
         let location = self.catalog.get_location(location).ok()?;
         let LocationFormat::InPlace { place, path } = &location.format else {
@@ -204,8 +287,9 @@ impl Api {
         self.summary_of(caller, &req.space).await
     }
 
-    /// Open a folder viewed in place on this computer in its file manager.
-    pub async fn show_folder(&self, caller: &Caller, req: SpaceRef) -> Result<Empty, ApiError> {
+    /// Open a folder viewed in place on this computer in its file manager,
+    /// or one file of it in its folder.
+    pub async fn show_folder(&self, caller: &Caller, req: ShowFolder) -> Result<Empty, ApiError> {
         caller.require_owner()?;
         let location = self.in_place_of(&req.space)?;
         let LocationFormat::InPlace { place: None, path } = &location.format else {
@@ -214,15 +298,67 @@ impl Api {
                 req.space
             )));
         };
-        let path = Path::new(path);
-        if !path.is_dir() {
+        let within = req.path.as_deref().map(str::trim).filter(|p| !p.is_empty());
+        let target = match within {
+            Some(within) => {
+                if !inplace::is_path_within(within) {
+                    return Err(ApiError::invalid(format!("{within} is not a file in it")));
+                }
+                if inplace::file(&self.catalog, &location, within)?.is_none() {
+                    return Err(ApiError::not_found(format!(
+                        "{} has no file {}",
+                        req.space, within
+                    )));
+                }
+                Path::new(path).join(within)
+            }
+            None => Path::new(path).to_path_buf(),
+        };
+        if !target.exists() {
             return Err(ApiError::invalid(format!(
                 "{} isn't there right now",
-                path.display()
+                target.display()
             )));
         }
-        crate::sources::reveal(path, true).map_err(ApiError::internal)?;
+        crate::sources::reveal(&target, target.is_dir()).map_err(ApiError::internal)?;
         Ok(Empty {})
+    }
+
+    /// A page of the rows of one data file (a CSV, TSV, Parquet or JSON, at
+    /// any folder) of a collection that views a folder in place: the path is
+    /// checked first, the file is read where it is (a NAS's or a drive's
+    /// through its cache) and parsed by its own reader, no SQL involved.
+    pub async fn read_file_rows(
+        &self,
+        caller: &Caller,
+        req: ReadFileRows,
+    ) -> Result<Rows, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let location = self.in_place_of(&req.space)?;
+        let limit = req
+            .limit
+            .unwrap_or(DEFAULT_PAGE_ROWS)
+            .clamp(1, MAX_PAGE_ROWS);
+        let offset = req.offset.unwrap_or(0);
+        if inplace::file(&self.catalog, &location, &req.path)?.is_none() {
+            return Err(ApiError::not_found(format!(
+                "{} has no file {}",
+                req.space, req.path
+            )));
+        }
+        let parsed = inplace::file_rows(
+            &self.catalog,
+            &self.engines,
+            &location,
+            &req.path,
+            offset,
+            limit as usize,
+        )
+        .await?;
+        let mut rows = encode_rows(&parsed.schema, &parsed.rows, usize::MAX, MAX_RESULT_BYTES)?;
+        rows.truncated |= parsed.cut;
+        Ok(rows)
     }
 
     /// One folder of a collection viewed in place, from its index (so also
@@ -251,7 +387,22 @@ impl Api {
             });
             inplace::list_deep(&self.catalog, &location, kind, offset, limit)?
         } else {
-            let mut listing = inplace::list(&self.catalog, &location, folder, offset, limit)?;
+            let order = match req.sort {
+                None => inplace::FileOrder::Kinds,
+                Some(FileSort::Name) => inplace::FileOrder::Name,
+                Some(FileSort::Modified) => inplace::FileOrder::Modified,
+                Some(FileSort::Size) => inplace::FileOrder::Size,
+                Some(FileSort::Kind) => inplace::FileOrder::Kind,
+            };
+            let descending = req.descending.unwrap_or(false);
+            let mut listing = inplace::list(
+                &self.catalog,
+                &location,
+                folder,
+                (order, descending),
+                offset,
+                limit,
+            )?;
             if let Some(kind) = req.kind {
                 listing.files.retain(|f| kind_of(&f.kind) == kind);
             }
@@ -264,6 +415,11 @@ impl Api {
                 .map(|f| FileFolder {
                     name: f.name,
                     files: f.files,
+                    size: f.size,
+                    modified_ms: f.modified_ms.and_then(|ms| u64::try_from(ms).ok()),
+                    photos: f.photos,
+                    notes: f.notes,
+                    cover: f.cover.into_iter().map(item_of).collect(),
                 })
                 .collect(),
             files: listing.files.into_iter().map(item_of).collect(),

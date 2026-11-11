@@ -138,6 +138,12 @@ pub struct SpaceSummary {
     pub expires_at: Option<u64>,
     /// For a collection that views a folder where it is (§7.7): which.
     pub in_place: Option<InPlace>,
+    /// Its bytes on this computer (a folder viewed in place: the files it
+    /// views), where this computer can tell.
+    pub size_bytes: Option<u64>,
+    /// When it last changed, in milliseconds since the Unix epoch, where
+    /// this computer can tell.
+    pub changed_at_ms: Option<u64>,
 }
 
 /// The folder a collection views where it is, and how its index stands.
@@ -184,6 +190,21 @@ pub struct ListFiles {
     pub deep: Option<bool>,
     /// Only files of this kind.
     pub kind: Option<FileKind>,
+    /// In what order the files come: photos first, then notes, tables and
+    /// the rest, each by name, when left out.
+    pub sort: Option<FileSort>,
+    /// The other way round.
+    pub descending: Option<bool>,
+}
+
+/// What a folder's files are put in order by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FileSort {
+    Name,
+    Modified,
+    Size,
+    Kind,
 }
 
 /// A folder of a collection viewed in place: the folders in it, and a page
@@ -197,12 +218,22 @@ pub struct FileListing {
     pub total: u64,
 }
 
-/// A folder within the one listed, with how many files are under it.
+/// A folder within the one listed, with how many files are under it,
+/// their bytes, and when the newest of them was changed (milliseconds since
+/// the Unix epoch).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FileFolder {
     pub name: String,
     pub files: u64,
+    pub size: u64,
+    pub modified_ms: Option<u64>,
+    /// Photos and notes under it, in all its folders.
+    pub photos: u64,
+    pub notes: u64,
+    /// What its cover shows, as a collection's does: its newest photos that
+    /// have a thumbnail (up to three), else its newest note.
+    pub cover: Vec<FileItem>,
 }
 
 /// What a file is, as far as showing it goes.
@@ -225,8 +256,10 @@ pub struct FileItem {
     pub name: String,
     pub kind: FileKind,
     pub size: u64,
-    /// When it was last changed: `2025-11-07 09:40:00`.
+    /// When it was last changed, on this computer's clock: `2025-11-07 09:40:00`.
     pub modified: String,
+    /// The same moment, in milliseconds since the Unix epoch.
+    pub modified_ms: u64,
     /// A photo's caption or a note's name.
     pub title: Option<String>,
     /// When a photo was taken, as its captions or the file say.
@@ -247,6 +280,36 @@ pub struct FileItem {
 pub struct FileRef {
     pub space: String,
     pub path: String,
+}
+
+/// `read_file_rows`: a page of the rows of one data file (a CSV, TSV,
+/// Parquet or JSON, at any folder) of a collection that views a folder in
+/// place, read where the file is, as an Arrow IPC stream.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ReadFileRows {
+    pub space: String,
+    /// The file, `/`-separated, within the folder viewed.
+    pub path: String,
+    /// Rows per page, 1 to 1000; default 100.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Rows to skip.
+    #[serde(default)]
+    pub offset: Option<u64>,
+}
+
+/// `show_folder`: open a folder viewed in place on this computer in its
+/// file manager, or one file of it in its folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ShowFolder {
+    pub space: String,
+    /// The file to show; the folder itself when left out.
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 /// `create_space`: a new local Space.
@@ -283,6 +346,9 @@ pub enum StorageType {
     /// The owner's Google Drive, signed in to with their Google account;
     /// added with `start_google_drive`, not `add_storage`.
     Gdrive,
+    /// The owner's Dropbox, signed in to with their Dropbox account;
+    /// added with `start_dropbox`, not `add_storage`.
+    Dropbox,
 }
 
 /// A place Spaces can be kept: this computer, or a registered storage.
@@ -449,6 +515,68 @@ pub struct PauseSource {
 #[serde(rename_all = "camelCase")]
 pub struct SourceRef {
     pub source: String,
+}
+
+/// `start_dropbox`: connect the owner's Dropbox through their own app and
+/// OAuth + PKCE. The drive is always encrypted. App folder or Full Dropbox
+/// access is chosen in Dropbox's App Console (`read_all` records the latter).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct StartDropbox {
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub make_default: Option<bool>,
+    #[serde(default)]
+    pub read_all: Option<bool>,
+}
+
+impl std::fmt::Debug for StartDropbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StartDropbox")
+            .field("client_id", &self.client_id)
+            .field("label", &self.label)
+            .field("make_default", &self.make_default)
+            .field("read_all", &self.read_all)
+            .finish()
+    }
+}
+
+/// `finish_dropbox`: the one-time sign-in ID and the authorization code
+/// Dropbox showed the owner. Neither value is logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FinishDropbox {
+    pub id: String,
+    pub code: String,
+}
+
+impl std::fmt::Debug for FinishDropbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FinishDropbox")
+            .field("id", &"<redacted>")
+            .field("code", &"<redacted>")
+            .finish()
+    }
+}
+
+/// `dropbox_app`: the remembered app's client ID only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DropboxApp {
+    pub client_id: Option<String>,
+}
+
+/// Dropbox's sign-in page and the one-time ID for finishing this connection;
+/// the pending sign-in expires after ten minutes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DropboxSignIn {
+    pub url: String,
+    pub id: String,
 }
 
 /// Where the owner comes back to after Google's sign-in page.

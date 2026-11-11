@@ -138,11 +138,29 @@ struct WebdavPut {
     credentials: Credentials,
 }
 
+/// Streaming upload sessions to Dropbox. The refresh token stays out of
+/// Debug and error messages; the short-lived access token is refreshed here,
+/// independently of opendal's reads.
+#[derive(Clone)]
+struct DropboxPut {
+    client: reqwest::Client,
+    /// The app's folder, ending in `/`.
+    root: String,
+    client_id: String,
+    refresh_token: Zeroizing<String>,
+    access: std::sync::Arc<std::sync::Mutex<Option<(String, std::time::Instant)>>>,
+    token_url: String,
+    session_start: String,
+    session_append: String,
+    session_finish: String,
+}
+
 /// The folder of one Space on a storage.
 #[derive(Clone)]
 pub struct RemoteStore {
     op: Operator,
     put: Option<WebdavPut>,
+    dropbox_put: Option<DropboxPut>,
     /// The bucket, on object storage, for what a person is told.
     bucket: Option<String>,
 }
@@ -224,6 +242,199 @@ fn temp_name(path: &str) -> String {
     }
 }
 
+impl DropboxPut {
+    fn error(path: &str, status: reqwest::StatusCode) -> StoreError {
+        match status {
+            reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+                StoreError::Denied
+            }
+            status => StoreError::Other(format!("uploading {path}: HTTP {status}")),
+        }
+    }
+
+    /// A fresh access token, kept for its short lifetime. Only the error's
+    /// HTTP status is surfaced, never the token response's body.
+    async fn access_token(&self) -> Result<String, StoreError> {
+        if let Some((token, until)) = self.access.lock().unwrap().clone() {
+            if until > std::time::Instant::now() + std::time::Duration::from_secs(60) {
+                return Ok(token);
+            }
+        }
+        #[derive(serde::Deserialize)]
+        struct Answer {
+            access_token: String,
+            expires_in: u64,
+        }
+        let response = self
+            .client
+            .post(&self.token_url)
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", self.refresh_token.as_str()),
+                ("client_id", self.client_id.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|e| StoreError::Other(format!("refreshing Dropbox: {}", e.without_url())))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(Self::error("token", status));
+        }
+        let answer: Answer = response
+            .json()
+            .await
+            .map_err(|e| StoreError::Other(format!("Dropbox's token answer: {e}")))?;
+        let token = answer.access_token;
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(answer.expires_in);
+        *self.access.lock().unwrap() = Some((token.clone(), until));
+        Ok(token)
+    }
+
+    /// A Dropbox-API-Arg header: valid JSON, with non-ASCII escaped so the
+    /// header remains ASCII even for a folder the owner named themselves.
+    fn json_arg(value: &impl serde::Serialize) -> Result<String, StoreError> {
+        let json = serde_json::to_string(value)
+            .map_err(|e| StoreError::Other(format!("Dropbox request: {e}")))?;
+        let mut arg = String::with_capacity(json.len());
+        for c in json.chars() {
+            if c.is_ascii() {
+                arg.push(c);
+            } else {
+                let mut units = [0; 2];
+                for unit in c.encode_utf16(&mut units) {
+                    arg.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+        }
+        Ok(arg)
+    }
+
+    /// Upload `size` bytes in a start/append/finish session, one part at a
+    /// time. Memory holds one part, not the whole file.
+    async fn upload(
+        &self,
+        path: &str,
+        size: u64,
+        chunks: BoxStream<'static, std::io::Result<Bytes>>,
+    ) -> Result<(), StoreError> {
+        let token = self.access_token().await?;
+        let target = format!("{}{}", self.root, path);
+        let start = self
+            .client
+            .post(&self.session_start)
+            .bearer_auth(&token)
+            .header(
+                "Dropbox-API-Arg",
+                Self::json_arg(&serde_json::json!({ "close": false }))?,
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .header(reqwest::header::CONTENT_LENGTH, 0)
+            .send()
+            .await
+            .map_err(|e| StoreError::Other(format!("starting {target}: {}", e.without_url())))?;
+        let status = start.status();
+        if !status.is_success() {
+            return Err(Self::error(&target, status));
+        }
+        #[derive(serde::Deserialize)]
+        struct Session {
+            session_id: String,
+        }
+        let session: Session = start
+            .json()
+            .await
+            .map_err(|e| StoreError::Other(format!("Dropbox's session answer: {e}")))?;
+        let mut sent = 0u64;
+        let mut pending = Vec::new();
+        let mut chunks = chunks;
+        while let Some(chunk) = chunks
+            .try_next()
+            .await
+            .map_err(|e| StoreError::Other(format!("{target}: {e}")))?
+        {
+            pending.extend_from_slice(&chunk);
+            while pending.len() >= UPLOAD_PART_BYTES {
+                let part: Vec<u8> = pending.drain(..UPLOAD_PART_BYTES).collect();
+                self.append_part(&token, &target, &session.session_id, sent, part)
+                    .await?;
+                sent += UPLOAD_PART_BYTES as u64;
+            }
+        }
+        if !pending.is_empty() {
+            let last = pending.len() as u64;
+            self.append_part(&token, &target, &session.session_id, sent, pending)
+                .await?;
+            sent += last;
+        }
+        if sent != size {
+            return Err(StoreError::Other(format!(
+                "{target}: {sent} of {size} bytes were read to send"
+            )));
+        }
+        let commit = serde_json::json!({
+            "path": target,
+            "mode": "overwrite",
+            "mute": true,
+            "autorename": false,
+            "strict_conflict": false,
+        });
+        let response = self
+            .client
+            .post(&self.session_finish)
+            .bearer_auth(&token)
+            .header(
+                "Dropbox-API-Arg",
+                Self::json_arg(&serde_json::json!({
+                    "cursor": { "session_id": session.session_id, "offset": sent },
+                    "commit": commit,
+                }))?,
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .header(reqwest::header::CONTENT_LENGTH, 0)
+            .send()
+            .await
+            .map_err(|e| StoreError::Other(format!("finishing {target}: {}", e.without_url())))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(Self::error(&target, status));
+        }
+        Ok(())
+    }
+
+    /// Append one part at `offset`, never a request per input chunk.
+    async fn append_part(
+        &self,
+        token: &str,
+        target: &str,
+        session_id: &str,
+        offset: u64,
+        part: Vec<u8>,
+    ) -> Result<(), StoreError> {
+        let size = part.len();
+        let response = self
+            .client
+            .post(&self.session_append)
+            .bearer_auth(token)
+            .header(
+                "Dropbox-API-Arg",
+                Self::json_arg(&serde_json::json!({
+                    "cursor": { "session_id": session_id, "offset": offset },
+                }))?,
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .header(reqwest::header::CONTENT_LENGTH, size)
+            .body(part)
+            .send()
+            .await
+            .map_err(|e| StoreError::Other(format!("appending {target}: {}", e.without_url())))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(Self::error(target, status));
+        }
+        Ok(())
+    }
+}
+
 impl RemoteStore {
     /// The folder `folder` (plain segments; `""` for the top) under the
     /// WebDAV server at `endpoint` (`https://host[:port][/path]`).
@@ -286,6 +497,7 @@ impl RemoteStore {
                 base,
                 credentials,
             }),
+            dropbox_put: None,
             bucket: None,
         })
     }
@@ -336,6 +548,7 @@ impl RemoteStore {
         Ok(Self {
             op,
             put: None,
+            dropbox_put: None,
             bucket: None,
         })
     }
@@ -459,6 +672,7 @@ impl RemoteStore {
         Ok(Self {
             op,
             put: None,
+            dropbox_put: None,
             bucket: None,
         })
     }
@@ -519,6 +733,7 @@ impl RemoteStore {
         Ok(Self {
             op,
             put: None,
+            dropbox_put: None,
             bucket: Some(bucket.name.to_string()),
         })
     }
@@ -543,6 +758,7 @@ impl RemoteStore {
         Ok(Self {
             op,
             put: None,
+            dropbox_put: None,
             bucket: None,
         })
     }
@@ -574,25 +790,101 @@ impl RemoteStore {
         Ok(Self {
             op,
             put: None,
+            dropbox_put: None,
+            bucket: None,
+        })
+    }
+
+    /// The folder `folder` (plain segments) within the owner's Dropbox app,
+    /// reached with its `client` and the owner's `refresh_token`.
+    pub fn dropbox(
+        folder: &str,
+        client: &crate::DropboxClient,
+        refresh_token: &str,
+    ) -> Result<Self, StoreError> {
+        check_relative_path(folder)?;
+        crate::ready();
+        let builder = opendal::services::Dropbox::default()
+            .root(&format!("/{folder}/"))
+            .client_id(client.client_id())
+            .refresh_token(refresh_token);
+        let op = Operator::new(builder)
+            .map_err(|e| StoreError::Invalid(format!("Dropbox: {}", e.kind())))?;
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| StoreError::Other(format!("HTTP client: {e}")))?;
+        Ok(Self {
+            op,
+            put: None,
+            dropbox_put: Some(DropboxPut {
+                client: http,
+                root: format!("/{folder}/"),
+                client_id: client.client_id().to_string(),
+                refresh_token: Zeroizing::new(refresh_token.to_string()),
+                access: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                token_url: "https://api.dropboxapi.com/oauth2/token".into(),
+                session_start: "https://content.dropboxapi.com/2/files/upload_session/start".into(),
+                session_append: "https://content.dropboxapi.com/2/files/upload_session/append_v2"
+                    .into(),
+                session_finish: "https://content.dropboxapi.com/2/files/upload_session/finish"
+                    .into(),
+            }),
+            bucket: None,
+        })
+    }
+
+    /// The owner's folder `folder` within their Dropbox app's access, to
+    /// view in place: read only, so its names need only be the owner's own.
+    pub fn dropbox_view(
+        folder: &str,
+        client: &crate::DropboxClient,
+        refresh_token: &str,
+    ) -> Result<Self, StoreError> {
+        let folder = folder.trim_matches('/');
+        let root = if folder.is_empty() {
+            "/".to_string()
+        } else {
+            check_owner_path(folder)?;
+            format!("/{folder}/")
+        };
+        crate::ready();
+        let builder = opendal::services::Dropbox::default()
+            .root(&root)
+            .client_id(client.client_id())
+            .refresh_token(refresh_token);
+        let op = Operator::new(builder)
+            .map_err(|e| StoreError::Invalid(format!("Dropbox: {}", e.kind())))?;
+        Ok(Self {
+            op,
+            put: None,
+            dropbox_put: None,
             bucket: None,
         })
     }
 
     /// Whether a write lands whole at its path, so it needs no temporary
-    /// name to rename: object storage has no rename, and a PUT there is
-    /// seen complete or not at all. So is an upload to Google Drive, whose
-    /// rename would also put the file it replaces in the drive's trash.
+    /// name to rename: object storage has no rename, and a completed upload
+    /// is seen whole or not at all. So is an upload to either drive, whose
+    /// overwrite also avoids a move conflict on Dropbox.
     fn writes_whole(&self) -> bool {
         let info = self.op.info();
-        !info.capability().rename || info.scheme() == opendal::services::GDRIVE_SCHEME
+        !info.capability().rename
+            || matches!(
+                info.scheme(),
+                opendal::services::GDRIVE_SCHEME | opendal::services::DROPBOX_SCHEME
+            )
     }
 
     /// Check that the folder exists, the storage answers and it accepts
     /// the credentials.
     pub async fn check(&self) -> Result<(), StoreError> {
-        // On Google Drive Oikome sees only what it made, its folder too:
-        // made here when it isn't there yet.
-        if self.op.info().scheme() == opendal::services::GDRIVE_SCHEME {
+        // On a drive Oikome sees only what it made, its folder too: made
+        // here when it isn't there yet.
+        if matches!(
+            self.op.info().scheme(),
+            opendal::services::GDRIVE_SCHEME | opendal::services::DROPBOX_SCHEME
+        ) {
             self.op
                 .create_dir("/")
                 .await
@@ -756,43 +1048,47 @@ impl RemoteStore {
             temp_name(path)
         };
         let written = async {
-            match &self.put {
-                Some(put) => self.put_stream(put, &tmp, size, chunks).await?,
-                None => {
-                    let mut writer = self
-                        .op
-                        .writer_with(&tmp)
-                        .chunk(UPLOAD_PART_BYTES)
-                        .await
-                        .map_err(|e| StoreError::from_dal(path, e))?;
-                    let mut chunks = chunks;
-                    let mut sent = 0u64;
-                    while let Some(chunk) = chunks
-                        .try_next()
-                        .await
-                        .map_err(|e| StoreError::Other(format!("{path}: {e}")))?
-                    {
-                        sent += chunk.len() as u64;
-                        writer
-                            .write(chunk)
+            if let Some(put) = &self.dropbox_put {
+                put.upload(&tmp, size, chunks).await?;
+            } else {
+                match &self.put {
+                    Some(put) => self.put_stream(put, &tmp, size, chunks).await?,
+                    None => {
+                        let mut writer = self
+                            .op
+                            .writer_with(&tmp)
+                            .chunk(UPLOAD_PART_BYTES)
                             .await
                             .map_err(|e| StoreError::from_dal(path, e))?;
-                    }
-                    // Written in place, the upload completes whole or not at
-                    // all: the bytes sent tell its size, without asking the
-                    // storage again.
-                    if whole && sent != size {
-                        let _ = writer.abort().await;
-                        return Err(StoreError::Other(format!(
-                            "{path}: {sent} of {size} bytes were read to send"
-                        )));
-                    }
-                    writer
-                        .close()
-                        .await
-                        .map_err(|e| StoreError::from_dal(path, e))?;
-                    if whole {
-                        return Ok(());
+                        let mut chunks = chunks;
+                        let mut sent = 0u64;
+                        while let Some(chunk) = chunks
+                            .try_next()
+                            .await
+                            .map_err(|e| StoreError::Other(format!("{path}: {e}")))?
+                        {
+                            sent += chunk.len() as u64;
+                            writer
+                                .write(chunk)
+                                .await
+                                .map_err(|e| StoreError::from_dal(path, e))?;
+                        }
+                        // Written in place, the upload completes whole or not at
+                        // all: the bytes sent tell its size, without asking the
+                        // storage again.
+                        if whole && sent != size {
+                            let _ = writer.abort().await;
+                            return Err(StoreError::Other(format!(
+                                "{path}: {sent} of {size} bytes were read to send"
+                            )));
+                        }
+                        writer
+                            .close()
+                            .await
+                            .map_err(|e| StoreError::from_dal(path, e))?;
+                        if whole {
+                            return Ok(());
+                        }
                     }
                 }
             }
@@ -1000,5 +1296,121 @@ mod tests {
         store.delete("a/b.json").await.unwrap();
         store.delete_dir("a/c").await.unwrap();
         assert_eq!(store.list("a").await.unwrap(), vec![]);
+    }
+
+    #[tokio::test]
+    async fn dropbox_uploads_a_file_in_a_session() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let served = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for i in 0..4 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = socket.read(&mut buf).await.unwrap();
+                    request.extend_from_slice(&buf[..n]);
+                    let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+                        continue;
+                    };
+                    let head = String::from_utf8_lossy(&request[..end]);
+                    let length = head
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+                let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+                let head = String::from_utf8_lossy(&request[..end]);
+                let path = head.lines().next().unwrap_or_default().to_string();
+                let arg = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .starts_with("dropbox-api-arg: ")
+                            .then(|| l["dropbox-api-arg: ".len()..].to_string())
+                    })
+                    .unwrap_or_default()
+                    .to_string();
+                let body = String::from_utf8_lossy(&request[end + 4..]).into_owned();
+                let content_type = head
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .starts_with("content-type: ")
+                            .then(|| l["content-type: ".len()..].to_string())
+                    })
+                    .unwrap_or_default()
+                    .to_string();
+                seen.push((path, arg, body, content_type));
+                let answer = match i {
+                    0 => r#"{"access_token":"at","expires_in":3599}"#,
+                    1 => r#"{"session_id":"session-1"}"#,
+                    _ => "{}",
+                };
+                let answer = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+                socket.write_all(answer.as_bytes()).await.unwrap();
+            }
+            seen
+        });
+        let put = DropboxPut {
+            client: reqwest::Client::new(),
+            root: "/Oikome/".into(),
+            client_id: "app".into(),
+            refresh_token: Zeroizing::new("refresh".into()),
+            access: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            token_url: format!("{base}/token"),
+            session_start: format!("{base}/start"),
+            session_append: format!("{base}/append"),
+            session_finish: format!("{base}/finish"),
+        };
+        let chunks = futures::stream::iter(vec![
+            Ok::<_, std::io::Error>(Bytes::from("one")),
+            Ok(Bytes::from("two")),
+        ])
+        .boxed();
+        put.upload("file.bin", 6, chunks).await.unwrap();
+        let seen = served.await.unwrap();
+        assert_eq!(seen.len(), 4);
+        assert!(seen[0].0.starts_with("POST /token "), "{:?}", seen[0].0);
+        assert!(seen[0].2.contains("grant_type=refresh_token"));
+        assert!(seen[0].2.contains("refresh_token=refresh"));
+        assert!(seen[1].0.starts_with("POST /start "));
+        assert_eq!(seen[1].1, "{\"close\":false}");
+        assert_eq!(seen[1].3, "application/octet-stream");
+        // Both small input chunks share one append, not one request per MiB.
+        assert!(seen[2].0.starts_with("POST /append "));
+        assert!(seen[2].1.contains("session-1") && seen[2].1.contains("offset\":0"));
+        assert_eq!(seen[2].2, "onetwo");
+        assert_eq!(seen[2].3, "application/octet-stream");
+        assert!(seen[3].0.starts_with("POST /finish "));
+        assert!(seen[3].1.contains("session-1") && seen[3].1.contains("offset\":6"));
+        assert!(seen[3].1.contains("/Oikome/file.bin"));
+        assert_eq!(seen[3].3, "application/octet-stream");
+    }
+
+    #[test]
+    fn dropbox_args_are_json_and_ascii_and_writes_overwrite_in_place() {
+        let arg = DropboxPut::json_arg(&serde_json::json!({
+            "path": "/Oikome/旅行/\"\\\u{1f600}"
+        }))
+        .unwrap();
+        assert!(arg.is_ascii());
+        let parsed: serde_json::Value = serde_json::from_str(&arg).unwrap();
+        assert_eq!(parsed["path"], "/Oikome/旅行/\"\\\u{1f600}");
+        let store =
+            RemoteStore::dropbox("Oikome", &crate::DropboxClient::new("app"), "refresh").unwrap();
+        assert!(store.writes_whole());
     }
 }

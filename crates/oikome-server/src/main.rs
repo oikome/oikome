@@ -121,7 +121,7 @@ enum StorageCommand {
         /// Lowercase letters, digits and `_`, starting with a letter.
         name: String,
         /// WebDAV address, https://host[:port][/path].
-        #[arg(long, group = "place", required_unless_present_any = ["folder", "drive", "rustfs"])]
+        #[arg(long, group = "place", required_unless_present_any = ["folder", "drive", "dropbox", "rustfs"])]
         webdav: Option<String>,
         /// WebDAV user name.
         #[arg(long, requires = "webdav")]
@@ -133,6 +133,14 @@ enum StorageCommand {
         /// Dropbox, OneDrive, Google Drive); always encrypted.
         #[arg(long, group = "place")]
         drive: Option<PathBuf>,
+        /// A Dropbox app key; give its refresh token with --token-stdin.
+        /// Always encrypted.
+        #[arg(long, group = "place", requires = "token_stdin")]
+        dropbox: Option<String>,
+        /// A Full Dropbox app, so folders of the owner's other files can be
+        /// viewed in place too.
+        #[arg(long, requires = "dropbox")]
+        read_all: bool,
         /// A RustFS object storage server, http(s)://host[:port]; give
         /// --bucket and --access-key-id, and the secret key with
         /// --password-stdin. Encrypted unless --no-encrypt.
@@ -171,6 +179,8 @@ enum StorageCommand {
     /// then its secret, one per line on standard input. The apps then
     /// connect Google Drive without asking for them.
     GoogleApp,
+    /// Remember your own Dropbox app: its App key on standard input.
+    DropboxApp,
     /// Unregister a storage no Space is on and forget its credentials; its
     /// files are left in place.
     Remove { name: String },
@@ -557,6 +567,8 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     username,
                     folder,
                     drive,
+                    dropbox,
+                    read_all,
                     rustfs,
                     bucket,
                     access_key_id,
@@ -567,6 +579,13 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     key_stdin,
                 } => {
                     let (kind, encrypted) = match (webdav, folder, drive) {
+                        _ if dropbox.is_some() => (
+                            StorageKind::Dropbox {
+                                client_id: dropbox.unwrap_or_default(),
+                                reads_all: read_all,
+                            },
+                            true,
+                        ),
                         _ if rustfs.is_some() => (
                             StorageKind::S3 {
                                 endpoint: rustfs.unwrap_or_default(),
@@ -591,7 +610,9 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                             true,
                         ),
                         (None, None, None) => {
-                            return Err("give --webdav, --folder, --drive or --rustfs".into())
+                            return Err(
+                                "give --webdav, --folder, --drive, --dropbox or --rustfs".into()
+                            )
                         }
                     };
                     let mut lines = std::io::stdin().lines();
@@ -630,6 +651,11 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                                 format!("Google Drive/{}", oikome_catalog::OBJECT_STORAGE_FOLDER),
                                 client_id.clone(),
                             ),
+                            StorageKind::Dropbox { client_id, .. } => (
+                                "dropbox",
+                                format!("Dropbox/{}", oikome_catalog::OBJECT_STORAGE_FOLDER),
+                                client_id.clone(),
+                            ),
                             StorageKind::S3 {
                                 endpoint,
                                 bucket,
@@ -658,6 +684,13 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     let session = OikomeSession::new(catalog, engines, SessionConfig::default());
                     session.set_google_app(id.trim(), secret.trim())?;
                     println!("Remembered the Google app {}.", id.trim());
+                }
+                StorageCommand::DropboxApp => {
+                    let mut id = String::new();
+                    std::io::stdin().read_line(&mut id)?;
+                    let session = OikomeSession::new(catalog, engines, SessionConfig::default());
+                    session.set_dropbox_app(id.trim())?;
+                    println!("Remembered the Dropbox app {}.", id.trim());
                 }
                 StorageCommand::Remove { name } => {
                     let session = OikomeSession::new(catalog, engines, SessionConfig::default());

@@ -65,7 +65,8 @@ use oikome_network::protocol::{
 use oikome_network::ChunkStream;
 use oikome_vfs::seal::{open_bytes, open_stream, seal_bytes, seal_stream, SealError};
 use oikome_vfs::{
-    file_chunks, sealed_size, Bucket, Credentials, GoogleClient, RemoteStore, SealKey, StoreError,
+    file_chunks, sealed_size, Bucket, Credentials, DropboxClient, GoogleClient, RemoteStore,
+    SealKey, StoreError,
 };
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
@@ -584,6 +585,8 @@ impl StoredFiles {
 /// Where the owner's Google app is kept in the node's secret store.
 const GOOGLE_APP_ID: &str = "google/app/client-id";
 const GOOGLE_APP_SECRET: &str = "google/app/client-secret";
+/// Where the owner's Dropbox app is kept in the node's secret store.
+const DROPBOX_APP_ID: &str = "dropbox/app/client-id";
 
 fn store_error(storage: &str, e: impl std::fmt::Display) -> SessionError {
     SessionError::Store {
@@ -673,6 +676,20 @@ impl OikomeSession {
                     p => format!("{OBJECT_STORAGE_FOLDER}/{p}"),
                 };
                 RemoteStore::gdrive(&folder, &client, &token).map_err(err)?
+            }
+            StorageKind::Dropbox { client_id, .. } => {
+                let token = secret(SecretKind::Token)?.ok_or_else(|| {
+                    store_error(
+                        &def.name,
+                        "this node isn't signed in to Dropbox; connect it again",
+                    )
+                })?;
+                let client = DropboxClient::new(client_id.as_str());
+                let folder = match binding.path.as_str() {
+                    "" => OBJECT_STORAGE_FOLDER.to_string(),
+                    p => format!("{OBJECT_STORAGE_FOLDER}/{p}"),
+                };
+                RemoteStore::dropbox(&folder, &client, &token).map_err(err)?
             }
         };
         let layout = if def.encrypted {
@@ -778,26 +795,36 @@ impl OikomeSession {
     }
 
     /// The room of the storage `name` as the storage says: free and total
-    /// bytes, or `None` where it doesn't say. Asked of Google Drive over the
+    /// bytes, or `None` where it doesn't say. Asked of a drive over the
     /// network; folders on this computer are measured by the apps.
     pub async fn storage_room(&self, name: &str) -> Result<Option<(u64, u64)>, SessionError> {
         self.deny_principal("reading a storage's room")?;
         let def = self.catalog.get_storage(name)?;
-        let StorageKind::Gdrive { client_id, .. } = &def.kind else {
-            return Ok(None);
-        };
         let secret = |kind| self.engines().storage_secret(&def.name, kind);
-        let (Some(client_secret), Some(token)) =
-            (secret(SecretKind::Password)?, secret(SecretKind::Token)?)
-        else {
+        let Some(token) = secret(SecretKind::Token)? else {
             return Ok(None);
         };
-        let client = GoogleClient::new(client_id.as_str(), client_secret.as_str());
-        match client.room(&token).await {
-            Ok((used, Some(limit))) => Ok(Some((limit.saturating_sub(used), limit))),
-            // No limit: nothing to measure against.
-            Ok((_, None)) => Ok(None),
-            Err(e) => Err(store_error(name, e)),
+        match &def.kind {
+            StorageKind::Gdrive { client_id, .. } => {
+                let Some(client_secret) = secret(SecretKind::Password)? else {
+                    return Ok(None);
+                };
+                let client = GoogleClient::new(client_id.as_str(), client_secret.as_str());
+                match client.room(&token).await {
+                    Ok((used, Some(limit))) => Ok(Some((limit.saturating_sub(used), limit))),
+                    Ok((_, None)) => Ok(None),
+                    Err(e) => Err(store_error(name, e)),
+                }
+            }
+            StorageKind::Dropbox { client_id, .. } => {
+                let client = DropboxClient::new(client_id.as_str());
+                let (used, limit) = client
+                    .room(&token)
+                    .await
+                    .map_err(|e| store_error(name, e))?;
+                Ok(Some((limit.saturating_sub(used), limit)))
+            }
+            _ => Ok(None),
         }
     }
 
@@ -829,6 +856,31 @@ impl OikomeSession {
             (Some(id), Some(secret)) => Ok(Some((id.to_string(), secret))),
             _ => Ok(None),
         }
+    }
+
+    /// Remember the owner's Dropbox app, so the next connection asks for
+    /// nothing. PKCE needs only its App key; no App secret is stored.
+    pub fn set_dropbox_app(&self, client_id: &str) -> Result<(), SessionError> {
+        self.deny_principal("setting the Dropbox app")?;
+        let client_id = client_id.trim();
+        if client_id.is_empty()
+            || client_id.len() > 256
+            || !client_id.chars().all(|c| c.is_ascii_graphic())
+        {
+            return Err(SessionError::Unsupported(
+                "a Dropbox app needs its App key".to_string(),
+            ));
+        }
+        let backend = self.engines().secret_backend()?;
+        backend.set(DROPBOX_APP_ID, client_id)?;
+        backend.delete("dropbox/app/client-secret")
+    }
+
+    /// The owner's Dropbox app as remembered: its App key.
+    pub fn dropbox_app(&self) -> Result<Option<String>, SessionError> {
+        self.deny_principal("reading the Dropbox app")?;
+        let backend = self.engines().secret_backend()?;
+        Ok(backend.get(DROPBOX_APP_ID)?.map(|id| id.to_string()))
     }
 
     /// The key of the encrypted storage `name`, to add the storage on

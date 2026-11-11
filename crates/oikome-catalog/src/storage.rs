@@ -14,7 +14,7 @@
 
 //! Storages (architecture v3 §7.5): places other than this node's disk
 //! that hold Spaces: a NAS at home reached over WebDAV or mounted as a
-//! folder, or a cloud drive's sync folder.
+//! folder, or a cloud drive's sync folder or its API (Google Drive, Dropbox).
 //!
 //! A storage is registered on each node that uses it (`oikome storage
 //! add`). The registry keeps its address, user name and whether its files
@@ -87,6 +87,16 @@ pub enum StorageKind {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         reads_all: bool,
     },
+    /// Dropbox over its API, signed in with the owner's Dropbox app through
+    /// OAuth + PKCE. Files go in an [`OBJECT_STORAGE_FOLDER`] folder it makes
+    /// within the app's access. Always encrypted; the client secret and the
+    /// refresh token are secrets, kept apart. `reads_all` records that the
+    /// app has Full Dropbox access, for viewing folders in place (§7.7).
+    Dropbox {
+        client_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        reads_all: bool,
+    },
 }
 
 /// The folder (key prefix) of a bucket Oikome keeps its files in, as it
@@ -101,9 +111,10 @@ impl StorageKind {
             StorageKind::Webdav { endpoint, .. } | StorageKind::S3 { endpoint, .. } => {
                 endpoint.starts_with("http://")
             }
-            StorageKind::Folder { .. } | StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => {
-                false
-            }
+            StorageKind::Folder { .. }
+            | StorageKind::Drive { .. }
+            | StorageKind::Gdrive { .. }
+            | StorageKind::Dropbox { .. } => false,
         }
     }
 
@@ -115,9 +126,10 @@ impl StorageKind {
             StorageKind::Webdav { endpoint, .. } | StorageKind::S3 { endpoint, .. } => {
                 endpoint.starts_with("http://") && !is_loopback_endpoint(endpoint)
             }
-            StorageKind::Folder { .. } | StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => {
-                false
-            }
+            StorageKind::Folder { .. }
+            | StorageKind::Drive { .. }
+            | StorageKind::Gdrive { .. }
+            | StorageKind::Dropbox { .. } => false,
         }
     }
 }
@@ -324,7 +336,9 @@ impl OikomeCatalog {
     ) -> Result<StorageDef, CatalogError> {
         validate_storage_name(name)?;
         let on_drive = match &kind {
-            StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => true,
+            StorageKind::Drive { .. }
+            | StorageKind::Gdrive { .. }
+            | StorageKind::Dropbox { .. } => true,
             StorageKind::Folder { path } => {
                 home_dir().is_some_and(|home| is_drive_folder(path, &home))
             }
@@ -371,6 +385,24 @@ impl OikomeCatalog {
                     ));
                 }
                 StorageKind::Gdrive {
+                    client_id,
+                    reads_all,
+                }
+            }
+            StorageKind::Dropbox {
+                client_id,
+                reads_all,
+            } => {
+                let client_id = client_id.trim().to_string();
+                if client_id.is_empty()
+                    || client_id.len() > 256
+                    || !client_id.chars().all(|c| c.is_ascii_graphic())
+                {
+                    return Err(CatalogError::InvalidProperty(
+                        "a Dropbox app key is 1 to 256 visible characters".to_string(),
+                    ));
+                }
+                StorageKind::Dropbox {
                     client_id,
                     reads_all,
                 }

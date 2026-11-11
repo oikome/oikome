@@ -29,6 +29,7 @@ use http_body_util::BodyExt;
 use oikome_api::Api;
 use oikome_node::SecretKind;
 use oikome_server::web::{login_file, WebApp, LOGIN_TTL, MAX_BODY_BYTES};
+use oikome_vfs::dropbox::{Endpoints as DropboxEndpoints, FILES_SCOPE as DROPBOX_SCOPE};
 use oikome_vfs::google::{challenge_of, Endpoints, DRIVE_SCOPE};
 use tower::ServiceExt;
 
@@ -52,6 +53,22 @@ fn web_with(ttl: Duration, google: Endpoints) -> Web {
     let api = Api::new(node.catalog.clone(), node.engines.clone())
         .with_access_log(node.access_log.clone())
         .with_google_endpoints(google);
+    let addr: SocketAddr = HOST.parse().unwrap();
+    let app = WebApp::with_login_ttl(api, addr, login.clone(), ttl).unwrap();
+    Web {
+        router: app.router(),
+        node,
+        login,
+    }
+}
+
+/// With Dropbox's sign-in at `dropbox`.
+fn web_with_dropbox(ttl: Duration, dropbox: DropboxEndpoints) -> Web {
+    let node = Node::new(41);
+    let login = login_file(&node.catalog.oikome_dir());
+    let api = Api::new(node.catalog.clone(), node.engines.clone())
+        .with_access_log(node.access_log.clone())
+        .with_dropbox_endpoints(dropbox);
     let addr: SocketAddr = HOST.parse().unwrap();
     let app = WebApp::with_login_ttl(api, addr, login.clone(), ttl).unwrap();
     Web {
@@ -665,4 +682,191 @@ async fn googles_way_back_answers_this_host_only() {
         )
         .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+// ----- Connecting Dropbox (3.4c) -----
+
+/// A token endpoint standing in for Dropbox's: it keeps each form and
+/// answers without a refresh token, so no real drive is reached.
+async fn dropbox_token_endpoint() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use axum::routing::post;
+    let forms = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = forms.clone();
+    let router = Router::new().route(
+        "/token",
+        post(move |body: axum::body::Bytes| {
+            let kept = kept.clone();
+            async move {
+                kept.lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&body).into_owned());
+                (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    r#"{"access_token":"at","expires_in":3599,"token_type":"Bearer"}"#.to_string(),
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/token", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    (url, forms)
+}
+
+impl Web {
+    async fn dropbox_api(&self, op: &str, cookie: &str, body: &str) -> Response<Body> {
+        self.send(
+            self.api(op)
+                .header(header::COOKIE, cookie)
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+    }
+
+    async fn start_dropbox(&self, cookie: &str, body: &str) -> Response<Body> {
+        self.dropbox_api("start_dropbox", cookie, body).await
+    }
+
+    async fn finish_dropbox(&self, cookie: &str, body: &str) -> Response<Body> {
+        self.dropbox_api("finish_dropbox", cookie, body).await
+    }
+}
+
+#[tokio::test]
+async fn dropbox_needs_the_owners_own_app() {
+    let web = web(LOGIN_TTL);
+    let cookie = web.login().await;
+    for body in [r#"{}"#, r#"{"clientId":""}"#] {
+        let response = web.start_dropbox(&cookie, body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json(response).await["reason"], "dropbox_client_incomplete");
+    }
+}
+
+#[tokio::test]
+async fn a_dropbox_authorization_code_is_finished_once_and_leaves_nothing_when_it_fails() {
+    let (token_url, forms) = dropbox_token_endpoint().await;
+    let web = web_with_dropbox(
+        LOGIN_TTL,
+        DropboxEndpoints {
+            token: token_url,
+            ..DropboxEndpoints::default()
+        },
+    );
+    let cookie = web.login().await;
+    let app = r#""clientId":"the-client""#;
+
+    let response = web
+        .send(
+            web.api("start_dropbox")
+                .body(Body::from(format!(r#"{{{app}}}"#)))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = web
+        .start_dropbox(&cookie, &format!(r#"{{"makeDefault":true,{app}}}"#))
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let started = json(response).await;
+    let url = started["url"].as_str().unwrap();
+    assert!(url.starts_with("https://www.dropbox.com/oauth2/authorize?"));
+    let params = query_of(url);
+    assert_eq!(params["client_id"], "the-client");
+    assert!(!params.contains_key("redirect_uri"));
+    assert!(!params.contains_key("state"));
+    assert_eq!(params["scope"], DROPBOX_SCOPE);
+    assert_eq!(params["token_access_type"], "offline");
+    assert_eq!(params["code_challenge_method"], "S256");
+    let id = started["id"].as_str().unwrap();
+    assert!(id.len() >= 43);
+
+    let response = web
+        .finish_dropbox(&cookie, r#"{"id":"made-up","code":"x"}"#)
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json(response).await["reason"], "dropbox_signin_unknown");
+    let response = web
+        .send(
+            web.api("finish_dropbox")
+                .body(Body::from(format!(r#"{{"id":"{id}","code":"x"}}"#)))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let response = web
+        .finish_dropbox(&cookie, &format!(r#"{{"id":"{id}","code":" "}}"#))
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json(response).await["reason"], "dropbox_code_required");
+    assert!(forms.lock().unwrap().is_empty());
+
+    let response = web
+        .finish_dropbox(&cookie, &format!(r#"{{"id":"{id}","code":"4/0the-code"}}"#))
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let forms = forms.lock().unwrap().clone();
+    assert_eq!(forms.len(), 1);
+    let form = query_of(&format!("?{}", forms[0]));
+    assert_eq!(form["grant_type"], "authorization_code");
+    assert_eq!(form["code"], "4/0the-code");
+    assert_eq!(
+        challenge_of(&form["code_verifier"]),
+        params["code_challenge"]
+    );
+    assert!(!form.contains_key("redirect_uri"));
+    assert_eq!(form["client_id"], "the-client");
+    assert!(!form.contains_key("client_secret"));
+
+    let response = web
+        .finish_dropbox(&cookie, &format!(r#"{{"id":"{id}","code":"again"}}"#))
+        .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json(response).await["reason"], "dropbox_signin_unknown");
+    assert_eq!(forms.len(), 1);
+    assert!(web.node.catalog.list_storages().is_empty());
+    let secrets = web.node.engines.secret_backend().unwrap();
+    for kind in [SecretKind::Token, SecretKind::Password] {
+        assert!(secrets.get(&kind.account("dropbox")).unwrap().is_none());
+    }
+}
+
+#[tokio::test]
+async fn the_dropbox_app_is_remembered_so_the_next_drive_asks_for_nothing() {
+    let web = web(LOGIN_TTL);
+    let cookie = web.login().await;
+    let dropbox_app = || async {
+        json(
+            web.send(
+                web.api("dropbox_app")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await
+    };
+    assert_eq!(dropbox_app().await["clientId"], serde_json::Value::Null);
+    let session = oikome_node::OikomeSession::new(
+        web.node.catalog.clone(),
+        web.node.engines.clone(),
+        oikome_node::SessionConfig::default(),
+    );
+    session.set_dropbox_app("kept-app").unwrap();
+    let app = dropbox_app().await;
+    assert_eq!(app["clientId"], "kept-app");
+    let response = web.start_dropbox(&cookie, r#"{}"#).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let url = json(response).await["url"].as_str().unwrap().to_string();
+    assert_eq!(query_of(&url)["client_id"], "kept-app");
+    assert_eq!(query_of(&url)["scope"], DROPBOX_SCOPE);
+    let response = web.start_dropbox(&cookie, r#"{"clientId":"other"}"#).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        query_of(json(response).await["url"].as_str().unwrap())["client_id"],
+        "other"
+    );
 }

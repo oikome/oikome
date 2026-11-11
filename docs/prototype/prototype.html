@@ -230,6 +230,22 @@ a { color: inherit; text-decoration: none; }
 .table .bad td { color: var(--signal); }
 [data-theme="bold"] .table .bad td { color: var(--ink); background: var(--bad-row); }
 .wrap { overflow-x: auto; }
+/* Collections and folders as in a file manager. */
+.cols-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 22px; }
+.cols-table tbody tr { cursor: pointer; }
+.cols-table .cols-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.ico--s { width: 28px; height: 28px; }
+.sorth { display: inline-flex; gap: 4px; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.sorth.on { color: var(--ink); }
+.num .sorth { justify-content: flex-end; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
+.ftile { display: grid; gap: 6px; padding: 0; border: 0; background: none; text-align: left; color: inherit; font: inherit; cursor: pointer; min-width: 0; }
+.ftile__art { aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); }
+.ftile__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ftile__art--ico svg { width: 40px; height: 40px; color: var(--ink2); }
+.ftile:hover .ftile__art { border-color: var(--ink); }
+.ftile__name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ftile__meta { font: 400 12px/16px var(--mono); color: var(--ink3); }
 
 /* ===================== Covers ===================== */
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
@@ -246,6 +262,15 @@ a { color: inherit; text-decoration: none; }
 [data-theme="ink"] .cover:hover .cover__art img { filter: grayscale(0); }
 .collage { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; height: 100%; }
 .collage img:first-child { grid-row: span 2; }
+.collage--1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.collage--2 { grid-template-rows: 1fr; grid-template-columns: 1fr 1fr; }
+.collage--2 img:first-child { grid-row: auto; }
+/* A folder inside a folder: a cover like a collection's, as a button. */
+button.cover { width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+.fsubs { margin-bottom: 28px; }
+.ftile__art--paper { place-items: start; padding: 10px 12px; text-align: left; }
+.ftile__art--paper span { font-size: 12px; line-height: 17px; color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.ftile__art--rows { place-items: start stretch; padding: 8px 10px; }
 [data-theme="bold"] .collage { gap: 0; } [data-theme="bold"] .collage img + img { border-left: 2px solid var(--edge); } [data-theme="bold"] .collage img:last-child { border-top: 2px solid var(--edge); }
 .paper { height: 100%; padding: 16px 18px 44px; display: flex; flex-direction: column; gap: 8px; }
 [data-theme="ink"] .paper { background-image: radial-gradient(var(--dot) .6px, transparent .6px); background-size: 4px 4px; }
@@ -367,6 +392,12 @@ a { color: inherit; text-decoration: none; }
 .dialog__body { padding: 20px; display: grid; gap: 18px; }
 .dialog__foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 20px; border-top: var(--bw) solid var(--line2); }
 [data-theme="bold"] .dialog__foot { border-top: 2px solid var(--edge); }
+@media (min-width: 721px) {
+  .scrim:has(.dialog--top) { place-items: start center; }
+  .dialog--top { display: flex; flex-direction: column; max-height: calc(100vh - 96px); margin-top: 64px; overflow: hidden; }
+  .dialog--top .dialog__head, .dialog--top .dialog__foot { flex: none; }
+  .dialog--top .dialog__body { min-height: 0; overflow-y: auto; }
+}
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .steps div { display: grid; gap: 6px; }
 .steps div i { height: 3px; background: var(--line); border-radius: 2px; transition: background-color .3s var(--ease); }
@@ -453,6 +484,30 @@ a { color: inherit; text-decoration: none; }
 [data-theme="bold"] .opt.on .check::after { border-color: var(--edge); }
 .opts--grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .opts--tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Google Drive through the owner's own app: register it, then give it to Oikome. */
+.gapp { display: grid; gap: 8px; padding: 14px; border: var(--bw) solid var(--line2); border-radius: var(--r-btn); }
+.gapp__t { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; font-weight: 600; }
+.gapp__n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--raised); font-size: 12px; font-weight: 600; flex: none; }
+.gapp ol { margin: 0; padding-left: 20px; }
+.gapp ol a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.gapp__or { display: flex; align-items: center; gap: 12px; color: var(--ink3); font-size: 12px; }
+.gapp__or::after { content: ""; flex: 1; height: 1px; background: var(--line2); }
+/* A folder viewed where it is: named with a folder before it, in the text face. */
+.cover__name--folder { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font); font-weight: 600; }
+.cover__name--folder svg { flex: none; color: var(--ink3); }
+/* On the first run, another place is added beside the places. */
+.wadd { display: flex; align-items: center; gap: 12px; width: 100%; margin: -8px 0 22px; padding: 10px 14px; border: var(--bw) dashed var(--line); border-radius: var(--r-btn); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: border-color .15s var(--ease), background-color .15s var(--ease); }
+.wadd:hover { border-style: solid; border-color: var(--ink3); background: var(--raised); }
+.wadd__ico { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 8px; background: var(--sunk); color: var(--ink2); }
+.wadd__text { display: grid; gap: 2px; min-width: 0; }
+.wadd__text b { font-size: 14px; font-weight: 600; }
+.wadd__text span { font-size: 12px; line-height: 16px; color: var(--ink3); }
+[data-theme="bold"] .wadd { border-width: 2px; border-color: var(--edge); border-radius: 12px; }
+.wadded { display: grid; gap: 6px; margin: -8px 0 14px; }
+.wadded__row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 12px; border: var(--bw) solid var(--line2); border-radius: var(--r-btn); }
+.wadded__row b { font-size: 14px; font-weight: 600; }
+.wadded__row .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.wadded__row .ico { width: 26px; height: 26px; }
 .box { padding: 12px 14px; border: var(--bw) solid var(--line2); border-radius: var(--r-btn); background: var(--sunk); display: grid; gap: 6px; }
 [data-theme="bold"] .box { border: 2px solid var(--edge); background: var(--paper); border-radius: 12px; }
 .row { display: flex; align-items: center; gap: 10px; }
@@ -485,6 +540,19 @@ a { color: inherit; text-decoration: none; }
 .empty { display: grid; justify-items: center; gap: 10px; padding: 48px 16px; text-align: center; }
 .empty-art { height: 100%; display: grid; place-items: center; color: var(--ink3); }
 .empty-art svg { width: 22px; height: 22px; }
+/* A file itself fills its viewer; the quiet line keeps when, where and who. */
+.dialog.fview { width: min(1080px, calc(100vw - 32px)); }
+.fview .dialog__head h2 { display: grid; min-width: 0; }
+.fview__name { overflow-wrap: anywhere; }
+.fview__quiet { color: var(--ink3); font: 400 12px/18px var(--font); }
+.fview .dialog__body { padding: 0; }
+.fview__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border-bottom: var(--bw) solid var(--line2); }
+.fview__photo { display: grid; place-items: center; min-height: 380px; background: #141310; }
+.fview__photo img { display: block; max-width: 100%; max-height: calc(100vh - 190px); object-fit: contain; }
+.fview__note { max-width: 76ch; min-height: 320px; margin: 0 auto; padding: 32px clamp(20px, 5vw, 64px); }
+.fview__note p { margin: 0; font: 400 15px/24px var(--font); white-space: pre-wrap; }
+.fview__table { max-height: calc(100vh - 220px); padding: 20px; overflow: auto; }
+.fview__table .minitable { font-size: 13px; }
 .lightbox { display: grid; grid-template-columns: minmax(0, 1fr) 280px; width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: hidden; }
 .lightbox__img { position: relative; display: grid; place-items: center; background: #141310; min-height: 380px; }
 .lightbox__img img { max-width: 100%; max-height: calc(100vh - 48px); display: block; }
@@ -572,9 +640,11 @@ html:lang(zh-Hant) { --cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC";
 .top__actions { flex: none; }
 /* On a phone the top bar keeps only the current page's name. */
 @media (max-width: 560px) { .crumb > :not(.here) { display: none; } }
+.crumb__step { padding: 0; border: 0; background: none; font: inherit; color: var(--ink3); cursor: pointer; }
+.crumb__step:hover { color: var(--ink); }
 .card__body .row--between { flex-wrap: wrap; row-gap: 8px; }
 .seg button { white-space: nowrap; }
-@media (max-width: 760px) { .head > div { min-width: 0; max-width: 100%; } .head .seg { max-width: 100%; overflow-x: auto; } }
+@media (max-width: 760px) { .head > div { min-width: 0; max-width: 100%; } .head .seg { max-width: 100%; overflow-x: auto; } .cols-table .hide-s { display: none; } .fgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ===================== Theme switch (design tool, outside the app) ===================== */
 .switch { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex; gap: 4px; padding: 4px; background: #141310; border-radius: 999px; box-shadow: 0 8px 28px rgba(0,0,0,.25); font: 500 12px/1 -apple-system, system-ui, sans-serif; }
@@ -586,7 +656,7 @@ html:lang(zh-Hant) { --cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC";
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; } .side { position: static; height: auto; } .side__foot, .nav-group, .envs { display: none; }
   .side { min-width: 0; } .side .nav { display: flex; flex-wrap: wrap; gap: 4px; } .page, .top { padding-left: 16px; padding-right: 16px; }
-  .grid3 { grid-template-columns: 1fr; } .hero { grid-template-columns: 1fr; } .pipe { grid-template-columns: repeat(4, 1fr); }
+  .grid3 { grid-template-columns: 1fr; } .fsubs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; } .fsubs .paper { padding: 10px 12px; gap: 4px; } .fsubs .paper q { font-size: 13px; line-height: 18px; } .fsubs .paper .more { display: none; } .hero { grid-template-columns: 1fr; } .pipe { grid-template-columns: repeat(4, 1fr); }
   .src { grid-template-columns: 34px 1fr auto; } .src .hide-s { display: none; } .facts { grid-template-columns: 1fr 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { *, ::before, ::after { animation: none !important; transition: none !important; } }
@@ -647,10 +717,14 @@ const P = {
   copy: '<rect x="8" y="8" width="11.5" height="11.5" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   folder: '<path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/>',
   file: '<path d="M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M14 3.5V8h4"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  rows: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  sort: '<path d="M7 4v16M3.5 16.5 7 20l3.5-3.5M17 20V4M13.5 7.5 17 4l3.5 3.5"/>',
   pause: '<path d="M9 6v12M15 6v12"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.75"/>',
   pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   download: '<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14"/>',
+  upload: '<path d="M12 15.5v-11m-5 5 5-5 5 5M5 19.5h14"/>',
   remove: '<path d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
@@ -731,6 +805,7 @@ const C = [
   { name: 'smart-home', kind: 'series', count: { n: 182340, u: 'readings' }, source: 'Home Assistant', stored: 'Home NAS', series: [6, 7, 9, 8, 11, 14, 13, 12, 15, 18, 17, 16, 14, 12, 10, 9, 11, 13, 16, 19, 18, 15, 12, 10] },
   { name: 'reading-list', kind: 'table', count: { n: 86, u: 'books' }, source: 'Goodreads', stored: 'iCloud Drive', rows: [['The Book of Disquiet', 'Pessoa', 'Reading'], ['Blindness', 'Saramago', 'Read'], ['Pereira Maintains', 'Tabucchi', 'Next']] },
   { name: 'lisbon-photos', kind: 'photos', count: { n: 6, u: 'photos' }, source: 'Example', stored: 'Local', art: ['alfama', 'pasteis', 'belem'], example: true },
+  { name: 'trips', label: 'Trips', kind: 'photos', count: { n: 9, u: 'photos' }, source: null, stored: 'Google Drive', inPlace: true, art: ['belem', 'tram', 'tiles'] },
 ];
 const FROM = [
   { name: 'hiking-routes', from: 'Sam', av: 'a', kind: 'table', count: { n: 41, u: 'routes' }, mode: 'live', until: '2026-01-15', rows: [['Serra da Arrábida', '14.2 km', 'Hard'], ['Sintra loop', '9.8 km', 'Easy'], ['Cabo Espichel', '11.0 km', 'Medium']] },
@@ -826,6 +901,7 @@ const PLACES = [
   { ico: 'computer', name: 'Local', kind: 'local', addr: '~/Oikome', free: [412, 'GB'], used: [588, 'GB'], total: [1, 'TB'], p: 59, oik: [18.1, 'GB'], oikP: 2, other: [570, 'GB'], enc: false, def: true },
   { ico: 'nas', name: 'Home NAS', kind: 'nas', addr: 'https://nas.local:5006/oikome', host: 'nas.local', folder: '/oikome', user: 'rosh', admin: true, free: [2.2, 'TB'], used: [1.8, 'TB'], total: [4, 'TB'], p: 45, oik: [18, 'GB'], oikP: 1.5, other: [1.78, 'TB'], enc: true },
   { ico: 'drive', name: 'iCloud Drive', kind: 'drive', addr: 'iCloud Drive/Oikome', free: [48, 'GB'], used: [152, 'GB'], total: [200, 'GB'], p: 76, oik: [2, 'MB'], oikP: 1, other: [152, 'GB'], enc: true },
+  { ico: 'drive', name: 'Google Drive', kind: 'gdrive', addr: 'Oikome', free: [14.9, 'GB'], used: [0.1, 'GB'], total: [15, 'GB'], p: 1, oik: [0, 'MB'], oikP: 0, other: [0.1, 'GB'], enc: true },
 ];
 const placeName = (name) => (name === 'Local' ? t('place.local') : name);
 function placeMeta(p) { return { local: t('place.localMeta', { path: p.addr }), nas: `${esc(p.host)} · ${t('encrypted')}`, drive: t('encrypted'), folder: esc(p.addr) }[p.kind]; }
@@ -844,7 +920,7 @@ const UNTIL = [['1w', '2025-11-09'], ['1m', '2025-12-02'], ['1y', '2026-11-02'],
 const untilText = (iso) => (iso ? md(iso) : t('noEnd'));
 const LEND = { to: ['Sam'], cores: 4, hours: 2, on: true };
 
-const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true };
+const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true };
 (() => {
   const qs = new URLSearchParams(location.search);
   try { S.mode = localStorage.getItem('oikome-proto-mode') || S.mode; S.lang = localStorage.getItem('oikome-proto-lang') || S.lang; } catch {}
@@ -890,15 +966,17 @@ function art(c) {
   return `<div class="art--table" style="height:100%;padding:12px 14px"><table class="minitable">${c.rows.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></div>`;
 }
 function cover(c, from) {
-  const meta = from ? `${colCount(c)} · ${t('cover.from', { who: c.from })} · ${t(c.mode === 'live' ? 'mode.live' : 'mode.copied')}` : `${colCount(c)} · ${whoLine(c.name)}`;
+  // A folder viewed where it is looks like one: its label says so, its line starts with where it is.
+  const meta = from ? `${colCount(c)} · ${t('cover.from', { who: c.from })} · ${t(c.mode === 'live' ? 'mode.live' : 'mode.copied')}` : c.inPlace ? `${esc(placeName(c.stored))} · ${colCount(c)} · ${whoLine(c.name)}` : `${colCount(c)} · ${whoLine(c.name)}`;
+  const chip = c.inPlace && !from ? `${Is('folder', 12)}${t('kind.folder')}` : `${Is(kindIcon[c.kind], 12)}${esc(from ? c.from : srcName(c))}`;
   const people = from ? av(c.from, c.av) : av('You', 'd') + viewers(c.name).filter((v) => v.t === 'person').map((v) => av(v.n, v.k)).join('');
   return `<a class="cover" href="#collection/${c.name}">
-    <div class="cover__art">${art(c)}<span class="src-glyph">${Is(kindIcon[c.kind], 12)}${esc(from ? c.from : srcName(c))}</span></div>
-    <div class="cover__cap"><div class="cover__line"><span class="cover__name">${c.name}</span>${c.example ? `<span class="tag">${t('example')}</span>` : ''}<span class="stack">${people}</span></div>
+    <div class="cover__art">${art(c)}<span class="src-glyph">${chip}</span></div>
+    <div class="cover__cap"><div class="cover__line"><span class="cover__name ${c.inPlace ? 'cover__name--folder' : ''}">${c.inPlace ? `${Is('folder', 14)}${esc(c.label || c.name)}` : c.name}</span>${c.example ? `<span class="tag">${t('example')}</span>` : ''}<span class="stack">${people}</span></div>
     <div class="cover__meta">${meta}</div></div></a>`;
 }
 const closeX = () => `<button class="btn btn--ghost icon-btn" data-close aria-label="${t('close')}">${I('close')}</button>`;
-const dlg = (title, body, foot, cls) => `<div class="scrim" data-close><div class="dialog ${cls || ''}" role="dialog" aria-modal="true" aria-label="${esc(title.replace(/<[^>]+>/g, ''))}"><div class="dialog__head"><h2>${title}</h2>${closeX()}</div><div class="dialog__body">${body}</div>${foot ? `<div class="dialog__foot">${foot}</div>` : ''}</div></div>`;
+const dlg = (title, body, foot, cls, tools) => `<div class="scrim" data-close><div class="dialog ${cls || ''}" role="dialog" aria-modal="true" aria-label="${esc(title.replace(/<[^>]+>/g, ''))}"><div class="dialog__head"><h2>${title}</h2><div class="row">${tools || ''}${closeX()}</div></div><div class="dialog__body">${body}</div>${foot ? `<div class="dialog__foot">${foot}</div>` : ''}</div></div>`;
 const foot = (left, right) => `<span class="faint" style="font-size:12px">${left || ''}</span><div class="row">${right}</div>`;
 const steps = (names, cur) => `<div class="steps" style="grid-template-columns:repeat(${names.length},1fr)">${names.map((s, i) => `<div class="${i < cur ? 'on' : ''}"><i></i><span class="label">${t(s)}</span></div>`).join('')}</div>`;
 const btn = (label, attrs, cls) => `<button class="btn ${cls || ''}" ${attrs || ''}>${label}</button>`;
@@ -975,18 +1053,118 @@ screens.home = () => {
   </div>`;
 };
 
+// Collections as in a file manager: by place, sorted, as covers or a list.
+const BYTES = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 };
+const sizeBytes = (v) => (v ? v[0] * BYTES[v[1]] : 0);
+const CHANGED = { 'family-photos': '2025-11-02T18:05', 'flomo-notes': '2025-11-02T09:40', spending: '2025-11-01T07:00', 'smart-home': '2025-11-02T19:35', 'reading-list': '2025-11-01T07:00', 'lisbon-photos': '2025-10-30T12:00', trips: '2025-10-28T21:10', recipes: '2025-10-31T20:00', 'climbing-log': '2025-10-29T19:00' };
+const kindName = (c) => t(`kind.${c.inPlace ? 'folder' : c.kind}`);
+const SORT_FIRST = { name: 'asc', kind: 'asc', changed: 'desc', size: 'desc' };
+function sorted(list, key, dir, keys) {
+  const d = dir === 'asc' ? 1 : -1;
+  return [...list].sort((a, b) => {
+    const x = keys[key](a), y = keys[key](b);
+    return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), S.lang || 'en')) * d;
+  });
+}
+const COL_KEYS = { name: (c) => c.label || c.name, changed: (c) => CHANGED[c.name] || '', size: (c) => sizeBytes(SIZES[c.name]), kind: kindName };
+const sortHead = (act, key, cur, dir, label, cls) => `<th class="label ${cls || ''}"><button class="sorth ${cur === key ? 'on' : ''}" data-act="${act}" data-k="${key}"${cur === key ? ` aria-sort="${dir === 'asc' ? 'ascending' : 'descending'}"` : ''}>${label}${cur === key ? `<span aria-hidden="true">${dir === 'asc' ? '↑' : '↓'}</span>` : ''}</button></th>`;
+const viewSeg = (act, cur) => `<div class="seg" role="group" aria-label="${t('view.label')}"><button class="${cur === 'grid' ? 'on' : ''}" data-act="${act}" data-v="grid" aria-label="${t('view.grid')}" title="${t('view.grid')}">${Is('grid', 15)}</button><button class="${cur === 'list' ? 'on' : ''}" data-act="${act}" data-v="list" aria-label="${t('view.list')}" title="${t('view.list')}">${Is('rows', 15)}</button></div>`;
+function colRows(list, from) {
+  return `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('csort', 'name', S.csort, S.cdir, t('sort.name'))}${sortHead('csort', 'kind', S.csort, S.cdir, t('sort.kind'), 'hide-s')}<th class="label hide-s">${t('cols.place')}</th>${sortHead('csort', 'size', S.csort, S.cdir, t('sort.size'), 'num')}${sortHead('csort', 'changed', S.csort, S.cdir, t('sort.changed'), 'hide-s')}</tr></thead>
+    <tbody>${list.map((c) => `<tr data-go="collection/${c.name}"><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(c.inPlace ? 'folder' : kindIcon[c.kind], 15)}</span><span class="cols-name">${esc(c.label || c.name)}</span>${c.example ? `<span class="tag">${t('example')}</span>` : ''}</span></td>
+      <td class="hide-s">${kindName(c)}</td><td class="hide-s">${from ? esc(t('cover.from', { who: c.from })) : `${esc(placeName(c.stored))}${c.inPlace ? ` · <span class="faint">${t('cols.inPlace')}</span>` : ''}`}</td>
+      <td class="num mono">${SIZES[c.name] ? sz(SIZES[c.name]) : '—'}</td><td class="hide-s">${CHANGED[c.name] ? md(CHANGED[c.name]) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+}
 screens.collections = () => {
   const f = S.cfilter;
-  const match = (c) => f === 'all' || (f === 'photos' && c.kind === 'photos') || (f === 'notes' && c.kind === 'notes') || (f === 'tables' && (c.kind === 'table' || c.kind === 'series'));
-  const mine = C.filter(match), theirs = fromList().filter(match);
+  const match = (c) => f === 'all' || (f === 'photos' && c.kind === 'photos') || (f === 'notes' && c.kind === 'notes') || (f === 'tables' && (c.kind === 'table' || c.kind === 'series')) || (f === 'folders' && c.inPlace);
+  const here = (c) => S.cplace === 'all' || c.stored === S.cplace;
+  const mine = sorted(C.filter(match).filter(here), S.csort, S.cdir, COL_KEYS);
+  // Shared with you lives on the other side's computer, at no place of yours.
+  const theirs = S.cplace === 'all' ? sorted(fromList().filter(match), S.csort, S.cdir, COL_KEYS) : [];
   const none = (s) => `<div class="card empty" style="padding:28px 16px"><span class="muted">${s}</span></div>`;
+  const show = (list, from) => (S.cview === 'list' ? colRows(list, from) : `<div class="grid3">${list.map((c) => cover(c, from)).join('')}</div>`);
+  const tools = `<div class="cols-tools">
+    <div class="seg">${['all', 'photos', 'notes', 'tables', 'folders'].map((v) => `<button class="${f === v ? 'on' : ''}" data-act="cfilter" data-v="${v}">${t(`filter.${v}`)}</button>`).join('')}</div>
+    <button class="btn" data-act="cplace" aria-haspopup="menu">${Is('drive', 15)}${S.cplace === 'all' ? t('cols.allPlaces') : esc(placeName(S.cplace))}</button>
+    <button class="btn" data-act="csortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.csort}`)}</button>
+    ${viewSeg('cview', S.cview)}</div>`;
   return `${head(t('nav.collections'), t('cols.sub', { mine: cnt({ n: C.length, u: 'collections' }), theirs: nf(fromList().length) }),
-    `<div class="seg">${['all', 'photos', 'notes', 'tables'].map((v) => `<button class="${f === v ? 'on' : ''}" data-act="cfilter" data-v="${v}">${t(`filter.${v}`)}</button>`).join('')}</div><button class="btn btn--primary" data-act="newcol">${I('plus')}${t('newCol')}</button>`)}
+    `<button class="btn btn--primary" data-act="newcol">${I('plus')}${t('newCol')}</button>`)}
+  ${tools}
   <span class="label" style="display:block;margin-bottom:12px">${t('yours')}</span>
-  ${mine.length ? `<div class="grid3">${mine.map((c) => cover(c)).join('')}</div>` : none(t('cols.noneMine'))}
-  <span class="label" style="display:block;margin:34px 0 12px">${t('sharedWithYou')}</span>
-  ${theirs.length ? `<div class="grid3">${theirs.map((c) => cover(c, true)).join('')}</div>` : none(t('cols.noneTheirs'))}`;
+  ${mine.length ? show(mine) : none(t('cols.noneMine'))}
+  ${S.cplace === 'all' ? `<span class="label" style="display:block;margin:34px 0 12px">${t('sharedWithYou')}</span>
+  ${theirs.length ? show(theirs, true) : none(t('cols.noneTheirs'))}` : ''}`;
 };
+
+// A folder viewed where it is, as in a file manager: a path, folders first.
+// Read only; names are the folders' own, in any script.
+const TREES = {
+  trips: { folders: {
+    'Lisbon 2025': { folders: {}, files: [['Alfama.jpg', 'photo', [1.9, 'MB'], '2025-10-12T10:20', 'alfama'], ['Belém Tower.jpg', 'photo', [2.4, 'MB'], '2025-10-12T15:02', 'belem'], ['Pastéis de Belém.jpg', 'photo', [1.1, 'MB'], '2025-10-13T09:41', 'pasteis'], ['Tram 28E.jpg', 'photo', [2.0, 'MB'], '2025-10-13T11:03', 'tram'], ['Sunset.jpg', 'photo', [1.6, 'MB'], '2025-10-13T19:12', 'sunset']] },
+    'Porto 2024': { folders: { Ribeira: { folders: {}, files: [['Ribeira at dusk.jpg', 'photo', [2.2, 'MB'], '2024-06-02T18:20', 'sunset']] } }, files: [['Azulejos.jpg', 'photo', [1.7, 'MB'], '2024-06-01T12:11', 'tiles'], ['Rooftops.jpg', 'photo', [1.8, 'MB'], '2024-06-01T16:30', 'alfama']] },
+    '旅行笔记': { folders: {}, files: [['里斯本.md', 'note', [3, 'KB'], '2025-10-14T22:10', null, '坐 28 路电车上山，在 Graça 下车，再一路走回 Alfama。'], ['Porto.md', 'note', [2, 'KB'], '2024-06-03T21:40', null, 'Ribeira at dusk, the port cellars lit up across the river.']] },
+  }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['flights', '240'], ['hotel', '410'], ['trams', '18']]], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
+};
+const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', other: 'file' };
+// The top crumb goes on into a folder viewed in place: each folder a way back up.
+// On a phone it says only where one is, as on every page; Back goes up.
+function folderCrumb(route, arg, child) {
+  const c = route === 'collection' && C.find((x) => x.name === arg);
+  if (!c || !c.inPlace) return `<span class="here ${route === 'collection' ? 'mono' : ''}">${esc(child)}</span>`;
+  const path = S.fpath[c.name] || [];
+  const parts = [child, ...path];
+  return parts.map((n, i) => {
+    const last = i === parts.length - 1;
+    return last ? `<span class="here">${esc(n)}</span>` : `<button class="crumb__step faint" data-act="fcrumb" data-c="${c.name}" data-i="${i}">${esc(n)}</button><span class="sep">/</span>`;
+  }).join('');
+}
+const newest = (node) => [...node.files.map((f) => f[3]), ...Object.values(node.folders).map(newest)].sort().pop() || '';
+const holds = (node) => node.files.length + Object.keys(node.folders).length;
+// Every file under a folder, the newest first: what its cover shows.
+const under = (node) => [...node.files, ...Object.values(node.folders).flatMap(under)].sort((a, b) => (a[3] < b[3] ? 1 : -1));
+// A folder within a folder is a collection of its own: its cover shows what it holds,
+// the folder sign only beside its name.
+function subArt(node) {
+  const all = under(node);
+  const photos = all.filter((f) => f[4]).slice(0, 3);
+  if (photos.length) return `<div class="collage collage--${photos.length}">${photos.map((f) => `<img src="${PH[f[4]]}" alt="">`).join('')}</div>`;
+  const notes = all.filter((f) => f[1] === 'note');
+  if (notes.length) return `<div class="paper"><span class="label">${md(notes[0][3])}</span><q>${esc(notes[0][5] || notes[0][0])}</q>${notes.length > 1 ? `<span class="more faint mono" style="font-size:12px">+ ${cnt({ n: notes.length - 1, u: 'notes' })}</span>` : ''}</div>`;
+  return `<div class="empty-art">${t('fv.empty')}</div>`;
+}
+function subHolds(node) {
+  const all = under(node);
+  const photos = all.filter((f) => f[1] === 'photo').length, notes = all.filter((f) => f[1] === 'note').length;
+  return photos ? cnt({ n: photos, u: 'photos' }) : notes ? cnt({ n: notes, u: 'notes' }) : cnt({ n: all.length, u: 'items' });
+}
+function folderNode(c) {
+  let node = TREES[c];
+  for (const p of S.fpath[c] || []) node = node && node.folders[p];
+  return node;
+}
+function orderedFolderFiles(c) {
+  const keys = { name: (f) => f[0], changed: (f) => f[3], size: (f) => sizeBytes(f[2]), kind: (f) => t(`kind.${f[1]}`) };
+  return sorted(folderNode(c)?.files || [], S.fsort, S.fdir, keys);
+}
+function folderView(c) {
+  const node = folderNode(c.name);
+  if (!node) { S.fpath[c.name] = []; return folderView(c); }
+  const keys = { name: (e) => e.n, changed: (e) => e.ch, size: (e) => (e.dir ? 0 : sizeBytes(e.s)), kind: (e) => (e.dir ? '' : t(`kind.${e.k}`)) };
+  const dirs = sorted(Object.entries(node.folders).map(([n, f]) => ({ n, dir: true, kids: holds(f), ch: newest(f), node: f })), S.fsort === 'kind' || S.fsort === 'size' ? 'name' : S.fsort, S.fsort === 'kind' || S.fsort === 'size' ? 'asc' : S.fdir, keys);
+  const files = orderedFolderFiles(c.name).map(([n, k, s, ch, ph, x]) => ({ n, k, s, ch, ph, x }));
+  const open = (e) => `data-act="${e.dir ? 'fopen' : 'ffile'}" data-c="${c.name}" data-n="${esc(e.n)}"`;
+  const all = [...dirs, ...files];
+  // Folders first, as covers like the collections outside; then the files, each showing some of itself.
+  const subCover = (e) => `<button class="cover cover--sub" ${open(e)}><div class="cover__art">${subArt(e.node)}</div><div class="cover__cap"><div class="cover__line"><span class="cover__name cover__name--folder">${Is('folder', 14)}${esc(e.n)}</span></div><div class="cover__meta">${subHolds(e.node)} · ${md(e.ch)}</div></div></button>`;
+  const fileArt = (e) => (e.ph ? `<span class="ftile__art"><img src="${PH[e.ph]}" alt=""></span>` : e.k === 'note' && e.x ? `<span class="ftile__art ftile__art--paper"><span>${esc(e.x)}</span></span>` : e.k === 'csv' && e.x ? `<span class="ftile__art ftile__art--rows"><table class="minitable">${e.x.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></span>` : `<span class="ftile__art ftile__art--ico">${I(FILE_ICON[e.k])}</span>`);
+  const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
+  const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
+    <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+  return `${head(esc(c.label), t('fv.readOnly'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
+  ${all.length ? (S.fview === 'list' ? rows : tiles) : `<div class="card empty" style="padding:28px 16px"><span class="muted">${t('fv.empty')}</span></div>`}`;
+}
 
 function masonry(name) {
   return `<div class="masonry">${PHOTOSETS[name].map(([k, cap, d], i) => `<figure class="photo" data-act="photo" data-c="${name}" data-i="${i}" style="cursor:zoom-in"><img src="${PH[k]}" alt="${esc(cap)}"><figcaption><span>${esc(cap)}</span><span>${md(d)}</span></figcaption></figure>`).join('')}</div>`;
@@ -1012,6 +1190,7 @@ screens.collection = (name) => {
   const theirs = own ? null : fromList().find((x) => x.name === name);
   const c = own || theirs;
   if (!c) return head(t('gone.title'), t('gone.collection'), `<a class="btn" href="#collections">${t('allCols')}</a>`);
+  if (c.inPlace) return folderView(c);
   let body;
   if (c.kind === 'photos') body = masonry(c.name);
   else if (c.kind === 'notes') body = feed(c.name === 'recipes' ? RECIPES : NOTES);
@@ -1103,7 +1282,7 @@ screens.sharing = () => {
   </div>`;
 };
 
-const SIZES = { 'family-photos': [17.9, 'GB'], 'flomo-notes': [96, 'MB'], spending: [6, 'MB'], 'smart-home': [41, 'MB'], 'reading-list': [2, 'MB'], 'lisbon-photos': [24, 'MB'] };
+const SIZES = { trips: [16.8, 'MB'], 'family-photos': [17.9, 'GB'], 'flomo-notes': [96, 'MB'], spending: [6, 'MB'], 'smart-home': [41, 'MB'], 'reading-list': [2, 'MB'], 'lisbon-photos': [24, 'MB'] };
 const UPLOADS = {
   'Home NAS': [['2025-11-02T19:20', 'smart-home', ['up.unreachable', {}], 'bad'], ['2025-11-02T18:05', 'family-photos', ['up.photos', { n: 12 }], 'ok'], ['2025-11-02T17:55', 'smart-home', ['up.readings', { n: 288 }], 'ok'], ['2025-11-02T03:00', 'family-photos', ['hist.nothing', {}], 'ok']],
   'iCloud Drive': [['2025-11-01T07:00', 'reading-list', ['up.books', { n: 1 }], 'ok'], ['2025-10-31T07:00', 'reading-list', ['hist.nothing', {}], 'ok']],
@@ -1248,7 +1427,7 @@ const langBtn = (cls) => `<button class="btn btn--ghost top__lang ${cls || ''}" 
 screens.welcome = () => {
   const n = S.welcome;
   const foot2 = (text, back) => `<div class="welcome__foot faint">${back ? `<button class="btn btn--ghost" data-act="wback" style="height:28px;padding:0 8px">${t('back')}</button>` : '<span></span>'}<span>${text}</span></div>`;
-  const wp = { icloud: 'iCloud Drive', gdrive: t('ap.gdrive'), nas: t('w.theNas'), s3: t('w.theBucket') }[S.wplace];
+  const wp = { drive: esc(driveName(S.wpick || DRIVES[0].n)), nas: t('w.theNas'), s3: t('w.theBucket') }[S.wplace];
   let inner;
   if (n === 1) inner = `
     <div class="row row--between"><span class="ws__mark" style="width:40px;height:40px">${I('mark')}</span>${langBtn()}</div>
@@ -1257,17 +1436,18 @@ screens.welcome = () => {
     <span class="label">${t('keepOn')}</span>
     <div class="opts" style="margin:8px 0 22px">
       <div class="opt ${S.wplace === 'computer' ? 'on' : ''}" data-act="wplace" data-v="computer"><span class="radio"></span><span class="ico">${I('computer')}</span><div style="flex:1"><b>${t('place.local')}</b><div class="faint" style="font-size:12px">${t('place.localMeta', { path: H(`<span class="mono">${esc(S.dataDir)}</span>`) })}</div></div><button class="btn btn--ghost" data-act="pickdir">${t('change')}</button></div>
-      <div class="opt ${S.wplace === 'icloud' ? 'on' : ''}" data-act="wplace" data-v="icloud"><span class="radio"></span><span class="ico">${I('drive')}</span>${twoLine('iCloud Drive', t('w.foundEnc'))}</div>
-      <div class="opt ${S.wplace === 'gdrive' ? 'on' : ''}" data-act="wplace" data-v="gdrive"><span class="radio"></span><span class="ico">${I('drive')}</span>${twoLine(t('ap.gdrive'), t('ap.gdrive.sub'))}</div>
       <div class="opt ${S.wplace === 'nas' ? 'on' : ''}" data-act="wplace" data-v="nas"><span class="radio"></span><span class="ico">${I('nas')}</span>${twoLine(t('w.aNas'), t('w.addrPw'))}</div>
+      <div class="opt ${S.wplace === 'drive' ? 'on' : ''}" data-act="wplace" data-v="drive"><span class="radio"></span><span class="ico">${I('drive')}</span>${twoLine(t('ap.drive'), t('ap.drive.sub'))}</div>
       <div class="opt ${S.wplace === 's3' ? 'on' : ''}" data-act="wplace" data-v="s3"><span class="radio"></span><span class="ico">${I('bucket')}</span>${twoLine(t('ap.s3'), t('ap.s3.sub'))}</div>
     </div>
-    ${S.wplace !== 'computer' ? `<p class="hint" style="margin:-12px 0 18px">${t('w.placeNote', { place: wp })} ${t('w.examplesStay')}</p>` : ''}
+
     ${S.wplace === 'nas' ? `<div style="display:grid;gap:10px;margin:-8px 0 22px"><div class="input"><input placeholder="nas.local/oikome" aria-label="${t('ap.address')}"></div><div class="input"><input type="password" placeholder="${t('place.password')}" aria-label="${t('place.password')}"></div><span class="hint">${t('w.pwKeychain')}</span></div>` : ''}
-    ${S.wplace === 'gdrive' ? `<div style="display:grid;gap:10px;margin:-8px 0 22px"><span class="hint">${t('ap.gdriveEasier')}</span><span class="hint">${t('ap.gdriveSteps')}</span><ol class="hint" style="margin:0;padding-left:20px">${[1, 2, 3, 4].map((n) => `<li>${t('ap.gdriveStep' + n)}</li>`).join('')}</ol><div class="input"><input placeholder="${t('ap.clientId')}" aria-label="${t('ap.clientId')}"></div><div class="input"><input type="password" placeholder="${t('ap.clientSecret')}" aria-label="${t('ap.clientSecret')}"></div><span class="hint">${t('ap.gdriveNote')}</span></div>` : ''}
+    ${S.wplace === 'drive' ? `<div class="wdrive" style="margin:-8px 0 22px">${driveForm(S, 'wpick', 'whow')}</div>` : ''}
+    ${S.wplace !== 'computer' ? `<p class="hint" style="margin:-12px 0 18px">${t('w.placeNote', { place: wp })} ${t('w.examplesStay')}</p>` : ''}
     ${S.wplace === 's3' ? `<div style="display:grid;gap:10px;margin:-8px 0 22px"><div class="input"><input placeholder="http://192.168.1.20:9000" aria-label="${t('ap.address')}"></div><div class="input"><input placeholder="${t('ap.bucket')}" aria-label="${t('ap.bucket')}"></div><div class="input"><input placeholder="${t('ap.accessKey')}" aria-label="${t('ap.accessKey')}"></div><div class="input"><input type="password" placeholder="${t('ap.secretKey')}" aria-label="${t('ap.secretKey')}"></div><span class="hint">${t('w.pwKeychain')}</span></div>` : ''}
-    <button class="btn btn--primary" data-act="wnext" style="width:100%;height:40px">${S.wplace === 'gdrive' ? t('ap.toGoogle') : t('next')}</button>
-    <button class="link" data-act="addplace" style="display:block;margin:10px auto 0;background:none;border:0;font-size:12px">${t('w.addMore')}</button>
+    ${S.wadded.length ? `<div class="wadded"><span class="label">${t('w.alsoAdded')}</span>${S.wadded.map((n) => { const p = PLACES.find((x) => x.name === n); return `<div class="wadded__row"><span class="ico">${I(p.ico)}</span><b>${esc(placeName(p.name))}</b><span class="faint mono">${esc(p.addr || '')}</span></div>`; }).join('')}</div>` : ''}
+    <button class="wadd" data-act="addplace"><span class="wadd__ico">${Is('plus', 16)}</span><span class="wadd__text"><b>${t('w.addMore')}</b><span>${t('w.addMore.sub')}</span></span></button>
+    <button class="btn btn--primary" data-act="wnext" style="width:100%;height:40px" ${S.wplace === 'drive' && driveUnavailable(S.wpick) ? 'disabled' : ''}>${S.wplace === 'drive' ? driveGo(S.wpick, S.whow) : t('next')}</button>
     ${foot2(t('w.step1'))}`;
   else if (n === 2) inner = `
     <span class="ico c5" style="width:40px;height:40px">${I('key')}</span>
@@ -1487,15 +1667,62 @@ DLG.plugset = (D) => {
   `${btn(t('ps.remove'), 'data-act="plugremove"', 'btn--ghost')}<div class="row">${cancel()}<button class="btn btn--primary" data-act="plugsetok">${t('save')}</button></div>`);
 };
 
+DLG.fview = (D) => {
+  const [n, k, size, changed, ph, x] = D.set[D.i];
+  const c = C.find((x) => x.name === D.c);
+  const body = k === 'photo'
+    ? `<div class="fview__photo"><img src="${PH[ph]}" alt="${esc(n)}"></div>`
+    : k === 'note'
+      ? `<div class="fview__note"><p>${esc(x || '')}</p></div>`
+      : k === 'csv'
+        ? `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><tbody>${(x || []).map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+        : `<div class="empty"><span class="ico">${I('file')}</span><b>${esc(n)}</b><span class="muted">${sz(size)}</span>${c && c.stored === 'Local' ? btn(t('fv.showInFinder'), 'data-act="ffinder"') : ''}</div>`;
+  const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><span>${c ? esc(placeName(c.stored)) : ''}</span></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div></div>` : '';
+  const title = `<span class="fview__name">${esc(n)}</span><span class="fview__quiet">${md(changed)} · ${c ? esc(placeName(c.stored)) : ''} · ${whoLine(D.c)}</span>`;
+  const move = D.set.length > 1 ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
+  return dlg(title, `${details}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.readOnly'), move), 'fview', btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost'));
+};
+
+// Cloud drives: which one, then how it connects. Its desktop app's folder
+// where the app is on this computer (nothing to register); signing in on
+// its page where it has an API (an app of the owner's own, registered once).
+const DRIVES = [
+  { n: 'Google Drive', sync: null, api: 'google' },
+  { n: 'Dropbox', sync: ['~/Dropbox', [1.2, 'TB']], api: 'dropbox' },
+  { n: 'OneDrive', sync: ['~/OneDrive', [860, 'GB']], api: null },
+  { n: 'iCloud Drive', sync: ['~/Library/Mobile Documents', [48, 'GB']], api: null },
+];
+const driveOf = (n) => DRIVES.find((d) => d.n === n) || DRIVES[0];
+// Each drive by the name its maker gives it in the language in use.
+const driveName = (n) => (n === 'Google Drive' ? t('ap.gdrive') : n === 'iCloud Drive' ? t('drive.icloud') : n);
+const driveHow = (n, how) => { const d = driveOf(n); return d.sync && d.api ? (how || 'sync') : d.sync ? 'sync' : 'api'; };
+const driveUnavailable = (n) => { const d = driveOf(n); return !d.sync && !d.api; };
+const driveGo = (n, how) => (driveHow(n, how) === 'sync' ? t('addPlace') : driveOf(n).api === 'dropbox' ? t('ap.toDropbox') : t('ap.toGoogle'));
+function driveForm(D, pickKey, howKey) {
+  const name = D[pickKey] || DRIVES[0].n, d = driveOf(name), how = driveHow(name, D[howKey]);
+  const list = `<div class="field"><span class="label">${t('ap.which')}</span><div class="input"><select aria-label="${t('ap.which')}" data-change="drivepick" data-bind="${pickKey}" style="width:100%;border:0;background:transparent;font:inherit;outline:0">${DRIVES.map((x) => `<option value="${esc(x.n)}" ${x.n === name ? 'selected' : ''}>${esc(driveName(x.n))}</option>`).join('')}</select></div></div>`;
+  const ways = d.sync && d.api ? `<div class="field"><span class="label">${t('ap.how')}</span><div class="opts">${opt(howKey, 'sync', how, twoLine(t('ap.howSync'), t('ap.howSync.sub', { path: d.sync[0] })))}${opt(howKey, 'api', how, twoLine(t('ap.howApi'), t('ap.howApi.sub')))}</div></div>` : '';
+  let body;
+  if (how === 'sync') body = `<div class="box">${t('ap.syncKept', { path: `${d.sync[0]}/Oikome` })} ${t('ap.encrypted', { drive: esc(driveName(name)) })}</div>`;
+  else if (driveUnavailable(name)) body = `<div class="box">${t(name === 'iCloud Drive' ? 'ap.icloudSetup' : 'ap.oneDriveSetup')}</div>`;
+  else if (d.api === 'dropbox') body = `<p class="hint" style="margin:0 0 4px">${t('ap.dropboxSteps')}</p><ol class="hint" style="margin:0 0 10px;padding-left:20px"><li>${t('ap.dropboxStep1')}</li><li>${t('ap.dropboxStep2')}</li><li>${t('ap.dropboxStep3')}</li></ol><div class="field"><span class="label">${t('ap.appKey')}</span><div class="input"><input data-bind="user" value="${esc(D.user || '')}" autocomplete="off"></div></div><div class="box">${t('ap.dropboxNote')}</div>`;
+  else body = GOOGLE_FORM(D, !!d.sync);
+  return `${list}${ways}${body}`;
+}
+const GOOGLE_STEPS = ['https://console.cloud.google.com/projectcreate', 'https://console.cloud.google.com/apis/library/drive.googleapis.com', 'https://console.cloud.google.com/auth/overview', 'https://console.cloud.google.com/auth/clients/create'];
+const GOOGLE_FORM = (D, synced) => `${synced ? '' : `<p class="hint" style="margin:0 0 10px">${t('ap.gdriveEasier')}</p>`}<div style="display:grid;gap:12px;margin:0 0 12px">
+  <section class="gapp"><h4 class="gapp__t"><span class="gapp__n" aria-hidden="true">1</span>${t('ap.gdriveRegister')}</h4><p class="hint" style="margin:0">${t('ap.gdriveRegisterHint')}</p><ol class="hint">${GOOGLE_STEPS.map((href, i) => `<li><a href="${href}" target="_blank" rel="noreferrer">${t('ap.gdriveStep' + (i + 1))}</a></li>`).join('')}</ol></section>
+  <section class="gapp"><h4 class="gapp__t"><span class="gapp__n" aria-hidden="true">2</span>${t('ap.gdriveGive')}</h4><div class="row" style="gap:8px 12px;flex-wrap:wrap"><button class="btn">${Is('upload', 15)}${t('ap.fillFromFile')}</button><span class="hint" style="flex:1 1 14em">${t('ap.gdriveFileHint')}</span></div><div class="gapp__or">${t('ap.gdriveOrPaste')}</div><div class="field"><span class="label">${t('ap.clientId')}</span><div class="input"><input data-bind="user" value="${esc(D.user || '')}" autocomplete="off"></div></div><div class="field"><span class="label">${t('ap.clientSecret')}</span><div class="input"><input type="password" data-bind="pw" autocomplete="off"></div><span class="hint">${t('ap.pwHint')}</span></div></section>
+</div><label class="row" style="gap:8px;margin:0 0 10px"><input type="checkbox">${t('ap.gdriveReadAll')}</label><div class="box">${t('ap.gdriveNote')}</div>`;
 DLG.addplace = (D) => {
   let form = '';
-  if (D.kind === 'folder') form = `<div class="field"><span class="label">${t('as.folder')}</span><div class="opts">${[['/Volumes/Backup', t('ap.external', { free: sz([1.8, 'TB']) })], ['~/Documents/Archive', t('ap.thisComputer', { free: sz([412, 'GB']) })]].map(([n, m]) => opt('pick', n, D.pick, `<span class="ico">${I('folder')}</span>${nameCell(n, m)}`)).join('')}</div><span class="hint">${t('ap.makesFolder')}</span></div>`;
-  if (D.kind === 'drive') form = `<div class="field"><span class="label">${t('ap.found')}</span><div class="opts">${[['Dropbox', '~/Dropbox', [1.2, 'TB']], ['OneDrive', '~/OneDrive', [860, 'GB']]].map(([n, path, f]) => opt('pick', n, D.pick, `<span class="ico">${I('drive')}</span><div style="flex:1"><b>${n}</b><div class="faint mono" style="font-size:12px">${path} · ${t('place.free', { size: sz(f) })}</div></div>`)).join('')}</div></div><div class="box">${t('ap.encrypted', { drive: D.pick || 'Dropbox' })}</div>`;
+  if (D.kind === 'folder') form = `<div class="field"><span class="label">${t('as.folder')}</span><div class="opts">${[['/Volumes/Backup', t('ap.external', { free: sz([1.8, 'TB']) })], ['~/Documents/Archive', t('ap.thisComputer', { free: sz([412, 'GB']) })]].map(([n, m]) => opt('fpick', n, D.fpick, `<span class="ico">${I('folder')}</span>${nameCell(n, m)}`)).join('')}</div><span class="hint">${t('ap.makesFolder')}</span></div>`;
   if (D.kind === 'nas') form = `<div class="field"><span class="label">${t('ap.address')}</span><div class="input"><input data-bind="addr" value="${esc(D.addr)}" placeholder="nas.local" autocomplete="off" data-autofocus></div></div><div class="field"><span class="label">${t('ap.nasFolder')}</span><div class="input"><input data-bind="folder" value="${esc(D.folder)}" autocomplete="off"></div><span class="hint">${t('ap.folderHint')}</span></div><div class="field"><span class="label">${t('ap.user')}</span><div class="input"><input data-bind="user" value="${esc(D.user)}" autocomplete="off"></div><span class="hint">${t('ap.userHint')}</span></div><div class="field"><span class="label">${t('place.password')}</span><div class="input"><input type="password" data-bind="pw" autocomplete="off"></div><span class="hint">${t('ap.pwHint')}</span></div>`;
   if (D.kind === 's3') form = `<div class="field"><span class="label">${t('ap.address')}</span><div class="input"><input data-bind="addr" value="${esc(D.addr)}" placeholder="http://192.168.1.20:9000" autocomplete="off" data-autofocus></div><span class="hint">${t('ap.s3AddrHint')}</span></div><div class="field"><span class="label">${t('ap.bucket')}</span><div class="input"><input data-bind="bucket" value="${esc(D.bucket)}" autocomplete="off"></div><span class="hint">${t('ap.bucketHint')}</span></div><div class="field"><span class="label">${t('ap.accessKey')}</span><div class="input"><input data-bind="user" value="${esc(D.user)}" autocomplete="off"></div></div><div class="field"><span class="label">${t('ap.secretKey')}</span><div class="input"><input type="password" data-bind="pw" autocomplete="off"></div><span class="hint">${t('ap.pwHint')}</span></div><div class="box">${t('ap.s3Encrypted')}</div>`;
-  if (D.kind === 'gdrive') form = `<p class="hint" style="margin:0 0 6px">${t('ap.gdriveEasier')}</p><p class="hint" style="margin:0 0 4px">${t('ap.gdriveSteps')}</p><button class="btn btn--ghost" style="margin:0 0 8px">${t('ap.fillFromFile')}</button><ol class="hint" style="margin:0 0 10px;padding-left:20px">${[1, 2, 3, 4].map((n) => `<li>${t('ap.gdriveStep' + n)}</li>`).join('')}</ol><div class="field"><span class="label">${t('ap.clientId')}</span><div class="input"><input data-bind="user" value="${esc(D.user)}" autocomplete="off"></div></div><div class="field"><span class="label">${t('ap.clientSecret')}</span><div class="input"><input type="password" data-bind="pw" autocomplete="off"></div><span class="hint">${t('ap.pwHint')}</span></div><label class="row" style="gap:8px;margin:0 0 10px"><input type="checkbox">${t('ap.gdriveReadAll')}</label><div class="box">${t('ap.gdriveNote')}</div>`;
-  return dlg(t('ap.title'), `<div class="opts">${[['folder', 'computer'], ['drive', 'drive'], ['gdrive', 'drive'], ['nas', 'nas'], ['s3', 'bucket']].map(([v, ic]) => opt('kind', v, D.kind, `<span class="ico">${I(ic)}</span>${twoLine(t(`ap.${v}`), t(`ap.${v}.sub`))}`)).join('')}</div>${form}${D.err ? `<span class="err">${D.err}</span>` : ''}`,
-    foot('', `${cancel()}<button class="btn btn--primary" data-act="placeok">${D.kind === 'gdrive' ? t('ap.toGoogle') : t('addPlace')}</button>`));
+  if (D.kind === 'drive') form = driveForm(D, 'pick', 'how');
+  const kinds = [['folder', 'computer'], ['nas', 'nas'], ['drive', 'drive'], ['s3', 'bucket']].map(([v, ic]) => opt('kind', v, D.kind, `<span class="ico">${I(ic)}</span>${twoLine(t(`ap.${v}`), t(`ap.${v}.sub`))}`)).join('').replace('class="opt on"', 'class="opt on" tabindex="0" data-autofocus');
+  return dlg(t('ap.title'), `<div class="opts">${kinds}</div>${form}${D.err ? `<span class="err">${D.err}</span>` : ''}`,
+    foot('', `${cancel()}<button class="btn btn--primary" data-act="placeok" ${D.kind === 'drive' && driveUnavailable(D.pick) ? 'disabled' : ''}>${D.kind === 'drive' ? driveGo(D.pick, D.how) : t('addPlace')}</button>`), 'dialog--top');
 };
 
 DLG.nasauth = (D) => dlg(t('na.title'), `<p class="muted" style="margin:0">${t('na.body', { folder: H(`<span class="mono">${esc(D.folder)}</span>`) })}</p>
@@ -1682,6 +1909,22 @@ const ACT = {
   addcard: () => open('addcard', {}),
   cardadd: (el) => { S.cards.push(el.dataset.n); upd({}); render(true); toast(t('toast.onHome', { name: t(`card.${el.dataset.n}`) })); },
   cfilter: (el) => { S.cfilter = el.dataset.v; render(true); },
+  cplace: (el) => menu(el, [[t('cols.allPlaces'), 'collection', () => { S.cplace = 'all'; render(true); }, S.cplace === 'all'], ...PLACES.map((p) => [placeName(p.name), p.ico, () => { S.cplace = p.name; render(true); }, S.cplace === p.name])]),
+  csortmenu: (el) => menu(el, ['name', 'changed', 'size', 'kind'].map((k) => [t(`sort.${k}`), S.csort === k ? 'check' : null, () => ACT.csort({ dataset: { k } }), S.csort === k])),
+  csort: (el) => { const k = el.dataset.k; if (S.csort === k) S.cdir = S.cdir === 'asc' ? 'desc' : 'asc'; else { S.csort = k; S.cdir = SORT_FIRST[k]; } render(true); },
+  cview: (el) => { S.cview = el.dataset.v; render(true); },
+  fsortmenu: (el) => menu(el, ['name', 'changed', 'size', 'kind'].map((k) => [t(`sort.${k}`), S.fsort === k ? 'check' : null, () => ACT.fsort({ dataset: { k } }), S.fsort === k])),
+  fsort: (el) => { const k = el.dataset.k; if (S.fsort === k) S.fdir = S.fdir === 'asc' ? 'desc' : 'asc'; else { S.fsort = k; S.fdir = SORT_FIRST[k]; } render(true); },
+  fview: (el) => { S.fview = el.dataset.v; render(true); },
+  fopen: (el) => { const c = el.dataset.c; S.fpath[c] = [...(S.fpath[c] || []), el.dataset.n]; render(); },
+  fcrumb: (el) => { const c = el.dataset.c; S.fpath[c] = (S.fpath[c] || []).slice(0, +el.dataset.i); render(); },
+  ffile: (el) => {
+    const c = el.dataset.c, set = orderedFolderFiles(c);
+    open('fview', { c, set, i: Math.max(0, set.findIndex((f) => f[0] === el.dataset.n)), info: false });
+  },
+  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length }),
+  finfo: () => upd({ info: !D.info }),
+  ffinder: () => toast(t('toast.finder', { path: D.set[D.i][0] })),
   afilter: (el) => { S.afilter = el.dataset.v; render(true); },
   photo: (el) => open('photo', { c: el.dataset.c, set: PHOTOSETS[el.dataset.c], i: +el.dataset.i }),
   memory: () => open('photo', { c: 'family-photos', set: [['alfama', 'Alfama from Santa Luzia', '2024-11-02']], i: 0 }),
@@ -1844,7 +2087,7 @@ const ACT = {
     });
   },
   logrow: (el) => { const l = LOG[+el.dataset.i]; info(l.st === 'bad' ? t('log.refusedTitle') : `${esc(logWho(l))} · ${ago(l.min)}`, t(l.detail[0], Object.assign({}, l.detail[1], l.detail[1].date ? { date: md(l.detail[1].date) } : {})), l.go, l.goLabel ? t(l.goLabel) : ''); },
-  addplace: () => open('addplace', { kind: 'drive', pick: 'Dropbox', addr: '', folder: '/oikome', user: '', bucket: '', err: '' }),
+  addplace: () => open('addplace', { kind: 'folder', fpick: '/Volumes/Backup', pick: 'Google Drive', how: '', addr: '', folder: '/oikome', user: '', bucket: '', err: '' }),
   placeok: () => {
     let p;
     if (D.kind === 'nas') {
@@ -1855,19 +2098,20 @@ const ACT = {
     } else if (D.kind === 's3') {
       if (!D.addr.trim() || !D.bucket.trim() || !D.user.trim()) return upd({ err: t('err.s3') });
       p = { ico: 'bucket', name: D.bucket.trim(), kind: 's3', addr: `${D.bucket.trim()} · ${D.addr.trim()}`, free: null, used: null, total: null, p: 0, oik: [0, 'MB'], oikP: 0, other: null, enc: true };
-    } else if (D.kind === 'gdrive') {
-      if (!D.user.trim() || !D.pw) return upd({ err: t('err.gclient') });
-      // In the app this is Google's page, then back here.
-      p = { ico: 'drive', name: t('ap.gdrive'), kind: 'gdrive', addr: 'Oikome', free: null, used: null, total: null, p: 0, oik: [0, 'MB'], oikP: 0, other: null, enc: true };
+    } else if (D.kind === 'drive' && driveHow(D.pick, D.how) === 'api') {
+      const api = driveOf(D.pick).api;
+      if (!D.user.trim() || (api === 'google' && !D.pw)) return upd({ err: t(api === 'google' ? 'err.gclient' : 'err.appKey') });
+      // In the app this is the drive's page, then back here.
+      p = { ico: 'drive', name: D.pick, kind: 'gdrive', addr: 'Oikome', free: null, used: null, total: null, p: 0, oik: [0, 'MB'], oikP: 0, other: null, enc: true };
     } else if (D.kind === 'drive') {
       const big = D.pick === 'Dropbox';
       p = { ico: 'drive', name: D.pick, kind: 'drive', addr: `${D.pick}/Oikome`, free: big ? [1.2, 'TB'] : [860, 'GB'], used: big ? [300, 'GB'] : [140, 'GB'], total: big ? [1.5, 'TB'] : [1, 'TB'], p: big ? 20 : 14, oik: [0, 'MB'], oikP: 0, other: big ? [300, 'GB'] : [140, 'GB'], enc: true };
     } else {
-      const ext = D.pick.startsWith('/Volumes');
-      p = { ico: 'folder', name: D.pick.split('/').pop(), kind: 'folder', addr: `${D.pick}/Oikome`, free: ext ? [1.8, 'TB'] : [412, 'GB'], used: ext ? [200, 'GB'] : [588, 'GB'], total: ext ? [2, 'TB'] : [1, 'TB'], p: ext ? 10 : 59, oik: [0, 'MB'], oikP: 0, other: ext ? [200, 'GB'] : [588, 'GB'], enc: false };
+      const ext = D.fpick.startsWith('/Volumes');
+      p = { ico: 'folder', name: D.fpick.split('/').pop(), kind: 'folder', addr: `${D.fpick}/Oikome`, free: ext ? [1.8, 'TB'] : [412, 'GB'], used: ext ? [200, 'GB'] : [588, 'GB'], total: ext ? [2, 'TB'] : [1, 'TB'], p: ext ? 10 : 59, oik: [0, 'MB'], oikP: 0, other: ext ? [200, 'GB'] : [588, 'GB'], enc: false };
     }
     if (PLACES.some((x) => x.name === p.name)) return upd({ err: t('err.placeTaken', { place: p.name }) });
-    PLACES.push(p); close(); render(true); toast(t('toast.placeAdded', { place: p.name }));
+    PLACES.push(p); if (location.hash === '#welcome') S.wadded.push(p.name); close(); render(true); toast(t('toast.placeAdded', { place: p.name }));
   },
   placemore: (el) => {
     const p = PLACES[+el.dataset.i];
@@ -1923,7 +2167,8 @@ const ACT = {
   wfinish: (el) => { const then = el.dataset.then; S.welcome = 1; go('home'); if (then === 'addsrc') ACT.addsrc(document.body); if (then === 'folder') ACT.addsrc({ dataset: { app: 'photofolder' } }); if (then === 'pair') ACT.pair(); },
   step: (el) => upd({ step: +el.dataset.to, err: '' }),
   confirmok: () => { const fn = D.fn; close(); fn(); },
-  opt: (el) => { const b = el.dataset.bind; if (b && D) upd({ [b]: el.dataset.val, err: '' }); else el.parentElement.querySelectorAll('.opt').forEach((o) => o.classList.toggle('on', o === el)); },
+  opt: (el) => { const b = el.dataset.bind; if (b && D) upd({ [b]: el.dataset.val, err: '' }); else if (b === 'wpick' || b === 'whow') { S[b] = el.dataset.val; render(true); } else el.parentElement.querySelectorAll('.opt').forEach((o) => o.classList.toggle('on', o === el)); },
+  drivepick: (el) => { const b = el.dataset.bind; if (b && D) upd({ [b]: el.value, err: '' }); else if (b === 'wpick' || b === 'whow') { S[b] = el.value; render(true); } },
   check: (el) => { const b = el.dataset.bind, v = el.dataset.val, a = (D[b] || []).slice(), i = a.indexOf(v); if (i < 0) a.push(v); else a.splice(i, 1); upd({ [b]: a }); },
   flag: (el) => { const b = el.dataset.bind; if (D) upd({ [b]: !D[b] }); else { S[b] = !S[b]; render(true); } },
   toggle: (el) => el.classList.toggle('on'),
@@ -1938,7 +2183,7 @@ const PARENT = { collection: 'collections', source: 'sources', access: 'sharing'
 function shell(route, arg, inner) {
   const sec = PARENT[route] || route;
   const NAV = [['home', 'nav.home', 'home'], ['collections', 'nav.collections', 'collection', nf(C.length + fromList().length)], ['sources', 'nav.sources', 'source', SOURCES.some((s) => s.state === 'bad') ? nf(1) : ''], ['sharing', 'nav.sharing', 'share'], ['assistants', 'nav.assistants', 'ai'], ['plugins', 'nav.plugins', 'plugin'], ['activity', 'nav.activity', 'activity']];
-  const child = { collection: arg, source: (srcBy(arg) || {}).name, access: t('access'), directory: t('dirShort'), place: (() => { const p = PLACES.find((x) => slug(x.name) === arg); return p && placeName(p.name); })() }[route];
+  const child = { collection: (C.find((x) => x.name === arg) || {}).label || arg, source: (srcBy(arg) || {}).name, access: t('access'), directory: t('dirShort'), place: (() => { const p = PLACES.find((x) => slug(x.name) === arg); return p && placeName(p.name); })() }[route];
   const pl = PLACES[S.place] || PLACES[0];
   return `<div class="app"><aside class="side">
     <div class="ws"><span class="ws__mark">${I('mark')}</span><div><div class="ws__name">Oikome</div><div class="ws__sub">rosh-mbp</div></div></div>
@@ -1950,7 +2195,7 @@ function shell(route, arg, inner) {
       <div class="meter-card" data-go="place/${slug(pl.name)}"><div class="meter-card__row"><span class="label">${esc(placeName(pl.name))}</span><span class="mono faint" style="font-size:11px">${pl.used ? `${sz(pl.used)} / ${sz(pl.total)}` : t('checking')}</span></div><div class="bar"><i style="width:${pl.p}%"></i></div></div>
       <div class="me">${av('Rosh', 'd')}<div><div class="me__name">${esc(S.dcName)}</div><div class="ws__sub">${plain('ok', t('running'))}</div></div></div></div>
   </aside>
-  <main class="main"><div class="top"><div class="crumb"><span class="faint">rosh-mbp</span><span class="sep">/</span>${child ? `<a class="faint" href="#${sec}">${t(TITLES[route])}</a><span class="sep">/</span><span class="here ${route === 'collection' ? 'mono' : ''}">${esc(child)}</span>` : `<span class="here">${t(TITLES[route])}</span>`}</div>
+  <main class="main"><div class="top"><div class="crumb"><span class="faint">rosh-mbp</span><span class="sep">/</span>${child ? `<a class="faint" href="#${sec}">${t(TITLES[route])}</a><span class="sep">/</span>${folderCrumb(route, arg, child)}` : `<span class="here">${t(TITLES[route])}</span>`}</div>
     <div class="top__actions"><button class="btn btn--ghost icon-btn" data-act="cmdk" title="${t('search')}" aria-label="${t('search')}">${I('search')}</button>${langBtn()}<button class="btn btn--ghost icon-btn" data-act="modemenu" title="${t('theme')}" aria-label="${t('theme')}: ${t(S.mode)}">${I(MODE_ICON[S.mode])}</button><a class="btn" href="#welcome">${t('firstRun')}</a></div></div>
     <div class="page" id="page">${inner}</div></main></div>`;
 }
@@ -2014,7 +2259,10 @@ document.addEventListener('keydown', (e) => {
     layer.querySelector('#hits').innerHTML = hitsHTML(D);
     layer.querySelector('.hit.on')?.scrollIntoView({ block: 'nearest' });
   }
-  if (D.name === 'photo' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && D.set.length > 1) upd({ i: (D.i + (e.key === 'ArrowRight' ? 1 : -1) + D.set.length) % D.set.length });
+  if (['photo', 'fview'].includes(D.name) && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && D.set.length > 1) {
+    e.preventDefault();
+    upd({ i: (D.i + (e.key === 'ArrowRight' ? 1 : -1) + D.set.length) % D.set.length });
+  }
   if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.dataset.bind) layer.querySelector('.dialog__foot .btn--primary:not([disabled])')?.click();
 });
 window.addEventListener('hashchange', () => { D = null; drawLayer(); if (location.hash === '#welcome') S.welcome = 1; render(); window.scrollTo(0, 0); });

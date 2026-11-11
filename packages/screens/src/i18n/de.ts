@@ -721,6 +721,8 @@ export const de: Strings = {
     driveNotFound: "Der Ordner der Desktop-App wurde nicht gefunden",
     icloudSetup: "Aktiviere iCloud Drive in den Einstellungen deines Apple Accounts. Sobald der Synchronisierungsordner vorhanden ist, erscheint er hier automatisch.",
     oneDriveSetup: "Installiere OneDrive und melde dich an. Sobald der Synchronisierungsordner vorhanden ist, erscheint er hier automatisch.",
+    checkAgain: "Erneut prüfen",
+    checking: "Wird geprüft…",
     whichDrive: "Cloud-Anbieter",
     howConnects: "Verbindungsmethode",
     howSync: "Der Ordner seiner Desktop-App",

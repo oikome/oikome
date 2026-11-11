@@ -913,6 +913,7 @@
   'ap.driveNotFound': 'Desktop app folder not found',
   'ap.icloudSetup': 'Turn on iCloud Drive in your Apple Account settings. Its sync folder will appear here automatically.',
   'ap.oneDriveSetup': 'Install OneDrive and sign in. Its sync folder will appear here automatically.',
+  'ap.checkAgain': 'Check again',
   'ap.howApi.sub': 'For computers without its desktop app; your own app, registered once',
   'ap.howApi': 'Sign in on its page',
   'ap.howSync.sub': '{path} · nothing to register',

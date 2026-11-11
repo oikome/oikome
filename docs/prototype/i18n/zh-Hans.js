@@ -883,6 +883,7 @@
   'ap.driveNotFound': '没找到电脑版的同步文件夹',
   'ap.icloudSetup': '在 Apple 账户设置中开启 iCloud 云盘。同步文件夹出现后，这里会自动显示。',
   'ap.oneDriveSetup': '安装 OneDrive 并登录。同步文件夹出现后，这里会自动显示。',
+  'ap.checkAgain': '重新检测',
   'ap.howApi.sub': '适合没装电脑版的电脑；用你自己登记一次的应用',
   'ap.howApi': '在它的页面上登录',
   'ap.howSync.sub': '{path} · 不用登记',

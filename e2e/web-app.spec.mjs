@@ -974,6 +974,12 @@ test("iCloud Drive and OneDrive stay visible before desktop sync is set up", asy
     await provider.selectOption("OneDrive");
     await expect(form).toContainText("Install OneDrive and sign in");
     await expect(next).toBeDisabled();
+
+    await provider.selectOption("iCloud Drive");
+    mkdirSync(join(root, "Library", "Mobile Documents", "com~apple~CloudDocs"), { recursive: true });
+    await tab.getByRole("button", { name: "Check again" }).click();
+    await expect(next).toBeEnabled();
+    await expect(form).toContainText("Oikome keeps its files in");
   } finally {
     await fresh.close();
     node.kill();

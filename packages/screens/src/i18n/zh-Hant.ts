@@ -689,6 +689,8 @@ export const zhHant: Strings = {
     driveNotFound: "找不到電腦版的同步資料夾",
     icloudSetup: "在 Apple 帳號設定中開啟 iCloud 雲碟。同步資料夾出現後，這裡會自動顯示。",
     oneDriveSetup: "安裝 OneDrive 並登入。同步資料夾出現後，這裡會自動顯示。",
+    checkAgain: "重新檢測",
+    checking: "正在檢測…",
     whichDrive: "選擇雲端硬碟",
     howConnects: "連線方式",
     howSync: "電腦版的同步資料夾",

@@ -883,6 +883,7 @@
   'ap.driveNotFound': 'デスクトップアプリの同期フォルダが見つかりません',
   'ap.icloudSetup': 'Apple アカウントの設定で iCloud Drive をオンにしてください。同期フォルダができると、ここに自動で表示されます。',
   'ap.oneDriveSetup': 'OneDrive をインストールしてサインインしてください。同期フォルダができると、ここに自動で表示されます。',
+  'ap.checkAgain': '再確認',
   'ap.howApi.sub': 'デスクトップアプリのないコンピュータ向け。自分のアプリを一度登録',
   'ap.howApi': 'そのページでサインイン',
   'ap.howSync.sub': '{path} · 登録不要',

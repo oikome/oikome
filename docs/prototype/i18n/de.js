@@ -909,6 +909,7 @@
   'ap.driveNotFound': 'Der Ordner der Desktop-App wurde nicht gefunden',
   'ap.icloudSetup': 'Aktiviere iCloud Drive in den Einstellungen deines Apple Accounts. Sobald der Synchronisierungsordner vorhanden ist, erscheint er hier automatisch.',
   'ap.oneDriveSetup': 'Installiere OneDrive und melde dich an. Sobald der Synchronisierungsordner vorhanden ist, erscheint er hier automatisch.',
+  'ap.checkAgain': 'Erneut prüfen',
   'ap.howApi.sub': 'Für Computer ohne seine Desktop-App; deine eigene App, einmal registriert',
   'ap.howApi': 'Auf seiner Seite anmelden',
   'ap.howSync.sub': '{path} · nichts zu registrieren',

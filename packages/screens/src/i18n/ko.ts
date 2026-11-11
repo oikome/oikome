@@ -727,6 +727,8 @@ export const ko: Strings = {
     driveNotFound: "데스크톱 앱의 동기화 폴더를 찾을 수 없어요",
     icloudSetup: "Apple 계정 설정에서 iCloud Drive를 켜세요. 동기화 폴더가 생기면 여기에 자동으로 표시돼요.",
     oneDriveSetup: "OneDrive를 설치하고 로그인하세요. 동기화 폴더가 생기면 여기에 자동으로 표시돼요.",
+    checkAgain: "다시 확인",
+    checking: "확인 중…",
     whichDrive: "클우드 드라이브 서비스",
     howConnects: "연결 방식",
     howSync: "데스크톱 앱의 폴더",

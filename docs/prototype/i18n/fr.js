@@ -910,6 +910,7 @@
   'ap.driveNotFound': 'Dossier de l’application de bureau introuvable',
   'ap.icloudSetup': 'Activez iCloud Drive dans les réglages de votre compte Apple. Son dossier de synchronisation apparaîtra ici automatiquement.',
   'ap.oneDriveSetup': 'Installez OneDrive et connectez-vous. Son dossier de synchronisation apparaîtra ici automatiquement.',
+  'ap.checkAgain': 'Vérifier à nouveau',
   'ap.howApi.sub': 'Pour les ordinateurs sans son application ; votre propre application, enregistrée une fois',
   'ap.howApi': 'Se connecter sur sa page',
   'ap.howSync.sub': '{path} · rien à enregistrer',

@@ -726,6 +726,8 @@ export const en = {
     driveNotFound: "Desktop app folder not found",
     icloudSetup: "Turn on iCloud Drive in your Apple Account settings. Its sync folder will appear here automatically.",
     oneDriveSetup: "Install OneDrive and sign in. Its sync folder will appear here automatically.",
+    checkAgain: "Check again",
+    checking: "Checking…",
     whichDrive: "Cloud drive provider",
     howConnects: "Connection method",
     howSync: "Its desktop app's folder",

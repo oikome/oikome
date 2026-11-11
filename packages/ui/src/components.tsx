@@ -967,6 +967,7 @@ export function Dialog({
   footer,
   children,
   closeButton = true,
+  placement = "center",
 }: {
   title: string;
   closeLabel: string;
@@ -975,6 +976,8 @@ export function Dialog({
   children?: ReactNode;
   /** A close button in the corner; a question leaves it out (Cancel says it). */
   closeButton?: boolean;
+  /** Long desktop tasks keep their top still as their content changes height. */
+  placement?: "center" | "top";
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -986,7 +989,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      className="oik-dialog"
+      className={cx("oik-dialog", placement === "top" && "oik-dialog--top")}
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();

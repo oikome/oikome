@@ -65,7 +65,7 @@ let bobBase;
 const loginLink = () => readFileSync(join(owner, ".oikome", "web", "login"), "utf8").trim();
 
 /** Start the data center at `root` with its web app; resolves once it can be logged in to. */
-async function serveWeb(root) {
+async function serveWeb(root, env = ENV) {
   const child = spawn(
     BIN,
     [
@@ -85,7 +85,7 @@ async function serveWeb(root) {
       "--web-root",
       WEB_ROOT,
     ],
-    { stdio: ["ignore", "inherit", "inherit"], env: ENV },
+    { stdio: ["ignore", "inherit", "inherit"], env },
   );
   for (let i = 0; !existsSync(join(root, ".oikome", "web", "login")); i++) {
     if (i === 200 || child.exitCode !== null) throw new Error("the node did not start its web app");
@@ -170,7 +170,7 @@ test("first run: name the data center and save its recovery key", async () => {
   // folder the owner picks.
   await page.getByRole("button", { name: /^Add another place/ }).click();
   const another = page.getByRole("dialog", { name: "Add Storage" });
-  await expect(another.getByRole("radio", { name: /^A folder/ })).toBeChecked();
+  await expect(another.getByRole("radio", { name: /^Folder/ })).toBeChecked();
   await expect(another).toContainText("No folder chosen yet");
   await expect(another.getByRole("button", { name: "Choose…" })).toBeVisible();
   await another.getByRole("button", { name: "Cancel" }).click();
@@ -855,9 +855,10 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
   await page.goto(`${base}/settings`);
   await page.getByRole("button", { name: "Add Storage" }).click();
   const add = page.getByRole("dialog", { name: "Add Storage" });
-  // A cloud drive, then which one; Google Drive comes first.
+  await expect.poll(() => add.evaluate((el) => Math.round(el.getBoundingClientRect().top))).toBe(64);
+  // A cloud drive, then its provider from a scalable menu; Google Drive comes first.
   await add.getByRole("radio", { name: /^Cloud drive/ }).check();
-  await expect(add.getByRole("radio", { name: /^Google Drive/ })).toBeChecked();
+  await expect(add.getByLabel("Cloud drive provider")).toHaveValue("Google Drive");
   // Where Google Drive for desktop is on this computer, its folder comes first.
   const signIn = add.getByRole("radio", { name: /^Sign in on the web/ });
   if (await signIn.count()) await signIn.check();
@@ -953,6 +954,33 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
   }
 });
 
+test("iCloud Drive and OneDrive stay visible before desktop sync is set up", async ({ browser }) => {
+  const root = mkdtempSync(join(tmpdir(), "oikome-app-sync-drives-"));
+  const node = await serveWeb(root, { ...ENV, HOME: root });
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const tab = await fresh.newPage();
+    await tab.goto(readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim());
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
+    const form = tab.locator(".screen-place-form");
+    const next = tab.getByRole("button", { name: "Continue", exact: true });
+
+    const provider = tab.getByLabel("Cloud drive provider");
+    await provider.selectOption("iCloud Drive");
+    await expect(form).toContainText("Turn on iCloud Drive in your Apple Account settings");
+    await expect(next).toBeDisabled();
+
+    await provider.selectOption("OneDrive");
+    await expect(form).toContainText("Install OneDrive and sign in");
+    await expect(next).toBeDisabled();
+  } finally {
+    await fresh.close();
+    node.kill();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Dropbox uses a copied authorization code with PKCE and offline access", async ({ browser }) => {
   const root = mkdtempSync(join(tmpdir(), "oikome-app-dropbox-"));
   execFileSync(BIN, ["--root", root, "storage", "dropbox-app"], {
@@ -972,7 +1000,7 @@ test("Dropbox uses a copied authorization code with PKCE and offline access", as
     await tab.goto(link);
     await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
     await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
-    await tab.getByRole("radio", { name: /^Dropbox/ }).check();
+    await tab.getByLabel("Cloud drive provider").selectOption("Dropbox");
     const signIn = tab.getByRole("radio", { name: /^Sign in on the web/ });
     if (await signIn.count()) await signIn.check();
     await expect(tab.locator(".screen-place-form")).toContainText("Your Dropbox app: made-up-dropbox-app");

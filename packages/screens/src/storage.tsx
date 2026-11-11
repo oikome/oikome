@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, InsetWell, TextField } from "@oikome/ui";
+import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, InsetWell, Select, TextField } from "@oikome/ui";
 import type { Choice } from "@oikome/ui";
 import type { DropboxSignIn, FolderListing, GoogleReturn, NewStorage, StartDropbox, StorageSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "./data";
@@ -67,6 +67,8 @@ const GOOGLE_STEPS: [string, () => string][] = [
 /** Google Drive's name in the places found here, as the node gives it. */
 const GOOGLE_DRIVE = "Google Drive";
 const DROPBOX = "Dropbox";
+const ICLOUD = "iCloud Drive";
+const ONEDRIVE = "OneDrive";
 /**
  * What the owner ticks on a Dropbox app's Permissions tab, in the tab's own
  * order. The console adds account_info.read and files.metadata.read itself,
@@ -90,7 +92,7 @@ interface Drive {
 
 /** Each drive by the name its maker gives it in the language in use. */
 function driveName(label: string): string {
-  return label === GOOGLE_DRIVE ? s.gdrive : label === "iCloud Drive" ? s.icloud : label;
+  return label === GOOGLE_DRIVE ? s.gdrive : label === ICLOUD ? s.icloud : label;
 }
 
 /** The choices and their fields; `plan()` says what to add. */
@@ -131,8 +133,8 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   const [readAll, setReadAll] = useState(false);
 
   const found = places.data ?? [];
-  // Both API drives can always be signed in to; the others are used through
-  // their desktop app's folder, where it is here.
+  // API drives can always be signed in to. Sync-only drives stay visible
+  // before their desktop folder is found so the owner can see how to set one up.
   const drives: Drive[] = found
     .filter((place) => place.type === "drive")
     .map((place) => ({
@@ -140,8 +142,14 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       sync: place.path,
       signIn: place.label === GOOGLE_DRIVE || place.label === DROPBOX,
     }));
-  if (!drives.some((d) => d.label === GOOGLE_DRIVE)) drives.push({ label: GOOGLE_DRIVE, signIn: true });
-  if (!drives.some((d) => d.label === DROPBOX)) drives.push({ label: DROPBOX, signIn: true });
+  for (const [label, signIn] of [
+    [GOOGLE_DRIVE, true],
+    [DROPBOX, true],
+    [ICLOUD, false],
+    [ONEDRIVE, false],
+  ] as const) {
+    if (!drives.some((d) => d.label === label)) drives.push({ label, signIn });
+  }
   drives.sort((a, b) => Number(b.label === GOOGLE_DRIVE) - Number(a.label === GOOGLE_DRIVE));
   const drive = drives.find((d) => d.label === drivePick) ?? drives[0]!;
   const driveHow = drive.sync && drive.signIn ? how : drive.sync ? "sync" : "signIn";
@@ -350,17 +358,11 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   } else if (choice === "drive") {
     form = (
       <>
-        <ChoiceList
+        <Select
           label={s.whichDrive}
-          name="which-drive"
           value={drive.label}
           onChange={setDrivePick}
-          choices={drives.map((d) => ({
-            value: d.label,
-            title: driveName(d.label),
-            meta: d.sync && d.signIn ? `${s.foundHere} · ${s.orSignIn}` : d.sync ? s.foundHere : s.signInOnly,
-            leading: <Icon name="drive" />,
-          }))}
+          options={drives.map((d) => ({ value: d.label, label: driveName(d.label) }))}
         />
         {drive.sync && drive.signIn && (
           <ChoiceList
@@ -379,6 +381,13 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
             <p className="screen-well-text">
               {s.syncKept(homeRelative(keptIn(drive.sync)))} {s.driveEncrypted(driveName(drive.label))}
             </p>
+          </InsetWell>
+        ) : !drive.sync && !drive.signIn ? (
+          <InsetWell>
+            <p className="screen-well-text">
+              <strong>{s.driveNotFound}</strong>
+            </p>
+            <p className="screen-well-text">{drive.label === ICLOUD ? s.icloudSetup : s.oneDriveSetup}</p>
           </InsetWell>
         ) : (
           <>
@@ -469,6 +478,7 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       if (driveHow === "sync" && drive.sync) {
         return { add: { label: drive.label, type: "drive", address: drive.sync } };
       }
+      if (!drive.signIn) return { error: drive.label === ICLOUD ? s.icloudSetup : s.oneDriveSetup };
       if (drive.label === DROPBOX) {
         if (rememberedDropboxApp) return { dropbox: { readAll } };
         if (!dropboxClientId.trim()) return { error: s.dropboxClientRequired };
@@ -517,6 +527,7 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
     picker,
     plan,
     choice,
+    unavailable: choice === "drive" && !drive.sync && !drive.signIn,
     toGoogle: choice === "drive" && driveHow === "signIn" && drive.label === GOOGLE_DRIVE,
     toDropbox: choice === "drive" && driveHow === "signIn" && drive.label === DROPBOX,
   };
@@ -638,10 +649,11 @@ export function AddStorage({
       title={s.add}
       closeLabel={strings.common.close}
       onClose={close}
+      placement="top"
       footer={
         <>
           <Button onClick={close}>{strings.common.cancel}</Button>
-          <Button type="submit" form="add-storage" variant="primary" disabled={add.busy}>
+          <Button type="submit" form="add-storage" variant="primary" disabled={add.busy || storage.unavailable}>
             {add.busy
               ? s.connecting
               : dropbox.pending
@@ -692,7 +704,7 @@ export function AddStorage({
       >
         {dropbox.pending ? dropbox.fields : storage.picker}
         {!dropbox.pending && returnTo === "settings" && (
-          <Checkbox label={s.useForNew} checked={makeDefault} onChange={setMakeDefault} />
+          <Checkbox label={s.useForNew} checked={makeDefault} onChange={setMakeDefault} disabled={storage.unavailable} />
         )}
         {add.error && <ErrorText>{add.error}</ErrorText>}
       </form>

@@ -177,7 +177,7 @@ export function Onboarding({
             )}
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
-              <Button type="submit" variant="primary" large disabled={save.busy}>
+              <Button type="submit" variant="primary" large disabled={save.busy || storage.unavailable}>
                 {save.busy
                   ? strings.storage.connecting
                   : dropbox.pending

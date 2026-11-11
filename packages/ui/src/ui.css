@@ -837,6 +837,10 @@
   background-color: var(--ink);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-5' fill='none' stroke='%23fcfcfb' stroke-width='2'/%3E%3C/svg%3E");
 }
+.oik-checkbox:has(input:disabled) {
+  color: var(--ink3);
+  cursor: default;
+}
 .oik-checkbox input:disabled {
   cursor: default;
   opacity: 0.45;
@@ -1278,6 +1282,24 @@
 }
 [data-theme="bold"] .oik-dialog__actions {
   border-top-color: var(--line);
+}
+@media (min-width: 721px) {
+  .oik-dialog--top {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 3 * var(--space-7));
+    margin-top: calc(2 * var(--space-7));
+    margin-bottom: 0;
+    overflow: hidden;
+  }
+  .oik-dialog--top .oik-dialog__head,
+  .oik-dialog--top .oik-dialog__actions {
+    flex: none;
+  }
+  .oik-dialog--top .oik-dialog__body {
+    min-height: 0;
+    overflow-y: auto;
+  }
 }
 @media (max-width: 720px) {
   /* A sheet from the bottom edge, with thumb-sized actions */

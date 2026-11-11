@@ -962,7 +962,8 @@
   padding-bottom: var(--space-4);
 }
 
-/* Steps to do somewhere else, each a link there (Google Drive's app). */
+/* Steps to do somewhere else, each a link there or what to enter there (a
+   drive's app). */
 .screen-steps {
   margin: 0 0 var(--space-3);
   padding-left: 20px;
@@ -971,6 +972,39 @@
 }
 .screen-steps li + li {
   margin-top: 2px;
+}
+/* What to paste there, on its own line, with Copy beside it. */
+.screen-steps__copy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.screen-steps__copy .screen-path {
+  min-width: 0;
+  user-select: all;
+}
+.screen-steps__copy .oik-icon-button,
+.screen-steps__copy .oik-copy__done {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  justify-content: center;
+}
+/* Exact names to tick there, one a line with a dot, set like the address above. */
+.screen-steps__values {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+.screen-steps__values li::marker {
+  color: var(--ink3);
+}
+.screen-steps__values li + li {
+  margin-top: 0;
 }
 .screen-steps a {
   color: inherit;

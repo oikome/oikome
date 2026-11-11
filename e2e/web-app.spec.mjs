@@ -859,18 +859,27 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
   await add.getByRole("radio", { name: /^Cloud drive/ }).check();
   await expect(add.getByRole("radio", { name: /^Google Drive/ })).toBeChecked();
   // Where Google Drive for desktop is on this computer, its folder comes first.
-  const signIn = add.getByRole("radio", { name: /^Sign in on its page/ });
+  const signIn = add.getByRole("radio", { name: /^Sign in on the web/ });
   if (await signIn.count()) await signIn.check();
-  else await expect(add).toContainText("none of this is needed: pick its folder instead");
+  else await expect(add).toContainText("Install Google Drive for desktop on this computer");
   // Two steps: register the app, then give it to Oikome.
   await expect(add.getByRole("heading", { name: /Register your app with Google/ })).toBeVisible();
   await expect(add.getByRole("heading", { name: /Give Oikome your app/ })).toBeVisible();
-  await expect(add.getByRole("link", { name: "Turn on the Google Drive API" })).toHaveAttribute(
+  await expect(add.getByRole("link", { name: "Enable the Google Drive API" })).toHaveAttribute(
     "href",
     "https://console.cloud.google.com/apis/library/drive.googleapis.com",
   );
+  await expect(add.getByRole("link", { name: "Name and publish the app" })).toHaveAttribute(
+    "href",
+    "https://console.cloud.google.com/auth/branding",
+  );
+  await expect(add.getByRole("link", { name: "Create a Desktop app client and download its file" })).toHaveAttribute(
+    "href",
+    "https://console.cloud.google.com/auth/clients/create",
+  );
+  await expect(add).toContainText("The JSON downloaded when you created your Desktop app OAuth client.");
   await add.getByRole("button", { name: "Continue to Google" }).click();
-  await expect(add).toContainText("Paste your Google app's client ID and secret.");
+  await expect(add).toContainText("Paste your Google app's Client ID and Client secret.");
   // The file Google lets one download fills both, read in the page only.
   const appFile = add.locator('input[type="file"]');
   await appFile.setInputFiles({
@@ -884,8 +893,9 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
   });
   await expect(add.getByLabel("Client ID")).toHaveValue("from-file.apps.googleusercontent.com");
   await expect(add.getByLabel("Client secret")).toHaveValue("from-file-secret");
+  await expect(add).toContainText("client_secret_made-up.apps.googleusercontent.com.json");
   await appFile.setInputFiles({ name: "notes.json", mimeType: "application/json", buffer: Buffer.from("{}") });
-  await expect(add).toContainText("That isn't a Google app's file");
+  await expect(add).toContainText("That isn't a Google OAuth client JSON file.");
   await add.getByRole("button", { name: "Cancel" }).click();
 
   // A new data center, on its first run, with a (made-up) app of the
@@ -910,7 +920,7 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
     await tab.goto(link);
     await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
     await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
-    const tabSignIn = tab.getByRole("radio", { name: /^Sign in on its page/ });
+    const tabSignIn = tab.getByRole("radio", { name: /^Sign in on the web/ });
     if (await tabSignIn.count()) await tabSignIn.check();
     await expect(tab.locator(".screen-place-form")).toContainText("Your Google app: made-up.apps.googleusercontent.com");
     await expect(tab.getByLabel("Client secret")).toHaveCount(0);
@@ -936,6 +946,89 @@ test("Google Drive is connected through the owner's own Google app, on Google's 
     await tab.goto(`${origin}/oauth/google/callback?state=${params.get("state")}&code=x`);
     await expect(tab).toHaveURL(`${origin}/settings`);
     await expect(tab.locator("main")).toContainText("Couldn't connect Google Drive. Try again.");
+  } finally {
+    await fresh.close();
+    node.kill();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Dropbox uses a copied authorization code with PKCE and offline access", async ({ browser }) => {
+  const root = mkdtempSync(join(tmpdir(), "oikome-app-dropbox-"));
+  execFileSync(BIN, ["--root", root, "storage", "dropbox-app"], {
+    input: "made-up-dropbox-app\n",
+    env: ENV,
+  });
+  const node = await serveWeb(root);
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    const signIns = [];
+    await fresh.route("https://www.dropbox.com/**", (route) => {
+      signIns.push(route.request().url());
+      return route.fulfill({ contentType: "text/html", body: "<title>Dropbox</title>" });
+    });
+    const tab = await fresh.newPage();
+    const link = readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim();
+    await tab.goto(link);
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await tab.getByRole("radio", { name: /^Cloud drive/ }).check();
+    await tab.getByRole("radio", { name: /^Dropbox/ }).check();
+    const signIn = tab.getByRole("radio", { name: /^Sign in on the web/ });
+    if (await signIn.count()) await signIn.check();
+    await expect(tab.locator(".screen-place-form")).toContainText("Your Dropbox app: made-up-dropbox-app");
+    await expect(tab.getByLabel("App secret", { exact: true })).toHaveCount(0);
+    await tab.getByRole("button", { name: "Use another app" }).click();
+    // No redirect registration: create the app, tick its permissions, then
+    // give Oikome its App key. The Permissions tab links to this app directly.
+    const form = tab.locator(".screen-place-form");
+    await expect(tab.getByRole("heading", { name: "Register your app with Dropbox" })).toBeVisible();
+    await expect(tab.getByRole("heading", { name: "Give Oikome your app" })).toBeVisible();
+    await expect(tab.getByRole("link", { name: "Create an app" })).toHaveAttribute(
+      "href",
+      "https://www.dropbox.com/developers/apps/create",
+    );
+    await expect(form).toContainText("App folder, or Full Dropbox to view your other files too");
+    await expect(form).not.toContainText("redirect URI");
+    await expect(form).toContainText("On its Permissions tab, tick these, then Save changes at the top right:");
+    const listedScopes = await form.locator(".screen-steps__values li").allTextContents();
+    await expect(form.locator("details")).toHaveCount(0);
+    await expect(form.getByRole("link", { name: /On its Permissions tab/ })).toHaveCount(0);
+    await expect(form).not.toContainText("Your other files are viewed read only");
+    const readAll = tab.getByRole("checkbox", { name: /Also view your other Dropbox files/ });
+    await readAll.check();
+    await expect(form).toContainText("Your other files are viewed read only and stay in Dropbox.");
+    await readAll.uncheck();
+    await tab.getByLabel("App key", { exact: true }).fill("made-up-dropbox-app");
+    await expect(form.getByRole("link", { name: /On its Permissions tab/ })).toHaveAttribute(
+      "href",
+      "https://www.dropbox.com/developers/console/apps/made-up-dropbox-app/permissions",
+    );
+    await expect(tab.getByLabel("Client ID", { exact: true })).toHaveCount(0);
+    await expect(tab.getByLabel("Client secret", { exact: true })).toHaveCount(0);
+
+    const dropboxPage = fresh.waitForEvent("page");
+    await tab.getByRole("button", { name: "Continue to Dropbox" }).click();
+    await dropboxPage;
+    await expect.poll(() => signIns.length).toBe(1);
+    const params = new URL(signIns[0]).searchParams;
+    expect(params.get("client_id")).toBe("made-up-dropbox-app");
+    expect(params.has("redirect_uri")).toBe(false);
+    expect(params.has("state")).toBe(false);
+    expect(params.get("token_access_type")).toBe("offline");
+    expect(params.get("code_challenge_method")).toBe("S256");
+    expect(params.get("scope")).toBe(
+      "account_info.read files.content.read files.content.write files.metadata.read files.metadata.write",
+    );
+    expect([...listedScopes, "account_info.read", "files.metadata.read"].sort()).toEqual(
+      params.get("scope").split(" ").sort(),
+    );
+
+    // Oikome keeps its place and asks for the code shown on Dropbox's page.
+    await expect(tab.getByRole("heading", { name: "Welcome to Oikome" })).toBeVisible();
+    await expect(tab.getByRole("textbox", { name: "Authorization code", exact: true })).toBeFocused();
+    await expect(tab.getByRole("link", { name: "Open Dropbox again" })).toHaveAttribute("href", signIns[0]);
+    await tab.getByRole("button", { name: "Connect Dropbox" }).click();
+    await expect(tab.locator("main")).toContainText("Paste the authorization code shown on Dropbox's page.");
   } finally {
     await fresh.close();
     node.kill();

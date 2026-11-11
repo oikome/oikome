@@ -34,11 +34,12 @@
 //!   request carries an assistant's token, and none from a web page (no
 //!   `Origin`) is answered.
 //! - **Google's way back.** `GET /oauth/google/callback` is where Google
-//!   sends the owner after its sign-in page (3.4c). Google's redirect comes
-//!   from another site, so the session cookie is not sent: the callback is
-//!   let in by the one-time `state` of a sign-in the owner started
-//!   (`oikome_api::Api::finish_google_drive`), and answers only with a
-//!   redirect to one of the app's pages.
+//!   sends the owner after its sign-in page (3.4c). The redirect comes from
+//!   another site, so the session cookie is not sent: the callback is let in
+//!   by the one-time `state` of a sign-in the owner started, and answers only
+//!   with a redirect to one of the app's pages. Dropbox instead shows an
+//!   authorization code, which the owner submits through the authenticated
+//!   `finish_dropbox` API.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -64,7 +65,8 @@ use oikome_api::{
     UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
-    FileRef, GoogleCallback, ListFiles, SetNetwork, ShowFolder, StartGoogleDrive, ViewInPlace,
+    FileRef, FinishDropbox, GoogleCallback, ListFiles, SetNetwork, ShowFolder, StartDropbox,
+    StartGoogleDrive, ViewInPlace,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -450,6 +452,11 @@ impl WebState {
                 }
                 Err(e) => error(e),
             },
+            "dropbox_app" => json_op!(dropbox_app, Empty),
+            "start_dropbox" => json_op!(start_dropbox, StartDropbox),
+            // Dropbox shows the code on its page; only this authenticated API
+            // receives it, never a URL query or an unauthenticated callback.
+            "finish_dropbox" => json_op!(finish_dropbox, FinishDropbox),
             "list_sources" => json_op!(list_sources, Empty),
             "add_source" => json_op!(add_source, NewSource),
             "pull_source" => json_op!(pull_source, SourceRef),

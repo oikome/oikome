@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod dropbox;
 pub mod file_read;
 pub mod file_write;
 pub mod google;
@@ -31,6 +32,7 @@ pub(crate) fn ready() {
     });
 }
 
+pub use dropbox::{DropboxClient, DropboxError};
 pub use file_read::OpenDalFileRead;
 pub use file_write::OpenDalFileWrite;
 pub use google::{GoogleClient, GoogleError};

@@ -48,6 +48,7 @@ const PLACE_ICONS: Record<StorageSummary["type"], IconName> = {
   drive: "drive",
   s3: "bucket",
   gdrive: "drive",
+  dropbox: "drive",
 };
 
 export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo) => void }) {

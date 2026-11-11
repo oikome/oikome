@@ -31,7 +31,10 @@ Apache OpenDAL (opendal)
   opendal-service-gdrive 0.59.5 is vendored in
   third_party/opendal-service-gdrive and modified by The Oikome Authors:
   large files are written through resumable upload sessions (see
-  third_party/README.md).
+  third_party/README.md). opendal-service-dropbox 0.59.5 is vendored in
+  third_party/opendal-service-dropbox and modified to allow PKCE refresh
+  tokens without a client secret; its upload sessions are implemented in
+  oikome-vfs.
 
 datafusion-federation
   https://github.com/datafusion-contrib/datafusion-federation  -  Apache License 2.0

@@ -43,7 +43,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use oikome_catalog::{Location, LocationFormat, OikomeCatalog, StorageKind};
 use oikome_connect::folder::{captions_of, split_front_matter, wall_time, written_time, CAPTIONS};
 use oikome_engine::{FileFormat, TableSource};
-use oikome_vfs::{check_owner_path, Bucket, Credentials, GoogleClient, RemoteStore};
+use oikome_vfs::{check_owner_path, Bucket, Credentials, DropboxClient, GoogleClient, RemoteStore};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::SessionError;
@@ -301,6 +301,37 @@ pub fn place_of(
                 .ok_or_else(|| store_err("this node isn't signed in to its Google Drive".into()))?;
             let client = GoogleClient::new(client_id.as_str(), client_secret.as_str());
             let store = RemoteStore::gdrive_view(within, &client, &token)
+                .map_err(|e| store_err(e.to_string()))?;
+            let label = if within.is_empty() {
+                def.name.clone()
+            } else {
+                format!("{}/{within}", def.name)
+            };
+            Ok(Place::Remote {
+                store: Box::new(store),
+                label,
+            })
+        }
+        StorageKind::Dropbox {
+            reads_all: false, ..
+        } => Err(SessionError::Unsupported(
+            "Oikome may read only its app folder on Dropbox; use a Full Dropbox app to view \
+             your other folders there"
+                .to_string(),
+        )),
+        StorageKind::Dropbox {
+            client_id,
+            reads_all: true,
+        } => {
+            let store_err = |message: String| SessionError::Store {
+                storage: def.name.clone(),
+                message,
+            };
+            let secret = |kind| engines.storage_secret(&def.name, kind);
+            let token = secret(SecretKind::Token)?
+                .ok_or_else(|| store_err("this node isn't signed in to Dropbox".into()))?;
+            let client = DropboxClient::new(client_id.as_str());
+            let store = RemoteStore::dropbox_view(within, &client, &token)
                 .map_err(|e| store_err(e.to_string()))?;
             let label = if within.is_empty() {
                 def.name.clone()

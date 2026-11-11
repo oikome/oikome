@@ -346,6 +346,9 @@ pub enum StorageType {
     /// The owner's Google Drive, signed in to with their Google account;
     /// added with `start_google_drive`, not `add_storage`.
     Gdrive,
+    /// The owner's Dropbox, signed in to with their Dropbox account;
+    /// added with `start_dropbox`, not `add_storage`.
+    Dropbox,
 }
 
 /// A place Spaces can be kept: this computer, or a registered storage.
@@ -512,6 +515,68 @@ pub struct PauseSource {
 #[serde(rename_all = "camelCase")]
 pub struct SourceRef {
     pub source: String,
+}
+
+/// `start_dropbox`: connect the owner's Dropbox through their own app and
+/// OAuth + PKCE. The drive is always encrypted. App folder or Full Dropbox
+/// access is chosen in Dropbox's App Console (`read_all` records the latter).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct StartDropbox {
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub make_default: Option<bool>,
+    #[serde(default)]
+    pub read_all: Option<bool>,
+}
+
+impl std::fmt::Debug for StartDropbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StartDropbox")
+            .field("client_id", &self.client_id)
+            .field("label", &self.label)
+            .field("make_default", &self.make_default)
+            .field("read_all", &self.read_all)
+            .finish()
+    }
+}
+
+/// `finish_dropbox`: the one-time sign-in ID and the authorization code
+/// Dropbox showed the owner. Neither value is logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FinishDropbox {
+    pub id: String,
+    pub code: String,
+}
+
+impl std::fmt::Debug for FinishDropbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FinishDropbox")
+            .field("id", &"<redacted>")
+            .field("code", &"<redacted>")
+            .finish()
+    }
+}
+
+/// `dropbox_app`: the remembered app's client ID only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DropboxApp {
+    pub client_id: Option<String>,
+}
+
+/// Dropbox's sign-in page and the one-time ID for finishing this connection;
+/// the pending sign-in expires after ten minutes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DropboxSignIn {
+    pub url: String,
+    pub id: String,
 }
 
 /// Where the owner comes back to after Google's sign-in page.

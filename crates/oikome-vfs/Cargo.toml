@@ -12,6 +12,7 @@ authors.workspace = true
 opendal = { version = "0.59.5", default-features = false, features = [
     "executors-tokio",
     "http-transport-reqwest-rustls-no-provider",
+    "services-dropbox",
     "services-fs",
     "services-gdrive",
     "services-s3",

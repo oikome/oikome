@@ -46,6 +46,7 @@ export const STORAGE_ICONS: Record<StorageSummary["type"], IconName> = {
   drive: "drive",
   s3: "bucket",
   gdrive: "drive",
+  dropbox: "drive",
 };
 
 /** What a storage is called: this computer, or the name the owner gave it. */

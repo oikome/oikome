@@ -74,6 +74,10 @@ import type {
   NewStorage,
   DefaultStorage,
   StorageRef,
+  StartDropbox,
+  FinishDropbox,
+  DropboxApp,
+  DropboxSignIn,
   StartGoogleDrive,
   GoogleApp,
   GoogleSignIn,
@@ -120,6 +124,12 @@ export interface NodeClient {
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
   removeStorage(request: StorageRef): Promise<StorageSummary[]>;
+  /** The owner's Dropbox app this node remembers, by its App key. */
+  dropboxApp(): Promise<DropboxApp>;
+  /** Dropbox's sign-in page and pending ID; the page opens in another tab. */
+  startDropbox(request: StartDropbox): Promise<DropboxSignIn>;
+  /** Finish connecting with the authorization code Dropbox showed. */
+  finishDropbox(request: FinishDropbox): Promise<StorageSummary>;
   /** The owner's Google app this node remembers, by its client ID. */
   googleApp(): Promise<GoogleApp>;
   /** Google's sign-in page for connecting the owner's Google Drive; the app goes there. */
@@ -332,6 +342,18 @@ export class HttpClient implements NodeClient {
 
   removeStorage(request: StorageRef): Promise<StorageSummary[]> {
     return this.#json("remove_storage", request);
+  }
+
+  dropboxApp(): Promise<DropboxApp> {
+    return this.#json("dropbox_app", {});
+  }
+
+  startDropbox(request: StartDropbox): Promise<DropboxSignIn> {
+    return this.#json("start_dropbox", request);
+  }
+
+  finishDropbox(request: FinishDropbox): Promise<StorageSummary> {
+    return this.#json("finish_dropbox", request);
   }
 
   googleApp(): Promise<GoogleApp> {

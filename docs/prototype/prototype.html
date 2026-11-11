@@ -1691,7 +1691,6 @@ const driveOf = (n) => DRIVES.find((d) => d.n === n) || DRIVES[0];
 const driveName = (n) => (n === 'Google Drive' ? t('ap.gdrive') : n === 'iCloud Drive' ? t('drive.icloud') : n);
 const driveHow = (n, how) => { const d = driveOf(n); return d.sync && d.api ? (how || 'sync') : d.sync ? 'sync' : 'api'; };
 const driveGo = (n, how) => (driveHow(n, how) === 'sync' ? t('addPlace') : driveOf(n).api === 'dropbox' ? t('ap.toDropbox') : t('ap.toGoogle'));
-const DROPBOX_BACK = 'http://127.0.0.1:7340/oauth/dropbox/callback';
 function driveForm(D, pickKey, howKey) {
   const name = D[pickKey] || DRIVES[0].n, d = driveOf(name), how = driveHow(name, D[howKey]);
   const meta = (x) => (x.sync && x.api ? `${t('ap.foundHere')} · ${t('ap.orSignIn')}` : x.sync ? t('ap.foundHere') : t('ap.signInOnly'));
@@ -1699,7 +1698,7 @@ function driveForm(D, pickKey, howKey) {
   const ways = d.sync && d.api ? `<div class="field"><span class="label">${t('ap.how')}</span><div class="opts">${opt(howKey, 'sync', how, twoLine(t('ap.howSync'), t('ap.howSync.sub', { path: d.sync[0] })))}${opt(howKey, 'api', how, twoLine(t('ap.howApi'), t('ap.howApi.sub')))}</div></div>` : '';
   let body;
   if (how === 'sync') body = `<div class="box">${t('ap.syncKept', { path: `${d.sync[0]}/Oikome` })} ${t('ap.encrypted', { drive: esc(driveName(name)) })}</div>`;
-  else if (d.api === 'dropbox') body = `<p class="hint" style="margin:0 0 4px">${t('ap.dropboxSteps')}</p><ol class="hint" style="margin:0 0 10px;padding-left:20px"><li>${t('ap.dropboxStep1')}</li><li>${t('ap.dropboxStep2')}<div class="row" style="gap:8px;margin:6px 0"><code class="mono" style="font-size:12px">${DROPBOX_BACK}</code><button class="btn btn--ghost" style="height:26px">${t('ap.copy')}</button></div></li><li>${t('ap.dropboxStep3')}</li></ol><div class="field"><span class="label">${t('ap.appKey')}</span><div class="input"><input data-bind="user" value="${esc(D.user || '')}" autocomplete="off"></div></div><div class="box">${t('ap.gdriveNote')}</div>`;
+  else if (d.api === 'dropbox') body = `<p class="hint" style="margin:0 0 4px">${t('ap.dropboxSteps')}</p><ol class="hint" style="margin:0 0 10px;padding-left:20px"><li>${t('ap.dropboxStep1')}</li><li>${t('ap.dropboxStep2')}</li><li>${t('ap.dropboxStep3')}</li></ol><div class="field"><span class="label">${t('ap.appKey')}</span><div class="input"><input data-bind="user" value="${esc(D.user || '')}" autocomplete="off"></div></div><div class="box">${t('ap.dropboxNote')}</div>`;
   else body = GOOGLE_FORM(D, !!d.sync);
   return `${list}${ways}${body}`;
 }

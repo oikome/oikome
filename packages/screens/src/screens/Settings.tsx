@@ -44,6 +44,7 @@ const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
   drive: ["drive", "periwinkle"],
   s3: ["bucket", "apricot"],
   gdrive: ["drive", "mist"],
+  dropbox: ["drive", "periwinkle"],
 };
 
 /** Free space and a bar, where the place says. */
@@ -62,8 +63,7 @@ function Room({ place }: { place: StorageSummary }) {
 
 /**
  * Where collections can be kept, with how many are on each, and which one
- * new ones go to. `google` is how connecting Google Drive went, on coming
- * back from Google's page.
+ * new ones go to. `google` says how connecting Google Drive went on return.
  */
 function Storage({ google }: { google: string | null }) {
   const client = useClient();
@@ -181,9 +181,11 @@ function Storage({ google }: { google: string | null }) {
         <ConfirmDialog
           title={strings.storage.removeTitle(removing.label)}
           body={
-            removing.type === "gdrive"
-              ? strings.storage.removeBodyGdrive
-              : removing.encrypted
+            removing.type === "dropbox"
+              ? strings.storage.removeBodyDropbox
+              : removing.type === "gdrive"
+                ? strings.storage.removeBodyGdrive
+                : removing.encrypted
                 ? strings.storage.removeBodyEncrypted
                 : strings.storage.removeBody
           }
@@ -341,7 +343,7 @@ export function Settings({
   info: NodeInfo;
   onInfo: (info: NodeInfo) => void;
   backup: boolean;
-  /** How connecting Google Drive went (`?google=`), on coming back from Google's page. */
+  /** How connecting Google Drive went, on coming back from Google's page. */
   google: string | null;
 }) {
   const client = useClient();

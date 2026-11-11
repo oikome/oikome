@@ -29,6 +29,7 @@
 
 mod assistants;
 mod borrowing;
+mod dropbox;
 pub mod error;
 mod examples;
 mod google;
@@ -242,6 +243,10 @@ pub struct Api {
     google_endpoints: oikome_vfs::google::Endpoints,
     /// Google sign-ins under way.
     sign_ins: google::SignIns,
+    /// Where Dropbox's sign-in is: Dropbox's own, or a test's.
+    dropbox_endpoints: oikome_vfs::dropbox::Endpoints,
+    /// Dropbox sign-ins under way.
+    dropbox_sign_ins: dropbox::SignIns,
     /// Google Drive's room by storage, and when it was asked.
     rooms: Arc<std::sync::Mutex<Rooms>>,
 }
@@ -353,6 +358,8 @@ impl Api {
             network: None,
             google_endpoints: oikome_vfs::google::Endpoints::default(),
             sign_ins: google::SignIns::default(),
+            dropbox_endpoints: oikome_vfs::dropbox::Endpoints::default(),
+            dropbox_sign_ins: dropbox::SignIns::default(),
             rooms: Arc::default(),
         }
     }
@@ -889,18 +896,23 @@ impl Api {
                     StorageType::Gdrive,
                     oikome_catalog::OBJECT_STORAGE_FOLDER.to_string(),
                 ),
+                StorageKind::Dropbox { .. } => (
+                    StorageType::Dropbox,
+                    oikome_catalog::OBJECT_STORAGE_FOLDER.to_string(),
+                ),
             };
             // A cloud drive's folder sits on this disk, but its room is the
-            // drive's quota, which the folder doesn't tell; Google Drive says
-            // its own.
+            // drive's quota, which the folder doesn't tell; a drive says its own.
             let room = match kind {
                 StorageType::Folder => places::space(std::path::Path::new(&place)),
-                StorageType::Gdrive => self.drive_room(&def.name).await,
+                StorageType::Gdrive | StorageType::Dropbox => self.drive_room(&def.name).await,
                 _ => None,
             };
             let views_in_place = match &def.kind {
                 StorageKind::Webdav { .. } | StorageKind::S3 { .. } => true,
-                StorageKind::Gdrive { reads_all, .. } => *reads_all,
+                StorageKind::Gdrive { reads_all, .. } | StorageKind::Dropbox { reads_all, .. } => {
+                    *reads_all
+                }
                 StorageKind::Folder { .. } | StorageKind::Drive { .. } => false,
             };
             out.push(StorageSummary {
@@ -987,6 +999,11 @@ impl Api {
             StorageType::Gdrive => {
                 return Err(ApiError::invalid(
                     "Google Drive is connected through Google's sign-in (start_google_drive)",
+                ));
+            }
+            StorageType::Dropbox => {
+                return Err(ApiError::invalid(
+                    "Dropbox is connected through Dropbox's sign-in (start_dropbox)",
                 ));
             }
             StorageType::S3 => {
@@ -1119,7 +1136,8 @@ impl Api {
                 StorageKind::Folder { path } | StorageKind::Drive { path } => Some(path),
                 StorageKind::Webdav { .. }
                 | StorageKind::S3 { .. }
-                | StorageKind::Gdrive { .. } => None,
+                | StorageKind::Gdrive { .. }
+                | StorageKind::Dropbox { .. } => None,
             })
             .collect();
         let home = places::home();

@@ -192,7 +192,7 @@ storage?: string, };
 /**
  * Where a storage keeps its files.
  */
-export type StorageType = "disk" | "webdav" | "folder" | "drive" | "s3" | "gdrive";
+export type StorageType = "disk" | "webdav" | "folder" | "drive" | "s3" | "gdrive" | "dropbox";
 
 /**
  * A place Spaces can be kept: this computer, or a registered storage.
@@ -286,6 +286,30 @@ export type DefaultStorage = { storage: string | null, };
  * removed.
  */
 export type StorageRef = { storage: string, };
+
+/**
+ * `start_dropbox`: connect the owner's Dropbox through their own app and
+ * OAuth + PKCE. The drive is always encrypted. App folder or Full Dropbox
+ * access is chosen in Dropbox's App Console (`read_all` records the latter).
+ */
+export type StartDropbox = { clientId?: string, label?: string, makeDefault?: boolean, readAll?: boolean, };
+
+/**
+ * `finish_dropbox`: the one-time sign-in ID and the authorization code
+ * Dropbox showed the owner. Neither value is logged.
+ */
+export type FinishDropbox = { id: string, code: string, };
+
+/**
+ * `dropbox_app`: the remembered app's client ID only.
+ */
+export type DropboxApp = { clientId: string | null, };
+
+/**
+ * Dropbox's sign-in page and the one-time ID for finishing this connection;
+ * the pending sign-in expires after ten minutes.
+ */
+export type DropboxSignIn = { url: string, id: string, };
 
 /**
  * Where the owner comes back to after Google's sign-in page.

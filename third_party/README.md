@@ -33,3 +33,16 @@
   looked every folder of its path up again: four requests more for a file
   three folders deep.
 - Drop this copy once an opendal release has the changes.
+
+## opendal-service-dropbox 0.59.5
+
+- Source: https://crates.io/crates/opendal-service-dropbox/0.59.5
+  (Apache OpenDAL, https://github.com/apache/opendal), Apache License 2.0.
+- Used through `[patch.crates-io]` in the workspace `Cargo.toml`, by
+  oikome-vfs for Dropbox (3.4c).
+- Change, to be proposed upstream: `src/backend.rs` allows a refresh token
+  without a client secret, and `src/core.rs` includes `client_secret` in the
+  refresh request only when one was supplied. Dropbox's PKCE flow for public
+  clients needs only the App key; the original builder required a secret and
+  always sent it.
+- Drop this copy once an opendal release has the change.

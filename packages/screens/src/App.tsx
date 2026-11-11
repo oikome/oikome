@@ -161,7 +161,12 @@ function Root() {
     screen = <Activity />;
   } else if (path === "/settings") {
     screen = (
-      <Settings info={info} onInfo={setInfo} backup={query.get("backup") === "1"} google={query.get("google")} />
+      <Settings
+        info={info}
+        onInfo={setInfo}
+        backup={query.get("backup") === "1"}
+        google={query.get("google")}
+      />
     );
   } else {
     screen = (

@@ -3,8 +3,8 @@
 //
 // Where collections are kept: this computer (in its data folder, a folder
 // the owner picks, or a drive plugged in), a NAS, a cloud drive (its
-// desktop app's folder, or Google Drive signed in to on Google's page,
-// through an app the owner registers with Google), or object storage
+// desktop app's folder, or Google Drive and Dropbox signed in to on their
+// pages, through an app the owner registers), or object storage
 // (RustFS).
 // A web page cannot ask the system for a folder, so the node lists them and
 // a folder browser picks one, as NAS and media server apps do.
@@ -13,7 +13,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, InsetWell, TextField } from "@oikome/ui";
 import type { Choice } from "@oikome/ui";
-import type { FolderListing, GoogleReturn, NewStorage, StorageSummary } from "@oikome/client";
+import type { DropboxSignIn, FolderListing, GoogleReturn, NewStorage, StartDropbox, StorageSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "./data";
 import { homeRelative } from "./format";
 import { strings } from "./strings";
@@ -39,9 +39,10 @@ export type Plan =
   | { add?: Omit<NewStorage, "makeDefault"> }
   // Without an app: the one the node remembers.
   | { google: { clientId?: string; clientSecret?: string; readAll?: boolean } }
+  | { dropbox: { clientId?: string; readAll?: boolean } }
   | { error: string };
 
-/** The client ID and secret in a Google app's downloaded file (`client_secret_….json`). */
+/** The Client ID and Client secret in an OAuth client's downloaded JSON. */
 async function googleAppFile(file: File): Promise<{ clientId: string; clientSecret: string } | undefined> {
   try {
     const json = JSON.parse(await file.text());
@@ -59,12 +60,22 @@ async function googleAppFile(file: File): Promise<{ clientId: string; clientSecr
 const GOOGLE_STEPS: [string, () => string][] = [
   ["https://console.cloud.google.com/projectcreate", () => s.gdriveStep1],
   ["https://console.cloud.google.com/apis/library/drive.googleapis.com", () => s.gdriveStep2],
-  ["https://console.cloud.google.com/auth/overview", () => s.gdriveStep3],
+  ["https://console.cloud.google.com/auth/branding", () => s.gdriveStep3],
   ["https://console.cloud.google.com/auth/clients/create", () => s.gdriveStep4],
 ];
 
 /** Google Drive's name in the places found here, as the node gives it. */
 const GOOGLE_DRIVE = "Google Drive";
+const DROPBOX = "Dropbox";
+/**
+ * What the owner ticks on a Dropbox app's Permissions tab, in the tab's own
+ * order. The console adds account_info.read and files.metadata.read itself,
+ * greyed out, so they aren't listed.
+ */
+const DROPBOX_TICK = ["files.metadata.write", "files.content.write", "files.content.read"];
+/** The owner's app's Permissions tab, once its App key is known. */
+const dropboxPermissions = (appKey: string) =>
+  appKey ? `https://www.dropbox.com/developers/console/apps/${encodeURIComponent(appKey)}/permissions` : undefined;
 
 /**
  * A cloud drive: its desktop app's folder, where the app is on this
@@ -89,8 +100,10 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   const places = useLoad(() => client.findPlaces(), []);
   // The Google app remembered from the last Google Drive connected.
   const googleApp = useLoad(() => client.googleApp(), []);
+  const dropboxApp = useLoad(() => client.dropboxApp(), []);
   const [otherApp, setOtherApp] = useState(false);
   const [appFileError, setAppFileError] = useState<string>();
+  const [appFileName, setAppFileName] = useState<string>();
   // What kind of place: this computer or a folder, a NAS, a cloud drive, object storage.
   const [choice, setChoice] = useState(withThisComputer ? "here" : "folder");
   // A folder on this computer the owner picked instead of the data folder.
@@ -113,16 +126,22 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
   // Google Drive: the owner's own Google app.
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [dropboxClientId, setDropboxClientId] = useState("");
   // Also read the rest of the drive, to view folders there in place.
   const [readAll, setReadAll] = useState(false);
 
   const found = places.data ?? [];
-  // Google Drive can always be signed in to; the others are used through
+  // Both API drives can always be signed in to; the others are used through
   // their desktop app's folder, where it is here.
   const drives: Drive[] = found
     .filter((place) => place.type === "drive")
-    .map((place) => ({ label: place.label, sync: place.path, signIn: place.label === GOOGLE_DRIVE }));
+    .map((place) => ({
+      label: place.label,
+      sync: place.path,
+      signIn: place.label === GOOGLE_DRIVE || place.label === DROPBOX,
+    }));
   if (!drives.some((d) => d.label === GOOGLE_DRIVE)) drives.push({ label: GOOGLE_DRIVE, signIn: true });
+  if (!drives.some((d) => d.label === DROPBOX)) drives.push({ label: DROPBOX, signIn: true });
   drives.sort((a, b) => Number(b.label === GOOGLE_DRIVE) - Number(a.label === GOOGLE_DRIVE));
   const drive = drives.find((d) => d.label === drivePick) ?? drives[0]!;
   const driveHow = drive.sync && drive.signIn ? how : drive.sync ? "sync" : "signIn";
@@ -154,9 +173,11 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
 
   // The app the node remembers, unless the owner picks another one.
   const rememberedApp = otherApp ? undefined : (googleApp.data?.clientId ?? undefined);
+  const rememberedDropboxApp = otherApp ? undefined : (dropboxApp.data?.clientId ?? undefined);
   // The app's two fields filled from the file Google lets one download.
   const fillFromFile = async (file: File | undefined) => {
     if (!file) return;
+    setAppFileName(file.name);
     const app = await googleAppFile(file);
     setAppFileError(app ? undefined : s.googleFileUnreadable);
     if (app) {
@@ -207,7 +228,7 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
             />
           </label>
           <span className={appFileError ? "screen-help screen-help--error" : "screen-help"} role={appFileError ? "alert" : undefined}>
-            {appFileError ?? s.gdriveFileHint}
+            {appFileError ?? appFileName ?? s.googleFileHint}
           </span>
         </div>
         <p className="screen-gapp__or">{s.gdriveOrPaste}</p>
@@ -219,6 +240,63 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
           hint={s.passwordHint}
           value={clientSecret}
           onChange={setClientSecret}
+        />
+      </section>
+    </div>
+  );
+
+  // Registering the app, then giving Oikome its key: no redirect URI to
+  // register. Once the App key is in, Permissions links to the app's own tab.
+  const permissionsTab = dropboxPermissions(dropboxClientId.trim());
+  const toTab = (href: string | undefined, text: string) =>
+    href ? (
+      <a href={href} target="_blank" rel="noreferrer">
+        {text}
+      </a>
+    ) : (
+      text
+    );
+  const dropboxAppFields = (
+    <div className="screen-gapp">
+      {!drive.sync && <p className="screen-help">{s.dropboxEasier}</p>}
+      <section className="screen-gapp__step" aria-labelledby="dropbox-register">
+        <h3 id="dropbox-register" className="screen-gapp__title">
+          <span className="screen-gapp__n" aria-hidden="true">
+            1
+          </span>
+          {s.dropboxRegister}
+        </h3>
+        <p className="screen-help">{s.dropboxRegisterHint}</p>
+        <ol className="screen-steps">
+          <li>
+            <a href="https://www.dropbox.com/developers/apps/create" target="_blank" rel="noreferrer">
+              {s.dropboxCreate}
+            </a>
+            {s.dropboxCreateType}
+          </li>
+          <li>
+            {toTab(permissionsTab, s.dropboxPermissions)}
+            <ul className="screen-steps__values" translate="no">
+              {DROPBOX_TICK.map((scope) => (
+                <li key={scope}>{scope}</li>
+              ))}
+            </ul>
+          </li>
+        </ol>
+      </section>
+      <section className="screen-gapp__step" aria-labelledby="dropbox-give">
+        <h3 id="dropbox-give" className="screen-gapp__title">
+          <span className="screen-gapp__n" aria-hidden="true">
+            2
+          </span>
+          {s.gdriveGive}
+        </h3>
+        <TextField
+          label={s.dropboxAppKey}
+          name="dropbox-client-id"
+          hint={s.dropboxAppKeyHint}
+          value={dropboxClientId}
+          onChange={setDropboxClientId}
         />
       </section>
     </div>
@@ -304,7 +382,20 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
           </InsetWell>
         ) : (
           <>
-            {rememberedApp ? (
+            {drive.label === DROPBOX ? (
+              rememberedDropboxApp ? (
+                <div className="screen-app-row">
+                  <span className="screen-help screen-ellipsis" translate="no">
+                    {s.dropboxApp(rememberedDropboxApp)}
+                  </span>
+                  <Button variant="quiet" onClick={() => setOtherApp(true)}>
+                    {s.otherApp}
+                  </Button>
+                </div>
+              ) : (
+                dropboxAppFields
+              )
+            ) : rememberedApp ? (
               <div className="screen-app-row">
                 <span className="screen-help screen-ellipsis" translate="no">
                   {s.gdriveApp(rememberedApp)}
@@ -316,9 +407,15 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
             ) : (
               googleAppFields
             )}
-            <Checkbox label={s.gdriveReadAll} checked={readAll} onChange={setReadAll} />
+            <Checkbox
+              label={drive.label === DROPBOX ? s.dropboxReadAll : s.gdriveReadAll}
+              checked={readAll}
+              onChange={setReadAll}
+            />
             <InsetWell>
-              <p className="screen-well-text">{s.gdriveNote}</p>
+              <p className="screen-well-text">
+                {drive.label === DROPBOX ? s.dropboxNote(readAll) : s.gdriveNote(readAll)}
+              </p>
             </InsetWell>
           </>
         )}
@@ -372,6 +469,11 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       if (driveHow === "sync" && drive.sync) {
         return { add: { label: drive.label, type: "drive", address: drive.sync } };
       }
+      if (drive.label === DROPBOX) {
+        if (rememberedDropboxApp) return { dropbox: { readAll } };
+        if (!dropboxClientId.trim()) return { error: s.dropboxClientRequired };
+        return { dropbox: { clientId: dropboxClientId.trim(), readAll } };
+      }
       if (rememberedApp) return { google: { readAll } };
       if (!clientId.trim() || !clientSecret.trim()) return { error: s.googleClientRequired };
       return { google: { clientId: clientId.trim(), clientSecret: clientSecret.trim(), readAll } };
@@ -410,20 +512,79 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
       )}
     </>
   );
-  // Google Drive signed in to is added on Google's page: the button says so.
-  return { picker, plan, choice, toGoogle: choice === "drive" && driveHow === "signIn" };
+  // An API drive is added on its own page: the button names the provider.
+  return {
+    picker,
+    plan,
+    choice,
+    toGoogle: choice === "drive" && driveHow === "signIn" && drive.label === GOOGLE_DRIVE,
+    toDropbox: choice === "drive" && driveHow === "signIn" && drive.label === DROPBOX,
+  };
 }
 
 /** What to say when the place picked couldn't be reached or refused what was entered. */
 export function unreachableFor(plan: Plan): string {
   if ("google" in plan) return s.googleFailed;
+  if ("dropbox" in plan) return s.dropboxFailed;
   return "add" in plan && plan.add?.type === "s3" ? s.unreachableS3 : s.unreachable;
+}
+
+/** The copied-code part of connecting Dropbox, shared by both app flows. */
+export function useDropboxCode() {
+  const client = useClient();
+  const [pending, setPending] = useState<DropboxSignIn>();
+  const [code, setCode] = useState("");
+  const start = async (request: StartDropbox) => {
+    const signIn = await client.startDropbox(request);
+    setCode("");
+    setPending(signIn);
+    window.open(signIn.url, "_blank", "noopener,noreferrer");
+  };
+  const finish = async () => {
+    if (!pending) throw new Error(s.dropboxFailed);
+    if (!code.trim()) throw new Error(s.dropboxCodeRequired);
+    try {
+      return await client.finishDropbox({ id: pending.id, code: code.trim() });
+    } finally {
+      // A finished or refused attempt consumes its one-time ID. The next
+      // submit starts fresh; an empty code never reaches this point.
+      setPending(undefined);
+      setCode("");
+    }
+  };
+  const fields = pending ? (
+    <section className="screen-gapp__step" aria-label={s.dropboxCode}>
+      <p className="screen-help">{s.dropboxCodeHint}</p>
+      <TextField
+        label={s.dropboxCode}
+        name="dropbox-authorization-code"
+        value={code}
+        onChange={setCode}
+        autoFocus
+      />
+      <a href={pending.url} target="_blank" rel="noreferrer">
+        {s.dropboxReopen}
+      </a>
+    </section>
+  ) : null;
+  return {
+    pending,
+    hasCode: Boolean(code.trim()),
+    fields,
+    start,
+    finish,
+    reset: () => {
+      setPending(undefined);
+      setCode("");
+    },
+  };
 }
 
 /**
  * Add what `plan` says, if anything; the storage, or undefined for this
  * computer. Google Drive goes to Google's page instead, and comes back to
  * `returnTo`: the promise doesn't settle, so the page stays busy as it goes.
+ * Dropbox's copied-code flow is handled by `useDropboxCode` instead.
  */
 export async function addPlanned(
   client: ReturnType<typeof useClient>,
@@ -432,6 +593,7 @@ export async function addPlanned(
   returnTo: GoogleReturn,
 ): Promise<StorageSummary | undefined> {
   if ("error" in plan) throw new Error(plan.error);
+  if ("dropbox" in plan) throw new Error(s.dropboxFailed);
   if ("google" in plan) {
     const { url } = await client.startGoogleDrive({ ...plan.google, label: s.gdrive, makeDefault, returnTo });
     window.location.assign(url);
@@ -464,18 +626,31 @@ export function AddStorage({
 }) {
   const client = useClient();
   const storage = useStoragePicker({ withThisComputer: false });
+  const dropbox = useDropboxCode();
   const [makeDefault, setMakeDefault] = useState(false);
   const add = useAction();
+  const close = () => {
+    dropbox.reset();
+    onClose();
+  };
   return (
     <Dialog
       title={s.add}
       closeLabel={strings.common.close}
-      onClose={onClose}
+      onClose={close}
       footer={
         <>
-          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button onClick={close}>{strings.common.cancel}</Button>
           <Button type="submit" form="add-storage" variant="primary" disabled={add.busy}>
-            {add.busy ? s.connecting : storage.toGoogle ? s.toGoogle : s.add}
+            {add.busy
+              ? s.connecting
+              : dropbox.pending
+                ? s.dropboxConnect
+                : storage.toGoogle
+                  ? s.toGoogle
+                  : storage.toDropbox
+                    ? s.toDropbox
+                    : s.add}
           </Button>
         </>
       }
@@ -484,9 +659,28 @@ export function AddStorage({
         id="add-storage"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (dropbox.pending) {
+            if (!dropbox.hasCode) {
+              add.fail(s.dropboxCodeRequired);
+              return;
+            }
+            const added = await add.run(
+              dropbox.finish,
+              (err) => (err.code === "invalid" ? s.dropboxFailed : undefined),
+            );
+            if (added) onAdded(added.label);
+            return;
+          }
           const plan = storage.plan();
           if ("error" in plan) {
             add.fail(plan.error);
+            return;
+          }
+          if ("dropbox" in plan) {
+            await add.run(
+              () => dropbox.start({ ...plan.dropbox, label: DROPBOX, makeDefault }),
+              (err) => (err.code === "invalid" ? unreachableFor(plan) : undefined),
+            );
             return;
           }
           const added = await add.run(
@@ -496,8 +690,8 @@ export function AddStorage({
           if (added) onAdded(added.label);
         }}
       >
-        {storage.picker}
-        {returnTo === "settings" && (
+        {dropbox.pending ? dropbox.fields : storage.picker}
+        {!dropbox.pending && returnTo === "settings" && (
           <Checkbox label={s.useForNew} checked={makeDefault} onChange={setMakeDefault} />
         )}
         {add.error && <ErrorText>{add.error}</ErrorText>}

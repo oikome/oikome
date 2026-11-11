@@ -11,7 +11,7 @@ import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
-import { AddStorage, addPlanned, googleMessage, unreachableFor, useStoragePicker } from "../storage";
+import { AddStorage, addPlanned, googleMessage, unreachableFor, useDropboxCode, useStoragePicker } from "../storage";
 import { LanguageSelect, RecoveryKeyPanel } from "../parts";
 import { language } from "../i18n/languages";
 import { navigate } from "../router";
@@ -38,13 +38,15 @@ export function Onboarding({
   info: NodeInfo;
   onInfo: (info: NodeInfo) => void;
   onFinished: () => void;
-  /** How connecting Google Drive went (`?google=`), on coming back from Google's page. */
+  /** How connecting Google Drive went, on coming back from Google's page. */
   google: string | null;
 }) {
   const client = useClient();
-  // Back from Google's page without the drive: the first step again, to try
-  // again or pick another place.
-  const [step, setStep] = useState(info.name && !googleMessage(google) ? 2 : 1);
+  const dropbox = useDropboxCode();
+  const oauthMessage = googleMessage(google);
+  // Back from a drive's page without it: the first step again, to try again
+  // or pick another place.
+  const [step, setStep] = useState(info.name && !oauthMessage ? 2 : 1);
   const s = strings.onboarding;
   // A name is filled in, the owner's own when the computer knows it: a lazy
   // Continue is a fine answer.
@@ -62,8 +64,7 @@ export function Onboarding({
   const others = (places.data ?? []).filter((x) => x.name !== null);
   useEffect(() => {
     if (!google) return;
-    const message = googleMessage(google);
-    if (message) save.fail(message);
+    if (oauthMessage) save.fail(oauthMessage);
     // Back from connecting the drive new collections go to (the data
     // center was named first): the examples now. A drive added besides it
     // comes back before that.
@@ -82,30 +83,48 @@ export function Onboarding({
             className="screen-form"
             onSubmit={async (e) => {
               e.preventDefault();
+              if (dropbox.pending) {
+                if (!dropbox.hasCode) {
+                  save.fail(strings.storage.dropboxCodeRequired);
+                  return;
+                }
+                const added = await save.run(
+                  dropbox.finish,
+                  (err) => (err.code === "invalid" ? strings.storage.dropboxFailed : undefined),
+                );
+                if (added) {
+                  await client.addExamples({ language: language() }).catch(() => undefined);
+                  setStep(2);
+                }
+                return;
+              }
               const plan = storage.plan();
               if ("error" in plan) {
                 save.fail(plan.error);
                 return;
               }
-              const updated = await save.run(
+              const result = await save.run(
                 async () => {
                   const renamed = await client.renameNode({
                     name: name.trim() || strings.defaultName,
                   });
-                  // The place picked keeps new collections, the examples first.
-                  // Google Drive is connected on Google's page, which comes
-                  // back here; the examples are added then.
+                  if ("dropbox" in plan) {
+                    await dropbox.start({ ...plan.dropbox, label: "Dropbox", makeDefault: true });
+                    return { renamed, waiting: true };
+                  }
+                  // Google Drive comes back here; its examples are added then.
                   await addPlanned(client, plan, true, "onboarding");
                   // Something to look at on the first day; once, and only on
                   // a data center with nothing in it yet.
                   await client.addExamples({ language: language() }).catch(() => undefined);
-                  return renamed;
+                  return { renamed, waiting: false };
                 },
-                (err) => (err.code === "invalid" && "add" in plan && plan.add ? unreachableFor(plan) : undefined),
+                (err) =>
+                  err.code === "invalid" && !("google" in plan) ? unreachableFor(plan) : undefined,
               );
-              if (updated) {
-                onInfo(updated);
-                setStep(2);
+              if (result) {
+                onInfo(result.renamed);
+                if (!result.waiting) setStep(2);
               }
             }}
           >
@@ -124,12 +143,12 @@ export function Onboarding({
               selectOnFocus
               autoFocus
             />
-            {storage.picker}
+            {dropbox.pending ? dropbox.fields : storage.picker}
             {/* The examples' files are on this computer, so they stay on Local. */}
-            {storage.choice !== "here" && <p className="screen-help">{s.examplesStayHere}</p>}
+            {!dropbox.pending && storage.choice !== "here" && <p className="screen-help">{s.examplesStayHere}</p>}
             {/* Other places, for those who want several from the start: beside
                 the places, quieter than they are; the ones added listed above. */}
-            {others.length > 0 && (
+            {!dropbox.pending && others.length > 0 && (
               <div className="screen-added">
                 <span className="oik-field__label">{s.alsoAddedLabel}</span>
                 {others.map((x) => (
@@ -145,19 +164,29 @@ export function Onboarding({
                 ))}
               </div>
             )}
-            <button type="button" className="screen-add-place" onClick={() => setAddingMore(true)}>
-              <span className="screen-add-place__icon">
-                <Icon name="plus" />
-              </span>
-              <span className="screen-add-place__text">
-                <span className="screen-add-place__title">{s.addMore}</span>
-                <span className="screen-add-place__meta">{s.addMoreSub}</span>
-              </span>
-            </button>
+            {!dropbox.pending && (
+              <button type="button" className="screen-add-place" onClick={() => setAddingMore(true)}>
+                <span className="screen-add-place__icon">
+                  <Icon name="plus" />
+                </span>
+                <span className="screen-add-place__text">
+                  <span className="screen-add-place__title">{s.addMore}</span>
+                  <span className="screen-add-place__meta">{s.addMoreSub}</span>
+                </span>
+              </button>
+            )}
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" large disabled={save.busy}>
-                {save.busy ? strings.storage.connecting : storage.toGoogle ? strings.storage.toGoogle : s.continue}
+                {save.busy
+                  ? strings.storage.connecting
+                  : dropbox.pending
+                    ? strings.storage.dropboxConnect
+                    : storage.toGoogle
+                      ? strings.storage.toGoogle
+                      : storage.toDropbox
+                        ? strings.storage.toDropbox
+                        : s.continue}
               </Button>
             </div>
             <p className="screen-onboarding__step">{s.stepNext(1, STEPS, s.nextKey)}</p>

@@ -64,13 +64,82 @@ pub enum StorageKind {
     /// OneDrive, Google Drive); an absolute path. Always encrypted: the
     /// drive's provider can read what is uploaded.
     Drive { path: String },
+    /// A bucket on RustFS, the object storage Oikome supports, reached
+    /// over the S3 protocol: its address (`http(s)://host[:port]`, reached
+    /// path-style), the bucket, and the access key's id; the secret key is a
+    /// secret, kept apart. Oikome's files go under [`OBJECT_STORAGE_FOLDER`]
+    /// in the bucket.
+    S3 {
+        endpoint: String,
+        bucket: String,
+        access_key_id: String,
+    },
+    /// Google Drive over its API, signed in with the owner's Google
+    /// account (OAuth, scope `drive.file`: only what Oikome made itself),
+    /// through `client_id`, an app the owner registered with Google
+    /// themselves. Files go in an [`OBJECT_STORAGE_FOLDER`] folder it makes
+    /// at the top of the drive. Always encrypted; the client secret and the
+    /// refresh token are secrets, kept apart. With `reads_all`, the owner
+    /// also let Oikome read the rest of the drive, to view folders there in
+    /// place (§7.7).
+    Gdrive {
+        client_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        reads_all: bool,
+    },
 }
+
+/// The folder (key prefix) of a bucket Oikome keeps its files in, as it
+/// does inside a folder the owner picks; on Google Drive, the folder it
+/// makes at the top of the drive.
+pub const OBJECT_STORAGE_FOLDER: &str = "Oikome";
 
 impl StorageKind {
     /// Whether the storage is reached over plaintext HTTP.
     pub fn is_plaintext(&self) -> bool {
-        matches!(self, StorageKind::Webdav { endpoint, .. } if endpoint.starts_with("http://"))
+        match self {
+            StorageKind::Webdav { endpoint, .. } | StorageKind::S3 { endpoint, .. } => {
+                endpoint.starts_with("http://")
+            }
+            StorageKind::Folder { .. } | StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => {
+                false
+            }
+        }
     }
+
+    /// Whether reaching it needs plaintext allowed (`--allow-http`): over
+    /// http:// to another computer. On this computer (`localhost`,
+    /// 127.0.0.0/8, `::1`) nothing leaves it.
+    pub fn needs_allow_http(&self) -> bool {
+        match self {
+            StorageKind::Webdav { endpoint, .. } | StorageKind::S3 { endpoint, .. } => {
+                endpoint.starts_with("http://") && !is_loopback_endpoint(endpoint)
+            }
+            StorageKind::Folder { .. } | StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => {
+                false
+            }
+        }
+    }
+}
+
+/// Whether the host of `endpoint` (`scheme://host[:port][/path]`) is this
+/// computer.
+fn is_loopback_endpoint(endpoint: &str) -> bool {
+    let rest = endpoint
+        .split_once("://")
+        .map_or(endpoint, |(_, rest)| rest);
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = match authority.strip_prefix('[') {
+        // [::1]:9000
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _)| host),
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// Where a Space lives on a storage.
@@ -148,6 +217,50 @@ pub fn validate_webdav_endpoint(endpoint: &str) -> Result<String, CatalogError> 
     Ok(endpoint.trim_end_matches('/').to_string())
 }
 
+/// Check an object storage's address: `http(s)://host[:port]`, nothing
+/// else (buckets are reached path-style). Returns it without a trailing `/`.
+pub fn validate_s3_endpoint(endpoint: &str) -> Result<String, CatalogError> {
+    let invalid =
+        |why: &str| CatalogError::InvalidProperty(format!("object storage '{endpoint}': {why}"));
+    let trimmed = endpoint.trim_end_matches('/');
+    let rest = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .ok_or_else(|| invalid("expected https://host[:port]"))?;
+    if rest.is_empty() || rest.starts_with(':') {
+        return Err(invalid("missing host"));
+    }
+    if rest.chars().any(|c| {
+        c.is_whitespace() || c.is_control() || matches!(c, '@' | '?' | '#' | '\\' | '%' | '/')
+    }) {
+        return Err(invalid(
+            "only a host and a port are allowed; give the bucket and the keys apart",
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Check a bucket's name as S3 names them: 3 to 63 lowercase letters,
+/// digits, `.` and `-`, starting and ending with a letter or digit.
+pub fn validate_bucket(bucket: &str) -> Result<(), CatalogError> {
+    let edge = |c: Option<char>| c.is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    let ok = (3..=63).contains(&bucket.len())
+        && bucket
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-'))
+        && edge(bucket.chars().next())
+        && edge(bucket.chars().last())
+        && !bucket.contains("..");
+    if ok {
+        Ok(())
+    } else {
+        Err(CatalogError::InvalidProperty(format!(
+            "bucket '{bucket}': 3 to 63 lowercase letters, digits, '.' or '-', starting and \
+             ending with a letter or digit"
+        )))
+    }
+}
+
 /// Folders, relative to the home directory, that cloud drives' desktop
 /// clients sync: a folder under one of them is on a drive.
 const DRIVE_FOLDERS: [&str; 7] = [
@@ -211,11 +324,11 @@ impl OikomeCatalog {
     ) -> Result<StorageDef, CatalogError> {
         validate_storage_name(name)?;
         let on_drive = match &kind {
-            StorageKind::Drive { .. } => true,
+            StorageKind::Drive { .. } | StorageKind::Gdrive { .. } => true,
             StorageKind::Folder { path } => {
                 home_dir().is_some_and(|home| is_drive_folder(path, &home))
             }
-            StorageKind::Webdav { .. } => false,
+            StorageKind::Webdav { .. } | StorageKind::S3 { .. } => false,
         };
         if on_drive && !encrypted {
             return Err(CatalogError::InvalidProperty(format!(
@@ -244,6 +357,45 @@ impl OikomeCatalog {
             StorageKind::Drive { path } => StorageKind::Drive {
                 path: validate_folder(&path)?,
             },
+            StorageKind::Gdrive {
+                client_id,
+                reads_all,
+            } => {
+                let client_id = client_id.trim().to_string();
+                if client_id.is_empty()
+                    || client_id.len() > 256
+                    || !client_id.chars().all(|c| c.is_ascii_graphic())
+                {
+                    return Err(CatalogError::InvalidProperty(
+                        "a Google client ID is 1 to 256 visible characters".to_string(),
+                    ));
+                }
+                StorageKind::Gdrive {
+                    client_id,
+                    reads_all,
+                }
+            }
+            StorageKind::S3 {
+                endpoint,
+                bucket,
+                access_key_id,
+            } => {
+                validate_bucket(&bucket)?;
+                let access_key_id = access_key_id.trim().to_string();
+                if access_key_id.is_empty()
+                    || access_key_id.len() > 128
+                    || !access_key_id.chars().all(|c| c.is_ascii_graphic())
+                {
+                    return Err(CatalogError::InvalidProperty(
+                        "the access key is 1 to 128 visible characters".to_string(),
+                    ));
+                }
+                StorageKind::S3 {
+                    endpoint: validate_s3_endpoint(&endpoint)?,
+                    bucket,
+                    access_key_id,
+                }
+            }
         };
         let def = StorageDef {
             name: name.to_string(),
@@ -337,6 +489,62 @@ mod tests {
         for bad in ["relative", "/a/../b", "/a/./b"] {
             assert!(validate_folder(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn object_storage_addresses_buckets_and_plaintext_are_checked() {
+        assert_eq!(
+            validate_s3_endpoint("http://127.0.0.1:9000/").unwrap(),
+            "http://127.0.0.1:9000"
+        );
+        validate_s3_endpoint("https://s3.example.com").unwrap();
+        for bad in [
+            "s3.example.com",
+            "https://",
+            "https://:9000",
+            "https://key:secret@s3.example.com",
+            "https://s3.example.com/bucket",
+            "https://s3.example.com?x=1",
+        ] {
+            assert!(validate_s3_endpoint(bad).is_err(), "{bad}");
+        }
+        for good in ["abc", "my-photos.2026", &"a".repeat(63)] {
+            validate_bucket(good).unwrap();
+        }
+        for bad in [
+            "ab",
+            "Photos",
+            "-abc",
+            "abc-",
+            "a..b",
+            "a_b",
+            &"a".repeat(64),
+        ] {
+            assert!(validate_bucket(bad).is_err(), "{bad}");
+        }
+        let s3 = |endpoint: &str| StorageKind::S3 {
+            endpoint: endpoint.to_string(),
+            bucket: "photos".into(),
+            access_key_id: "id".into(),
+        };
+        // Plaintext to this computer leaves it no more than a folder does.
+        for local in [
+            "http://127.0.0.1:9000",
+            "http://localhost:9000",
+            "http://[::1]:9000",
+        ] {
+            assert!(
+                s3(local).is_plaintext() && !s3(local).needs_allow_http(),
+                "{local}"
+            );
+        }
+        assert!(s3("http://nas.local:9000").needs_allow_http());
+        assert!(!s3("https://s3.example.com").needs_allow_http());
+        let webdav = StorageKind::Webdav {
+            endpoint: "http://127.0.0.1:8080/dav".into(),
+            username: None,
+        };
+        assert!(!webdav.needs_allow_http());
     }
 
     #[test]

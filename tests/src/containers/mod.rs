@@ -17,7 +17,7 @@
 //! This module is a placeholder for Docker-based system tests that run
 //! against full container environments. It will eventually contain:
 //!
-//! - Test container definitions (MinIO, PostgreSQL, etc.)
+//! - Test container definitions (RustFS, PostgreSQL, etc.)
 //! - Environment setup/teardown helpers
 //! - Multi-node cluster test scenarios
 //!

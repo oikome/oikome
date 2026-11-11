@@ -1,16 +1,20 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// First run: name the data center, save the recovery key, done.
+// First run: name the data center and pick where its data goes (other
+// places too, for those who want several at once), save the recovery key,
+// done.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, ErrorText, Icon, TextField } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
-import { useAction, useClient } from "../data";
-import { addPlanned, useStoragePicker } from "../storage";
+import { useAction, useClient, useLoad } from "../data";
+import { listNames } from "../format";
+import { AddStorage, addPlanned, googleMessage, unreachableFor, useStoragePicker } from "../storage";
 import { LanguageSelect, RecoveryKeyPanel } from "../parts";
 import { language } from "../i18n/languages";
+import { navigate } from "../router";
 import { strings } from "../strings";
 
 const STEPS = 3;
@@ -28,13 +32,18 @@ export function Onboarding({
   info,
   onInfo,
   onFinished,
+  google,
 }: {
   info: NodeInfo;
   onInfo: (info: NodeInfo) => void;
   onFinished: () => void;
+  /** How connecting Google Drive went (`?google=`), on coming back from Google's page. */
+  google: string | null;
 }) {
   const client = useClient();
-  const [step, setStep] = useState(info.name ? 2 : 1);
+  // Back from Google's page without the drive: the first step again, to try
+  // again or pick another place.
+  const [step, setStep] = useState(info.name && !googleMessage(google) ? 2 : 1);
   const s = strings.onboarding;
   // A name is filled in, the owner's own when the computer knows it: a lazy
   // Continue is a fine answer.
@@ -46,6 +55,23 @@ export function Onboarding({
   const save = useAction();
   // Where collections are kept: this computer unless the owner picks another place.
   const storage = useStoragePicker({ withThisComputer: true });
+  // Places added besides the one new collections go to (Advanced).
+  const [addingMore, setAddingMore] = useState(false);
+  const places = useLoad(() => client.listStorages(), []);
+  const others = (places.data ?? []).filter((x) => x.name !== null);
+  useEffect(() => {
+    if (!google) return;
+    const message = googleMessage(google);
+    if (message) save.fail(message);
+    // Back from connecting the drive new collections go to (the data
+    // center was named first): the examples now. A drive added besides it,
+    // under Advanced, comes back before that.
+    if (google === "added" && info.name) {
+      void client.addExamples({ language: language() }).catch(() => undefined);
+    }
+    navigate("/onboarding", { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <main className="screen-onboarding">
@@ -66,13 +92,15 @@ export function Onboarding({
                     name: name.trim() || strings.defaultName,
                   });
                   // The place picked keeps new collections, the examples first.
-                  await addPlanned(client, plan, true);
+                  // Google Drive is connected on Google's page, which comes
+                  // back here; the examples are added then.
+                  await addPlanned(client, plan, true, "onboarding");
                   // Something to look at on the first day; once, and only on
                   // a data center with nothing in it yet.
                   await client.addExamples({ language: language() }).catch(() => undefined);
                   return renamed;
                 },
-                (err) => (err.code === "invalid" && plan.add ? strings.storage.unreachable : undefined),
+                (err) => (err.code === "invalid" && "add" in plan && plan.add ? unreachableFor(plan) : undefined),
               );
               if (updated) {
                 onInfo(updated);
@@ -96,18 +124,36 @@ export function Onboarding({
               autoFocus
             />
             {storage.picker}
+            {/* The examples' files are on this computer, so they stay on Local. */}
+            {storage.choice !== "here" && <p className="screen-help">{s.examplesStayHere}</p>}
+            {others.length > 0 && (
+              <p className="screen-help">{s.alsoAdded(listNames(others.map((x) => x.label)))}</p>
+            )}
             {save.error && <ErrorText>{save.error}</ErrorText>}
             <div className="screen-actions">
               <Button type="submit" variant="primary" large disabled={save.busy}>
-                {save.busy ? strings.storage.connecting : s.continue}
+                {save.busy ? strings.storage.connecting : storage.toGoogle ? strings.storage.toGoogle : s.continue}
               </Button>
             </div>
             <p className="screen-onboarding__step">{s.stepNext(1, STEPS, s.nextKey)}</p>
+            <button type="button" className="screen-onboarding__restore" onClick={() => setAddingMore(true)}>
+              {s.addMore}
+            </button>
             <button type="button" className="screen-onboarding__restore" onClick={() => setRestoreHelp((v) => !v)}>
               {s.restoreLink}
             </button>
             {restoreHelp && <p className="screen-muted screen-result">{s.restoreHelp}</p>}
           </form>
+        )}
+        {addingMore && (
+          <AddStorage
+            returnTo="onboarding"
+            onClose={() => setAddingMore(false)}
+            onAdded={() => {
+              setAddingMore(false);
+              places.reload();
+            }}
+          />
         )}
         {step === 2 && (
           <>

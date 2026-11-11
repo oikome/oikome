@@ -47,5 +47,7 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
+# Google Drive signed in to somewhere else than Google (tests/server/web.rs).
+oikome-vfs = { path = "../oikome-vfs" }
 tempfile = { workspace = true }
 tower = { workspace = true }

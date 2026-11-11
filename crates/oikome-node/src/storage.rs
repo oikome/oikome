@@ -52,7 +52,9 @@ use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt};
 use oikome_catalog::lance::{lance_tables, DATASET_SUFFIX};
-use oikome_catalog::{Location, LocationFormat, StorageBinding, StorageDef, StorageKind};
+use oikome_catalog::{
+    Location, LocationFormat, StorageBinding, StorageDef, StorageKind, OBJECT_STORAGE_FOLDER,
+};
 use oikome_core::AccessMode;
 use oikome_engine::EngineError;
 use oikome_identity::unix_now_ms;
@@ -62,7 +64,9 @@ use oikome_network::protocol::{
 };
 use oikome_network::ChunkStream;
 use oikome_vfs::seal::{open_bytes, open_stream, seal_bytes, seal_stream, SealError};
-use oikome_vfs::{file_chunks, sealed_size, Credentials, RemoteStore, SealKey, StoreError};
+use oikome_vfs::{
+    file_chunks, sealed_size, Bucket, Credentials, GoogleClient, RemoteStore, SealKey, StoreError,
+};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use zeroize::Zeroizing;
@@ -577,6 +581,10 @@ impl StoredFiles {
     }
 }
 
+/// Where the owner's Google app is kept in the node's secret store.
+const GOOGLE_APP_ID: &str = "google/app/client-id";
+const GOOGLE_APP_SECRET: &str = "google/app/client-secret";
+
 fn store_error(storage: &str, e: impl std::fmt::Display) -> SessionError {
     SessionError::Store {
         storage: storage.to_string(),
@@ -597,7 +605,7 @@ impl OikomeSession {
         let secret = |kind| self.engines().storage_secret(&def.name, kind);
         let store = match &def.kind {
             StorageKind::Webdav { endpoint, username } => {
-                if def.kind.is_plaintext() && !self.engines().allow_http() {
+                if def.kind.needs_allow_http() && !self.engines().allow_http() {
                     return Err(store_error(
                         &def.name,
                         "it is reached over plaintext http://, which sends its password \
@@ -613,6 +621,58 @@ impl OikomeSession {
             }
             StorageKind::Folder { path } | StorageKind::Drive { path } => {
                 RemoteStore::folder(Path::new(path), &binding.path).map_err(err)?
+            }
+            StorageKind::S3 {
+                endpoint,
+                bucket,
+                access_key_id,
+            } => {
+                if def.kind.needs_allow_http() && !self.engines().allow_http() {
+                    return Err(store_error(
+                        &def.name,
+                        "it is reached over plaintext http://, which sends its keys' signatures \
+                         and the files unencrypted; use https:// or allow it with --allow-http",
+                    ));
+                }
+                let secret = secret(SecretKind::Password)?.ok_or_else(|| {
+                    store_error(
+                        &def.name,
+                        "this node has no secret key for it; add it again with its secret key",
+                    )
+                })?;
+                // Oikome's files go in their own folder of the bucket.
+                let folder = match binding.path.as_str() {
+                    "" => OBJECT_STORAGE_FOLDER.to_string(),
+                    p => format!("{OBJECT_STORAGE_FOLDER}/{p}"),
+                };
+                let bucket = Bucket {
+                    endpoint,
+                    name: bucket,
+                };
+                RemoteStore::s3(bucket, &folder, access_key_id, &secret).map_err(err)?
+            }
+            StorageKind::Gdrive { client_id, .. } => {
+                // The owner's own Google app: its ID here, its secret and
+                // the sign-in with the node's secrets.
+                let client_secret = secret(SecretKind::Password)?.ok_or_else(|| {
+                    store_error(
+                        &def.name,
+                        "this node has no secret of its Google app; connect it again",
+                    )
+                })?;
+                let token = secret(SecretKind::Token)?.ok_or_else(|| {
+                    store_error(
+                        &def.name,
+                        "this node isn't signed in to its Google Drive; connect it again",
+                    )
+                })?;
+                let client = GoogleClient::new(client_id.as_str(), client_secret.as_str());
+                // Oikome's files go in its own folder at the top of the drive.
+                let folder = match binding.path.as_str() {
+                    "" => OBJECT_STORAGE_FOLDER.to_string(),
+                    p => format!("{OBJECT_STORAGE_FOLDER}/{p}"),
+                };
+                RemoteStore::gdrive(&folder, &client, &token).map_err(err)?
             }
         };
         let layout = if def.encrypted {
@@ -715,6 +775,60 @@ impl OikomeSession {
         self.engines()
             .secret_backend()?
             .set(&kind.account(name), value)
+    }
+
+    /// The room of the storage `name` as the storage says: free and total
+    /// bytes, or `None` where it doesn't say. Asked of Google Drive over the
+    /// network; folders on this computer are measured by the apps.
+    pub async fn storage_room(&self, name: &str) -> Result<Option<(u64, u64)>, SessionError> {
+        self.deny_principal("reading a storage's room")?;
+        let def = self.catalog.get_storage(name)?;
+        let StorageKind::Gdrive { client_id, .. } = &def.kind else {
+            return Ok(None);
+        };
+        let secret = |kind| self.engines().storage_secret(&def.name, kind);
+        let (Some(client_secret), Some(token)) =
+            (secret(SecretKind::Password)?, secret(SecretKind::Token)?)
+        else {
+            return Ok(None);
+        };
+        let client = GoogleClient::new(client_id.as_str(), client_secret.as_str());
+        match client.room(&token).await {
+            Ok((used, Some(limit))) => Ok(Some((limit.saturating_sub(used), limit))),
+            // No limit: nothing to measure against.
+            Ok((_, None)) => Ok(None),
+            Err(e) => Err(store_error(name, e)),
+        }
+    }
+
+    /// Remember the owner's Google app (3.4c), so connecting Google Drive
+    /// again, or another one, asks for nothing: its client ID and secret go
+    /// to the node's secret store, never to a file of the registry or a log.
+    pub fn set_google_app(&self, client_id: &str, client_secret: &str) -> Result<(), SessionError> {
+        self.deny_principal("setting the Google app")?;
+        let (client_id, client_secret) = (client_id.trim(), client_secret.trim());
+        if client_id.is_empty()
+            || client_id.len() > 256
+            || !client_id.chars().all(|c| c.is_ascii_graphic())
+            || client_secret.is_empty()
+        {
+            return Err(SessionError::Unsupported(
+                "a Google app needs its client ID and secret".to_string(),
+            ));
+        }
+        let backend = self.engines().secret_backend()?;
+        backend.set(GOOGLE_APP_ID, client_id)?;
+        backend.set(GOOGLE_APP_SECRET, client_secret)
+    }
+
+    /// The owner's Google app as remembered: its client ID and secret.
+    pub fn google_app(&self) -> Result<Option<(String, Zeroizing<String>)>, SessionError> {
+        self.deny_principal("reading the Google app")?;
+        let backend = self.engines().secret_backend()?;
+        match (backend.get(GOOGLE_APP_ID)?, backend.get(GOOGLE_APP_SECRET)?) {
+            (Some(id), Some(secret)) => Ok(Some((id.to_string(), secret))),
+            _ => Ok(None),
+        }
     }
 
     /// The key of the encrypted storage `name`, to add the storage on

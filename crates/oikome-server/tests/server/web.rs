@@ -27,28 +27,36 @@ use axum::Router;
 use common::Node;
 use http_body_util::BodyExt;
 use oikome_api::Api;
+use oikome_node::SecretKind;
 use oikome_server::web::{login_file, WebApp, LOGIN_TTL, MAX_BODY_BYTES};
+use oikome_vfs::google::{challenge_of, Endpoints, DRIVE_SCOPE};
 use tower::ServiceExt;
 
 const HOST: &str = "127.0.0.1:7999";
 const ORIGIN: &str = "http://127.0.0.1:7999";
 
 struct Web {
-    _node: Node,
+    node: Node,
     router: Router,
     login: PathBuf,
 }
 
 fn web(ttl: Duration) -> Web {
+    web_with(ttl, Endpoints::default())
+}
+
+/// With Google's sign-in at `google`.
+fn web_with(ttl: Duration, google: Endpoints) -> Web {
     let node = Node::new(41);
     let login = login_file(&node.catalog.oikome_dir());
     let api = Api::new(node.catalog.clone(), node.engines.clone())
-        .with_access_log(node.access_log.clone());
+        .with_access_log(node.access_log.clone())
+        .with_google_endpoints(google);
     let addr: SocketAddr = HOST.parse().unwrap();
     let app = WebApp::with_login_ttl(api, addr, login.clone(), ttl).unwrap();
     Web {
         router: app.router(),
-        _node: node,
+        node,
         login,
     }
 }
@@ -383,4 +391,278 @@ async fn the_app_is_served_with_a_strict_policy() {
     .unwrap()
     .with_web_root(empty.path())
     .is_err());
+}
+
+// ----- Connecting Google Drive (3.4c) -----
+
+/// A token endpoint standing in for Google's: it keeps each form it gets
+/// and answers for `drive.file`, without a refresh token, so no drive is
+/// reached from here.
+async fn google_token_endpoint() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use axum::routing::post;
+    let forms = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = forms.clone();
+    let router = Router::new().route(
+        "/token",
+        post(move |body: axum::body::Bytes| {
+            let kept = kept.clone();
+            async move {
+                kept.lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&body).into_owned());
+                (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    format!(
+                        r#"{{"access_token":"at","expires_in":3599,"scope":"{DRIVE_SCOPE}","token_type":"Bearer"}}"#
+                    ),
+                )
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/token", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    (url, forms)
+}
+
+/// The parameters of an address's query, decoded.
+fn query_of(url: &str) -> std::collections::HashMap<String, String> {
+    let decode = |text: &str| {
+        let bytes = text.replace('+', " ").into_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap();
+                out.push(u8::from_str_radix(hex, 16).unwrap());
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8(out).unwrap()
+    };
+    url.split_once('?')
+        .map(|(_, q)| {
+            q.split('&')
+                .filter_map(|pair| pair.split_once('='))
+                .map(|(k, v)| (decode(k), decode(v)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+impl Web {
+    async fn start_google_drive(&self, cookie: &str, body: &str) -> Response<Body> {
+        self.send(
+            self.api("start_google_drive")
+                .header(header::COOKIE, cookie)
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+    }
+
+    /// Where Google's way back with `query` sends the owner.
+    async fn back_from_google(&self, query: &str) -> String {
+        let response = self.get(&format!("/oauth/google/callback?{query}")).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        response.headers()[header::LOCATION]
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+}
+
+#[tokio::test]
+async fn google_drive_needs_the_owners_own_google_app() {
+    let web = web(LOGIN_TTL);
+    let cookie = web.login().await;
+    for body in [
+        r#"{"returnTo":"settings"}"#,
+        r#"{"returnTo":"settings","clientId":"","clientSecret":""}"#,
+        r#"{"returnTo":"settings","clientId":"id.apps.googleusercontent.com","clientSecret":" "}"#,
+    ] {
+        let response = web.start_google_drive(&cookie, body).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json(response).await["reason"], "google_client_incomplete");
+    }
+}
+
+#[tokio::test]
+async fn a_google_sign_in_comes_back_once_by_its_state_and_leaves_nothing_when_it_fails() {
+    let (token_url, forms) = google_token_endpoint().await;
+    let web = web_with(
+        LOGIN_TTL,
+        Endpoints {
+            token: token_url,
+            ..Endpoints::default()
+        },
+    );
+    let cookie = web.login().await;
+    let app = r#""clientId":"the-client.apps.googleusercontent.com","clientSecret":"the-secret""#;
+
+    // Only the owner starts one.
+    let response = web
+        .send(
+            web.api("start_google_drive")
+                .body(Body::from(format!(r#"{{"returnTo":"settings",{app}}}"#)))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let start = |return_to: &'static str| {
+        let web = &web;
+        let cookie = cookie.clone();
+        async move {
+            let body = format!(r#"{{"returnTo":"{return_to}","makeDefault":true,{app}}}"#);
+            let response = web.start_google_drive(&cookie, &body).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            json(response).await["url"].as_str().unwrap().to_string()
+        }
+    };
+    let url = start("onboarding").await;
+    assert!(url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?"));
+    let params = query_of(&url);
+    // The owner's own app; back to this server, on loopback; only the
+    // files Oikome makes.
+    assert_eq!(params["client_id"], "the-client.apps.googleusercontent.com");
+    assert_eq!(
+        params["redirect_uri"],
+        "http://127.0.0.1:7999/oauth/google/callback"
+    );
+    assert_eq!(params["scope"], DRIVE_SCOPE);
+    assert_eq!(params["code_challenge_method"], "S256");
+    assert!(!url.contains("the-secret"));
+    let state = params["state"].clone();
+    assert!(state.len() >= 43);
+
+    // A state the node never made, or none.
+    assert_eq!(
+        web.back_from_google("state=made-up&code=x").await,
+        "/settings?google=failed"
+    );
+    assert_eq!(
+        web.back_from_google("code=x").await,
+        "/settings?google=failed"
+    );
+    // The owner said no; the state is used up then.
+    assert_eq!(
+        web.back_from_google(&format!("state={state}&error=access_denied"))
+            .await,
+        "/onboarding?google=denied"
+    );
+    assert_eq!(
+        web.back_from_google(&format!("state={state}&code=x")).await,
+        "/settings?google=failed"
+    );
+    assert!(forms.lock().unwrap().is_empty());
+
+    // A code: traded with the verifier only the node holds, in the body,
+    // with the owner's app.
+    let url = start("settings").await;
+    let params = query_of(&url);
+    let back = web
+        .back_from_google(&format!(
+            "state={}&code=4%2F0the-code&scope={}",
+            params["state"], DRIVE_SCOPE
+        ))
+        .await;
+    let forms = forms.lock().unwrap().clone();
+    assert_eq!(forms.len(), 1);
+    let form = query_of(&format!("?{}", forms[0]));
+    assert_eq!(form["grant_type"], "authorization_code");
+    assert_eq!(form["code"], "4/0the-code");
+    assert_eq!(
+        challenge_of(&form["code_verifier"]),
+        params["code_challenge"]
+    );
+    assert_eq!(
+        form["redirect_uri"],
+        "http://127.0.0.1:7999/oauth/google/callback"
+    );
+    assert_eq!(form["client_id"], "the-client.apps.googleusercontent.com");
+    assert_eq!(form["client_secret"], "the-secret");
+    // Google sent no refresh token: nothing is kept, the app's secret neither.
+    assert_eq!(back, "/settings?google=failed");
+    assert!(web.node.catalog.list_storages().is_empty());
+    let secrets = web.node.engines.secret_backend().unwrap();
+    for kind in [SecretKind::Token, SecretKind::Password] {
+        assert!(secrets
+            .get(&kind.account("google_drive"))
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[tokio::test]
+async fn the_google_app_is_remembered_so_the_next_drive_asks_for_nothing() {
+    let web = web(LOGIN_TTL);
+    let cookie = web.login().await;
+    let google_app = || async {
+        json(
+            web.send(
+                web.api("google_app")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await,
+        )
+        .await
+    };
+    assert_eq!(google_app().await["clientId"], serde_json::Value::Null);
+    // Remembered after a drive connected, or given on the command line.
+    let session = oikome_node::OikomeSession::new(
+        web.node.catalog.clone(),
+        web.node.engines.clone(),
+        oikome_node::SessionConfig::default(),
+    );
+    session
+        .set_google_app("kept.apps.googleusercontent.com", "kept-secret")
+        .unwrap();
+    // Only its ID comes back, never the secret.
+    let app = google_app().await;
+    assert_eq!(app["clientId"], "kept.apps.googleusercontent.com");
+    assert!(!app.to_string().contains("kept-secret"));
+    let response = web
+        .start_google_drive(&cookie, r#"{"returnTo":"settings"}"#)
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let url = json(response).await["url"].as_str().unwrap().to_string();
+    assert_eq!(
+        query_of(&url)["client_id"],
+        "kept.apps.googleusercontent.com"
+    );
+    assert_eq!(query_of(&url)["scope"], DRIVE_SCOPE);
+    // Reading the rest of the drive, to view folders there, only when asked.
+    let response = web
+        .start_google_drive(&cookie, r#"{"returnTo":"settings","readAll":true}"#)
+        .await;
+    let url = json(response).await["url"].as_str().unwrap().to_string();
+    assert_eq!(
+        query_of(&url)["scope"],
+        format!("{DRIVE_SCOPE} {}", oikome_vfs::google::DRIVE_READ_ALL_SCOPE)
+    );
+    // An ID without its secret is not an app.
+    let response = web
+        .start_google_drive(&cookie, r#"{"returnTo":"settings","clientId":"other"}"#)
+        .await;
+    assert_eq!(json(response).await["reason"], "google_client_incomplete");
+}
+
+#[tokio::test]
+async fn googles_way_back_answers_this_host_only() {
+    let web = web(LOGIN_TTL);
+    let response = web
+        .send(
+            Request::get("/oauth/google/callback?state=x&code=y")
+                .header(header::HOST, "evil.example:7999")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

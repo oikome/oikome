@@ -14,15 +14,29 @@
 
 pub mod file_read;
 pub mod file_write;
+pub mod google;
 pub mod remote;
 pub mod seal;
 pub mod storage;
 
+/// Before the first opendal operator: TLS with ring, the provider the rest
+/// of the node uses, and opendal's HTTP transport over it (opendal's
+/// default features would bring aws-lc instead).
+pub(crate) fn ready() {
+    static READY: std::sync::Once = std::sync::Once::new();
+    READY.call_once(|| {
+        // Already installed by the node's own TLS, or by an earlier call.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        opendal_http_transport_reqwest::install_default();
+    });
+}
+
 pub use file_read::OpenDalFileRead;
 pub use file_write::OpenDalFileWrite;
+pub use google::{GoogleClient, GoogleError};
 pub use remote::{
-    check_owner_path, check_relative_path, file_chunks, Credentials, OwnerEntry, RemoteStore,
-    StoreEntry, StoreError,
+    check_owner_path, check_relative_path, file_chunks, Bucket, Credentials, OwnerEntry,
+    RemoteStore, StoreEntry, StoreError, S3_REGION,
 };
 pub use seal::{sealed_size, SealError, SealKey};
 pub use storage::{OpenDalStorage, OpenDalStorageConfig, OpenDalStorageFactory};

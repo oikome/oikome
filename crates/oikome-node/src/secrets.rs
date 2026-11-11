@@ -335,16 +335,28 @@ impl SecretBackend for KeychainSecrets {
     }
 }
 
+/// Set to `file`, credentials go to the private file even where there is a
+/// keychain: for data centers made to develop or test with. A build made
+/// again is a new program to the keychain, which then asks again for each
+/// credential; and a test data center's credentials go with its folder.
+pub const ENV_SECRET_STORE: &str = "OIKOME_SECRET_STORE";
+
 /// The node's secret store when none is configured: the keychain where
-/// the platform has one, otherwise the file in `identity_dir`.
+/// the platform has one (unless [`ENV_SECRET_STORE`] says `file`),
+/// otherwise the file in `identity_dir`.
 pub fn default_backend(identity_dir: &Path, did: &str) -> Arc<dyn SecretBackend> {
+    let file = std::env::var(ENV_SECRET_STORE).is_ok_and(|v| v == "file");
     #[cfg(any(target_os = "macos", target_os = "windows"))]
-    match KeychainSecrets::new(did) {
-        Ok(keychain) => return Arc::new(keychain),
-        Err(e) => tracing::warn!(error = %e, "no keychain; keeping credentials in a private file"),
+    if !file {
+        match KeychainSecrets::new(did) {
+            Ok(keychain) => return Arc::new(keychain),
+            Err(e) => {
+                tracing::warn!(error = %e, "no keychain; keeping credentials in a private file")
+            }
+        }
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let _ = did;
+    let _ = (did, file);
     Arc::new(FileSecrets::new(identity_dir))
 }
 

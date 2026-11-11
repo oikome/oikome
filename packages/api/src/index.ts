@@ -182,7 +182,7 @@ storage?: string, };
 /**
  * Where a storage keeps its files.
  */
-export type StorageType = "disk" | "webdav" | "folder" | "drive";
+export type StorageType = "disk" | "webdav" | "folder" | "drive" | "s3" | "gdrive";
 
 /**
  * A place Spaces can be kept: this computer, or a registered storage.
@@ -213,10 +213,16 @@ encrypted: boolean,
  */
 spaces: number, 
 /**
- * Free and total bytes of the disk it is on, for this computer and a
- * folder; `None` for a NAS or a cloud drive, which don't say.
+ * Free and total bytes: of the disk it is on, for this computer and a
+ * folder; of the account, for Google Drive; `None` where the storage
+ * doesn't say (a NAS, RustFS, a drive's sync folder).
  */
-freeBytes: number | null, totalBytes: number | null, };
+freeBytes: number | null, totalBytes: number | null, 
+/**
+ * Folders the owner has on it can be viewed in place (§7.7): a NAS,
+ * RustFS, and Google Drive when Oikome may read the rest of the drive.
+ */
+viewsInPlace: boolean, };
 
 /**
  * `add_storage`: a place to keep Spaces in, as the owner picked it.
@@ -227,20 +233,32 @@ export type NewStorage = {
  */
 label: string, 
 /**
- * `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+ * `webdav`, `folder`, `drive` or `s3`; a folder inside a cloud drive is
+ * a drive.
  */
 type: StorageType, 
 /**
- * The WebDAV address, or the folder picked: the files go in an
- * `Oikome` folder inside it.
+ * The WebDAV or object storage address, or the folder picked: the
+ * files go in an `Oikome` folder inside it (on object storage, in the
+ * bucket).
  */
-address: string, username?: string, 
+address: string, 
 /**
- * Kept in the system keychain, never in the registry or a log.
+ * The user name; on object storage, the access key.
+ */
+username?: string, 
+/**
+ * The password; on object storage, the secret key. Kept in the system
+ * keychain, never in the registry or a log.
  */
 password?: string, 
 /**
- * Encrypt files before they leave this computer; a cloud drive always is.
+ * Object storage: the bucket, which must exist already.
+ */
+bucket?: string, 
+/**
+ * Encrypt files before they leave this computer; a cloud drive always
+ * is, and object storage is unless this says no.
  */
 encrypted?: boolean, 
 /**
@@ -258,6 +276,56 @@ export type DefaultStorage = { storage: string | null, };
  * removed.
  */
 export type StorageRef = { storage: string, };
+
+/**
+ * Where the owner comes back to after Google's sign-in page.
+ */
+export type GoogleReturn = "settings" | "onboarding";
+
+/**
+ * `start_google_drive`: connect the owner's Google Drive, through the app
+ * they registered with Google themselves. The app sends the owner to the
+ * address it answers; Google sends them back to this node, which adds the
+ * drive (always encrypted) and opens `return_to`.
+ */
+export type StartGoogleDrive = { 
+/**
+ * The owner's Google app (a "Desktop app" OAuth client): its client
+ * ID. Left out, the app this node remembers ([`GoogleApp`]).
+ */
+clientId?: string, 
+/**
+ * And its secret, kept in the system keychain, never in the registry
+ * or a log.
+ */
+clientSecret?: string, 
+/**
+ * What the apps call it, in the owner's language; "Google Drive" when
+ * left out.
+ */
+label?: string, 
+/**
+ * Keep new collections, and the examples, there.
+ */
+makeDefault?: boolean, 
+/**
+ * Also let Oikome read the rest of the drive (`drive.readonly`), to
+ * view folders there in place.
+ */
+readAll?: boolean, returnTo: GoogleReturn, };
+
+/**
+ * `google_app`: the owner's Google app this node remembers from the last
+ * Google Drive connected, so the next one asks for nothing; its client ID
+ * only, never the secret.
+ */
+export type GoogleApp = { clientId: string | null, };
+
+/**
+ * Google's sign-in page for this connection; it works once, for ten
+ * minutes.
+ */
+export type GoogleSignIn = { url: string, };
 
 /**
  * What a source reads: a folder of photos, a folder of notes (Markdown

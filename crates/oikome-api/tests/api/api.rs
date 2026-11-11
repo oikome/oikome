@@ -22,7 +22,16 @@ use iceberg::io::FileIO;
 use oikome_api::*;
 use oikome_catalog::OikomeCatalog;
 use oikome_identity::NodeIdentity;
-use oikome_node::{EngineRegistry, NodeConfig};
+use oikome_node::{EngineRegistry, MemorySecrets, NodeConfig};
+
+/// A node's settings for a test: credentials in memory, never in the
+/// machine's keychain.
+fn test_config() -> NodeConfig {
+    NodeConfig {
+        secret_backend: Some(Arc::new(MemorySecrets::default())),
+        ..NodeConfig::default()
+    }
+}
 
 struct Node {
     _dir: tempfile::TempDir,
@@ -35,7 +44,7 @@ fn node() -> Node {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
-    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
     let api = Api::new(catalog.clone(), engines.clone());
     Node {
         _dir: dir,
@@ -759,6 +768,39 @@ async fn an_identity_is_restored_only_into_an_empty_node() {
 }
 
 #[tokio::test]
+async fn object_storage_needs_its_bucket_and_keys() {
+    let n = node();
+    let s3 = |bucket: &str, password: Option<&str>| NewStorage {
+        label: "Family".into(),
+        kind: StorageType::S3,
+        // Nothing listens here: these are refused before any request.
+        address: "http://127.0.0.1:9".into(),
+        username: Some("oikome".into()),
+        password: password.map(Into::into),
+        bucket: Some(bucket.into()),
+        encrypted: None,
+        make_default: None,
+    };
+    let e = n
+        .api
+        .add_storage(&OWNER, s3("family", None))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert_eq!(e.reason.as_deref(), Some("storage_s3_incomplete"));
+    let e = n
+        .api
+        .add_storage(&OWNER, s3("Family Photos", Some("secret")))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert!(e.message.contains("bucket"), "{e}");
+    // Nothing was kept: only this computer.
+    let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(storages.len(), 1);
+}
+
+#[tokio::test]
 async fn the_examples_are_written_in_the_apps_language() {
     let n = node();
     let added = n
@@ -1062,6 +1104,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
                 address: picked.path().to_str().unwrap().into(),
                 username: None,
                 password: None,
+                bucket: None,
                 encrypted: None,
                 make_default: Some(true),
             },
@@ -1132,6 +1175,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
                 address: spare.path().to_str().unwrap().into(),
                 username: None,
                 password: None,
+                bucket: None,
                 encrypted: None,
                 make_default: Some(true),
             },
@@ -1195,6 +1239,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
                 address: "relative/folder".into(),
                 username: None,
                 password: None,
+                bucket: None,
                 encrypted: None,
                 make_default: None,
             },
@@ -1594,7 +1639,7 @@ async fn activity_names_who_it_was() {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
-    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
     let log = AccessLog::open(&catalog.oikome_dir()).unwrap();
     let api = Api::new(catalog.clone(), engines.clone()).with_access_log(log.clone());
     let n = Node {
@@ -1963,7 +2008,7 @@ fn logged_node() -> Node {
     let dir = tempfile::tempdir().unwrap();
     let catalog =
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
-    let engines = Arc::new(EngineRegistry::new(catalog.clone(), NodeConfig::default()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
     let log = oikome_node::AccessLog::open(&catalog.oikome_dir()).unwrap();
     let api = Api::new(catalog.clone(), engines.clone()).with_access_log(log);
     Node {

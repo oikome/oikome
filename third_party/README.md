@@ -14,3 +14,22 @@
   No source file is modified.
 - Drop this copy once the workspace moves to DataFusion 55 and
   datafusion-federation ≥ 0.5.7.
+
+## opendal-service-gdrive 0.59.5
+
+- Source: https://crates.io/crates/opendal-service-gdrive/0.59.5
+  (Apache OpenDAL, https://github.com/apache/opendal), Apache License 2.0.
+- Used through `[patch.crates-io]` in the workspace `Cargo.toml`, by
+  oikome-vfs for Google Drive (3.4c).
+- Change, to be proposed upstream (apache/opendal#8503): in `src/writer.rs`,
+  `src/backend.rs` and `src/core.rs`, a file larger than one chunk (8 MiB)
+  is written through a resumable upload session, a chunk at a time,
+  instead of being held whole in memory and sent in one request. Smaller
+  files are sent as before.
+- Change, 2026-11-10: in `src/writer.rs`, a new file's path is looked up
+  once; the path cache (the file and every folder above it) is refreshed
+  only when the upload answers not found, and then the upload is tried once
+  more. opendal refreshed it before every new file, so writing one file
+  looked every folder of its path up again: four requests more for a file
+  three folders deep.
+- Drop this copy once an opendal release has the changes.

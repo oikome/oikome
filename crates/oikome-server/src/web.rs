@@ -33,6 +33,12 @@
 //! - **MCP.** `/mcp` is for the owner's AI assistants (`crate::mcp`): each
 //!   request carries an assistant's token, and none from a web page (no
 //!   `Origin`) is answered.
+//! - **Google's way back.** `GET /oauth/google/callback` is where Google
+//!   sends the owner after its sign-in page (3.4c). Google's redirect comes
+//!   from another site, so the session cookie is not sent: the callback is
+//!   let in by the one-time `state` of a sign-in the owner started
+//!   (`oikome_api::Api::finish_google_drive`), and answers only with a
+//!   redirect to one of the app's pages.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -57,7 +63,7 @@ use oikome_api::{
     SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
     PLUGIN_SDK,
 };
-use oikome_api::{FileRef, ListFiles, SetNetwork, ViewInPlace};
+use oikome_api::{FileRef, GoogleCallback, ListFiles, SetNetwork, StartGoogleDrive, ViewInPlace};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
@@ -72,6 +78,8 @@ pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 3600);
 /// Largest request body.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 const ARROW_STREAM: &str = "application/vnd.apache.arrow.stream";
+/// Where Google sends the owner back to, on this server.
+const GOOGLE_CALLBACK: &str = "/oauth/google/callback";
 const TRUNCATED_HEADER: &str = "oikome-truncated";
 /// The app loads only its own files and talks only to this server.
 const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
@@ -423,6 +431,16 @@ impl WebState {
             "add_storage" => json_op!(add_storage, NewStorage),
             "set_default_storage" => json_op!(set_default_storage, DefaultStorage),
             "remove_storage" => json_op!(remove_storage, StorageRef),
+            "google_app" => json_op!(google_app, Empty),
+            // Google sends the owner back to this server, on the address
+            // the owner's link to it uses (Google allows any loopback port).
+            "start_google_drive" => match parse::<StartGoogleDrive>(&body) {
+                Ok(request) => {
+                    let back = format!("http://127.0.0.1:{}{GOOGLE_CALLBACK}", self.port);
+                    json(api.start_google_drive(&caller, request, &back).await)
+                }
+                Err(e) => error(e),
+            },
             "list_sources" => json_op!(list_sources, Empty),
             "add_source" => json_op!(add_source, NewSource),
             "pull_source" => json_op!(pull_source, SourceRef),
@@ -499,6 +517,36 @@ impl WebState {
             "list_access" => json_op!(list_access, ListAccess),
             _ => error(ApiError::not_found(format!("no operation named '{op}'"))),
         }
+    }
+}
+
+/// The first value of `name` in a query string, decoded; `None` if absent
+/// or not text.
+fn query_value(query: Option<&str>, name: &str) -> Option<String> {
+    query?.split('&').find_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        (key == name).then(|| percent_decoded(&value.replace('+', " ")))?
+    })
+}
+
+impl WebState {
+    /// Google's way back: finish the sign-in its `state` names, then open
+    /// the app's page with how it went. Nothing from the query is shown.
+    async fn google_callback(&self, query: Option<&str>) -> Response {
+        let back = GoogleCallback {
+            state: query_value(query, "state"),
+            code: query_value(query, "code"),
+            error: query_value(query, "error"),
+        };
+        let (return_to, outcome) = self.api.finish_google_drive(back).await;
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::SEE_OTHER;
+        let headers = response.headers_mut();
+        if let Ok(page) = HeaderValue::from_str(&outcome.page(return_to)) {
+            headers.insert(header::LOCATION, page);
+        }
+        secure_headers(headers);
+        response
     }
 }
 
@@ -837,6 +885,7 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
             .await
         }
         (&Method::GET, "/login") => state.login(parts.uri.query()),
+        (&Method::GET, GOOGLE_CALLBACK) => state.google_callback(parts.uri.query()).await,
         (&Method::GET, _) if path.starts_with("/api/") => {
             error(ApiError::not_found("API calls use POST"))
         }
@@ -917,6 +966,17 @@ mod tests {
         ] {
             assert!(app_file(&root, bad).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn query_values_are_found_and_decoded() {
+        let query = Some("state=a%2Bb&code=4%2F0Ab-c&scope=x+y");
+        assert_eq!(query_value(query, "state").as_deref(), Some("a+b"));
+        assert_eq!(query_value(query, "code").as_deref(), Some("4/0Ab-c"));
+        assert_eq!(query_value(query, "scope").as_deref(), Some("x y"));
+        assert_eq!(query_value(query, "error"), None);
+        assert_eq!(query_value(Some("code=%zz"), "code"), None);
+        assert_eq!(query_value(None, "code"), None);
     }
 
     #[test]

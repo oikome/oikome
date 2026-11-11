@@ -72,6 +72,9 @@ import type {
   NewStorage,
   DefaultStorage,
   StorageRef,
+  StartGoogleDrive,
+  GoogleApp,
+  GoogleSignIn,
   HomeCards,
   SourceSummary,
   NewSource,
@@ -115,6 +118,10 @@ export interface NodeClient {
   addStorage(request: NewStorage): Promise<StorageSummary>;
   setDefaultStorage(request: DefaultStorage): Promise<StorageSummary[]>;
   removeStorage(request: StorageRef): Promise<StorageSummary[]>;
+  /** The owner's Google app this node remembers, by its client ID. */
+  googleApp(): Promise<GoogleApp>;
+  /** Google's sign-in page for connecting the owner's Google Drive; the app goes there. */
+  startGoogleDrive(request: StartGoogleDrive): Promise<GoogleSignIn>;
   setHomeCards(request: HomeCards): Promise<NodeInfo>;
   listSources(): Promise<SourceSummary[]>;
   addSource(request: NewSource): Promise<SourceSummary>;
@@ -321,6 +328,14 @@ export class HttpClient implements NodeClient {
 
   removeStorage(request: StorageRef): Promise<StorageSummary[]> {
     return this.#json("remove_storage", request);
+  }
+
+  googleApp(): Promise<GoogleApp> {
+    return this.#json("google_app", {});
+  }
+
+  startGoogleDrive(request: StartGoogleDrive): Promise<GoogleSignIn> {
+    return this.#json("start_google_drive", request);
   }
 
   setHomeCards(request: HomeCards): Promise<NodeInfo> {

@@ -85,6 +85,8 @@ impl Node {
                     identity: Some(identity.clone()),
                     allow_http,
                     duckdb,
+                    // Never the machine's keychain.
+                    secret_backend: Some(Arc::new(oikome_node::MemorySecrets::default())),
                     ..Default::default()
                 },
             )

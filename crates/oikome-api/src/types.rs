@@ -278,6 +278,11 @@ pub enum StorageType {
     Folder,
     /// A folder a cloud drive's desktop client syncs.
     Drive,
+    /// A bucket on RustFS, reached over the S3 protocol.
+    S3,
+    /// The owner's Google Drive, signed in to with their Google account;
+    /// added with `start_google_drive`, not `add_storage`.
+    Gdrive,
 }
 
 /// A place Spaces can be kept: this computer, or a registered storage.
@@ -298,10 +303,14 @@ pub struct StorageSummary {
     pub encrypted: bool,
     /// Local Spaces kept there.
     pub spaces: u32,
-    /// Free and total bytes of the disk it is on, for this computer and a
-    /// folder; `None` for a NAS or a cloud drive, which don't say.
+    /// Free and total bytes: of the disk it is on, for this computer and a
+    /// folder; of the account, for Google Drive; `None` where the storage
+    /// doesn't say (a NAS, RustFS, a drive's sync folder).
     pub free_bytes: Option<u64>,
     pub total_bytes: Option<u64>,
+    /// Folders the owner has on it can be viewed in place (§7.7): a NAS,
+    /// RustFS, and Google Drive when Oikome may read the rest of the drive.
+    pub views_in_place: bool,
 }
 
 /// `add_storage`: a place to keep Spaces in, as the owner picked it.
@@ -311,18 +320,26 @@ pub struct StorageSummary {
 pub struct NewStorage {
     /// What to call it: "Documents", "Home NAS".
     pub label: String,
-    /// `webdav`, `folder` or `drive`; a folder inside a cloud drive is a drive.
+    /// `webdav`, `folder`, `drive` or `s3`; a folder inside a cloud drive is
+    /// a drive.
     #[serde(rename = "type")]
     pub kind: StorageType,
-    /// The WebDAV address, or the folder picked: the files go in an
-    /// `Oikome` folder inside it.
+    /// The WebDAV or object storage address, or the folder picked: the
+    /// files go in an `Oikome` folder inside it (on object storage, in the
+    /// bucket).
     pub address: String,
+    /// The user name; on object storage, the access key.
     #[serde(default)]
     pub username: Option<String>,
-    /// Kept in the system keychain, never in the registry or a log.
+    /// The password; on object storage, the secret key. Kept in the system
+    /// keychain, never in the registry or a log.
     #[serde(default)]
     pub password: Option<String>,
-    /// Encrypt files before they leave this computer; a cloud drive always is.
+    /// Object storage: the bucket, which must exist already.
+    #[serde(default)]
+    pub bucket: Option<String>,
+    /// Encrypt files before they leave this computer; a cloud drive always
+    /// is, and object storage is unless this says no.
     #[serde(default)]
     pub encrypted: Option<bool>,
     /// Keep new collections, and the examples, there.
@@ -338,6 +355,7 @@ impl std::fmt::Debug for NewStorage {
             .field("address", &self.address)
             .field("username", &self.username)
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("bucket", &self.bucket)
             .field("encrypted", &self.encrypted)
             .field("make_default", &self.make_default)
             .finish()
@@ -431,6 +449,110 @@ pub struct PauseSource {
 #[serde(rename_all = "camelCase")]
 pub struct SourceRef {
     pub source: String,
+}
+
+/// Where the owner comes back to after Google's sign-in page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum GoogleReturn {
+    Settings,
+    Onboarding,
+}
+
+/// `start_google_drive`: connect the owner's Google Drive, through the app
+/// they registered with Google themselves. The app sends the owner to the
+/// address it answers; Google sends them back to this node, which adds the
+/// drive (always encrypted) and opens `return_to`.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct StartGoogleDrive {
+    /// The owner's Google app (a "Desktop app" OAuth client): its client
+    /// ID. Left out, the app this node remembers ([`GoogleApp`]).
+    #[serde(default)]
+    pub client_id: Option<String>,
+    /// And its secret, kept in the system keychain, never in the registry
+    /// or a log.
+    #[serde(default)]
+    pub client_secret: Option<String>,
+    /// What the apps call it, in the owner's language; "Google Drive" when
+    /// left out.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Keep new collections, and the examples, there.
+    #[serde(default)]
+    pub make_default: Option<bool>,
+    /// Also let Oikome read the rest of the drive (`drive.readonly`), to
+    /// view folders there in place.
+    #[serde(default)]
+    pub read_all: Option<bool>,
+    pub return_to: GoogleReturn,
+}
+
+/// `google_app`: the owner's Google app this node remembers from the last
+/// Google Drive connected, so the next one asks for nothing; its client ID
+/// only, never the secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleApp {
+    pub client_id: Option<String>,
+}
+
+/// Google's sign-in page for this connection; it works once, for ten
+/// minutes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleSignIn {
+    pub url: String,
+}
+
+/// What Google sent back to the node's callback address: `state`, and a
+/// `code` or an `error` (`access_denied` when the owner said no).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct GoogleCallback {
+    pub state: Option<String>,
+    pub code: Option<String>,
+    pub error: Option<String>,
+}
+
+/// How a Google sign-in ended, for the page the owner comes back to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GoogleOutcome {
+    Added,
+    /// The owner said no on Google's page.
+    Denied,
+    /// Anything else: the link was old or used, or Google or the drive
+    /// refused. The node's log says which.
+    Failed,
+}
+
+impl std::fmt::Debug for StartGoogleDrive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StartGoogleDrive")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"<redacted>")
+            .field("label", &self.label)
+            .field("make_default", &self.make_default)
+            .field("read_all", &self.read_all)
+            .field("return_to", &self.return_to)
+            .finish()
+    }
+}
+
+impl GoogleOutcome {
+    /// The address the owner comes back to, `return_to` with the outcome.
+    pub fn page(self, return_to: GoogleReturn) -> String {
+        let page = match return_to {
+            GoogleReturn::Settings => "/settings",
+            GoogleReturn::Onboarding => "/onboarding",
+        };
+        let outcome = match self {
+            GoogleOutcome::Added => "added",
+            GoogleOutcome::Denied => "denied",
+            GoogleOutcome::Failed => "failed",
+        };
+        format!("{page}?google={outcome}")
+    }
 }
 
 /// `remove_storage`: a place added before; Local (this computer) is never

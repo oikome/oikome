@@ -38,6 +38,8 @@ const STORAGE_ICONS: Record<StorageSummary["type"], IconName> = {
   webdav: "nas",
   folder: "folder",
   drive: "drive",
+  s3: "bucket",
+  gdrive: "drive",
 };
 
 /** What a storage is called: this computer, or the name the owner gave it. */

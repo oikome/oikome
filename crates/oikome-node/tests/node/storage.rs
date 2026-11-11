@@ -371,13 +371,21 @@ async fn wrong_credentials_and_plaintext_are_refused() {
     assert!(e.to_string().contains("refused the credentials"), "{e}");
     assert!(wrong.catalog.get_space("photos").is_err());
 
+    // Plaintext to another computer needs --allow-http; to this one it
+    // leaves the computer no more than a folder does.
     let strict = node_with(2, nas.secrets(), false, DuckDbConfig::default());
+    let elsewhere = StorageKind::Webdav {
+        endpoint: nas.endpoint.replace("127.0.0.1", "nas.invalid"),
+        username: Some(USER.to_string()),
+    };
+    strict.catalog.add_storage("far", elsewhere, false).unwrap();
+    let e = strict.err("CREATE SPACE photos WITH STORAGE = 'far'").await;
+    assert!(e.to_string().contains("plaintext"), "{e}");
     strict
         .catalog
         .add_storage("nas", nas.kind(), false)
         .unwrap();
-    let e = strict.err("CREATE SPACE photos WITH STORAGE = 'nas'").await;
-    assert!(e.to_string().contains("plaintext"), "{e}");
+    strict.owner.check_storage("nas").await.unwrap();
 }
 
 #[tokio::test]
@@ -806,4 +814,474 @@ async fn a_folder_on_a_nas_is_viewed_in_place() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(names.len(), 2);
+}
+
+// ----- Object storage (3.4e) -----
+
+/// A RustFS server, the object storage Oikome supports: `rustfs` on this
+/// computer (`brew install rustfs/tap/rustfs`), in a temporary folder, on a
+/// port of its own, with keys made up per test; or, where one is already
+/// running, the one `OIKOME_TEST_RUSTFS_ENDPOINT` names, with its keys in
+/// `OIKOME_TEST_RUSTFS_ACCESS_KEY` and `OIKOME_TEST_RUSTFS_SECRET_KEY`. Keys
+/// are never printed.
+struct Rustfs {
+    endpoint: String,
+    access_key: String,
+    secret_key: String,
+    child: Option<std::process::Child>,
+    _dir: Option<tempfile::TempDir>,
+}
+
+impl Drop for Rustfs {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Text made up for this test, `n` characters.
+fn made_up(n: usize) -> String {
+    let seed = format!(
+        "{:?}{}{:?}",
+        std::time::SystemTime::now(),
+        std::process::id(),
+        std::thread::current().id()
+    );
+    blake3::hash(seed.as_bytes()).to_hex()[..n].to_string()
+}
+
+impl Rustfs {
+    /// A running RustFS, or `None` (the test is skipped, and says so) where
+    /// there is none; on CI a missing RustFS fails the test.
+    async fn start() -> Option<Self> {
+        if let Ok(endpoint) = std::env::var("OIKOME_TEST_RUSTFS_ENDPOINT") {
+            let key =
+                |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set"));
+            return Some(Self {
+                endpoint,
+                access_key: key("OIKOME_TEST_RUSTFS_ACCESS_KEY"),
+                secret_key: key("OIKOME_TEST_RUSTFS_SECRET_KEY"),
+                child: None,
+                _dir: None,
+            });
+        }
+        let found = std::process::Command::new("rustfs")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !found {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "no RustFS: install it or set OIKOME_TEST_RUSTFS_ENDPOINT"
+            );
+            eprintln!("skipped: no `rustfs` here (brew install rustfs/tap/rustfs)");
+            return None;
+        }
+        let port = |l: std::net::TcpListener| l.local_addr().unwrap().port();
+        let api = port(std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        // RustFS keeps its files in a folder that must exist already.
+        let volume = dir.path().join("data");
+        std::fs::create_dir(&volume).unwrap();
+        let (access_key, secret_key) = (format!("oikome{}", made_up(8)), made_up(32));
+        let child = std::process::Command::new("rustfs")
+            .args(["server", "--address"])
+            .arg(format!("127.0.0.1:{api}"))
+            .arg(&volume)
+            .env("RUSTFS_ACCESS_KEY", &access_key)
+            .env("RUSTFS_SECRET_KEY", &secret_key)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let rustfs = Self {
+            endpoint: format!("http://127.0.0.1:{api}"),
+            access_key,
+            secret_key,
+            child: Some(child),
+            _dir: Some(dir),
+        };
+        // Ready, not only up: `/health` answers before its keys and disks
+        // serve requests, which takes longer while other tests start theirs.
+        let client = reqwest::Client::new();
+        for _ in 0..300 {
+            let live = client
+                .get(format!("{}/health/ready", rustfs.endpoint))
+                .send()
+                .await
+                .is_ok_and(|r| r.status().is_success());
+            if live {
+                return Some(rustfs);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("RustFS did not start");
+    }
+
+    /// Make the bucket `name` (the storage's owner does this, not Oikome),
+    /// with a request signed with AWS Signature Version 4.
+    async fn create_bucket(&self, name: &str) {
+        use hmac::{Hmac, Mac};
+        use sha2::{Digest, Sha256};
+        let hmac = |key: &[u8], data: &str| {
+            let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+            mac.update(data.as_bytes());
+            mac.finalize().into_bytes().to_vec()
+        };
+        let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let (date, amz_date) = utc_now();
+        let host = self.endpoint.trim_start_matches("http://");
+        let payload = hex(&Sha256::digest(b""));
+        let canonical = format!(
+            "PUT\n/{name}\n\nhost:{host}\nx-amz-content-sha256:{payload}\nx-amz-date:{amz_date}\n\n\
+             host;x-amz-content-sha256;x-amz-date\n{payload}"
+        );
+        let scope = format!("{date}/{}/s3/aws4_request", oikome_vfs::S3_REGION);
+        let to_sign = format!(
+            "AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}",
+            hex(&Sha256::digest(canonical.as_bytes()))
+        );
+        let mut key = hmac(format!("AWS4{}", self.secret_key).as_bytes(), &date);
+        for part in [oikome_vfs::S3_REGION, "s3", "aws4_request"] {
+            key = hmac(&key, part);
+        }
+        let signature = hex(&hmac(&key, &to_sign));
+        let response = reqwest::Client::new()
+            .put(format!("{}/{name}", self.endpoint))
+            .header("x-amz-date", &amz_date)
+            .header("x-amz-content-sha256", &payload)
+            .header(
+                "authorization",
+                format!(
+                    "AWS4-HMAC-SHA256 Credential={}/{scope}, \
+                     SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature={signature}",
+                    self.access_key
+                ),
+            )
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            response.status().is_success(),
+            "making the bucket: {}",
+            response.status()
+        );
+    }
+
+    fn kind(&self, bucket: &str) -> StorageKind {
+        StorageKind::S3 {
+            endpoint: self.endpoint.clone(),
+            bucket: bucket.to_string(),
+            access_key_id: self.access_key.clone(),
+        }
+    }
+
+    fn credentials(&self) -> StorageCredentials {
+        StorageCredentials {
+            password: Some(Zeroizing::new(self.secret_key.clone())),
+            ..Default::default()
+        }
+    }
+
+    /// The bucket as the storage holds it, read with the owner's keys.
+    fn bucket(&self, bucket: &str) -> oikome_vfs::RemoteStore {
+        let at = oikome_vfs::Bucket {
+            endpoint: &self.endpoint,
+            name: bucket,
+        };
+        oikome_vfs::RemoteStore::s3_view(at, "", &self.access_key, &self.secret_key).unwrap()
+    }
+
+    /// Every object in `bucket`, by key.
+    async fn objects(&self, bucket: &str) -> Vec<String> {
+        let store = self.bucket(bucket);
+        let mut out = Vec::new();
+        let mut dirs = vec![String::new()];
+        while let Some(dir) = dirs.pop() {
+            for entry in store.list_owned(&dir).await.unwrap() {
+                let path = if dir.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{dir}/{}", entry.name)
+                };
+                if entry.is_dir {
+                    dirs.push(path);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Whether any object of `bucket` holds `needle`.
+    async fn any_object_contains(&self, bucket: &str, needle: &[u8]) -> bool {
+        let store = self.bucket(bucket);
+        for key in self.objects(bucket).await {
+            let bytes = store.read_owned(&key, 0..u64::MAX, 64 << 20).await.unwrap();
+            if bytes.windows(needle.len()).any(|w| w == needle) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Today (`20261109`) and now (`20261109T101500Z`) on the UTC clock.
+fn utc_now() -> (String, String) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    let date = format!("{year:04}{month:02}{day:02}");
+    let time = format!("{:02}{:02}{:02}", rest / 3600, rest % 3600 / 60, rest % 60);
+    (date.clone(), format!("{date}T{time}Z"))
+}
+
+#[tokio::test]
+async fn a_space_on_object_storage_is_written_by_one_node_and_read_by_another() {
+    let Some(rustfs) = Rustfs::start().await else {
+        return;
+    };
+    rustfs.create_bucket("family").await;
+    // Something of the owner's already in the bucket: Oikome keeps out of it.
+    let theirs = oikome_vfs::RemoteStore::s3(
+        oikome_vfs::Bucket {
+            endpoint: &rustfs.endpoint,
+            name: "family",
+        },
+        "keep",
+        &rustfs.access_key,
+        &rustfs.secret_key,
+    )
+    .unwrap();
+    theirs
+        .write("notes.txt", bytes::Bytes::from_static(b"mine"))
+        .await
+        .unwrap();
+
+    // Plain, as the owner may choose: here on this computer, without --allow-http.
+    let a = node_with(1, no_env(), false, DuckDbConfig::default());
+    let b = node_with(2, no_env(), false, DuckDbConfig::default());
+    for n in [&a, &b] {
+        n.owner
+            .add_storage("rustfs", rustfs.kind("family"), false, rustfs.credentials())
+            .await
+            .unwrap();
+    }
+    for sql in [
+        "CREATE SPACE photos WITH STORAGE = 'rustfs'",
+        "CREATE TABLE photos.items (id BIGINT, name VARCHAR)",
+        "INSERT INTO photos.items VALUES (1, 'a'), (2, 'b')",
+    ] {
+        a.sql(sql).await;
+    }
+    b.sql("CREATE SPACE photos WITH STORAGE = 'rustfs', ACCESS = 'readonly'")
+        .await;
+    assert_eq!(b.count("photos.items").await, 2);
+    a.sql("INSERT INTO photos.items VALUES (3, 'c')").await;
+    b.sql("REFRESH SPACE photos").await;
+    assert_eq!(b.count("photos.items").await, 3);
+
+    // Oikome's files are in its own folder of the bucket; the owner's stay.
+    let objects = rustfs.objects("family").await;
+    assert!(
+        objects
+            .iter()
+            .any(|k| k.starts_with("Oikome/photos/snapshots/")),
+        "{objects:?}"
+    );
+    assert!(
+        objects
+            .iter()
+            .all(|k| k.starts_with("Oikome/photos/") || k == "keep/notes.txt"),
+        "{objects:?}"
+    );
+    // The secret key stays with the node's secrets, in no file of its own.
+    assert!(!any_file_contains(
+        a.dir.path(),
+        rustfs.secret_key.as_bytes()
+    ));
+}
+
+#[tokio::test]
+async fn a_space_on_object_storage_is_encrypted_and_read_with_the_same_key() {
+    let Some(rustfs) = Rustfs::start().await else {
+        return;
+    };
+    rustfs.create_bucket("vault").await;
+    let a = node(1, no_env());
+    a.owner
+        .add_storage("rustfs", rustfs.kind("vault"), true, rustfs.credentials())
+        .await
+        .unwrap();
+    for sql in [
+        "CREATE SPACE diary WITH STORAGE = 'rustfs'",
+        "CREATE TABLE diary.entries (id BIGINT, text VARCHAR)",
+        "INSERT INTO diary.entries VALUES (1, 'a secret about Lisbon')",
+    ] {
+        a.sql(sql).await;
+    }
+    // The storage sees neither the names nor the content.
+    let objects = rustfs.objects("vault").await;
+    assert!(!objects.is_empty());
+    assert!(
+        objects.iter().all(|k| !k.contains("entries")),
+        "{objects:?}"
+    );
+    assert!(
+        !rustfs
+            .any_object_contains("vault", b"secret about Lisbon")
+            .await
+    );
+
+    let key = a.owner.export_storage_key("rustfs").unwrap();
+    let b = node(2, no_env());
+    let mut credentials = rustfs.credentials();
+    credentials.key = Some(key);
+    b.owner
+        .add_storage("rustfs", rustfs.kind("vault"), true, credentials)
+        .await
+        .unwrap();
+    b.sql("CREATE SPACE diary WITH STORAGE = 'rustfs', ACCESS = 'readonly'")
+        .await;
+    assert_eq!(b.count("diary.entries").await, 1);
+}
+
+#[tokio::test]
+async fn wrong_keys_and_a_missing_bucket_are_refused_and_nothing_is_kept() {
+    let Some(rustfs) = Rustfs::start().await else {
+        return;
+    };
+    rustfs.create_bucket("family").await;
+    let n = node(1, no_env());
+    let wrong = StorageCredentials {
+        password: Some(Zeroizing::new("not-the-secret-key".to_string())),
+        ..Default::default()
+    };
+    let e = n
+        .owner
+        .add_storage("rustfs", rustfs.kind("family"), true, wrong)
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("refused the credentials"), "{e}");
+    let e = n
+        .owner
+        .add_storage(
+            "rustfs",
+            rustfs.kind("no-such-bucket"),
+            true,
+            rustfs.credentials(),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("bucket no-such-bucket doesn't exist"),
+        "{e}"
+    );
+    assert!(n.catalog.list_storages().is_empty());
+    assert!(rustfs.objects("family").await.is_empty());
+}
+
+#[tokio::test]
+async fn big_files_go_up_in_parts_and_come_back_whole() {
+    let Some(rustfs) = Rustfs::start().await else {
+        return;
+    };
+    rustfs.create_bucket("big").await;
+    let store = oikome_vfs::RemoteStore::s3(
+        oikome_vfs::Bucket {
+            endpoint: &rustfs.endpoint,
+            name: "big",
+        },
+        "Oikome/films",
+        &rustfs.access_key,
+        &rustfs.secret_key,
+    )
+    .unwrap();
+    // Three parts and a bit, written from a file as a stream.
+    let dir = tempfile::tempdir().unwrap();
+    let local = dir.path().join("film.bin");
+    let data: Vec<u8> = (0..(25 << 20) + 123).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&local, &data).unwrap();
+    assert_eq!(
+        store.upload(&local, "files/film.bin").await.unwrap(),
+        data.len() as u64
+    );
+    assert_eq!(
+        store.size("files/film.bin").await.unwrap(),
+        Some(data.len() as u64)
+    );
+    let back = store.read("files/film.bin", 64 << 20).await.unwrap();
+    assert!(back == data);
+    // Written in place: no temporary names left behind.
+    assert_eq!(rustfs.objects("big").await, ["Oikome/films/files/film.bin"]);
+}
+
+#[tokio::test]
+async fn a_folder_on_object_storage_is_viewed_in_place() {
+    let Some(rustfs) = Rustfs::start().await else {
+        return;
+    };
+    rustfs.create_bucket("photos").await;
+    let raw = |folder: &str| {
+        oikome_vfs::RemoteStore::s3(
+            oikome_vfs::Bucket {
+                endpoint: &rustfs.endpoint,
+                name: "photos",
+            },
+            folder,
+            &rustfs.access_key,
+            &rustfs.secret_key,
+        )
+        .unwrap()
+    };
+    raw("Trips")
+        .write(
+            "spending.csv",
+            bytes::Bytes::from_static(b"day,euros\n2025-01-01,3\n2025-01-02,4\n"),
+        )
+        .await
+        .unwrap();
+    raw("Trips/Lisboa")
+        .write(
+            "1-Ola.md",
+            bytes::Bytes::from_static(b"Os eletricos sobem."),
+        )
+        .await
+        .unwrap();
+    let before = rustfs.objects("photos").await;
+    let n = node(1, no_env());
+    n.owner
+        .add_storage("rustfs", rustfs.kind("photos"), false, rustfs.credentials())
+        .await
+        .unwrap();
+    n.sql("CREATE SPACE trips WITH PLACE = 'rustfs', PATH = 'Trips'")
+        .await;
+    n.sql("REFRESH SPACE trips").await;
+    assert_eq!(n.count("trips.files").await, 2);
+    assert_eq!(n.count("trips.spending").await, 2);
+    let found = n
+        .owner
+        .search("trips", &["eletricos".to_string()], 10)
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    // Nothing was written to the bucket.
+    assert_eq!(rustfs.objects("photos").await, before);
 }

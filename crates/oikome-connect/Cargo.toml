@@ -15,7 +15,7 @@ async-trait = { workspace = true }
 blake3 = { workspace = true }
 # A file's time on this computer's clock; already in the tree (arrow).
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-# Same version and TLS stack as opendal and oikome-vfs.
+# The same reqwest and TLS stack as oikome-vfs (and iceberg): ring.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 # flomo's HTML export, read with its tokenizer (no DOM, no CSS selectors,
 # which are MPL-2.0).

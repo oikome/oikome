@@ -46,6 +46,8 @@ const PLACE_ICONS: Record<StorageSummary["type"], IconName> = {
   webdav: "nas",
   folder: "folder",
   drive: "drive",
+  s3: "bucket",
+  gdrive: "drive",
 };
 
 export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo) => void }) {

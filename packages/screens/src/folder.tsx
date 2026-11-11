@@ -29,9 +29,10 @@ export function ViewFolder({
   const client = useClient();
   const toast = useToast();
   const storages = useLoad(() => client.listStorages(), []);
-  // A NAS over WebDAV is named by its path there; anything else on this
-  // computer (a mounted share, a drive's folder) is browsed.
-  const nases = (storages.data ?? []).filter((x) => x.type === "webdav" && x.name !== null);
+  // A place reached over the network (a NAS, RustFS, Google Drive Oikome
+  // may read) is named by its path there; anything on this computer (a
+  // mounted share, a drive's folder) is browsed.
+  const nases = (storages.data ?? []).filter((x) => x.viewsInPlace && x.name !== null);
   const [place, setPlace] = useState(LOCAL);
   const [path, setPath] = useState<string>();
   const [within, setWithin] = useState("");

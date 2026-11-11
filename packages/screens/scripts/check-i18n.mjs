@@ -27,6 +27,8 @@ const SAME = new Set([
   "Ink",
   "Bold",
   "WebDAV",
+  "RustFS",
+  "Google Drive",
   "CSV",
   "OK",
   "flomo",

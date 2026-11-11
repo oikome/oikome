@@ -26,6 +26,7 @@ import { Collections } from "./screens/Collections";
 import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
+import { PlaceDetail, placePath, THIS_COMPUTER } from "./screens/Place";
 import { Sharing } from "./screens/Sharing";
 import { strings } from "./strings";
 
@@ -102,6 +103,7 @@ function Root() {
       <Onboarding
         info={info}
         onInfo={setInfo}
+        google={path === "/onboarding" ? query.get("google") : null}
         onFinished={() => {
           setOnboarding(false);
           navigate("/", { replace: true });
@@ -139,6 +141,9 @@ function Root() {
   } else if (path.startsWith("/sources/")) {
     const name = decodeSafe(path.slice("/sources/".length));
     screen = <SourceDetail key={name} name={name} />;
+  } else if (path.startsWith("/places/")) {
+    const name = decodeSafe(path.slice("/places/".length));
+    screen = <PlaceDetail key={name} name={name} />;
   } else if (path === "/assistants") {
     screen = <Assistants startConnecting={query.get("connect") === "1"} />;
   } else if (path === "/plugins") {
@@ -146,7 +151,9 @@ function Root() {
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {
-    screen = <Settings info={info} onInfo={setInfo} backup={query.get("backup") === "1"} />;
+    screen = (
+      <Settings info={info} onInfo={setInfo} backup={query.get("backup") === "1"} google={query.get("google")} />
+    );
   } else {
     screen = (
       <Card>
@@ -162,7 +169,9 @@ function Root() {
     ? decodeSafe(path.slice("/collections/".length))
     : path.startsWith("/sources/")
       ? decodeSafe(path.slice("/sources/".length))
-      : undefined;
+      : path.startsWith("/places/")
+        ? decodeSafe(path.slice("/places/".length))
+        : undefined;
   return (
     <Shell info={info} current={section?.to} path={path} sub={sub}>
       {screen}
@@ -305,12 +314,18 @@ function Shell({
   const sources = useLoad(() => client.listSources(), [path]);
   // A source is called by its file or folder, as on its page.
   const source = path.startsWith("/sources/") ? sources.data?.find((x) => x.name === sub) : undefined;
-  const subLabel = source ? placeName(source.place) : sub;
   const storages = useLoad(() => client.listStorages(), [path]);
+  // A place's page is called by the place's name.
+  const opened = path.startsWith("/places/")
+    ? storages.data?.find((x) => (x.name ?? THIS_COMPUTER) === sub)
+    : undefined;
+  const subLabel = source ? placeName(source.place) : opened ? placeLabel(opened) : sub;
   const [picked, setPicked] = useState<string | null>(rememberedPlace);
   const [searching, setSearching] = useState(false);
   const places = storages.data ?? [];
-  const place = places.find((x) => (x.name ?? "") === picked) ?? places.find((x) => x.isDefault) ?? places[0];
+  const place =
+    opened ?? places.find((x) => (x.name ?? "") === picked) ?? places.find((x) => x.isDefault) ?? places[0];
+  // A place picked shows its room below and opens its page, as the prototype's.
   const pick = (next: StorageSummary) => {
     const key = next.name ?? "";
     setPicked(key);
@@ -319,6 +334,7 @@ function Shell({
     } catch {
       // Not remembered in a private window: the card still switches.
     }
+    navigate(placePath(next));
   };
   // ⌘K (Ctrl+K) opens the palette from anywhere.
   useEffect(() => {

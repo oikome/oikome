@@ -3574,6 +3574,17 @@ tr.screen-source {
 }
 
 @media (max-width: 760px) {
+  .oik-row:has(.screen-compute__acts) {
+    flex-wrap: wrap;
+  }
+  .oik-row:has(.screen-compute__acts) .oik-row__trailing {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .screen-compute__acts {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
   .screen-runs__row {
     grid-template-columns: minmax(0, 1fr) auto;
   }

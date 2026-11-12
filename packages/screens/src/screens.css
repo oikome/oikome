@@ -775,12 +775,21 @@
   gap: var(--space-1);
 }
 .screen-fileview__facts {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 0 var(--space-5);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-6);
   max-height: 40vh;
-  padding: 0 18px;
+  padding: 0 18px 12px;
   overflow-y: auto;
   border-bottom: var(--bw) solid var(--line2);
+}
+.screen-fileview__facts > div {
+  min-width: 0;
+  padding: 10px 0;
+}
+.screen-fileview__facts > div:last-child {
+  grid-column: 1 / -1;
+  padding-top: 12px;
+  border-top: 1px solid var(--line2);
 }
 .screen-fileview__content {
   min-width: 0;
@@ -877,6 +886,13 @@
   .screen-fileview__tools .oik-icon-button {
     width: 44px;
     height: 44px;
+  }
+  .screen-fileview__facts {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+  }
+  .screen-fileview__facts > div:last-child {
+    grid-column: 1;
   }
   .screen-fileview__quiet {
     white-space: normal;

@@ -111,9 +111,9 @@ export function FileView({
         [s.colKind, fileKindLabel(file.name, file.kind)],
         [s.colSize, bytes(Number(file.size))],
         [s.colModified, changed],
-        [s.cameFrom, facts.cameFrom],
         [s.keptOn, facts.keptOn],
         [s.whoCanSee, facts.who],
+        [s.cameFrom, facts.cameFrom],
       ]
     : [];
 

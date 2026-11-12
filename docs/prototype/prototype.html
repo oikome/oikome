@@ -548,7 +548,9 @@ button.cover { width: 100%; padding: 0; border: 0; background: none; color: inhe
 .fview__quiet { color: var(--ink3); font: 400 12px/18px var(--font); }
 .fview .dialog__body { padding: 0; }
 .fview__tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.fview__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border-bottom: var(--bw) solid var(--line2); }
+.fview__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; padding: 0 18px 12px; border-bottom: var(--bw) solid var(--line2); }
+.fview__facts .kv { min-width: 0; padding: 10px 0; }
+.fview__facts .kv:last-child { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--line2); border-bottom: 0; }
 .fview__photo { position: relative; display: grid; place-items: center; min-height: 380px; background: #141310; }
 .fview__photo img { display: block; max-width: 100%; max-height: calc(100vh - 190px); object-fit: contain; }
 .fview__badge { position: absolute; left: 16px; bottom: 16px; padding: 5px 9px; border-radius: var(--r-btn); background: rgba(20,19,16,.82); color: #fcfcfb; font-size: 12px; }
@@ -580,6 +582,8 @@ button.cover { width: 100%; padding: 0; border: 0; background: none; color: inhe
   .fview__tools { min-width: 0; }
   .fview__tools .seg { max-width: 100%; overflow-x: auto; }
   .fview__tools .btn { padding-left: 10px; padding-right: 10px; }
+  .fview__facts { grid-template-columns: minmax(0, 1fr); }
+  .fview__facts .kv:last-child { grid-column: 1; }
   .fview__note { padding-top: 26px; }
   .fview__note h1 { font-size: 26px; line-height: 33px; }
   .fview__external { min-height: 300px; padding: 20px 8px; }
@@ -1737,7 +1741,7 @@ DLG.fview = (D) => {
         : k === 'raw' && S.rawPlugin
           ? `<div class="fview__photo"><img src="${PH.sunset}" alt="${esc(n)}"><span class="fview__badge">${t('fv.developedPreview')}</span></div>`
           : `<div class="fview__external"><div class="empty"><span class="ico">${I(k === 'raw' ? 'photo' : 'file')}</span><b>${k === 'raw' ? t('kind.raw') : k === 'psd' ? t('kind.psd') : esc(n)}</b><span class="muted">${sz(size)}</span><p class="muted">${t(k === 'raw' ? 'fv.rawBody' : 'fv.professionalBody', { format: k === 'psd' ? t('kind.psd') : t('kind.other') })}</p>${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"')}</div></div>`;
-  const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><span>${c ? esc(placeName(c.stored)) : ''}</span></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div></div>` : '';
+  const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><span>${c ? esc(placeName(c.stored)) : ''}</span></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div><div class="kv"><span class="label">${t('fact.comesFrom')}</span><span>${c ? esc(placeName(c.stored)) : ''} · Trips</span></div></div>` : '';
   const title = `<span class="fview__name">${esc(n)}</span><span class="fview__quiet">${md(changed)} · ${c ? esc(placeName(c.stored)) : ''} · ${whoLine(D.c)}</span>`;
   const move = D.set.length > 1 ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
   const tools = `<div class="fview__tools">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div>${btn(t('fv.editSource'), 'data-act="fedit"', 'btn--primary')}` : ''}${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;

@@ -58,6 +58,10 @@ name: string,
  */
 version: string, 
 /**
+ * The operating system of the computer running this node (`macos`, `windows`, `linux`).
+ */
+platform: string, 
+/**
  * The data directory on this computer.
  */
 dataDir: string, 

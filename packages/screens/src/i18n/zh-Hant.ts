@@ -392,7 +392,9 @@ export const zhHant: Strings = {
     colModified: "修改時間",
     fileKinds: { image: "照片", note: "筆記", table: "表格", other: "檔案" },
     info: "資訊",
-    showInFinder: "在訪達中顯示",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "在訪達中顯示" : platform === "windows" ? "在檔案總管中顯示" : "在檔案管理器中顯示",
+    openWith: "打開方式…",
     fileCut: "此檢視只顯示檔案的前 64 MB。",
     showMore: "顯示更多",
     emptyFolder: "這個資料夾是空的。",

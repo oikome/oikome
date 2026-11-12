@@ -402,7 +402,9 @@ export const ja: Strings = {
     colModified: "更新日時",
     fileKinds: { image: "写真", note: "メモ", table: "表", other: "ファイル" },
     info: "情報",
-    showInFinder: "Finderで表示",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "Finderで表示" : platform === "windows" ? "エクスプローラーで表示" : "ファイルマネージャーで表示",
+    openWith: "このアプリで開く…",
     fileCut: "この表示ではファイルの先頭 64 MB のみを表示しています。",
     showMore: "さらに表示",
     emptyFolder: "このフォルダには何もありません。",

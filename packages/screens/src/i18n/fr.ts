@@ -420,7 +420,13 @@ export const fr: Strings = {
     colModified: "Modifié",
     fileKinds: { image: "Photo", note: "Note", table: "Tableau", other: "Fichier" },
     info: "Infos",
-    showInFinder: "Afficher dans le Finder",
+    showInFinder: (platform: string) =>
+      platform === "macos"
+        ? "Afficher dans le Finder"
+        : platform === "windows"
+          ? "Afficher dans l’Explorateur de fichiers"
+          : "Afficher dans le gestionnaire de fichiers",
+    openWith: "Ouvrir avec…",
     fileCut: "Cette vue affiche seulement les 64 premiers Mo du fichier.",
     showMore: "Afficher plus",
     emptyFolder: "Ce dossier est vide.",

@@ -185,6 +185,8 @@ export interface NodeClient {
   readFileRows(request: ReadFileRows): Promise<RowsResult>;
   /** Open a folder viewed in place, or reveal one of its files, on this computer. */
   showFolder(request: ShowFolder): Promise<Empty>;
+  /** Open an indexed local file with its default application on this computer. */
+  openWith(request: FileRef): Promise<Empty>;
   /** Where the app shows a photo's thumbnail or original from. */
   fileUrl(kind: "thumb" | "original", file: FileRef): string;
   listPlugins(): Promise<Plugin[]>;
@@ -530,6 +532,10 @@ export class HttpClient implements NodeClient {
 
   showFolder(request: ShowFolder): Promise<Empty> {
     return this.#json("show_folder", request);
+  }
+
+  openWith(request: FileRef): Promise<Empty> {
+    return this.#json("open_with", request);
   }
 
   fileUrl(kind: "thumb" | "original", file: FileRef): string {

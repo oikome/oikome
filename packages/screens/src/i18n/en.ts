@@ -415,7 +415,9 @@ export const en = {
     colModified: "Changed",
     fileKinds: { image: "Photo", note: "Note", table: "Table", other: "File" } as Record<string, string>,
     info: "Info",
-    showInFinder: "Show in Finder",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "Show in Finder" : platform === "windows" ? "Show in File Explorer" : "Show in File Manager",
+    openWith: "Open With…",
     fileCut: "This view shows only the first 64 MB of the file.",
     showMore: "Show More",
     emptyFolder: "Nothing in this folder.",

@@ -324,6 +324,40 @@ impl Api {
         Ok(Empty {})
     }
 
+    /// Open an indexed file on this computer with its default application.
+    pub async fn open_with(&self, caller: &Caller, req: FileRef) -> Result<Empty, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let location = self.in_place_of(&req.space)?;
+        let LocationFormat::InPlace { place: None, path } = &location.format else {
+            return Err(ApiError::invalid(format!(
+                "{} is not on this computer; open it there",
+                req.space
+            )));
+        };
+        if !inplace::is_path_within(&req.path) {
+            return Err(ApiError::invalid(format!(
+                "{} is not a file in it",
+                req.path
+            )));
+        }
+        if inplace::file(&self.catalog, &location, &req.path)?.is_none() {
+            return Err(ApiError::not_found(format!(
+                "{} has no file {}",
+                req.space, req.path
+            )));
+        }
+        let target = Path::new(path).join(&req.path);
+        if !target.is_file() {
+            return Err(ApiError::invalid(format!(
+                "{} isn't there right now",
+                target.display()
+            )));
+        }
+        crate::sources::open(&target).map_err(ApiError::internal)?;
+        Ok(Empty {})
+    }
+
     /// A page of the rows of one data file (a CSV, TSV, Parquet or JSON, at
     /// any folder) of a collection that views a folder in place: the path is
     /// checked first, the file is read where it is (a NAS's or a drive's

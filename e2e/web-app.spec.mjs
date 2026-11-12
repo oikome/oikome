@@ -33,6 +33,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -132,7 +133,15 @@ test.beforeAll(async ({ browser }) => {
   expect(existsSync(join(WEB_ROOT, "index.html")), "build apps/web first (npm run build)").toBe(true);
   owner = mkdtempSync(join(tmpdir(), "oikome-app-"));
   contact = mkdtempSync(join(tmpdir(), "oikome-app-contact-"));
-  server = await serveWeb(owner);
+  let openerEnv = ENV;
+  if (process.platform !== "win32") {
+    const openerBin = join(owner, "opener-bin");
+    mkdirSync(openerBin);
+    const opener = join(openerBin, process.platform === "darwin" ? "open" : "xdg-open");
+    writeFileSync(opener, `#!/bin/sh\nprintf '%s|%s\\n' "$#" "$1" > "${join(owner, "open-with.log")}"\n`, { mode: 0o755 });
+    openerEnv = { ...ENV, PATH: `${openerBin}:${ENV.PATH ?? ""}` };
+  }
+  server = await serveWeb(owner, openerEnv);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   page = await context.newPage();
@@ -1529,6 +1538,29 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     await api("drop_space", { space: name });
   } finally {
     if (existsSync(away)) renameSync(away, trip);
+    rmSync(trip, { recursive: true, force: true });
+  }
+});
+
+test("a complex local file opens with the system application, not a shell", async () => {
+  test.skip(process.platform === "win32", "the fake opener is a POSIX executable");
+  if (!(await page.context().cookies()).length) await page.goto(loginLink());
+  const trip = mkdtempSync(join(tmpdir(), "oikome-open-with-"));
+  try {
+    const file = join(trip, "Portfolio; echo not-a-command.psd");
+    writeFileSync(file, new Uint8Array([0, 1, 2, 3]));
+    const viewed = await api("view_in_place", { path: trip });
+    const opened = await api("open_with", { space: viewed.name, path: "Portfolio; echo not-a-command.psd" });
+    expect(opened).toEqual({});
+    await page.goto(`${base}/collections/${viewed.name}`);
+    await page.locator(".screen-ftile", { hasText: "Portfolio; echo not-a-command.psd" }).click();
+    const viewer = page.getByRole("dialog", { name: "Portfolio; echo not-a-command.psd" });
+    const managerLabel = process.platform === "darwin" ? "Show in Finder" : process.platform === "win32" ? "Show in File Explorer" : "Show in File Manager";
+    await viewer.getByRole("button", { name: managerLabel }).waitFor();
+    await viewer.getByRole("button", { name: "Open With…" }).click();
+    const log = join(owner, "open-with.log");
+    await expect.poll(() => (existsSync(log) ? readFileSync(log, "utf8").trim() : "")).toBe(`1|${realpathSync(file)}`);
+  } finally {
     rmSync(trip, { recursive: true, force: true });
   }
 });

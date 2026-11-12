@@ -179,9 +179,9 @@ User-facing track (in parallel with the core phases above, neither blocks the ot
 | M7 Phone app and devices | Tauri 2 phone app: pairing by QR code, My Devices / Add a Device, reading Home and collections over WebRTC (away from home once 3.12 is done) | M6, 3.12 | Not started |
 | M8 Languages | The apps in nine languages, the prototype's; picked per device; examples and Oikome's plugins in the language; user data never translated | M1c | ✅ Done |
 | M9 Family | Family members with their own identity and what each may see | M7 | Not started |
-| M10 Plugins from others | Third-party source and card plugins, one at a time, with signing and a plugin directory | M4 | Not started; last, with M5 |
+| M10 Plugins from others | Third-party source, card and Content/Preview plugins, one at a time, with signing and an independent plugin library; complex content capabilities are optional downloads outside the light core | M4 | Not started; last, with M5 |
 
-**Order (2026-11-11).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen), 3.12 (brought forward), M8 (brought forward), 3.4e and 3.4c (Google Drive; Dropbox sign-in and uploads verified; in-place and second-node reads awaiting verification). Next: working with data in the apps (explored first), then 3.8, 3.7, 3.10, M6, M7, M9, 3.13. Last: M5 and M10.
+**Order (2026-11-12).** Numbers name the phases; they are not the order. Done: 3.9 (so nothing is copied into Oikome just to be seen), 3.12 (brought forward), M8 (brought forward), 3.4e and 3.4c (Google Drive; Dropbox sign-in and uploads verified; in-place and second-node reads awaiting verification). Next: content viewing in the apps (`docs/content-viewing.md`: content contract, text and tables, media, then safe editing), then 3.8, 3.7, 3.10, M6, M7, M9, 3.13. Last: M5 and M10.
 
 User-facing tests always connect to a local node (temporary data directory, test data written through the command line or the API), with no fake-data layer and no mock client; so the API (M1b) comes before the screens (M1c), and screens such as Sources, the Home dashboard and the AI assistant come with M2 and M3.
 

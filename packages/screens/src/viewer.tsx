@@ -62,6 +62,7 @@ export function FileView({
     (e) => (e.code === "not_found" ? s.itemGone(space) : rawMessage(e)),
   );
   const file = detail.data ?? listed;
+  const host = useLoad(() => client.nodeInfo(), []);
   const rows = useLoad(
     async () =>
       file?.kind === "table"
@@ -207,9 +208,14 @@ export function FileView({
             <p>{fileKindLabel(file.name, file.kind)}</p>
             <p className="screen-muted">{bytes(Number(file.size))}</p>
             {local && (
-              <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
-                {s.showInFinder}
-              </Button>
+              <>
+                <Button disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
+                  {s.openWith}
+                </Button>
+                <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
+                  {s.showInFinder(host.data?.platform ?? "")}
+                </Button>
+              </>
             )}
             {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
           </div>

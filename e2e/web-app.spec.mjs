@@ -1557,7 +1557,7 @@ test("a complex local file opens with the system application, not a shell", asyn
     const viewer = page.getByRole("dialog", { name: "Portfolio; echo not-a-command.psd" });
     const managerLabel = process.platform === "darwin" ? "Show in Finder" : process.platform === "win32" ? "Show in File Explorer" : "Show in File Manager";
     await viewer.getByRole("button", { name: managerLabel }).waitFor();
-    await viewer.getByRole("button", { name: "Open With…" }).click();
+    await viewer.getByRole("button", { name: "Open in Default App" }).click();
     await expect(viewer.locator(".oik-error")).toHaveCount(0);
     const log = join(owner, "open-with.log");
     await expect.poll(() => (existsSync(log) ? readFileSync(log, "utf8").trim() : "")).toBe(`1|${realpathSync(file)}`);
@@ -1570,7 +1570,9 @@ test("a complex local file opens with the system application, not a shell", asyn
     await page.reload();
     await page.locator(".screen-ftile", { hasText: "Travel.md" }).click();
     const noteViewer = page.getByRole("dialog", { name: "Travel.md" });
-    await noteViewer.getByRole("button", { name: "Open With…" }).click();
+    const toolHeights = await noteViewer.locator(".screen-fileview__tools button").evaluateAll((buttons) => buttons.map((b) => b.getBoundingClientRect().height));
+    expect(new Set(toolHeights).size).toBe(1);
+    await noteViewer.getByRole("button", { name: "Open in Default App" }).click();
     await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
     await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(`1|${realpathSync(note)}`);
   } finally {

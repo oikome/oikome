@@ -423,7 +423,7 @@ export const ru: Strings = {
     info: "Сведения",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Показать в Finder" : platform === "windows" ? "Показать в проводнике" : "Показать в файловом менеджере",
-    openWith: "Открыть с помощью…",
+    openWith: "Открыть в приложении по умолчанию",
     fileCut: "Здесь показаны только первые 64 МБ файла.",
     showMore: "Показать ещё",
     emptyFolder: "В этой папке ничего нет.",

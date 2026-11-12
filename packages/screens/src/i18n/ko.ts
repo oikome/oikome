@@ -427,7 +427,7 @@ export const ko: Strings = {
     info: "정보",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Finder에서 보기" : platform === "windows" ? "파일 탐색기에서 보기" : "파일 관리자에서 보기",
-    openWith: "다음으로 열기…",
+    openWith: "기본 앱으로 열기",
     fileCut: "이 보기에는 파일의 처음 64MB만 표시돼요.",
     showMore: "더 보기",
     emptyFolder: "이 폴더는 비어 있어요.",

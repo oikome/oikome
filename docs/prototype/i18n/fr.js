@@ -151,7 +151,7 @@
   'fv.info': 'Infos',
   'fv.showInFinder': 'Afficher dans le Finder',
   'fv.browseNote': 'Les fichiers restent à leur place. L’enregistrement demande avant de les modifier.',
-  'fv.openWith': 'Ouvrir avec…',
+  'fv.openWith': 'Ouvrir dans l’app par défaut',
   'fv.openOnThisComputer': 'Ouvrir sur cet ordinateur',
   'fv.read': 'Lecture',
   'fv.source': 'Source',

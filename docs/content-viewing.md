@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: direction agreed 2026-11-12. The first Open With feature is implemented; the remaining production stages have not started.
+> **Status**: direction agreed 2026-11-12. The first Open in Default App feature is implemented; the remaining production stages have not started.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 
@@ -24,7 +24,7 @@ Physical format and presentation are separate decisions. Extension, media type, 
 | SVG | A sanitized view with scripts and external references blocked | A vector editor |
 | Audio and video | Native playback, range reads, fullscreen and clear codec failures | A player or editor; no bundled transcoder |
 | PDF | Metadata and local opening in the baseline | A separately lazy-loaded read-only preview may be evaluated later |
-| PPT, DOCX, XLSX, PSD and similar professional formats | Metadata, location and Open With | The native application; an optional approximate preview plugin must state its limits |
+| PPT, DOCX, XLSX, PSD and similar professional formats | Metadata, location and Open in Default App | The native application; an optional approximate preview plugin must state its limits |
 | Camera RAW | Metadata and local opening without a plugin | An optional RAW Preview plugin extracts embedded JPEG/EXIF or develops a derivative preview |
 | Vector indexes and search | Hits, excerpts, source location and the original content | High-dimensional vectors are an AI index, not a human reading layout |
 
@@ -42,7 +42,7 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 
 - Return a typed content descriptor: physical format, available views, source, version, capabilities and a human-readable reason when an operation is unavailable.
 - Add viewer routing and shared loading, empty, damaged, offline and unsupported states.
-- Add Open With through direct operating-system argument lists, never a shell command. Name the computer on which the application will open; do not confuse it with the browser's device.
+- Add Open in Default App through direct operating-system argument lists, never a shell command. Name the computer on which the application will open; do not confuse it with the browser's device.
 - Keep the existing light viewers working while the new contract is introduced.
 - Test misleading extensions, absent extensions, unsafe paths, unavailable places and unsupported formats.
 

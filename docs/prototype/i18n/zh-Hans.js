@@ -138,7 +138,7 @@
   'fv.info': '信息',
   'fv.showInFinder': '在访达中显示',
   'fv.browseNote': '文件保留在原处，保存前会询问是否修改。',
-  'fv.openWith': '打开方式…',
+  'fv.openWith': '用默认应用打开',
   'fv.openOnThisComputer': '在这台电脑上打开',
   'fv.read': '阅读',
   'fv.source': '源码',

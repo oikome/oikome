@@ -404,7 +404,7 @@ export const ja: Strings = {
     info: "情報",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Finderで表示" : platform === "windows" ? "エクスプローラーで表示" : "ファイルマネージャーで表示",
-    openWith: "このアプリで開く…",
+    openWith: "デフォルトアプリで開く",
     fileCut: "この表示ではファイルの先頭 64 MB のみを表示しています。",
     showMore: "さらに表示",
     emptyFolder: "このフォルダには何もありません。",

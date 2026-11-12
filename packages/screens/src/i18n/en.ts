@@ -417,7 +417,7 @@ export const en = {
     info: "Info",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Show in Finder" : platform === "windows" ? "Show in File Explorer" : "Show in File Manager",
-    openWith: "Open With…",
+    openWith: "Open in Default App",
     fileCut: "This view shows only the first 64 MB of the file.",
     showMore: "Show More",
     emptyFolder: "Nothing in this folder.",

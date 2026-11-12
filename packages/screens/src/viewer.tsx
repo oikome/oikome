@@ -139,7 +139,7 @@ export function FileView({
         </div>
         <div className="screen-fileview__tools">
           {local && file && (
-            <Button disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
+            <Button variant="quiet" disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
               {s.openWith}
             </Button>
           )}

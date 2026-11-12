@@ -417,7 +417,7 @@ export const de: Strings = {
     info: "Info",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Im Finder zeigen" : platform === "windows" ? "Im Datei-Explorer anzeigen" : "Im Dateimanager anzeigen",
-    openWith: "Öffnen mit…",
+    openWith: "In Standard-App öffnen",
     fileCut: "Diese Ansicht zeigt nur die ersten 64 MB der Datei.",
     showMore: "Mehr zeigen",
     emptyFolder: "In diesem Ordner ist nichts.",

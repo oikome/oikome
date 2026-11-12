@@ -155,7 +155,7 @@
   'fv.info': 'Info',
   'fv.showInFinder': 'Show in Finder',
   'fv.browseNote': 'Files stay where they are. Saving asks before changing them.',
-  'fv.openWith': 'Open With…',
+  'fv.openWith': 'Open in Default App',
   'fv.openOnThisComputer': 'Opens on this computer',
   'fv.read': 'Reading',
   'fv.source': 'Source',

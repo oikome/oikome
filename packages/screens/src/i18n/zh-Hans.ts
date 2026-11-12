@@ -399,7 +399,7 @@ export const zhHans: Strings = {
     info: "信息",
     showInFinder: (platform: string) =>
       platform === "macos" ? "在访达中显示" : platform === "windows" ? "在文件资源管理器中显示" : "在文件管理器中显示",
-    openWith: "打开方式…",
+    openWith: "用默认应用打开",
     fileCut: "此视图仅显示文件的前 64 MB。",
     showMore: "显示更多",
     emptyFolder: "这个文件夹是空的。",

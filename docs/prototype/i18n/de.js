@@ -151,7 +151,7 @@
   'fv.info': 'Info',
   'fv.showInFinder': 'Im Finder zeigen',
   'fv.browseNote': 'Dateien bleiben am Ort. Vor dem Ändern fragt Oikome beim Speichern nach.',
-  'fv.openWith': 'Öffnen mit…',
+  'fv.openWith': 'In Standard-App öffnen',
   'fv.openOnThisComputer': 'Auf diesem Computer öffnen',
   'fv.read': 'Lesen',
   'fv.source': 'Quelltext',

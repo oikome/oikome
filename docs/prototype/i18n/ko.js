@@ -138,7 +138,7 @@
   'fv.info': '정보',
   'fv.showInFinder': 'Finder에서 보기',
   'fv.browseNote': '파일은 원래 위치에 유지되며, 저장하기 전에 변경 여부를 묻습니다.',
-  'fv.openWith': '다음으로 열기…',
+  'fv.openWith': '기본 앱으로 열기',
   'fv.openOnThisComputer': '이 컴퓨터에서 열기',
   'fv.read': '읽기',
   'fv.source': '소스',

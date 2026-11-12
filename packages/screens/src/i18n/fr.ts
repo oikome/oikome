@@ -426,7 +426,7 @@ export const fr: Strings = {
         : platform === "windows"
           ? "Afficher dans l’Explorateur de fichiers"
           : "Afficher dans le gestionnaire de fichiers",
-    openWith: "Ouvrir avec…",
+    openWith: "Ouvrir dans l’app par défaut",
     fileCut: "Cette vue affiche seulement les 64 premiers Mo du fichier.",
     showMore: "Afficher plus",
     emptyFolder: "Ce dossier est vide.",

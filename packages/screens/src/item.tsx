@@ -98,7 +98,7 @@ export function ItemDialog({
   /** The shape the collection's page read this table as, and its columns. */
   known?: { shape: Shape; columns: string[] };
   cameFrom: ReactNode;
-  keptOn: string;
+  keptOn: ReactNode;
   who: string;
   nav?: ItemNav;
   onClose: () => void;

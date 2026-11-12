@@ -376,7 +376,6 @@ export const zhHant: Strings = {
     reading: "讀取中…",
     viewed: (name: string) => `${name} 已在原處讀取。`,
     readWhereItIs: "在原處讀取",
-    inItsFolder: (place: string) => `${place}，留在原本的資料夾`,
     readAgain: "重新讀取",
     readAgo: (when: string) => `${when}讀取`,
     readNow: (name: string) => `已重新讀取 ${name}。`,

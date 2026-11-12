@@ -381,7 +381,6 @@ export const zhHans: Strings = {
     reading: "正在读取…",
     viewed: (name: string) => `已在原处读取 ${name}`,
     readWhereItIs: "在原处读取",
-    inItsFolder: (place: string) => `${place}，在原文件夹中`,
     readAgain: "重新读取",
     readAgo: (when: string) => `${when}读取`,
     readNow: (name: string) => `已重新读取 ${name}`,

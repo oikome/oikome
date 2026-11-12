@@ -54,7 +54,8 @@ import { FileView } from "../viewer";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
-import { storageLabel } from "./Collections";
+import { placeOf, storageLabel } from "./Collections";
+import { placePath } from "./Place";
 
 const s = strings.collections;
 /** Rows a page reads: fewer of photos, which are large. */
@@ -121,14 +122,15 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
       ? `${storages.data?.find((x) => x.name === folder.place)?.label ?? folder.place}: ${folder.path || "/"}`
       : homeRelative(folder.path)
     : undefined;
-  // A folder viewed in place keeps nothing anywhere: it stays in its folder.
-  const keptOn = folder
-    ? s.inItsFolder(
-        folder.place ? (storages.data?.find((x) => x.name === folder.place)?.label ?? folder.place) : s.thisComputerPlace,
-      )
+  const keptPlace = storages.data?.find((x) => x.name === placeOf(space));
+  const keptOnLabel = folder
+    ? folderPlace
+      ? storageLabel(folderPlace)
+      : (folder.place ?? s.thisComputer)
     : place?.encrypted
       ? `${where} · ${strings.settings.encrypted}`
       : where;
+  const keptOn = keptPlace ? <Link to={placePath(keptPlace)}>{keptOnLabel}</Link> : keptOnLabel;
   const readAgain = async () => {
     const done = await sync.run(() => client.refreshSpace({ space: space.name }));
     forgetPreviews(space.name);
@@ -353,7 +355,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
 /** What an item's own view says of its collection. */
 interface Facts {
   cameFrom: ReactNode;
-  keptOn: string;
+  keptOn: ReactNode;
   who: string;
 }
 

@@ -404,7 +404,6 @@ export const fr: Strings = {
     reading: "Lecture…",
     viewed: (name: string) => `${name} est lue là où elle se trouve.`,
     readWhereItIs: "Lu sur place",
-    inItsFolder: (place: string) => `${place}, dans son propre dossier`,
     readAgain: "Relire",
     readAgo: (when: string) => `Lu ${when}`,
     readNow: (name: string) => `Relecture ${de(name)} terminée.`,

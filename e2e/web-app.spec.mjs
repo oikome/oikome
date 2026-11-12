@@ -1585,6 +1585,10 @@ test("a complex local file opens with the system application, not a shell", asyn
     await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
     const revealLog = process.platform === "darwin" ? `2|-R ${realpathSync(note)}` : `1|${realpathSync(trip)}`;
     await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(revealLog);
+
+    await noteViewer.getByRole("link", { name: "Local", exact: true }).click();
+    await expect(page).toHaveURL(/\/places\/this-computer$/);
+    await expect(page.getByRole("heading", { name: "Local", exact: true })).toBeVisible();
   } finally {
     rmSync(trip, { recursive: true, force: true });
   }

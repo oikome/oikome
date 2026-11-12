@@ -42,7 +42,7 @@ export function FileView({
   path: string;
   /** The file as the folder's page already knows it; a direct address reads it. */
   file?: FileItem;
-  facts: { cameFrom: ReactNode; keptOn: string; who: string };
+  facts: { cameFrom: ReactNode; keptOn: ReactNode; who: string };
   placeLabel: string;
   /** Whether this computer can reveal the file in its file manager. */
   local: boolean;

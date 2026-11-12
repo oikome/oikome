@@ -404,7 +404,6 @@ export const ru: Strings = {
     reading: "Чтение…",
     viewed: (name: string) => `Коллекция ${name} читается на месте.`,
     readWhereItIs: "Читается на месте",
-    inItsFolder: (place: string) => `${place}, в своей папке`,
     readAgain: "Перечитать",
     readAgo: (when: string) => `Прочитано ${when}`,
     readNow: (name: string) => `Коллекция ${name} перечитана.`,

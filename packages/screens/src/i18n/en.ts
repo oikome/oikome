@@ -399,7 +399,6 @@ export const en = {
     reading: "Reading…",
     viewed: (name: string) => `${name} is read where it is.`,
     readWhereItIs: "Read where it is",
-    inItsFolder: (place: string) => `${place}, in its own folder`,
     readAgain: "Read Again",
     readAgo: (when: string) => `Read ${when}`,
     readNow: (name: string) => `Read ${name} again.`,

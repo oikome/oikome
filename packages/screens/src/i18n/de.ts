@@ -399,7 +399,6 @@ export const de: Strings = {
     reading: "Wird gelesen …",
     viewed: (name: string) => `${name} wird vor Ort gelesen.`,
     readWhereItIs: "Vor Ort gelesen",
-    inItsFolder: (place: string) => `${place}, im eigenen Ordner`,
     readAgain: "Erneut lesen",
     readAgo: (when: string) => `Gelesen ${when}`,
     readNow: (name: string) => `${name} erneut gelesen.`,

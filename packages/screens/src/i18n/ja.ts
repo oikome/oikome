@@ -386,7 +386,6 @@ export const ja: Strings = {
     reading: "読み取り中…",
     viewed: (name: string) => `${name} を元の場所で読み取ります`,
     readWhereItIs: "元の場所で読み取り",
-    inItsFolder: (place: string) => `${place} の元のフォルダ内`,
     readAgain: "再読み取り",
     readAgo: (when: string) => `最終読み取り ${when}`,
     readNow: (name: string) => `${name} を再読み取りしました`,

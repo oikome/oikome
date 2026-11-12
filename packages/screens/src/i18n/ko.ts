@@ -409,7 +409,6 @@ export const ko: Strings = {
     reading: "읽는 중…",
     viewed: (name: string) => `${name} 컬렉션을 원래 위치에서 읽어요.`,
     readWhereItIs: "원래 위치에서 읽음",
-    inItsFolder: (place: string) => `${place}의 원래 폴더`,
     readAgain: "다시 읽기",
     readAgo: (when: string) => `${when} 읽음`,
     readNow: (name: string) => `${name} 컬렉션을 다시 읽었어요.`,

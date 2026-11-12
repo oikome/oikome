@@ -326,7 +326,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           cameFrom: source
             ? homeRelative(source.place)
             : folderWhere
-              ? `${folderWhere} · ${s.readWhereItIs}`
+              ? folderWhere
               : space.example
                 ? s.fromExample
                 : s.fromYou,

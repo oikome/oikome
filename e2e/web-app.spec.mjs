@@ -300,7 +300,6 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   writeFileSync(join(owner, "Examples", "oikome-guide", "8 Ferry.md"), "Take the ferry to Cacilhas at sunset.\n");
   await page.goto(`${base}/collections/oikome-guide`);
   await expect(page.locator(".screen-facts")).toContainText("Examples/oikome-guide");
-  await expect(page.locator(".screen-facts")).toContainText("Read where it is");
   await page.getByRole("button", { name: "Read Again" }).click();
   await expect(page.locator(".oik-toasts")).toContainText("Read oikome-guide again.");
   await expect(page.getByText("Take the ferry to Cacilhas at sunset.")).toBeVisible();
@@ -1452,8 +1451,7 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
 
     // Its page: where it is, its photo from the index, its folders.
     await page.goto(`${base}/collections/${name}`);
-    await expect(page.locator(".screen-facts")).toContainText("Read where it is");
-    // Its folders first, as covers like a collection's: the note in Notes
+      // Its folders first, as covers like a collection's: the note in Notes
     // shows. Then its files, each showing some of itself: a CSV its rows.
     const notesFolder = page.locator(".screen-subfolders .screen-cover", { hasText: "Notes" });
     await expect(notesFolder).toContainText("Took the ferry to Cacilhas at sunset.");
@@ -1583,7 +1581,7 @@ test("a complex local file opens with the system application, not a shell", asyn
     await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(`1|${realpathSync(note)}`);
 
     await noteViewer.getByRole("button", { name: "Info" }).click();
-    await noteViewer.getByRole("button", { name: /Read where it is/ }).click();
+    await noteViewer.locator(".screen-fileview__source").click();
     await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
     const revealLog = process.platform === "darwin" ? `2|-R ${realpathSync(note)}` : `1|${realpathSync(trip)}`;
     await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(revealLog);

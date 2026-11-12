@@ -394,6 +394,11 @@ export const zhHant: Strings = {
     showInFinder: (platform: string) =>
       platform === "macos" ? "在訪達中顯示" : platform === "windows" ? "在檔案總管中顯示" : "在檔案管理器中顯示",
     openWith: "用預設應用程式打開",
+    fileView: "檔案視圖",
+    readView: "閱讀",
+    sourceView: "原始碼",
+    wrapLines: "自動換行",
+    sourceUnavailable: "無法提供此檔案的原始碼文字。",
     fileCut: "此檢視只顯示檔案的前 64 MB。",
     showMore: "顯示更多",
     emptyFolder: "這個資料夾是空的。",

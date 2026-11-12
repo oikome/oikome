@@ -140,6 +140,9 @@ fn bindings() -> String {
         FileFolder,
         FileSort,
         FileKind,
+        ContentView,
+        ContentCapabilities,
+        FileContent,
         FileItem,
         FileRef,
         ReadFileRows,
@@ -170,7 +173,11 @@ fn bindings() -> String {
         AccessWho,
         AccessItem,
     );
-    out
+    out.lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }
 
 #[test]

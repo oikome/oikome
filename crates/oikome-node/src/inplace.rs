@@ -73,7 +73,11 @@ const CACHE_BYTES: u64 = 2 << 30;
 const REACH_FOR: Duration = Duration::from_secs(5);
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
-const NOTE_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
+const NOTE_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "txt", "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java", "js",
+    "jsx", "kt", "php", "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "xml", "yaml",
+    "yml",
+];
 /// Tables written as text: their first lines are kept, to show some rows.
 const TEXT_TABLE_EXTENSIONS: &[&str] = &["csv", "tsv"];
 /// The bytes of a text table read for its first lines, and how many are kept.
@@ -620,8 +624,8 @@ fn apply_listing(
     for (path, file) in listed {
         let kind = kind_of(name_of(path));
         // Other files have nothing to read beyond their listing; a text
-        // table, its first lines.
-        let state = if matches!(kind, IMAGE | NOTE) || is_text_table(path) {
+        // table, its first lines or JSON source.
+        let state = if matches!(kind, IMAGE | NOTE) || is_text_table(path) || is_json_text(path) {
             UNREAD
         } else {
             READ
@@ -694,6 +698,13 @@ fn is_text_table(path: &str) -> bool {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| TEXT_TABLE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn is_json_text(path: &str) -> bool {
+    Path::new(name_of(path))
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "json" | "jsonl" | "ndjson"))
 }
 
 /// The first lines of a text table, from the start of the file: a line cut
@@ -849,6 +860,19 @@ async fn fill(place: &Place, dir: &Path, budget: Option<Duration>) -> Result<usi
                                 read.written = date;
                             }
                             read.text = Some(body.to_string());
+                            read.state = READ;
+                        }
+                    }
+                    read
+                }
+                TABLE if is_json_text(&path) => {
+                    let mut read = Read {
+                        state: LISTED_ONLY,
+                        ..Read::default()
+                    };
+                    if size <= MAX_NOTE_BYTES {
+                        if let Ok(bytes) = place.read(&path, 0..u64::MAX, MAX_NOTE_BYTES).await {
+                            read.text = Some(String::from_utf8_lossy(&bytes).into_owned());
                             read.state = READ;
                         }
                     }
@@ -2004,6 +2028,9 @@ mod tests {
         assert_eq!(kind_of("1 Welcome.md"), NOTE);
         assert_eq!(kind_of("2025.csv"), TABLE);
         assert_eq!(kind_of("rows.parquet"), TABLE);
+        assert_eq!(kind_of("rows.json"), TABLE);
+        assert_eq!(kind_of("main.rs"), NOTE);
+        assert_eq!(kind_of("config.yaml"), NOTE);
         assert_eq!(kind_of("movie.mov"), OTHER);
         assert_eq!(kind_of("README"), OTHER);
     }

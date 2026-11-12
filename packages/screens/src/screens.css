@@ -774,6 +774,9 @@
   justify-content: flex-end;
   gap: var(--space-1);
 }
+.screen-fileview__tools .oik-seg__option {
+  height: 32px;
+}
 .screen-fileview__facts {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 var(--space-6);
@@ -835,6 +838,114 @@
 .screen-fileview__note .screen-tags {
   margin-top: var(--space-4);
 }
+.screen-markdown {
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.screen-markdown > :first-child {
+  margin-top: 0;
+}
+.screen-markdown h1,
+.screen-markdown h2,
+.screen-markdown h3 {
+  margin: 1.5em 0 0.55em;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+.screen-markdown h1 {
+  font-size: 30px;
+}
+.screen-markdown h2 {
+  font-size: 23px;
+}
+.screen-markdown h3 {
+  font-size: 18px;
+}
+.screen-markdown p,
+.screen-markdown ul,
+.screen-markdown ol,
+.screen-markdown pre,
+.screen-markdown blockquote,
+.screen-markdown table {
+  margin: 0 0 1em;
+}
+.screen-markdown a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.screen-markdown code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--sunk);
+  font: 0.875em/1.5 var(--mono);
+}
+.screen-markdown pre {
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-card);
+  background: var(--sunk);
+}
+.screen-markdown pre code {
+  padding: 0;
+  background: none;
+}
+.screen-markdown blockquote {
+  padding-left: 16px;
+  border-left: 3px solid var(--line);
+  color: var(--ink2);
+}
+.screen-markdown table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.screen-markdown th,
+.screen-markdown td {
+  padding: 8px 12px;
+  border: 1px solid var(--line2);
+  text-align: left;
+  white-space: nowrap;
+}
+.screen-markdown .contains-task-list {
+  padding-left: 0;
+  list-style: none;
+}
+.screen-markdown__image-alt {
+  display: block;
+  padding: 16px;
+  border: 1px dashed var(--line);
+  color: var(--ink3);
+  font: var(--text-small);
+  text-align: center;
+}
+.screen-fileview__note--source {
+  max-width: none;
+  padding: 0;
+}
+.screen-source {
+  min-height: 100%;
+  background: var(--bg);
+}
+.screen-source .cm-editor {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+}
+.screen-source .cm-scroller {
+  font: 13px/1.65 var(--mono);
+}
+.screen-source .cm-gutters {
+  border-right-color: var(--line2);
+  background: var(--sunk);
+  color: var(--ink3);
+}
+.screen-source .cm-cursor {
+  display: none;
+}
 .screen-fileview__table {
   display: flex;
   flex-direction: column;
@@ -842,9 +953,41 @@
   height: 100%;
   min-height: 0;
 }
-.screen-fileview__table > .oik-table-wrap {
+.screen-data-grid {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.screen-data-grid__bar {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  min-height: 36px;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--line2);
+}
+.screen-data-grid__grid {
   flex: 1;
   min-height: 0;
+}
+.screen-data-grid__grid .ag-root-wrapper {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+.screen-data-grid__grid .ag-header-cell {
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: uppercase;
+}
+.screen-data-grid__number {
+  font-family: var(--mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.screen-data-grid__records {
+  display: none;
 }
 .screen-fileview__table > .screen-pager {
   flex: none;
@@ -901,6 +1044,9 @@
     width: 44px;
     height: 44px;
   }
+  .screen-fileview__tools .oik-seg__option {
+    height: 44px;
+  }
   .screen-fileview__facts {
     grid-template-columns: minmax(0, 1fr);
     max-height: none;
@@ -910,6 +1056,37 @@
   }
   .screen-fileview__quiet {
     white-space: normal;
+  }
+  .screen-data-grid__grid {
+    display: none;
+  }
+  .screen-data-grid__records {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+    overflow-y: auto;
+  }
+  .screen-data-grid__records dl {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 14px;
+    border: 1px solid var(--line2);
+    border-radius: var(--r-card);
+    background: var(--raised);
+  }
+  .screen-data-grid__records dl > div {
+    display: grid;
+    grid-template-columns: minmax(80px, 0.35fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+  .screen-data-grid__records dt {
+    color: var(--ink3);
+    font: var(--text-small);
+  }
+  .screen-data-grid__records dd {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 }
 .screen-page {

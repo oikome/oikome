@@ -404,6 +404,11 @@ export const ja: Strings = {
     showInFinder: (platform: string) =>
       platform === "macos" ? "Finderで表示" : platform === "windows" ? "エクスプローラーで表示" : "ファイルマネージャーで表示",
     openWith: "デフォルトアプリで開く",
+    fileView: "ファイル表示",
+    readView: "読む",
+    sourceView: "ソース",
+    wrapLines: "行を折り返す",
+    sourceUnavailable: "このファイルのソーステキストは利用できません。",
     fileCut: "この表示ではファイルの先頭 64 MB のみを表示しています。",
     showMore: "さらに表示",
     emptyFolder: "このフォルダには何もありません。",

@@ -29,9 +29,10 @@ use oikome_node::inplace;
 
 use crate::sources::slug;
 use crate::{
-    encode_rows, Api, ApiError, Caller, Empty, FileFolder, FileItem, FileKind, FileListing,
-    FileRef, FileSort, InPlace, ListFiles, ReadFileRows, Rows, ShowFolder, SpaceRef, SpaceSummary,
-    ViewInPlace, DEFAULT_PAGE_ROWS, MAX_PAGE_ROWS, MAX_RESULT_BYTES,
+    encode_rows, Api, ApiError, Caller, ContentCapabilities, ContentView, Empty, FileContent,
+    FileFolder, FileItem, FileKind, FileListing, FileRef, FileSort, InPlace, ListFiles,
+    ReadFileRows, Rows, ShowFolder, SpaceRef, SpaceSummary, ViewInPlace, DEFAULT_PAGE_ROWS,
+    MAX_PAGE_ROWS, MAX_RESULT_BYTES,
 };
 
 /// Files listed per page at most.
@@ -103,14 +104,66 @@ fn kind_of(kind: &str) -> FileKind {
     }
 }
 
-fn item_of(entry: inplace::FileEntry) -> FileItem {
+fn content_of(name: &str, kind: FileKind, modified_ms: u64, size: u64, local: bool) -> FileContent {
+    let extension = Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let format = match extension.as_str() {
+        "md" | "markdown" => "markdown",
+        "" => "file",
+        other => other,
+    };
+    let media_type = match format {
+        "markdown" => Some("text/markdown"),
+        "txt" => Some("text/plain"),
+        "csv" => Some("text/csv"),
+        "tsv" => Some("text/tab-separated-values"),
+        "json" | "jsonl" | "ndjson" => Some("application/json"),
+        "parquet" => Some("application/vnd.apache.parquet"),
+        _ => image_type(name),
+    }
+    .map(str::to_owned);
+    let views = match kind {
+        FileKind::Note if format == "markdown" => vec![ContentView::Read, ContentView::Source],
+        FileKind::Note => vec![ContentView::Source],
+        FileKind::Table if matches!(format, "json" | "jsonl" | "ndjson") => {
+            vec![ContentView::Table, ContentView::Source]
+        }
+        FileKind::Table => vec![ContentView::Table],
+        FileKind::Image => vec![ContentView::Image],
+        FileKind::Other => vec![],
+    };
+    let unavailable_reason = views
+        .is_empty()
+        .then(|| format!("No built-in preview is available for this {format} file"));
+    FileContent {
+        format: format.to_owned(),
+        media_type,
+        views,
+        source: "in_place".into(),
+        version: format!("{modified_ms}:{size}"),
+        capabilities: ContentCapabilities {
+            open_default: local,
+            reveal: local,
+            edit: false,
+        },
+        unavailable_reason,
+    }
+}
+
+fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
+    let kind = kind_of(&entry.kind);
+    let modified_ms = u64::try_from(entry.modified_ms).unwrap_or(0);
+    let content = content_of(&entry.name, kind, modified_ms, entry.size, local);
     FileItem {
-        kind: kind_of(&entry.kind),
+        kind,
         path: entry.path,
         name: entry.name,
         size: entry.size,
         modified: entry.modified,
-        modified_ms: u64::try_from(entry.modified_ms).unwrap_or(0),
+        modified_ms,
         title: entry.title,
         taken: entry.taken,
         written: entry.written,
@@ -118,6 +171,7 @@ fn item_of(entry: inplace::FileEntry) -> FileItem {
         credit: entry.credit,
         text: entry.text,
         thumbnail: entry.thumbnail,
+        content,
     }
 }
 
@@ -405,6 +459,10 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let location = self.in_place_of(&req.space)?;
+        let local = matches!(
+            &location.format,
+            LocationFormat::InPlace { place: None, .. }
+        );
         let folder = req.folder.unwrap_or_default();
         let folder = folder.trim_matches('/');
         if !folder.is_empty() && !inplace::is_path_within(folder) {
@@ -453,10 +511,18 @@ impl Api {
                     modified_ms: f.modified_ms.and_then(|ms| u64::try_from(ms).ok()),
                     photos: f.photos,
                     notes: f.notes,
-                    cover: f.cover.into_iter().map(item_of).collect(),
+                    cover: f
+                        .cover
+                        .into_iter()
+                        .map(|entry| item_of(entry, local))
+                        .collect(),
                 })
                 .collect(),
-            files: listing.files.into_iter().map(item_of).collect(),
+            files: listing
+                .files
+                .into_iter()
+                .map(|entry| item_of(entry, local))
+                .collect(),
             total: listing.total,
         })
     }
@@ -466,8 +532,12 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let location = self.in_place_of(&req.space)?;
+        let local = matches!(
+            &location.format,
+            LocationFormat::InPlace { place: None, .. }
+        );
         inplace::file(&self.catalog, &location, &req.path)?
-            .map(item_of)
+            .map(|entry| item_of(entry, local))
             .ok_or_else(|| ApiError::not_found(format!("{} has no file {}", req.space, req.path)))
     }
 

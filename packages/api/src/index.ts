@@ -13,17 +13,17 @@ export type ErrorCode = "invalid" | "unauthenticated" | "permission_denied" | "n
 /**
  * A failed call.
  */
-export type ApiError = { code: ErrorCode, 
+export type ApiError = { code: ErrorCode,
 /**
  * In English, for the log, the command line and the SQL workbench.
  */
-message: string, 
+message: string,
 /**
  * Which of the failures written for people this is
  * (`invite_ended`), so an app words it in its own language; the
  * message is the fallback for a reason it doesn't know.
  */
-reason?: string, 
+reason?: string,
 /**
  * The values the reason's sentence names (`name`, `path`).
  */
@@ -43,51 +43,51 @@ export type AddExamples = { language?: string, };
 /**
  * This node.
  */
-export type NodeInfo = { 
+export type NodeInfo = {
 /**
  * The node's DID ("Your ID" in the apps); contacts add it to share with
  * this node.
  */
-did: string, 
+did: string,
 /**
  * The name the owner gave the data center; empty until they do.
  */
-name: string, 
+name: string,
 /**
  * Oikome version.
  */
-version: string, 
+version: string,
 /**
  * The operating system of the computer running this node (`macos`, `windows`, `linux`).
  */
-platform: string, 
+platform: string,
 /**
  * The data directory on this computer.
  */
-dataDir: string, 
+dataDir: string,
 /**
  * Whether the owner said they stored the recovery key.
  */
-recoveryKeySaved: boolean, 
+recoveryKeySaved: boolean,
 /**
  * When they said so.
  */
-recoveryKeySavedAtMs: number | null, 
+recoveryKeySavedAtMs: number | null,
 /**
  * This computer's name on its network ("rosh-mbp"); empty for a
  * principal and where the system doesn't say.
  */
-host: string, 
+host: string,
 /**
  * The full name of this computer's account, to suggest a name from;
  * empty for a principal and where the system doesn't say.
  */
-ownerName: string, 
+ownerName: string,
 /**
  * The cards the owner arranged on Home, in order; `None` until they
  * do (the apps choose), and for a principal.
  */
-homeCards: Array<HomeCard> | null, 
+homeCards: Array<HomeCard> | null,
 /**
  * Where peers reach this node's Arrow Flight service (`https://ip:port`),
  * when it is serving.
@@ -97,7 +97,7 @@ flightUrl: string | null, };
 /**
  * `rename_node`: the data center's name.
  */
-export type NodeName = { 
+export type NodeName = {
 /**
  * 1 to 64 characters.
  */
@@ -129,46 +129,46 @@ export type SpaceKind = "analytical" | "transactional" | "remote";
 /**
  * A Space, as listed.
  */
-export type SpaceSummary = { name: string, kind: SpaceKind, 
+export type SpaceSummary = { name: string, kind: SpaceKind,
 /**
  * Storage: `iceberg`, `lance`, `sqlite`, `remote` or `replica`.
  */
-format: string, readonly: boolean, 
+format: string, readonly: boolean,
 /**
  * Contacts it is shared with now (active shares).
  */
-sharedWith: number, 
+sharedWith: number,
 /**
  * The registered storage it is kept on (`oikome storage add`); `None`
  * for this computer's disk, and for a remote Space.
  */
-storage: string | null, 
+storage: string | null,
 /**
  * One of the examples a new data center starts with (`add_examples`).
  */
-example: boolean, 
+example: boolean,
 /**
  * For a remote Space: the data center it is on (its DID)…
  */
-fromDid: string | null, 
+fromDid: string | null,
 /**
  * …and what to call it: the contact's name, if it is a contact.
  */
-fromName: string | null, 
+fromName: string | null,
 /**
  * For a remote Space: when the share it was added with ends, in seconds
  * since the Unix epoch.
  */
-expiresAt: number | null, 
+expiresAt: number | null,
 /**
  * For a collection that views a folder where it is (§7.7): which.
  */
-inPlace: InPlace | null, 
+inPlace: InPlace | null,
 /**
  * Its bytes on this computer (a folder viewed in place: the files it
  * views), where this computer can tell.
  */
-sizeBytes: number | null, 
+sizeBytes: number | null,
 /**
  * When it last changed, in milliseconds since the Unix epoch, where
  * this computer can tell.
@@ -178,15 +178,15 @@ changedAtMs: number | null, };
 /**
  * `create_space`: a new local Space.
  */
-export type NewSpace = { 
+export type NewSpace = {
 /**
  * Letters, digits, `_` or `-`, not starting with a digit.
  */
-name: string, 
+name: string,
 /**
  * `analytical` (default) or `transactional`.
  */
-kind?: SpaceKind, 
+kind?: SpaceKind,
 /**
  * A storage registered with `oikome storage add`; this computer's disk
  * when left out.
@@ -201,37 +201,37 @@ export type StorageType = "disk" | "webdav" | "folder" | "drive" | "s3" | "gdriv
 /**
  * A place Spaces can be kept: this computer, or a registered storage.
  */
-export type StorageSummary = { 
+export type StorageSummary = {
 /**
  * `None` for this computer; otherwise the name to create a Space with.
  */
-name: string | null, 
+name: string | null,
 /**
  * What the owner called it ("Documents", "Home NAS").
  */
-label: string, 
+label: string,
 /**
  * New collections go here unless another storage is chosen.
  */
-isDefault: boolean, type: StorageType, 
+isDefault: boolean, type: StorageType,
 /**
  * Where: the data directory, the folder, or the WebDAV address.
  */
-place: string, 
+place: string,
 /**
  * Files are encrypted before they reach the storage.
  */
-encrypted: boolean, 
+encrypted: boolean,
 /**
  * Local Spaces kept there.
  */
-spaces: number, 
+spaces: number,
 /**
  * Free and total bytes: of the disk it is on, for this computer and a
  * folder; of the account, for Google Drive; `None` where the storage
  * doesn't say (a NAS, RustFS, a drive's sync folder).
  */
-freeBytes: number | null, totalBytes: number | null, 
+freeBytes: number | null, totalBytes: number | null,
 /**
  * Folders the owner has on it can be viewed in place (§7.7): a NAS,
  * RustFS, and Google Drive when Oikome may read the rest of the drive.
@@ -241,40 +241,40 @@ viewsInPlace: boolean, };
 /**
  * `add_storage`: a place to keep Spaces in, as the owner picked it.
  */
-export type NewStorage = { 
+export type NewStorage = {
 /**
  * What to call it: "Documents", "Home NAS".
  */
-label: string, 
+label: string,
 /**
  * `webdav`, `folder`, `drive` or `s3`; a folder inside a cloud drive is
  * a drive.
  */
-type: StorageType, 
+type: StorageType,
 /**
  * The WebDAV or object storage address, or the folder picked: the
  * files go in an `Oikome` folder inside it (on object storage, in the
  * bucket).
  */
-address: string, 
+address: string,
 /**
  * The user name; on object storage, the access key.
  */
-username?: string, 
+username?: string,
 /**
  * The password; on object storage, the secret key. Kept in the system
  * keychain, never in the registry or a log.
  */
-password?: string, 
+password?: string,
 /**
  * Object storage: the bucket, which must exist already.
  */
-bucket?: string, 
+bucket?: string,
 /**
  * Encrypt files before they leave this computer; a cloud drive always
  * is, and object storage is unless this says no.
  */
-encrypted?: boolean, 
+encrypted?: boolean,
 /**
  * Keep new collections, and the examples, there.
  */
@@ -326,26 +326,26 @@ export type GoogleReturn = "settings" | "onboarding";
  * address it answers; Google sends them back to this node, which adds the
  * drive (always encrypted) and opens `return_to`.
  */
-export type StartGoogleDrive = { 
+export type StartGoogleDrive = {
 /**
  * The owner's Google app (a "Desktop app" OAuth client): its client
  * ID. Left out, the app this node remembers ([`GoogleApp`]).
  */
-clientId?: string, 
+clientId?: string,
 /**
  * And its secret, kept in the system keychain, never in the registry
  * or a log.
  */
-clientSecret?: string, 
+clientSecret?: string,
 /**
  * What the apps call it, in the owner's language; "Google Drive" when
  * left out.
  */
-label?: string, 
+label?: string,
 /**
  * Keep new collections, and the examples, there.
  */
-makeDefault?: boolean, 
+makeDefault?: boolean,
 /**
  * Also let Oikome read the rest of the drive (`drive.readonly`), to
  * view folders there in place.
@@ -375,24 +375,24 @@ export type SourceKind = "photos" | "notes" | "csv" | "flomo-export" | "flomo-mc
  * A source: where a collection's data comes from, and how its last pull
  * went. A source writes the collection of its own name.
  */
-export type SourceSummary = { name: string, kind: SourceKind, 
+export type SourceSummary = { name: string, kind: SourceKind,
 /**
  * The folder or file it reads, or the service it asks.
  */
-place: string, 
+place: string,
 /**
  * Read again every this many seconds while the node runs; `None` only
  * when asked.
  */
-everySecs: number | null, 
+everySecs: number | null,
 /**
  * Paused by the owner: not read on its schedule.
  */
-paused: boolean, 
+paused: boolean,
 /**
  * When it was last read.
  */
-pulledAtMs: number | null, 
+pulledAtMs: number | null,
 /**
  * The last read failed: when, and why.
  */
@@ -419,15 +419,15 @@ export type SetSourceEvery = { source: string, everySecs: number | null, };
  * One of a source's recent syncs (kept 30 days), or several alike in a
  * row (nothing new, or the same failure), kept as one.
  */
-export type SourceRun = { 
+export type SourceRun = {
 /**
  * When the first and the last of them ran.
  */
-firstMs: number, atMs: number, 
+firstMs: number, atMs: number,
 /**
  * Why it failed; `null` when it went through.
  */
-failure: string | null, 
+failure: string | null,
 /**
  * Rows added or changed, and removed.
  */
@@ -442,7 +442,7 @@ export type SourceRef = { source: string, };
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */
-export type FoundPlace = { 
+export type FoundPlace = {
 /**
  * "iCloud Drive", "Dropbox", or a drive's name.
  */
@@ -457,7 +457,7 @@ export type FolderRef = { path?: string, };
  * The folders in one folder, hidden ones left out, its CSV files, and how
  * many photos and notes it holds (what a source of it would read).
  */
-export type FolderListing = { path: string, 
+export type FolderListing = { path: string,
 /**
  * The folder above; `None` at the top.
  */
@@ -478,12 +478,12 @@ export type RelationKind = "table" | "view";
 /**
  * A relation of a Space.
  */
-export type TableSummary = { name: string, kind: RelationKind, 
+export type TableSummary = { name: string, kind: RelationKind,
 /**
  * How many rows it has; `None` for another node's Space, which is not
  * asked just to count.
  */
-rows: number | null, 
+rows: number | null,
 /**
  * The columns that name one of its rows, in key order, for `read_row`
  * (each item of a collection a source fills has a link of its own);
@@ -494,11 +494,11 @@ key: Array<string>, };
 /**
  * `read_rows`: a page of a table or view, as an Arrow IPC stream.
  */
-export type ReadRows = { space: string, table: string, 
+export type ReadRows = { space: string, table: string,
 /**
  * Rows per page, 1 to 1000; default 100.
  */
-limit?: number, 
+limit?: number,
 /**
  * Rows to skip.
  */
@@ -507,7 +507,7 @@ offset?: number, };
 /**
  * `read_row`: one row of a collection a source fills, by its primary key.
  */
-export type ReadRow = { space: string, table: string, 
+export type ReadRow = { space: string, table: string,
 /**
  * Each key column as text, in key order (as a search hit gives it).
  */
@@ -518,11 +518,11 @@ key: Array<string>, };
  * and a row matches when every word is in its text: a word of three or
  * more characters anywhere inside words, case and accents aside.
  */
-export type Search = { query: string, 
+export type Search = { query: string,
 /**
  * Only this collection; every one of the owner's when left out.
  */
-collection?: string, 
+collection?: string,
 /**
  * Most hits, 1 to 100; default 30.
  */
@@ -536,20 +536,20 @@ export type SearchResults = { hits: Array<SearchHit>, skipped: Array<SearchSkipp
 /**
  * A row a search found.
  */
-export type SearchHit = { collection: string, table: string, 
+export type SearchHit = { collection: string, table: string,
 /**
  * The row's primary key, each column as text (for `read_row`); `null`
  * when its table has none.
  */
-key: Array<string> | null, 
+key: Array<string> | null,
 /**
  * The column the excerpt is from.
  */
-column: string, 
+column: string,
 /**
  * That column around the first match, on one line, cut with `…`.
  */
-excerpt: string, 
+excerpt: string,
 /**
  * Where the words are in `excerpt`, in UTF-16 code units, as
  * JavaScript counts a string.
@@ -564,7 +564,7 @@ export type SearchMark = { start: number, end: number, };
 /**
  * A collection a search did not look in, and why.
  */
-export type SearchSkipped = { collection: string, reason: SearchSkip, 
+export type SearchSkipped = { collection: string, reason: SearchSkip,
 /**
  * What went wrong, for `failed`.
  */
@@ -575,7 +575,7 @@ export type SearchSkip = "shared_with_you" | "failed";
 /**
  * `run_sql`: the owner's statements, separated by `;`, run in one session.
  */
-export type RunSql = { sql: string, 
+export type RunSql = { sql: string,
 /**
  * Space that bare table names resolve against.
  */
@@ -584,7 +584,7 @@ space?: string, };
 /**
  * `run_sql` when the last statement returns no rows.
  */
-export type SqlDone = { 
+export type SqlDone = {
 /**
  * Rows written, when the statement reports it.
  */
@@ -613,20 +613,20 @@ export type RemovedContact = { contact: Contact, revokedShares: number, };
 /**
  * `share_space`: let a contact read a whole Space.
  */
-export type ShareSpace = { space: string, 
+export type ShareSpace = { space: string,
 /**
  * The contact's DID.
  */
-did: string, 
+did: string,
 /**
  * Also let them keep a copy that follows the Space (subscription);
  * otherwise they can only query it here.
  */
-allowCopy?: boolean, 
+allowCopy?: boolean,
 /**
  * 1 to 366 days; default 365.
  */
-expiresInDays?: number, 
+expiresInDays?: number,
 /**
  * What the owner answered when asked whether the contact may reach
  * this computer from outside its network; not asked, nothing changes.
@@ -648,11 +648,11 @@ export type ShareStatus = "active" | "expired" | "revoked";
  * Oikome (`add_invite`). `token` is the same grant alone, for `CREATE SPACE
  * ... WITH TOKEN` on the command line.
  */
-export type NewShare = { id: string, space: string, did: string, access: ShareAccess, 
+export type NewShare = { id: string, space: string, did: string, access: ShareAccess,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, token: string, 
+expiresAt: number, token: string,
 /**
  * The invite code: the token, where this data center is reached and
  * what it is called.
@@ -684,41 +684,41 @@ export type InviteKind = "collection" | "compute";
  * An invite from another data center, waiting to be accepted or
  * declined: to a collection, or to use its computer.
  */
-export type Invite = { id: string, kind: InviteKind, 
+export type Invite = { id: string, kind: InviteKind,
 /**
  * The data center that sent it.
  */
-fromDid: string, 
+fromDid: string,
 /**
  * Its contact name here, or else the name it goes by.
  */
-fromName: string, 
+fromName: string,
 /**
  * Whether it is a contact already (accepting adds it).
  */
-fromContact: boolean, 
+fromContact: boolean,
 /**
  * The collection, by its name there; empty for a computer.
  */
-space: string, access: ShareAccess, 
+space: string, access: ShareAccess,
 /**
  * For a computer: tasks at once and per hour, as the lender set them.
  */
-concurrent: number | null, perHour: number | null, 
+concurrent: number | null, perHour: number | null,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, 
+expiresAt: number,
 /**
  * The share has ended; it can only be declined.
  */
-ended: boolean, 
+ended: boolean,
 /**
  * The name it takes here: the one it had when accepted before (which
  * it replaces), else its own, or its own with a number when taken.
  * Empty for a computer.
  */
-name: string, 
+name: string,
 /**
  * It renews a collection already here, of that name, or a computer
  * already lent to you.
@@ -728,7 +728,7 @@ renews: boolean, receivedAtMs: number, };
 /**
  * An invite accepted: the collection added, or whose computer.
  */
-export type AcceptedInvite = { kind: InviteKind, 
+export type AcceptedInvite = { kind: InviteKind,
 /**
  * The collection's name here, or the lender's name.
  */
@@ -738,19 +738,19 @@ name: string, };
  * Lending this computer: whether it is lent now, to whom, and how much
  * each may use.
  */
-export type Lending = { 
+export type Lending = {
 /**
  * Oikome's computations are offered to the people below.
  */
-on: boolean, 
+on: boolean,
 /**
  * Tasks each may have running at once…
  */
-concurrent: number, 
+concurrent: number,
 /**
  * …and start per hour.
  */
-perHour: number, 
+perHour: number,
 /**
  * The longest one task may run, in milliseconds.
  */
@@ -759,7 +759,7 @@ taskMs: number, people: Array<LentTo>, };
 /**
  * Someone this computer is lent to.
  */
-export type LentTo = { did: string, name: string | null, 
+export type LentTo = { did: string, name: string | null,
 /**
  * When their grant ends, in seconds since the Unix epoch.
  */
@@ -769,19 +769,19 @@ expiresAt: number, };
  * `set_lending`: lend this computer (or stop) to these contacts, each
  * within these limits.
  */
-export type SetLending = { on: boolean, 
+export type SetLending = { on: boolean,
 /**
  * Contacts' DIDs; anyone left out stops being able to use it.
  */
-people: Array<string>, 
+people: Array<string>,
 /**
  * 1 to 8.
  */
-concurrent: number, 
+concurrent: number,
 /**
  * 1 to 1000.
  */
-perHour: number, 
+perHour: number,
 /**
  * What the owner answered when asked whether these people may reach
  * this computer from outside its network; not asked, nothing changes.
@@ -811,7 +811,7 @@ export type ReachPolicy = "ask" | "always" | "never";
  * network?". Without `remember` it is for this one share or lending, and
  * ends with it; with it, it is the answer from now on.
  */
-export type ReachChoice = { allow: boolean, 
+export type ReachChoice = { allow: boolean,
 /**
  * "Don't ask again".
  */
@@ -830,15 +830,15 @@ export type OpenForKind = "share" | "lend";
 /**
  * One thing the owner allowed to be reached from outside, still going.
  */
-export type OpenFor = { kind: OpenForKind, 
+export type OpenFor = { kind: OpenForKind,
 /**
  * The share's id, or the DID lent to.
  */
-id: string, 
+id: string,
 /**
  * Who it is for.
  */
-name: string, 
+name: string,
 /**
  * The collection, for a share.
  */
@@ -848,24 +848,24 @@ space: string | null, };
  * `network`: how this computer is reached from outside, what for, and
  * what the owner chose.
  */
-export type Network = { reachable: Reachable, 
+export type Network = { reachable: Reachable,
 /**
  * The contact others meet this computer through.
  */
-through: string | null, 
+through: string | null,
 /**
  * Shares and lending allowed to be reached from outside, still going.
  */
-openFor: Array<OpenFor>, policy: ReachPolicy, 
+openFor: Array<OpenFor>, policy: ReachPolicy,
 /**
  * Contacts may meet each other here, when this computer is reached
  * directly.
  */
-helpContacts: boolean, 
+helpContacts: boolean,
 /**
  * They can now.
  */
-helping: boolean, 
+helping: boolean,
 /**
  * This node runs the peer-to-peer layer at all (a serving node).
  */
@@ -885,15 +885,15 @@ export type BorrowStatus = "available" | "unavailable" | "unreachable" | "ended"
 /**
  * A computer lent to you.
  */
-export type Borrowed = { id: string, fromDid: string, fromName: string, concurrent: number | null, perHour: number | null, 
+export type Borrowed = { id: string, fromDid: string, fromName: string, concurrent: number | null, perHour: number | null,
 /**
  * The longest one task may run there, in milliseconds.
  */
-taskMs: number | null, 
+taskMs: number | null,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, status: BorrowStatus, 
+expiresAt: number, status: BorrowStatus,
 /**
  * Big summaries of collections shared with its owner are sent there.
  */
@@ -912,7 +912,7 @@ export type UseBorrowed = { id: string, inUse: boolean, };
 /**
  * `borrowed_jobs`: what was sent to a computer lent to you.
  */
-export type BorrowedJobsOf = { id: string, 
+export type BorrowedJobsOf = { id: string,
 /**
  * Count tasks from this time on (the start of the viewer's day), in
  * milliseconds since the Unix epoch.
@@ -922,15 +922,15 @@ sinceMs: number, };
 /**
  * What was sent to a computer lent to you, and what may be.
  */
-export type BorrowedJobs = { 
+export type BorrowedJobs = {
 /**
  * Tasks sent there since `since_ms`.
  */
-since: number, 
+since: number,
 /**
  * The latest ones, newest first: one line per collection and minute.
  */
-recent: Array<SentJob>, 
+recent: Array<SentJob>,
 /**
  * Your collections shared with its owner now: the only ones whose
  * summaries may be worked out there.
@@ -940,7 +940,7 @@ collections: Array<string>, };
 /**
  * Summaries of one collection sent to a computer lent to you.
  */
-export type SentJob = { space: string, atMs: number, 
+export type SentJob = { space: string, atMs: number,
 /**
  * Tasks in that minute.
  */
@@ -949,12 +949,12 @@ count: number, };
 /**
  * `daily_totals`: a table's totals by day, for a card on Home.
  */
-export type DailyTotalsOf = { space: string, table: string, 
+export type DailyTotalsOf = { space: string, table: string,
 /**
  * The column with each row's day (a date, a time, or text that starts
  * `YYYY-MM-DD`).
  */
-when: string, 
+when: string,
 /**
  * The column with each row's amount.
  */
@@ -963,25 +963,25 @@ amount: string, };
 /**
  * A table's totals for its last days.
  */
-export type DailyTotals = { 
+export type DailyTotals = {
 /**
  * The last 14 days up to the latest with data, oldest first, days
  * without rows at 0; empty when no row has a day and an amount.
  */
-days: Array<DayTotal>, 
+days: Array<DayTotal>,
 /**
  * Rows in the table.
  */
-rows: number, 
+rows: number,
 /**
  * The computer lent to you that worked them out (`Borrowed::id`);
  * none when this one did.
  */
-borrowed?: string, 
+borrowed?: string,
 /**
  * The name of its owner, or of the one in use that wasn't used.
  */
-lender?: string, 
+lender?: string,
 /**
  * Why this computer worked them out although one lent to you is in
  * use.
@@ -991,7 +991,7 @@ stayedHere?: StayedHere, };
 /**
  * A day's total.
  */
-export type DayTotal = { 
+export type DayTotal = {
 /**
  * `YYYY-MM-DD`.
  */
@@ -1005,23 +1005,23 @@ export type StayedHere = "small" | "not_shared" | "partly_shared" | "not_lending
 /**
  * The folder a collection views where it is, and how its index stands.
  */
-export type InPlace = { 
+export type InPlace = {
 /**
  * The storage it is on; `None` for this computer.
  */
-place: string | null, 
+place: string | null,
 /**
  * The folder: its full path on this computer, else within the storage.
  */
-path: string, 
+path: string,
 /**
  * Files the index knows.
  */
-files: number, 
+files: number,
 /**
  * When it was last read, in milliseconds since the Unix epoch.
  */
-scannedAtMs: number | null, 
+scannedAtMs: number | null,
 /**
  * Whether it could be reached when last asked.
  */
@@ -1030,15 +1030,15 @@ reachable: boolean | null, };
 /**
  * `view_in_place`: a collection that views a folder where it is.
  */
-export type ViewInPlace = { 
+export type ViewInPlace = {
 /**
  * A storage's name; this computer when left out.
  */
-place?: string, 
+place?: string,
 /**
  * The folder: a full path on this computer, else within the storage.
  */
-path: string, 
+path: string,
 /**
  * The collection's name; made from the folder's when left out.
  */
@@ -1047,28 +1047,28 @@ name?: string, };
 /**
  * `list_files`: one folder of a collection viewed in place.
  */
-export type ListFiles = { space: string, 
+export type ListFiles = { space: string,
 /**
  * The folder within it, `/`-separated; the top when left out.
  */
-folder?: string, offset?: number, 
+folder?: string, offset?: number,
 /**
  * At most 1,000; 200 when left out.
  */
-limit?: number, 
+limit?: number,
 /**
  * Files of every folder (no folders listed), the most recent first.
  */
-deep?: boolean, 
+deep?: boolean,
 /**
  * Only files of this kind.
  */
-kind?: FileKind, 
+kind?: FileKind,
 /**
  * In what order the files come: photos first, then notes, tables and
  * the rest, each by name, when left out.
  */
-sort?: FileSort, 
+sort?: FileSort,
 /**
  * The other way round.
  */
@@ -1078,7 +1078,7 @@ descending?: boolean, };
  * A folder of a collection viewed in place: the folders in it, and a page
  * of its files (photos first, then notes, tables and the rest).
  */
-export type FileListing = { folders: Array<FileFolder>, files: Array<FileItem>, 
+export type FileListing = { folders: Array<FileFolder>, files: Array<FileItem>,
 /**
  * Files directly in this folder.
  */
@@ -1089,11 +1089,11 @@ total: number, };
  * their bytes, and when the newest of them was changed (milliseconds since
  * the Unix epoch).
  */
-export type FileFolder = { name: string, files: number, size: number, modifiedMs: number | null, 
+export type FileFolder = { name: string, files: number, size: number, modifiedMs: number | null,
 /**
  * Photos and notes under it, in all its folders.
  */
-photos: number, notes: number, 
+photos: number, notes: number,
 /**
  * What its cover shows, as a collection's does: its newest photos that
  * have a thumbnail (up to three), else its newest note.
@@ -1111,41 +1111,72 @@ export type FileSort = "name" | "modified" | "size" | "kind";
 export type FileKind = "image" | "note" | "table" | "other";
 
 /**
+ * A presentation Oikome can offer for one file.
+ */
+export type ContentView = "read" | "source" | "table" | "image";
+
+/**
+ * Operations available for a file on the node that answered.
+ */
+export type ContentCapabilities = { openDefault: boolean, reveal: boolean, edit: boolean, };
+
+/**
+ * How one file can be presented, and which source version that describes.
+ */
+export type FileContent = {
+/**
+ * A lowercase physical format name, or `file` when there is no extension.
+ */
+format: string, mediaType: string | null, views: Array<ContentView>,
+/**
+ * The source contract that produced this descriptor.
+ */
+source: string,
+/**
+ * The indexed source size and modification time, not a content hash.
+ */
+version: string, capabilities: ContentCapabilities,
+/**
+ * Why no built-in view is available, if there is none.
+ */
+unavailableReason: string | null, };
+
+/**
  * A file of a collection viewed in place, as its index knows it.
  */
-export type FileItem = { 
+export type FileItem = {
 /**
  * Within the folder viewed, `/`-separated.
  */
-path: string, name: string, kind: FileKind, size: number, 
+path: string, name: string, kind: FileKind, size: number,
 /**
  * When it was last changed, on this computer's clock: `2025-11-07 09:40:00`.
  */
-modified: string, 
+modified: string,
 /**
  * The same moment, in milliseconds since the Unix epoch.
  */
-modifiedMs: number, 
+modifiedMs: number,
 /**
  * A photo's caption or a note's name.
  */
-title: string | null, 
+title: string | null,
 /**
  * When a photo was taken, as its captions or the file say.
  */
-taken: string | null, 
+taken: string | null,
 /**
  * A note's date.
  */
-written: string | null, place: string | null, credit: string | null, 
+written: string | null, place: string | null, credit: string | null,
 /**
  * A note's text: its start in a listing, all of it read alone.
  */
-text: string | null, 
+text: string | null,
 /**
  * Whether the index has a thumbnail of it.
  */
-thumbnail: boolean, };
+thumbnail: boolean, content: FileContent, };
 
 /**
  * One file of a collection viewed in place.
@@ -1157,15 +1188,15 @@ export type FileRef = { space: string, path: string, };
  * Parquet or JSON, at any folder) of a collection that views a folder in
  * place, read where the file is, as an Arrow IPC stream.
  */
-export type ReadFileRows = { space: string, 
+export type ReadFileRows = { space: string,
 /**
  * The file, `/`-separated, within the folder viewed.
  */
-path: string, 
+path: string,
 /**
  * Rows per page, 1 to 1000; default 100.
  */
-limit?: number, 
+limit?: number,
 /**
  * Rows to skip.
  */
@@ -1175,7 +1206,7 @@ offset?: number, };
  * `show_folder`: open a folder viewed in place on this computer in its
  * file manager, or one file of it in its folder.
  */
-export type ShowFolder = { space: string, 
+export type ShowFolder = { space: string,
 /**
  * The file to show; the folder itself when left out.
  */
@@ -1194,41 +1225,41 @@ export type PluginColumn = "date" | "number" | "text" | "image" | "bool";
 /**
  * A dashboard plugin: installed, or one of Oikome's own not added yet.
  */
-export type Plugin = { 
+export type Plugin = {
 /**
  * Lowercase letters, digits and `-`.
  */
-id: string, name: string, 
+id: string, name: string,
 /**
  * Who made it.
  */
-by: string, version: string, description: string, 
+by: string, version: string, description: string,
 /**
  * What it reads, in words ("A table of spending: a day, an amount and
  * a category").
  */
-reads: string, shape: PluginShape, 
+reads: string, shape: PluginShape,
 /**
  * The kinds of column a collection needs for it: the apps offer only
  * collections that have them.
  */
-columns: Array<PluginColumn>, 
+columns: Array<PluginColumn>,
 /**
  * Its card's first width, in Home's columns, and its height in pixels.
  */
-width: number, height: number, 
+width: number, height: number,
 /**
  * The page Home shows in its card, under `/plugins/<id>/`.
  */
-entry: string, 
+entry: string,
 /**
  * One of Oikome's own.
  */
-builtIn: boolean, installed: boolean, 
+builtIn: boolean, installed: boolean,
 /**
  * The collections it may read (installed plugins only).
  */
-collections: Array<string>, 
+collections: Array<string>,
 /**
  * Its name and descriptions in other languages, by language tag
  * (`de`, `zh-Hans`); an app falls back to the fields above.
@@ -1265,7 +1296,7 @@ export type PluginRef = { id: string, };
  * `plugin_read`: the rows of a collection, read as the plugin `plugin`;
  * refused unless the plugin may read it.
  */
-export type PluginRead = { plugin: string, space: string, 
+export type PluginRead = { plugin: string, space: string,
 /**
  * 1 to 1000; default 1000.
  */
@@ -1280,19 +1311,19 @@ export type AssistantApp = "claude_code" | "other";
  * An AI assistant the owner connected (M3d): it reads only the
  * collections given, as itself, and every read shows up in Activity.
  */
-export type Assistant = { id: string, 
+export type Assistant = { id: string,
 /**
  * The identity it reads as: its lines in Activity are by this DID.
  */
-did: string, name: string, app: AssistantApp, 
+did: string, name: string, app: AssistantApp,
 /**
  * The collections it may read; none once its access ended.
  */
-collections: Array<string>, connectedAtMs: number, 
+collections: Array<string>, connectedAtMs: number,
 /**
  * When it last reached this data center; `null` until it first does.
  */
-lastUsedMs: number | null, 
+lastUsedMs: number | null,
 /**
  * When its access ended; it can't reach this data center again.
  */
@@ -1333,15 +1364,15 @@ export type ReadableTable = { name: string, columns: Array<string>, rows: number
 /**
  * A share, as listed (never with its token).
  */
-export type Share = { id: string, space: string, did: string, 
+export type Share = { id: string, space: string, did: string,
 /**
  * The contact's name, if the DID is a contact.
  */
-contactName: string | null, access: ShareAccess, issuedAtMs: number, 
+contactName: string | null, access: ShareAccess, issuedAtMs: number,
 /**
  * Seconds since the Unix epoch.
  */
-expiresAt: number, status: ShareStatus, 
+expiresAt: number, status: ShareStatus,
 /**
  * The owner allowed it to be reached from outside this computer's
  * network (for this share, or always).
@@ -1351,7 +1382,7 @@ reachOutside: boolean, };
 /**
  * `list_shares`.
  */
-export type ListShares = { 
+export type ListShares = {
 /**
  * Only shares of this Space.
  */
@@ -1365,7 +1396,7 @@ export type ShareRef = { id: string, };
 /**
  * `revoke_share`.
  */
-export type RevokedShare = { id: string, 
+export type RevokedShare = { id: string,
 /**
  * Whether this was the contact's last active share of the Space, so
  * their grant on it was removed too.
@@ -1375,19 +1406,19 @@ grantRemoved: boolean, };
 /**
  * `list_access`: newest first.
  */
-export type ListAccess = { 
+export type ListAccess = {
 /**
  * The last id of the previous page.
  */
-beforeId?: number, 
+beforeId?: number,
 /**
  * 1 to 500; default 100.
  */
-limit?: number, 
+limit?: number,
 /**
  * Only requests by this DID.
  */
-did?: string, 
+did?: string,
 /**
  * Only requests naming this Space.
  */
@@ -1406,26 +1437,26 @@ export type AccessWho = "you" | "person" | "plugin" | "assistant" | "unknown";
 /**
  * One request a peer or a browser sent this node.
  */
-export type AccessItem = { id: number, atMs: number, 
+export type AccessItem = { id: number, atMs: number,
 /**
  * The caller's DID; `null` when it could not be authenticated.
  */
-did: string | null, who: AccessWho, 
+did: string | null, who: AccessWho,
 /**
  * Their name here: the contact's or the plugin's, the one they gave in
  * an invite or a computer they lend, or the one they had when removed.
  * `null` for the owner, and for a caller with no name here.
  */
-name: string | null, method: string, spaces: Array<string>, 
+name: string | null, method: string, spaces: Array<string>,
 /**
  * The share (token id) that let it in.
  */
-shareId: string | null, outcome: AccessOutcome, reason: string | null, 
+shareId: string | null, outcome: AccessOutcome, reason: string | null,
 /**
  * Requests merged into this item (failed authentications in one
  * minute; an assistant's reads of one collection in one minute).
  */
-count: number, 
+count: number,
 /**
  * What it asked for, where that says more: an assistant's search words.
  */

@@ -2778,6 +2778,20 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .await
         .unwrap();
     assert_eq!(note.text.as_deref(), Some("Ferry to Cacilhas"));
+    assert_eq!(note.content.format, "markdown");
+    assert_eq!(note.content.media_type.as_deref(), Some("text/markdown"));
+    assert_eq!(
+        note.content.views,
+        vec![ContentView::Read, ContentView::Source]
+    );
+    assert_eq!(note.content.source, "in_place");
+    assert_eq!(
+        note.content.version,
+        format!("{}:{}", note.modified_ms, note.size)
+    );
+    assert!(note.content.capabilities.open_default && note.content.capabilities.reveal);
+    assert!(!note.content.capabilities.edit);
+    assert_eq!(first.files[0].content.views, vec![ContentView::Image]);
     assert!(n
         .api
         .list_files(&OWNER, page(Some("../.."), 0, 10))

@@ -14,9 +14,17 @@
     "check-i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
+    "@codemirror/language": "6.13.1",
+    "@codemirror/language-data": "6.5.2",
+    "@codemirror/view": "6.43.15",
     "@oikome/client": "0.0.0",
     "@oikome/ui": "0.0.0",
-    "apache-arrow": "17.0.0"
+    "@uiw/react-codemirror": "4.25.12",
+    "ag-grid-community": "36.3.0",
+    "ag-grid-react": "36.3.0",
+    "apache-arrow": "17.0.0",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "peerDependencies": {
     "react": "19.3.1"

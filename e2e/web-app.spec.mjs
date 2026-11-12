@@ -144,6 +144,7 @@ test.beforeAll(async ({ browser }) => {
   server = await serveWeb(owner, openerEnv);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
   page = await context.newPage();
   page.on("pageerror", (e) => console.error(`[page] ${e.message}`));
 });
@@ -489,7 +490,7 @@ test("a photo opens large and the arrow keys move through every file; a note ope
   // The captions are a file too, and open as a table read in place.
   await page.locator("a.screen-ftile", { hasText: "captions.csv" }).click();
   const captions = page.getByRole("dialog", { name: "captions.csv" });
-  await expect(captions.getByRole("table", { name: "captions.csv" })).toBeVisible();
+  await expect(captions.getByRole("region", { name: "captions.csv" })).toBeVisible();
   await page.keyboard.press("Escape");
 
   // A note with a line of tags: the tags show as tags, the note in full.
@@ -519,11 +520,11 @@ test("a CSV opens as a table where it is, with its details behind Info", async (
     await page.goto(`${base}/collections/oikome-guide`);
     await page.locator("a.screen-ftile", { hasText: "tips.csv" }).click();
     const viewer = page.getByRole("dialog", { name: "tips.csv" });
-    const table = viewer.getByRole("table", { name: "tips.csv" });
+    const table = viewer.getByRole("region", { name: "tips.csv" });
     await expect(table.getByRole("columnheader", { name: "What" })).toBeVisible();
     await expect(table.getByRole("columnheader", { name: "Where" })).toBeVisible();
-    await expect(table.getByRole("cell", { name: "Tram 28" })).toBeVisible();
-    await expect(table.getByRole("cell", { name: "Cacilhas" })).toBeVisible();
+    await expect(table.getByRole("gridcell", { name: "Tram 28" })).toBeVisible();
+    await expect(table.getByRole("gridcell", { name: "Cacilhas" })).toBeVisible();
     await expect(viewer).not.toContainText("Kept on");
     await viewer.getByRole("button", { name: "Info" }).click();
     await expect(viewer).toContainText("Kept on");
@@ -538,6 +539,90 @@ test("a CSV opens as a table where it is, with its details behind Info", async (
   } finally {
     rmSync(tips, { force: true });
     await api("refresh_space", { space: "oikome-guide" });
+  }
+});
+
+test("Markdown has a safe reading view and source loads only when asked", async () => {
+  const note = join(owner, "Examples", "oikome-guide", "Reading.md");
+  writeFileSync(
+    note,
+    `# Lisbon, slowly\n\n> Keep Thursday open.\n\n| Place | Day |\n| --- | --- |\n| Belém | Monday |\n\n- [x] Take tram 28\n\n![remote pixel](https://127.0.0.1:9/pixel.png)\n\n<img src=x onerror=alert(1)>\n\n[unsafe](javascript:alert(1))\n`,
+  );
+  try {
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.goto(`${base}/collections/oikome-guide`);
+    await page.locator("a.screen-ftile", { hasText: "Reading.md" }).click();
+    const viewer = page.getByRole("dialog", { name: "Reading.md" });
+    await expect(viewer.getByRole("heading", { name: "Lisbon, slowly" })).toBeVisible();
+    await expect(viewer.getByRole("cell", { name: "Belém" })).toBeVisible();
+    await expect(viewer.getByRole("checkbox")).toBeChecked();
+    await expect(viewer.getByRole("checkbox")).toBeDisabled();
+    await expect(viewer.locator("img")).toHaveCount(0);
+    await expect(viewer.locator(".screen-source")).toHaveCount(0);
+    await expect(viewer.getByText("unsafe", { exact: true })).not.toHaveAttribute("href");
+
+    await viewer.getByRole("radio", { name: "Source" }).click();
+    await expect(viewer.locator(".cm-content")).toContainText("# Lisbon, slowly");
+    await expect(viewer.locator(".cm-line").first()).toBeVisible();
+    await viewer.getByRole("button", { name: "Wrap lines" }).click();
+    await expect(viewer.locator(".cm-lineWrapping")).toBeVisible();
+    await viewer.getByRole("radio", { name: "Read" }).click();
+    await expect(viewer.getByRole("heading", { name: "Lisbon, slowly" })).toBeVisible();
+  } finally {
+    rmSync(note, { force: true });
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.evaluate(() => localStorage.removeItem("oikome.file.view.markdown"));
+  }
+});
+
+test("JSON Lines switches between a data grid, source and phone records", async () => {
+  const data = join(owner, "Examples", "oikome-guide", "places.jsonl");
+  const damaged = join(owner, "Examples", "oikome-guide", "damaged.json");
+  writeFileSync(data, '{"place":"贝伦","day":"2025-10-06","cost":12.50,"note":null}\n{"place":"Graça","day":"2025-10-07","cost":3,"note":"A long note that stays readable"}\n');
+  try {
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.goto(`${base}/collections/oikome-guide`);
+    await page.locator("a.screen-ftile", { hasText: "places.jsonl" }).click();
+    const viewer = page.getByRole("dialog", { name: "places.jsonl" });
+    const grid = viewer.getByRole("region", { name: "places.jsonl" });
+    await expect(grid.getByRole("gridcell", { name: "贝伦" })).toBeVisible();
+    await expect(grid.getByRole("gridcell", { name: "12.5" })).toBeVisible();
+    await expect(grid.getByRole("gridcell", { name: "3.0" })).toBeVisible();
+    await expect(grid.getByRole("gridcell", { name: "—" })).toBeVisible();
+    await grid.getByRole("gridcell", { name: "贝伦" }).click();
+    await viewer.getByRole("button", { name: "Copy", exact: true }).click();
+    await expect(viewer.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("贝伦");
+
+    await viewer.getByRole("radio", { name: "Source" }).click();
+    await expect(viewer.locator(".cm-content")).toContainText('"place":"贝伦"');
+    await viewer.getByRole("radio", { name: "Table", exact: true }).click();
+    await expect(grid.getByRole("gridcell", { name: "Graça" })).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(viewer.locator(".screen-data-grid__records")).toBeVisible();
+    await expect(viewer.locator(".screen-data-grid__records dl").first()).toContainText("贝伦");
+    await expect(viewer.locator(".screen-data-grid__grid")).toBeHidden();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.keyboard.press("Escape");
+
+    writeFileSync(damaged, '{"place": broken json}\n');
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.reload();
+    await page.locator("a.screen-ftile", { hasText: "damaged.json" }).click();
+    const broken = page.getByRole("dialog", { name: "damaged.json" });
+    await expect(broken.locator(".oik-error")).toBeVisible();
+    await broken.getByRole("radio", { name: "Source" }).click();
+    await expect(broken.locator(".cm-content")).toContainText("broken json");
+  } finally {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    rmSync(data, { force: true });
+    rmSync(damaged, { force: true });
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.evaluate(() => {
+      localStorage.removeItem("oikome.file.view.jsonl");
+      localStorage.removeItem("oikome.file.view.json");
+    });
   }
 });
 
@@ -1503,7 +1588,7 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     // Its CSV opens as a table, read where it is, not through a table picker.
     await page.locator("a.screen-ftile", { hasText: "2025.csv" }).click();
     const csv = page.getByRole("dialog", { name: "2025.csv" });
-    await expect(csv.getByRole("table", { name: "2025.csv" }).getByRole("cell", { name: "Jan 2, 2025" })).toBeVisible();
+    await expect(csv.getByRole("region", { name: "2025.csv" }).getByRole("gridcell", { name: "Jan 2, 2025" })).toBeVisible();
     await page.keyboard.press("Escape");
 
     // A photo is sent only to the owner's own pages.

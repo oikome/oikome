@@ -417,6 +417,11 @@ export const en = {
     showInFinder: (platform: string) =>
       platform === "macos" ? "Show in Finder" : platform === "windows" ? "Show in File Explorer" : "Show in File Manager",
     openWith: "Open in Default App",
+    fileView: "File view",
+    readView: "Read",
+    sourceView: "Source",
+    wrapLines: "Wrap lines",
+    sourceUnavailable: "The source text is not available for this file.",
     fileCut: "This view shows only the first 64 MB of the file.",
     showMore: "Show More",
     emptyFolder: "Nothing in this folder.",

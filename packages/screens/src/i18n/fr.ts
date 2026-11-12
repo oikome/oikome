@@ -426,6 +426,11 @@ export const fr: Strings = {
           ? "Afficher dans l’Explorateur de fichiers"
           : "Afficher dans le gestionnaire de fichiers",
     openWith: "Ouvrir dans l’app par défaut",
+    fileView: "Vue du fichier",
+    readView: "Lecture",
+    sourceView: "Source",
+    wrapLines: "Retour à la ligne",
+    sourceUnavailable: "Le texte source de ce fichier n’est pas disponible.",
     fileCut: "Cette vue affiche seulement les 64 premiers Mo du fichier.",
     showMore: "Afficher plus",
     emptyFolder: "Ce dossier est vide.",

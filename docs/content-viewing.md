@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: direction agreed 2026-11-12. The first Open in Default App feature is implemented; the remaining production stages have not started.
+> **Status**: direction agreed 2026-11-12. PR 18 is merged. PR 19 implements the content descriptor, safe Markdown and source views, and lazy-loaded data grids; PR 20 and safe editing have not started.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 

@@ -233,6 +233,18 @@ React and React DOM (react, react-dom; the web app)
   https://react.dev/  -  MIT License
   Copyright (c) Meta Platforms, Inc. and affiliates.
 
+react-markdown and remark-gfm (Markdown reading, loaded on demand)
+  https://github.com/remarkjs/react-markdown  -  MIT License
+  https://github.com/remarkjs/remark-gfm  -  MIT License
+
+CodeMirror (@uiw/react-codemirror, @codemirror/*; source views, loaded on demand)
+  https://codemirror.net/  -  MIT License
+  https://github.com/uiwjs/react-codemirror  -  MIT License
+
+AG Grid Community (ag-grid-community, ag-grid-react; data files, loaded on demand)
+  https://www.ag-grid.com/  -  MIT License
+  Copyright 2015-2026 AG Grid Ltd.
+
 Vite and Rollup (building the web app; development only)
   https://vite.dev/  -  MIT License
   https://rollupjs.org/  -  MIT License

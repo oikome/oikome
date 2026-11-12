@@ -249,6 +249,42 @@ pub enum FileKind {
     Other,
 }
 
+/// A presentation Oikome can offer for one file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentView {
+    Read,
+    Source,
+    Table,
+    Image,
+}
+
+/// Operations available for a file on the node that answered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentCapabilities {
+    pub open_default: bool,
+    pub reveal: bool,
+    pub edit: bool,
+}
+
+/// How one file can be presented, and which source version that describes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileContent {
+    /// A lowercase physical format name, or `file` when there is no extension.
+    pub format: String,
+    pub media_type: Option<String>,
+    pub views: Vec<ContentView>,
+    /// The source contract that produced this descriptor.
+    pub source: String,
+    /// The indexed source size and modification time, not a content hash.
+    pub version: String,
+    pub capabilities: ContentCapabilities,
+    /// Why no built-in view is available, if there is none.
+    pub unavailable_reason: Option<String>,
+}
+
 /// A file of a collection viewed in place, as its index knows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -274,6 +310,7 @@ pub struct FileItem {
     pub text: Option<String>,
     /// Whether the index has a thumbnail of it.
     pub thumbnail: bool,
+    pub content: FileContent,
 }
 
 /// One file of a collection viewed in place.

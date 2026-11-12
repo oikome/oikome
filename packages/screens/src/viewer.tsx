@@ -138,6 +138,11 @@ export function FileView({
           <p className="screen-fileview__quiet">{quiet}</p>
         </div>
         <div className="screen-fileview__tools">
+          {local && file && (
+            <Button disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
+              {s.openWith}
+            </Button>
+          )}
           <IconButton
             icon="info"
             label={s.info}
@@ -162,6 +167,7 @@ export function FileView({
 
       <div className="screen-fileview__content">
         {detail.error && <ErrorText>{detail.error}</ErrorText>}
+        {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
         {!file && !detail.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
         {file?.kind === "image" && (
           <div className="screen-fileview__image">
@@ -208,16 +214,10 @@ export function FileView({
             <p>{fileKindLabel(file.name, file.kind)}</p>
             <p className="screen-muted">{bytes(Number(file.size))}</p>
             {local && (
-              <>
-                <Button disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
-                  {s.openWith}
-                </Button>
-                <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
-                  {s.showInFinder(host.data?.platform ?? "")}
-                </Button>
-              </>
+              <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
+                {s.showInFinder(host.data?.platform ?? "")}
+              </Button>
             )}
-            {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
           </div>
         )}
       </div>

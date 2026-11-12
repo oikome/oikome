@@ -1558,8 +1558,21 @@ test("a complex local file opens with the system application, not a shell", asyn
     const managerLabel = process.platform === "darwin" ? "Show in Finder" : process.platform === "win32" ? "Show in File Explorer" : "Show in File Manager";
     await viewer.getByRole("button", { name: managerLabel }).waitFor();
     await viewer.getByRole("button", { name: "Open With…" }).click();
+    await expect(viewer.locator(".oik-error")).toHaveCount(0);
     const log = join(owner, "open-with.log");
     await expect.poll(() => (existsSync(log) ? readFileSync(log, "utf8").trim() : "")).toBe(`1|${realpathSync(file)}`);
+
+    await page.keyboard.press("Escape");
+    const note = join(trip, "Travel.md");
+    writeFileSync(note, "# A real note\n");
+    await api("refresh_space", { space: viewed.name });
+    expect(await api("open_with", { space: viewed.name, path: "Travel.md" })).toEqual({});
+    await page.reload();
+    await page.locator(".screen-ftile", { hasText: "Travel.md" }).click();
+    const noteViewer = page.getByRole("dialog", { name: "Travel.md" });
+    await noteViewer.getByRole("button", { name: "Open With…" }).click();
+    await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
+    await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(`1|${realpathSync(note)}`);
   } finally {
     rmSync(trip, { recursive: true, force: true });
   }

@@ -409,7 +409,6 @@ export const ko: Strings = {
     reading: "읽는 중…",
     viewed: (name: string) => `${name} 컬렉션을 원래 위치에서 읽어요.`,
     readWhereItIs: "원래 위치에서 읽음",
-    inItsFolder: (place: string) => `${place}의 원래 폴더`,
     readAgain: "다시 읽기",
     readAgo: (when: string) => `${when} 읽음`,
     readNow: (name: string) => `${name} 컬렉션을 다시 읽었어요.`,
@@ -425,7 +424,9 @@ export const ko: Strings = {
     colModified: "수정한 날짜",
     fileKinds: { image: "사진", note: "메모", table: "표", other: "파일" },
     info: "정보",
-    showInFinder: "Finder에서 보기",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "Finder에서 보기" : platform === "windows" ? "파일 탐색기에서 보기" : "파일 관리자에서 보기",
+    openWith: "기본 앱으로 열기",
     fileCut: "이 보기에는 파일의 처음 64MB만 표시돼요.",
     showMore: "더 보기",
     emptyFolder: "이 폴더는 비어 있어요.",

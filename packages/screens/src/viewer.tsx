@@ -42,7 +42,7 @@ export function FileView({
   path: string;
   /** The file as the folder's page already knows it; a direct address reads it. */
   file?: FileItem;
-  facts: { cameFrom: ReactNode; keptOn: string; who: string };
+  facts: { cameFrom: ReactNode; keptOn: ReactNode; who: string };
   placeLabel: string;
   /** Whether this computer can reveal the file in its file manager. */
   local: boolean;
@@ -62,6 +62,7 @@ export function FileView({
     (e) => (e.code === "not_found" ? s.itemGone(space) : rawMessage(e)),
   );
   const file = detail.data ?? listed;
+  const host = useLoad(() => client.nodeInfo(), []);
   const rows = useLoad(
     async () =>
       file?.kind === "table"
@@ -110,9 +111,24 @@ export function FileView({
         [s.colKind, fileKindLabel(file.name, file.kind)],
         [s.colSize, bytes(Number(file.size))],
         [s.colModified, changed],
-        [s.cameFrom, facts.cameFrom],
         [s.keptOn, facts.keptOn],
         [s.whoCanSee, facts.who],
+        [
+          s.cameFrom,
+          local ? (
+            <button
+              type="button"
+              className="oik-link screen-fileview__source"
+              title={s.showInFinder(host.data?.platform ?? "")}
+              disabled={reveal.busy}
+              onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}
+            >
+              {facts.cameFrom}
+            </button>
+          ) : (
+            facts.cameFrom
+          ),
+        ],
       ]
     : [];
 
@@ -137,6 +153,11 @@ export function FileView({
           <p className="screen-fileview__quiet">{quiet}</p>
         </div>
         <div className="screen-fileview__tools">
+          {local && file && (
+            <Button variant="quiet" disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
+              {s.openWith}
+            </Button>
+          )}
           <IconButton
             icon="info"
             label={s.info}
@@ -161,6 +182,7 @@ export function FileView({
 
       <div className="screen-fileview__content">
         {detail.error && <ErrorText>{detail.error}</ErrorText>}
+        {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
         {!file && !detail.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
         {file?.kind === "image" && (
           <div className="screen-fileview__image">
@@ -208,10 +230,9 @@ export function FileView({
             <p className="screen-muted">{bytes(Number(file.size))}</p>
             {local && (
               <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
-                {s.showInFinder}
+                {s.showInFinder(host.data?.platform ?? "")}
               </Button>
             )}
-            {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
           </div>
         )}
       </div>

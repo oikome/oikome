@@ -404,7 +404,6 @@ export const fr: Strings = {
     reading: "Lecture…",
     viewed: (name: string) => `${name} est lue là où elle se trouve.`,
     readWhereItIs: "Lu sur place",
-    inItsFolder: (place: string) => `${place}, dans son propre dossier`,
     readAgain: "Relire",
     readAgo: (when: string) => `Lu ${when}`,
     readNow: (name: string) => `Relecture ${de(name)} terminée.`,
@@ -420,7 +419,13 @@ export const fr: Strings = {
     colModified: "Modifié",
     fileKinds: { image: "Photo", note: "Note", table: "Tableau", other: "Fichier" },
     info: "Infos",
-    showInFinder: "Afficher dans le Finder",
+    showInFinder: (platform: string) =>
+      platform === "macos"
+        ? "Afficher dans le Finder"
+        : platform === "windows"
+          ? "Afficher dans l’Explorateur de fichiers"
+          : "Afficher dans le gestionnaire de fichiers",
+    openWith: "Ouvrir dans l’app par défaut",
     fileCut: "Cette vue affiche seulement les 64 premiers Mo du fichier.",
     showMore: "Afficher plus",
     emptyFolder: "Ce dossier est vide.",

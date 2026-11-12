@@ -376,7 +376,6 @@ export const zhHant: Strings = {
     reading: "讀取中…",
     viewed: (name: string) => `${name} 已在原處讀取。`,
     readWhereItIs: "在原處讀取",
-    inItsFolder: (place: string) => `${place}，留在原本的資料夾`,
     readAgain: "重新讀取",
     readAgo: (when: string) => `${when}讀取`,
     readNow: (name: string) => `已重新讀取 ${name}。`,
@@ -392,7 +391,9 @@ export const zhHant: Strings = {
     colModified: "修改時間",
     fileKinds: { image: "照片", note: "筆記", table: "表格", other: "檔案" },
     info: "資訊",
-    showInFinder: "在訪達中顯示",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "在訪達中顯示" : platform === "windows" ? "在檔案總管中顯示" : "在檔案管理器中顯示",
+    openWith: "用預設應用程式打開",
     fileCut: "此檢視只顯示檔案的前 64 MB。",
     showMore: "顯示更多",
     emptyFolder: "這個資料夾是空的。",

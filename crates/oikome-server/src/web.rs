@@ -436,6 +436,7 @@ impl WebState {
                 Err(e) => error(e),
             },
             "show_folder" => json_op!(show_folder, ShowFolder),
+            "open_with" => json_op!(open_with, FileRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),

@@ -540,19 +540,54 @@ button.cover { width: 100%; padding: 0; border: 0; background: none; color: inhe
 .empty { display: grid; justify-items: center; gap: 10px; padding: 48px 16px; text-align: center; }
 .empty-art { height: 100%; display: grid; place-items: center; color: var(--ink3); }
 .empty-art svg { width: 22px; height: 22px; }
-/* A file itself fills its viewer; the quiet line keeps when, where and who. */
+/* A file itself fills its viewer; its format, not a generic card, leads. */
 .dialog.fview { width: min(1080px, calc(100vw - 32px)); }
 .fview .dialog__head h2 { display: grid; min-width: 0; }
+.fview .dialog__head > .row { flex: none; }
 .fview__name { overflow-wrap: anywhere; }
 .fview__quiet { color: var(--ink3); font: 400 12px/18px var(--font); }
 .fview .dialog__body { padding: 0; }
-.fview__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border-bottom: var(--bw) solid var(--line2); }
-.fview__photo { display: grid; place-items: center; min-height: 380px; background: #141310; }
+.fview__tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.fview__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; padding: 0 18px 12px; border-bottom: var(--bw) solid var(--line2); }
+.fview__facts .kv { min-width: 0; padding: 10px 0; }
+.fview__facts .kv:last-child { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--line2); border-bottom: 0; }
+.fview__photo { position: relative; display: grid; place-items: center; min-height: 380px; background: #141310; }
 .fview__photo img { display: block; max-width: 100%; max-height: calc(100vh - 190px); object-fit: contain; }
-.fview__note { max-width: 76ch; min-height: 320px; margin: 0 auto; padding: 32px clamp(20px, 5vw, 64px); }
-.fview__note p { margin: 0; font: 400 15px/24px var(--font); white-space: pre-wrap; }
-.fview__table { max-height: calc(100vh - 220px); padding: 20px; overflow: auto; }
-.fview__table .minitable { font-size: 13px; }
+.fview__badge { position: absolute; left: 16px; bottom: 16px; padding: 5px 9px; border-radius: var(--r-btn); background: rgba(20,19,16,.82); color: #fcfcfb; font-size: 12px; }
+.fview__note { max-width: 72ch; min-height: 320px; margin: 0 auto; padding: 36px clamp(20px, 5vw, 64px); }
+.fview__note p { margin: 0 0 18px; font: 400 16px/26px var(--font); }
+.fview__note h1 { margin: 0 0 16px; font: 600 30px/38px var(--display); letter-spacing: -.02em; }
+.fview__note h2 { margin: 28px 0 10px; font: 600 19px/26px var(--display); }
+.fview__note ul { display: grid; gap: 8px; margin: 0 0 20px; padding-left: 22px; font: 400 16px/25px var(--font); }
+.fview__note blockquote { margin: 22px 0; padding: 2px 0 2px 18px; border-left: 1px solid var(--ink2); color: var(--ink2); font: 400 17px/27px var(--font); }
+.fview__note table { width: 100%; margin: 16px 0 22px; border-collapse: collapse; font-size: 14px; }
+.fview__note th, .fview__note td { padding: 9px 10px; border-bottom: 1px solid var(--line2); text-align: left; }
+.fview__note th { color: var(--ink3); font: 500 11px/16px var(--mono); text-transform: uppercase; }
+.fview__source { min-height: 320px; margin: 0; padding: 32px clamp(20px, 5vw, 64px); overflow: auto; color: var(--ink2); font: 400 13px/23px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.fview__table { max-height: calc(100vh - 220px); padding: 0 20px 20px; overflow: auto; }
+.fview__table .minitable { width: 100%; font-size: 13px; }
+.fview__table th { position: sticky; top: 0; z-index: 1; padding: 18px 12px 10px; background: var(--raised); color: var(--ink3); font: 500 11px/16px var(--mono); text-align: left; }
+.fview__table td { padding: 13px 12px; border-bottom: 1px solid var(--line2); }
+.fview__table .num { text-align: right; font-family: var(--mono); }
+.fview__external { min-height: 360px; padding: 40px 20px; }
+.fview__external .empty { max-width: 480px; margin: 0 auto; padding: 24px 16px; text-align: center; }
+.fview__external .ico svg { width: 32px; height: 32px; }
+.fview__external .btn { margin-top: 6px; }
+.fview__save-note { margin: 0; color: var(--ink2); }
+@media (max-width: 760px) {
+  .fview .dialog__head { position: relative; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+  .fview .dialog__head h2 { flex: 1 1 160px; padding-right: 32px; }
+  .fview .dialog__head > .row { flex-wrap: wrap; width: 100%; min-width: 0; max-width: 100%; margin-left: 0; }
+  .fview .dialog__head > .row > [data-close] { position: absolute; top: 12px; right: 12px; }
+  .fview__tools { min-width: 0; }
+  .fview__tools .seg { max-width: 100%; overflow-x: auto; }
+  .fview__tools .btn { padding-left: 10px; padding-right: 10px; }
+  .fview__facts { grid-template-columns: minmax(0, 1fr); }
+  .fview__facts .kv:last-child { grid-column: 1; }
+  .fview__note { padding-top: 26px; }
+  .fview__note h1 { font-size: 26px; line-height: 33px; }
+  .fview__external { min-height: 300px; padding: 20px 8px; }
+}
 .lightbox { display: grid; grid-template-columns: minmax(0, 1fr) 280px; width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: hidden; }
 .lightbox__img { position: relative; display: grid; place-items: center; background: #141310; min-height: 380px; }
 .lightbox__img img { max-width: 100%; max-height: calc(100vh - 48px); display: block; }
@@ -737,6 +772,8 @@ const I = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const Is = (n, s) => I(n).replace('<svg', `<svg width="${s}" height="${s}"`);
 const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+// The prototype and node run on this computer; the real app asks the node.
+const fileManagerAction = () => t(navigator.platform.includes('Win') ? 'showInFileExplorer' : navigator.platform.includes('Mac') ? 'showInFinder' : 'showInFileManager');
 
 /* ---------------- Languages: strings live in i18n/<lang>.js; numbers, dates and lists come from Intl ---------------- */
 const LANGS = [['en-US', 'English (US)', '', 'EN-US'], ['en-GB', 'English (UK)', '', 'EN-GB'], ['de', 'Deutsch', 'German', 'DE'], ['fr', 'Français', 'French', 'FR'], ['ru', 'Русский', 'Russian', 'RU'], ['ja', '日本語', 'Japanese', 'JA'], ['ko', '한국어', 'Korean', 'KO'], ['zh-Hans', '中文（简体）', 'Chinese, Simplified', '中文（简体）'], ['zh-Hant', '中文（繁體）', 'Chinese, Traditional', '中文（繁體）']];
@@ -920,7 +957,7 @@ const UNTIL = [['1w', '2025-11-09'], ['1m', '2025-12-02'], ['1y', '2026-11-02'],
 const untilText = (iso) => (iso ? md(iso) : t('noEnd'));
 const LEND = { to: ['Sam'], cores: 4, hours: 2, on: true };
 
-const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true };
+const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false };
 (() => {
   const qs = new URLSearchParams(location.search);
   try { S.mode = localStorage.getItem('oikome-proto-mode') || S.mode; S.lang = localStorage.getItem('oikome-proto-lang') || S.lang; } catch {}
@@ -1099,15 +1136,15 @@ screens.collections = () => {
 };
 
 // A folder viewed where it is, as in a file manager: a path, folders first.
-// Read only; names are the folders' own, in any script.
+// Viewing and saving are separate; names are the folders' own, in any script.
 const TREES = {
   trips: { folders: {
     'Lisbon 2025': { folders: {}, files: [['Alfama.jpg', 'photo', [1.9, 'MB'], '2025-10-12T10:20', 'alfama'], ['Belém Tower.jpg', 'photo', [2.4, 'MB'], '2025-10-12T15:02', 'belem'], ['Pastéis de Belém.jpg', 'photo', [1.1, 'MB'], '2025-10-13T09:41', 'pasteis'], ['Tram 28E.jpg', 'photo', [2.0, 'MB'], '2025-10-13T11:03', 'tram'], ['Sunset.jpg', 'photo', [1.6, 'MB'], '2025-10-13T19:12', 'sunset']] },
     'Porto 2024': { folders: { Ribeira: { folders: {}, files: [['Ribeira at dusk.jpg', 'photo', [2.2, 'MB'], '2024-06-02T18:20', 'sunset']] } }, files: [['Azulejos.jpg', 'photo', [1.7, 'MB'], '2024-06-01T12:11', 'tiles'], ['Rooftops.jpg', 'photo', [1.8, 'MB'], '2024-06-01T16:30', 'alfama']] },
     '旅行笔记': { folders: {}, files: [['里斯本.md', 'note', [3, 'KB'], '2025-10-14T22:10', null, '坐 28 路电车上山，在 Graça 下车，再一路走回 Alfama。'], ['Porto.md', 'note', [2, 'KB'], '2024-06-03T21:40', null, 'Ribeira at dusk, the port cellars lit up across the river.']] },
-  }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['flights', '240'], ['hotel', '410'], ['trams', '18']]], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
+  }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['Flights', '240.00'], ['Hotel', '410.00'], ['Trams', '18.00'], ['Dinner', '64.50']]], ['Portfolio.psd', 'psd', [84.2, 'MB'], '2025-10-28T20:50', null, null], ['DSC_2041.NEF', 'raw', [28.4, 'MB'], '2025-10-28T20:45', null, null], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
 };
-const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', other: 'file' };
+const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', psd: 'file', raw: 'photo', other: 'file' };
 // The top crumb goes on into a folder viewed in place: each folder a way back up.
 // On a phone it says only where one is, as on every page; Back goes up.
 function folderCrumb(route, arg, child) {
@@ -1162,7 +1199,7 @@ function folderView(c) {
   const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
   const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
     <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
-  return `${head(esc(c.label), t('fv.readOnly'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
+  return `${head(esc(c.label), t('fv.browseNote'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
   ${all.length ? (S.fview === 'list' ? rows : tiles) : `<div class="card empty" style="padding:28px 16px"><span class="muted">${t('fv.empty')}</span></div>`}`;
 }
 
@@ -1303,7 +1340,7 @@ screens.place = (sl) => {
   }).join('') || `<div class="li"><span class="muted">${t('place.nothingHere')}</span></div>`;
   const legend = (cls, label, v) => `<div class="row row--between"><span class="row"><span class="swatch ${cls}"></span>${label}</span><span class="mono">${v}</span></div>`;
   const space = `<div class="card__body" style="display:grid;gap:12px"><div class="sbar" role="img" aria-label="${t('place.usedOf', { used: sz(p.used), total: sz(p.total) })}"><i class="s1" style="width:${p.oikP}%"></i><i class="s2" style="width:${Math.max(0, p.p - p.oikP)}%"></i></div>${legend('s1', 'Oikome', sz(p.oik))}${legend('s2', t(local ? 'place.otherLocal' : 'place.other'), sz(p.other))}${legend('s0', t('place.freeLabel'), sz(p.free))}<p class="hint" style="margin:0">${t('place.neverTouches')}</p></div>`;
-  const finder = `<button class="btn btn--ghost" data-act="finder" data-p="${esc(p.addr)}">${t('showInFinder')}</button>`;
+  const finder = `<button class="btn btn--ghost" data-act="finder" data-p="${esc(p.addr)}">${fileManagerAction()}</button>`;
   const mono = (x) => H(`<span class="mono">${esc(x)}</span>`);
   let access;
   if (p.kind === 'nas') {
@@ -1322,7 +1359,7 @@ screens.place = (sl) => {
     : kv(t('place.ifBreaks', { place: placeName(p.name) }), here.length ? t('place.nothingLost', { list: H(names(here)), n: here.length }) : t('place.nothingLostEmpty')) + kv(t('place.ifThisBreaks'), t('place.copyLeft')) + keyRow;
   const status = p.kind === 'drive' && !S.driveSynced ? ['idle', t('place.downloading', { n: 2 })] : waiting ? ['run', t('place.waiting', { n: 3 })] : ['ok', t(local ? 'st.healthy' : 'st.reachable')];
   const ups = (UPLOADS[p.name] || []).map(([iso, c, r, st]) => `<div class="li"><span class="mono faint" style="font-size:12px;width:96px">${when(iso)}</span><div class="li__main"><span class="li__title mono" style="font-family:var(--mono);font-size:13px">${c}</span><span class="li__meta" style="white-space:normal">${t(r[0], r[1])}</span></div>${glyph(st, t(st === 'ok' ? 'st.done' : 'st.failed'))}</div>`).join('') || `<div class="li"><span class="muted">${t('place.noUploads')}</span></div>`;
-  const acts = (local || p.kind === 'folder' ? `<button class="btn" data-act="finder" data-p="${esc(p.addr)}">${I('folder')}${t('showInFinder')}</button>` : `<button class="btn btn--primary" data-act="placecheck" data-i="${i}">${I('sync')}${t('place.checkNow')}</button>`)
+  const acts = (local || p.kind === 'folder' ? `<button class="btn" data-act="finder" data-p="${esc(p.addr)}">${I('folder')}${fileManagerAction()}</button>` : `<button class="btn btn--primary" data-act="placecheck" data-i="${i}">${I('sync')}${t('place.checkNow')}</button>`)
     + `<button class="btn icon-btn" data-act="placemore" data-i="${i}" aria-label="${t('more')}">${I('more')}</button>`;
   return `${head(nm, `<span class="mono">${esc(p.addr)}</span>`, acts, t(`placeKind.${p.kind}`))}
   ${facts([['src.col.status', glyph(status[0], status[1])], ['place.space', t('place.usedOf', { used: sz(p.used), total: sz(p.total) })], ['place.encryption', t(p.enc ? 'on' : 'off')], ['place.newCols', p.def ? t('place.isDefault') : `<button class="link" data-act="placedefault" data-i="${i}" style="background:none;border:0;border-bottom:1px solid var(--line);padding:0;cursor:pointer;font:inherit;color:inherit">${t('place.makeDefault')}</button>`]])}
@@ -1383,7 +1420,9 @@ screens.plugins = () => `
 const installed = (id) => PLUGINS.some((p) => p.id === id);
 screens.directory = () => `
   ${head(t('dir'), t('dir.sub'), `<button class="btn" data-act="installfile">${t('installFile')}</button>`)}
-  <div class="grid3">${DIRECTORY.map((p, i) => `<div class="card lift plug"><div class="row"><span class="ico c${(i % 5) + 1}">${I(p.ic)}</span><div><div style="font-weight:600">${t(`plg.${p.id}`)}</div><div class="faint mono" style="font-size:11px">${t('by', { who: p.by })}</div></div></div><div class="muted">${t(`plg.${p.id}.what`)}</div><div class="hint">${p.reads === false ? t('dir.readsNothing') : t('dir.reads', { what: t(`plg.${p.id}.reads`) })}</div><div class="plug__foot">${p.net ? `<span class="tag tag--accent">${p.net}</span>` : `<span class="st st--plain">${Is('lock', 13)} ${t('net.none')}</span>`}${installed(p.id) ? `<span class="tag">${t('added')}</span>` : `<button class="btn" data-act="install" data-i="${i}">${t('add')}</button>`}</div></div>`).join('')}</div>`;
+  <div class="grid3">${DIRECTORY.map((p, i) => `<div class="card lift plug"><div class="row"><span class="ico c${(i % 5) + 1}">${I(p.ic)}</span><div><div style="font-weight:600">${t(`plg.${p.id}`)}</div><div class="faint mono" style="font-size:11px">${t('by', { who: p.by })}</div></div></div><div class="muted">${t(`plg.${p.id}.what`)}</div><div class="hint">${p.reads === false ? t('dir.readsNothing') : t('dir.reads', { what: t(`plg.${p.id}.reads`) })}</div><div class="plug__foot">${p.net ? `<span class="tag tag--accent">${p.net}</span>` : `<span class="st st--plain">${Is('lock', 13)} ${t('net.none')}</span>`}${installed(p.id) ? `<span class="tag">${t('added')}</span>` : `<button class="btn" data-act="install" data-i="${i}">${t('add')}</button>`}</div></div>`).join('')}</div>
+  <h2 style="margin:32px 0 4px;font-size:18px">${t('dir.content')}</h2><p class="muted" style="margin:0 0 16px">${t('dir.contentSub')}</p>
+  <div class="grid3"><div class="card lift plug"><div class="row"><span class="ico c3">${I('photo')}</span><div><div style="font-weight:600">${t('fv.rawPluginName')}</div><div class="faint mono" style="font-size:11px">${t('by', { who: 'Oikome' })}</div></div></div><div class="muted">${t('fv.rawInstallBody')}</div><div class="hint">${t('fv.pluginBy')}</div><div class="plug__foot"><span class="st st--plain">${Is('lock', 13)} ${t('net.none')}</span>${S.rawPlugin ? `<span class="tag">${t('fv.installed')}</span>` : `<button class="btn" data-act="rawinstall">${t('add')}</button>`}</div></div></div>`;
 
 screens.activity = () => {
   const f = S.afilter;
@@ -1614,7 +1653,7 @@ DLG.borrow = (D) => dlg(t('borrow.title', { who: 'Sam' }), `
   <div class="row row--between"><span>${t('borrow.use', { who: 'Sam' })}</span><span class="toggle ${D.on ? 'on' : ''}" data-act="flag" data-bind="on" role="switch" aria-checked="${D.on}"></span></div>`,
 foot(D.on ? '' : t('borrow.off'), `<button class="btn btn--primary" data-close>${t('done')}</button>`));
 
-const AIAPPS = [['Claude Code', 'aia.terminal'], ['ChatGPT', 'aia.desktop'], ['other', 'aia.any']];
+const AIAPPS = [['Claude Code', 'aia.terminal'], ['other', 'aia.any']];
 const aiAppName = (n) => (n === 'other' ? t('aia.other') : n);
 DLG.connect = (D) => {
   let body = steps(['step.app', 'step.reads', 'step.connect'], D.step), nav;
@@ -1625,12 +1664,11 @@ DLG.connect = (D) => {
     body += `<p class="muted" style="margin:0">${t('cn.nothingUntil')}</p><div class="opts">${C.filter((c) => c.kind !== 'empty').map((c) => opt('reads', c.name, D.reads, `${nameCell(c.name)}<span class="faint mono" style="font-size:12px">${colCount(c)}</span>`, true)).join('')}</div>`;
     nav = btn(t('back'), 'data-act="step" data-to="1"') + btn(t('cn.next'), 'data-act="connectgo"', 'btn--primary');
   } else {
+    const connection = D.app === 'Claude Code'
+      ? 'claude mcp add --transport http oikome http://127.0.0.1:7340/mcp --header "Authorization: Bearer oik_…"'
+      : 'http://127.0.0.1:7340/mcp\nAuthorization: Bearer oik_…';
     body += `<p class="muted" style="margin:0">${t('cn.paste', { app: aiAppName(D.app) })}</p>
-    <div class="code">{
-  "mcpServers": {
-    "oikome": { "command": "oikome", "args": ["mcp", "--grant", "g_7f3a…"] }
-  }
-}</div><div class="row row--between">${D.connected ? glyph('ok', t('cn.connected', { app: aiAppName(D.app) })) : glyph('run', t('cn.waiting', { app: aiAppName(D.app) }))}${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="settings"')}</div>
+    <div class="code">${esc(connection)}</div><div class="row row--between">${D.connected ? glyph('ok', t('cn.connected', { app: aiAppName(D.app) })) : glyph('run', t('cn.waiting', { app: aiAppName(D.app) }))}${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="settings"')}</div>
     <p class="hint" style="margin:0">${(D.reads.length ? t('cn.canRead', { list: H(lst(D.reads)) }) : t('cn.canReadNone'))}</p>`;
     nav = D.connected ? `<button class="btn btn--primary" data-close>${t('done')}</button>` : btn(t('close'), 'data-close');
   }
@@ -1667,21 +1705,56 @@ DLG.plugset = (D) => {
   `${btn(t('ps.remove'), 'data-act="plugremove"', 'btn--ghost')}<div class="row">${cancel()}<button class="btn btn--primary" data-act="plugsetok">${t('save')}</button></div>`);
 };
 
+const ITINERARY_SOURCE = `# Lisbon, slowly
+
+Three days on foot, with time for coffee.
+
+> The best way to see the city is to leave an afternoon unplanned.
+
+## First morning
+- Take tram 28 to Graça.
+- Walk down through Alfama.
+- Save the sunset for Santa Luzia.
+
+## Practical notes
+| Place | Time |
+| --- | --- |
+| Belém | Monday morning |
+| Sintra | Wednesday, early |
+
+**Keep Thursday open for Porto.**`;
+
 DLG.fview = (D) => {
   const [n, k, size, changed, ph, x] = D.set[D.i];
   const c = C.find((x) => x.name === D.c);
+  const richNote = n === 'itinerary.md' && D.mode !== 'source';
   const body = k === 'photo'
     ? `<div class="fview__photo"><img src="${PH[ph]}" alt="${esc(n)}"></div>`
     : k === 'note'
-      ? `<div class="fview__note"><p>${esc(x || '')}</p></div>`
+      ? D.mode === 'source'
+        ? `<pre class="fview__source">${esc(n === 'itinerary.md' ? ITINERARY_SOURCE : x || '')}</pre>`
+        : richNote
+          ? `<article class="fview__note"><h1>Lisbon, slowly</h1><p>Three days on foot, with time for coffee.</p><blockquote>The best way to see the city is to leave an afternoon unplanned.</blockquote><h2>First morning</h2><ul><li>Take tram 28 to Graça.</li><li>Walk down through Alfama.</li><li>Save the sunset for Santa Luzia.</li></ul><h2>Practical notes</h2><table><thead><tr><th>Place</th><th>Time</th></tr></thead><tbody><tr><td>Belém</td><td>Monday morning</td></tr><tr><td>Sintra</td><td>Wednesday, early</td></tr></tbody></table><p><strong>Keep Thursday open for Porto.</strong></p></article>`
+          : `<div class="fview__note"><p>${esc(x || '')}</p></div>`
       : k === 'csv'
-        ? `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><tbody>${(x || []).map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
-        : `<div class="empty"><span class="ico">${I('file')}</span><b>${esc(n)}</b><span class="muted">${sz(size)}</span>${c && c.stored === 'Local' ? btn(t('fv.showInFinder'), 'data-act="ffinder"') : ''}</div>`;
-  const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><span>${c ? esc(placeName(c.stored)) : ''}</span></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div></div>` : '';
+        ? `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><thead><tr><th scope="col">Item</th><th scope="col" class="num">EUR</th></tr></thead><tbody>${(x || []).map((r) => `<tr>${r.map((v, i) => `<td class="${i === 1 ? 'num' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+        : k === 'raw' && S.rawPlugin
+          ? `<div class="fview__photo"><img src="${PH.sunset}" alt="${esc(n)}"><span class="fview__badge">${t('fv.developedPreview')}</span></div>`
+          : `<div class="fview__external"><div class="empty"><span class="ico">${I(k === 'raw' ? 'photo' : 'file')}</span><b>${k === 'raw' ? t('kind.raw') : k === 'psd' ? t('kind.psd') : esc(n)}</b><span class="muted">${sz(size)}</span><p class="muted">${t(k === 'raw' ? 'fv.rawBody' : 'fv.professionalBody', { format: k === 'psd' ? t('kind.psd') : t('kind.other') })}</p>${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"')}</div></div>`;
+  const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><a class="link" href="#place/${c ? slug(c.stored) : ''}">${c ? esc(placeName(c.stored)) : ''}</a></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div><div class="kv"><span class="label">${t('fact.comesFrom')}</span><button class="link" data-act="ffinder" title="${fileManagerAction()}" style="padding:0;border:0;border-bottom:1px solid var(--line);background:none;font:inherit;text-align:left;cursor:pointer">${c ? esc(placeName(c.stored)) : ''} · Trips</button></div></div>` : '';
   const title = `<span class="fview__name">${esc(n)}</span><span class="fview__quiet">${md(changed)} · ${c ? esc(placeName(c.stored)) : ''} · ${whoLine(D.c)}</span>`;
   const move = D.set.length > 1 ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
-  return dlg(title, `${details}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.readOnly'), move), 'fview', btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost'));
+  const tools = `<div class="fview__tools">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div>${btn(t('fv.editSource'), 'data-act="fedit"', 'btn--primary')}` : ''}${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;
+  return dlg(title, `${details}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.browseNote'), move), 'fview', tools);
 };
+
+DLG.fsave = (D) => dlg(t('fv.saveTitle', { name: D.file }),
+  `<p class="fview__save-note">${t('fv.conflictNote')}</p><div class="opts">${opt('saveTarget', 'original', D.saveTarget, twoLine(t('fv.saveOriginal'), t('fv.saveOriginalSub')))}${opt('saveTarget', 'copy', D.saveTarget, twoLine(t('fv.saveCopy'), t('fv.saveCopySub')))}</div><div class="opts">${flagOpt('dontAsk', D.dontAsk, `<b style="flex:1">${t('fv.dontAsk')}</b>`)}</div><div class="field"><span class="label">${t('fv.rememberFor')}</span><div class="input"><select aria-label="${t('fv.rememberFor')}" data-change="drivepick" data-bind="scope" ${D.dontAsk ? '' : 'disabled'} style="width:100%;border:0;background:transparent;font:inherit;outline:0"><option value="folder" ${D.scope === 'folder' ? 'selected' : ''}>${t('fv.scopeFolder')}</option><option value="identity" ${D.scope === 'identity' ? 'selected' : ''}>${t('fv.scopeIdentity')}</option></select></div></div>`,
+  foot('', `${cancel()}<button class="btn btn--primary" data-act="fsaveok">${t('fv.saveNow')}</button>`), 'dialog--s');
+
+DLG.rawinstall = () => dlg(t('fv.rawPluginName'),
+  `<p class="muted" style="margin:0">${t('fv.rawInstallBody')}</p><div class="box"><b>${t('fv.pluginBy')}</b><p class="hint" style="margin:8px 0 0">${t('fv.pluginAccess')}</p></div>`,
+  foot(t('fv.openOnThisComputer'), `${cancel()}<button class="btn btn--primary" data-act="rawinstallok">${t('fv.install')}</button>`), 'dialog--s');
 
 // Cloud drives: which one, then how it connects. Its desktop app's folder
 // where the app is on this computer (nothing to register); signing in on
@@ -1920,10 +1993,16 @@ const ACT = {
   fcrumb: (el) => { const c = el.dataset.c; S.fpath[c] = (S.fpath[c] || []).slice(0, +el.dataset.i); render(); },
   ffile: (el) => {
     const c = el.dataset.c, set = orderedFolderFiles(c);
-    open('fview', { c, set, i: Math.max(0, set.findIndex((f) => f[0] === el.dataset.n)), info: false });
+    open('fview', { c, set, i: Math.max(0, set.findIndex((f) => f[0] === el.dataset.n)), info: false, mode: 'read' });
   },
-  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length }),
+  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length, mode: 'read' }),
   finfo: () => upd({ info: !D.info }),
+  fnoteview: (el) => upd({ mode: el.dataset.v }),
+  fedit: () => open('fsave', { file: D.set[D.i][0], saveTarget: 'original', dontAsk: false, scope: 'folder' }),
+  fsaveok: () => { const target = D.saveTarget; close(); toast(t(target === 'copy' ? 'fv.copySaved' : 'fv.originalSaved')); },
+  fopenwith: () => toast(t('fv.openOnThisComputer')),
+  rawinstall: () => open('rawinstall', { back: D?.name === 'fview' ? D : null }),
+  rawinstallok: () => { const back = D.back; S.rawPlugin = true; close(); if (back) open('fview', back); else render(true); toast(t('fv.installed')); },
   ffinder: () => toast(t('toast.finder', { path: D.set[D.i][0] })),
   afilter: (el) => { S.afilter = el.dataset.v; render(true); },
   photo: (el) => open('photo', { c: el.dataset.c, set: PHOTOSETS[el.dataset.c], i: +el.dataset.i }),
@@ -1931,7 +2010,7 @@ const ACT = {
   lb: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length }),
   colmore: (el) => {
     const n = el.dataset.c, c = C.find((x) => x.name === n), s = SOURCES.find((x) => x.name === c.source);
-    menu(el, [s ? [t('syncNow'), 'sync', () => doSync(s)] : null, [t('showInFinder'), 'folder', () => toast(t('toast.finder', { path: n }))], [t('cm.whoSees'), 'eye', () => go('access')], '-',
+    menu(el, [s ? [t('syncNow'), 'sync', () => doSync(s)] : null, [fileManagerAction(), 'folder', () => toast(t('toast.finder', { path: n }))], [t('cm.whoSees'), 'eye', () => go('access')], '-',
       [t('cm.remove'), 'remove', () => confirmDlg(t('cm.removeTitle', { c: n }), t(s ? 'cm.removeBodySrc' : 'cm.removeBody', { app: s ? s.name : '' }), t('remove'), () => removeCollection(n))]].filter(Boolean));
   },
   share: (el) => {
@@ -2120,7 +2199,7 @@ const ACT = {
     menu(el, [
       onPage ? null : [t('openDetails'), 'chevron', () => go('place/' + slug(p.name))],
       p.def ? null : [t('place.makeDefaultMenu'), 'check', () => ACT.placedefault(el)],
-      p.kind === 'nas' ? [t('pm.account'), 'pencil', () => ACT.nasauth(el)] : [t('showInFinder'), 'folder', () => toast(t('toast.finder', { path: p.addr }))],
+      p.kind === 'nas' ? [t('pm.account'), 'pencil', () => ACT.nasauth(el)] : [fileManagerAction(), 'folder', () => toast(t('toast.finder', { path: p.addr }))],
       p.enc && !p.keySaved ? [t('place.saveKey'), 'key', () => ACT.placekey(el)] : null,
       p.kind === 'local' ? null : '-',
       p.kind === 'local' ? null : [t('dm.remove'), 'remove', () => {

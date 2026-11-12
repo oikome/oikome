@@ -464,6 +464,7 @@ impl Api {
             did: self.node_did()?,
             name: settings.name,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            platform: std::env::consts::OS.to_string(),
             // Only the owner learns where the data lives.
             data_dir: if owner {
                 self.catalog.root_path().to_string()

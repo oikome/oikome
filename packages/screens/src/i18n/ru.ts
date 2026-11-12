@@ -404,7 +404,6 @@ export const ru: Strings = {
     reading: "Чтение…",
     viewed: (name: string) => `Коллекция ${name} читается на месте.`,
     readWhereItIs: "Читается на месте",
-    inItsFolder: (place: string) => `${place}, в своей папке`,
     readAgain: "Перечитать",
     readAgo: (when: string) => `Прочитано ${when}`,
     readNow: (name: string) => `Коллекция ${name} перечитана.`,
@@ -421,7 +420,9 @@ export const ru: Strings = {
     colModified: "Изменён",
     fileKinds: { image: "Фото", note: "Заметка", table: "Таблица", other: "Файл" } as Record<string, string>,
     info: "Сведения",
-    showInFinder: "Показать в Finder",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "Показать в Finder" : platform === "windows" ? "Показать в проводнике" : "Показать в файловом менеджере",
+    openWith: "Открыть в приложении по умолчанию",
     fileCut: "Здесь показаны только первые 64 МБ файла.",
     showMore: "Показать ещё",
     emptyFolder: "В этой папке ничего нет.",

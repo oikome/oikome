@@ -399,7 +399,6 @@ export const en = {
     reading: "Reading…",
     viewed: (name: string) => `${name} is read where it is.`,
     readWhereItIs: "Read where it is",
-    inItsFolder: (place: string) => `${place}, in its own folder`,
     readAgain: "Read Again",
     readAgo: (when: string) => `Read ${when}`,
     readNow: (name: string) => `Read ${name} again.`,
@@ -415,7 +414,9 @@ export const en = {
     colModified: "Changed",
     fileKinds: { image: "Photo", note: "Note", table: "Table", other: "File" } as Record<string, string>,
     info: "Info",
-    showInFinder: "Show in Finder",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "Show in Finder" : platform === "windows" ? "Show in File Explorer" : "Show in File Manager",
+    openWith: "Open in Default App",
     fileCut: "This view shows only the first 64 MB of the file.",
     showMore: "Show More",
     emptyFolder: "Nothing in this folder.",

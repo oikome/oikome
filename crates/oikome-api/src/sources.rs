@@ -135,11 +135,23 @@ pub(crate) async fn csv_config(path: &Path, table: &str) -> Result<SourceConfig,
     })
 }
 
+/// Start an operating-system opener with its output detached from the node.
+fn launch(mut command: Command) -> std::io::Result<()> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    // Reap it when it exits.
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
 /// Show a folder, or a file in its folder, in this computer's file
 /// manager. The path is passed as an argument, never through a shell.
 pub(crate) fn reveal(path: &Path, folder: bool) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
-    let mut command = {
+    let command = {
         let mut c = Command::new("open");
         if !folder {
             c.arg("-R");
@@ -148,7 +160,7 @@ pub(crate) fn reveal(path: &Path, folder: bool) -> std::io::Result<()> {
         c
     };
     #[cfg(target_os = "windows")]
-    let mut command = {
+    let command = {
         let mut c = Command::new("explorer");
         if folder {
             c.arg(path);
@@ -158,7 +170,7 @@ pub(crate) fn reveal(path: &Path, folder: bool) -> std::io::Result<()> {
         c
     };
     #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
+    let command = {
         let mut c = Command::new("xdg-open");
         c.arg(if folder {
             path
@@ -167,14 +179,31 @@ pub(crate) fn reveal(path: &Path, folder: bool) -> std::io::Result<()> {
         });
         c
     };
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    // Reap it when it exits.
-    std::thread::spawn(move || child.wait());
-    Ok(())
+    launch(command)
+}
+
+/// Open a local file with its default application, passing the path as one
+/// argument directly to the operating system, never through a shell.
+pub(crate) fn open(path: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let command = {
+        let mut c = Command::new("open");
+        c.arg(path);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let command = {
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler").arg(path);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let command = {
+        let mut c = Command::new("xdg-open");
+        c.arg(path);
+        c
+    };
+    launch(command)
 }
 
 impl Api {

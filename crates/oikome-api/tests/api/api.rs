@@ -2923,6 +2923,56 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
 }
 
 #[tokio::test]
+async fn open_with_accepts_only_an_owner_and_an_indexed_local_path() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let trip = root.join("Trip originals");
+    std::fs::create_dir_all(&trip).unwrap();
+    std::fs::write(trip.join("Portfolio.psd"), [0u8, 1, 2, 3]).unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: trip.to_string_lossy().into_owned(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    for (path, code) in [
+        ("../outside.psd", ErrorCode::Invalid),
+        ("missing.psd", ErrorCode::NotFound),
+    ] {
+        let e = n
+            .api
+            .open_with(
+                &OWNER,
+                FileRef {
+                    space: "trip-originals".into(),
+                    path: path.into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, code, "{path}: {e}");
+    }
+    let e = n
+        .api
+        .open_with(
+            &Caller::Principal { did: did(99) },
+            FileRef {
+                space: "trip-originals".into(),
+                path: "Portfolio.psd".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+}
+
+#[tokio::test]
 async fn a_folders_files_open_as_tables_read_where_they_are() {
     let n = node();
     let root = std::path::PathBuf::from(n.catalog.root_path());

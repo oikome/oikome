@@ -386,7 +386,6 @@ export const ja: Strings = {
     reading: "読み取り中…",
     viewed: (name: string) => `${name} を元の場所で読み取ります`,
     readWhereItIs: "元の場所で読み取り",
-    inItsFolder: (place: string) => `${place} の元のフォルダ内`,
     readAgain: "再読み取り",
     readAgo: (when: string) => `最終読み取り ${when}`,
     readNow: (name: string) => `${name} を再読み取りしました`,
@@ -402,7 +401,9 @@ export const ja: Strings = {
     colModified: "更新日時",
     fileKinds: { image: "写真", note: "メモ", table: "表", other: "ファイル" },
     info: "情報",
-    showInFinder: "Finderで表示",
+    showInFinder: (platform: string) =>
+      platform === "macos" ? "Finderで表示" : platform === "windows" ? "エクスプローラーで表示" : "ファイルマネージャーで表示",
+    openWith: "デフォルトアプリで開く",
     fileCut: "この表示ではファイルの先頭 64 MB のみを表示しています。",
     showMore: "さらに表示",
     emptyFolder: "このフォルダには何もありません。",

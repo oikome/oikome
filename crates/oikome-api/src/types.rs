@@ -44,6 +44,8 @@ pub struct NodeInfo {
     pub name: String,
     /// Oikome version.
     pub version: String,
+    /// The operating system of the computer running this node (`macos`, `windows`, `linux`).
+    pub platform: String,
     /// The data directory on this computer.
     pub data_dir: String,
     /// Whether the owner said they stored the recovery key.

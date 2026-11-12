@@ -33,6 +33,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -132,7 +133,15 @@ test.beforeAll(async ({ browser }) => {
   expect(existsSync(join(WEB_ROOT, "index.html")), "build apps/web first (npm run build)").toBe(true);
   owner = mkdtempSync(join(tmpdir(), "oikome-app-"));
   contact = mkdtempSync(join(tmpdir(), "oikome-app-contact-"));
-  server = await serveWeb(owner);
+  let openerEnv = ENV;
+  if (process.platform !== "win32") {
+    const openerBin = join(owner, "opener-bin");
+    mkdirSync(openerBin);
+    const opener = join(openerBin, process.platform === "darwin" ? "open" : "xdg-open");
+    writeFileSync(opener, `#!/bin/sh\nprintf '%s|%s\\n' "$#" "$*" > "${join(owner, "open-with.log")}"\n`, { mode: 0o755 });
+    openerEnv = { ...ENV, PATH: `${openerBin}:${ENV.PATH ?? ""}` };
+  }
+  server = await serveWeb(owner, openerEnv);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   page = await context.newPage();
@@ -291,7 +300,6 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   writeFileSync(join(owner, "Examples", "oikome-guide", "8 Ferry.md"), "Take the ferry to Cacilhas at sunset.\n");
   await page.goto(`${base}/collections/oikome-guide`);
   await expect(page.locator(".screen-facts")).toContainText("Examples/oikome-guide");
-  await expect(page.locator(".screen-facts")).toContainText("Read where it is");
   await page.getByRole("button", { name: "Read Again" }).click();
   await expect(page.locator(".oik-toasts")).toContainText("Read oikome-guide again.");
   await expect(page.getByText("Take the ferry to Cacilhas at sunset.")).toBeVisible();
@@ -1443,8 +1451,7 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
 
     // Its page: where it is, its photo from the index, its folders.
     await page.goto(`${base}/collections/${name}`);
-    await expect(page.locator(".screen-facts")).toContainText("Read where it is");
-    // Its folders first, as covers like a collection's: the note in Notes
+      // Its folders first, as covers like a collection's: the note in Notes
     // shows. Then its files, each showing some of itself: a CSV its rows.
     const notesFolder = page.locator(".screen-subfolders .screen-cover", { hasText: "Notes" });
     await expect(notesFolder).toContainText("Took the ferry to Cacilhas at sunset.");
@@ -1469,6 +1476,12 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     const large = photo.locator("img").first();
     await expect.poll(() => large.evaluate((img) => img.naturalWidth)).toBeGreaterThan(512);
     expect(await large.getAttribute("src")).toMatch(/^\/files\/original\//);
+    await photo.getByRole("button", { name: "Info" }).click();
+    await expect(photo.locator(".screen-fileview__facts")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    const nextFile = page.getByRole("dialog", { name: "2025.csv" });
+    await expect(nextFile.locator(".screen-fileview__facts")).toBeVisible();
+    await expect(nextFile.getByRole("button", { name: "Info" })).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Escape");
     // Into a folder and back.
     // Into a folder: an address of its own, named in the one crumb at the
@@ -1529,6 +1542,54 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     await api("drop_space", { space: name });
   } finally {
     if (existsSync(away)) renameSync(away, trip);
+    rmSync(trip, { recursive: true, force: true });
+  }
+});
+
+test("a complex local file opens with the system application, not a shell", async () => {
+  test.skip(process.platform === "win32", "the fake opener is a POSIX executable");
+  if (!(await page.context().cookies()).length) await page.goto(loginLink());
+  const trip = mkdtempSync(join(tmpdir(), "oikome-open-with-"));
+  try {
+    const file = join(trip, "Portfolio; echo not-a-command.psd");
+    writeFileSync(file, new Uint8Array([0, 1, 2, 3]));
+    const viewed = await api("view_in_place", { path: trip });
+    const opened = await api("open_with", { space: viewed.name, path: "Portfolio; echo not-a-command.psd" });
+    expect(opened).toEqual({});
+    await page.goto(`${base}/collections/${viewed.name}`);
+    await page.locator(".screen-ftile", { hasText: "Portfolio; echo not-a-command.psd" }).click();
+    const viewer = page.getByRole("dialog", { name: "Portfolio; echo not-a-command.psd" });
+    const managerLabel = process.platform === "darwin" ? "Show in Finder" : process.platform === "win32" ? "Show in File Explorer" : "Show in File Manager";
+    await viewer.getByRole("button", { name: managerLabel }).waitFor();
+    await viewer.getByRole("button", { name: "Open in Default App" }).click();
+    await expect(viewer.locator(".oik-error")).toHaveCount(0);
+    const log = join(owner, "open-with.log");
+    await expect.poll(() => (existsSync(log) ? readFileSync(log, "utf8").trim() : "")).toBe(`1|${realpathSync(file)}`);
+
+    await page.keyboard.press("Escape");
+    const note = join(trip, "Travel.md");
+    writeFileSync(note, "# A real note\n");
+    await api("refresh_space", { space: viewed.name });
+    expect(await api("open_with", { space: viewed.name, path: "Travel.md" })).toEqual({});
+    await page.reload();
+    await page.locator(".screen-ftile", { hasText: "Travel.md" }).click();
+    const noteViewer = page.getByRole("dialog", { name: "Travel.md" });
+    const toolHeights = await noteViewer.locator(".screen-fileview__tools button").evaluateAll((buttons) => buttons.map((b) => b.getBoundingClientRect().height));
+    expect(new Set(toolHeights).size).toBe(1);
+    await noteViewer.getByRole("button", { name: "Open in Default App" }).click();
+    await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
+    await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(`1|${realpathSync(note)}`);
+
+    await noteViewer.getByRole("button", { name: "Info" }).click();
+    await noteViewer.locator(".screen-fileview__source").click();
+    await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
+    const revealLog = process.platform === "darwin" ? `2|-R ${realpathSync(note)}` : `1|${realpathSync(trip)}`;
+    await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(revealLog);
+
+    await noteViewer.getByRole("link", { name: "Local", exact: true }).click();
+    await expect(page).toHaveURL(/\/places\/this-computer$/);
+    await expect(page.getByRole("heading", { name: "Local", exact: true })).toBeVisible();
+  } finally {
     rmSync(trip, { recursive: true, force: true });
   }
 });

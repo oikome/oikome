@@ -138,7 +138,7 @@ test.beforeAll(async ({ browser }) => {
     const openerBin = join(owner, "opener-bin");
     mkdirSync(openerBin);
     const opener = join(openerBin, process.platform === "darwin" ? "open" : "xdg-open");
-    writeFileSync(opener, `#!/bin/sh\nprintf '%s|%s\\n' "$#" "$1" > "${join(owner, "open-with.log")}"\n`, { mode: 0o755 });
+    writeFileSync(opener, `#!/bin/sh\nprintf '%s|%s\\n' "$#" "$*" > "${join(owner, "open-with.log")}"\n`, { mode: 0o755 });
     openerEnv = { ...ENV, PATH: `${openerBin}:${ENV.PATH ?? ""}` };
   }
   server = await serveWeb(owner, openerEnv);
@@ -1478,6 +1478,12 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     const large = photo.locator("img").first();
     await expect.poll(() => large.evaluate((img) => img.naturalWidth)).toBeGreaterThan(512);
     expect(await large.getAttribute("src")).toMatch(/^\/files\/original\//);
+    await photo.getByRole("button", { name: "Info" }).click();
+    await expect(photo.locator(".screen-fileview__facts")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    const nextFile = page.getByRole("dialog", { name: "2025.csv" });
+    await expect(nextFile.locator(".screen-fileview__facts")).toBeVisible();
+    await expect(nextFile.getByRole("button", { name: "Info" })).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Escape");
     // Into a folder and back.
     // Into a folder: an address of its own, named in the one crumb at the
@@ -1575,6 +1581,12 @@ test("a complex local file opens with the system application, not a shell", asyn
     await noteViewer.getByRole("button", { name: "Open in Default App" }).click();
     await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
     await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(`1|${realpathSync(note)}`);
+
+    await noteViewer.getByRole("button", { name: "Info" }).click();
+    await noteViewer.getByRole("button", { name: /Read where it is/ }).click();
+    await expect(noteViewer.locator(".oik-error")).toHaveCount(0);
+    const revealLog = process.platform === "darwin" ? `2|-R ${realpathSync(note)}` : `1|${realpathSync(trip)}`;
+    await expect.poll(() => readFileSync(log, "utf8").trim()).toBe(revealLog);
   } finally {
     rmSync(trip, { recursive: true, force: true });
   }

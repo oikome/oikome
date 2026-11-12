@@ -988,7 +988,6 @@ function FolderContents({
       )}
       {opened && (
         <FileView
-          key={opened}
           space={space.name}
           path={opened}
           file={files.find((file) => file.path === opened)}

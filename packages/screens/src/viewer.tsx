@@ -113,7 +113,22 @@ export function FileView({
         [s.colModified, changed],
         [s.keptOn, facts.keptOn],
         [s.whoCanSee, facts.who],
-        [s.cameFrom, facts.cameFrom],
+        [
+          s.cameFrom,
+          local ? (
+            <button
+              type="button"
+              className="oik-link screen-fileview__source"
+              title={s.showInFinder(host.data?.platform ?? "")}
+              disabled={reveal.busy}
+              onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}
+            >
+              {facts.cameFrom}
+            </button>
+          ) : (
+            facts.cameFrom
+          ),
+        ],
       ]
     : [];
 

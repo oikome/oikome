@@ -791,6 +791,20 @@
   padding-top: 12px;
   border-top: 1px solid var(--line2);
 }
+.screen-fileview__source {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.screen-fileview__source:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .screen-fileview__content {
   min-width: 0;
   min-height: 0;

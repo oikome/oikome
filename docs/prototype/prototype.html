@@ -1704,7 +1704,7 @@ function driveForm(D, pickKey, howKey) {
   const ways = d.sync && d.api ? `<div class="field"><span class="label">${t('ap.how')}</span><div class="opts">${opt(howKey, 'sync', how, twoLine(t('ap.howSync'), t('ap.howSync.sub', { path: d.sync[0] })))}${opt(howKey, 'api', how, twoLine(t('ap.howApi'), t('ap.howApi.sub')))}</div></div>` : '';
   let body;
   if (how === 'sync') body = `<div class="box">${t('ap.syncKept', { path: `${d.sync[0]}/Oikome` })} ${t('ap.encrypted', { drive: esc(driveName(name)) })}</div>`;
-  else if (driveUnavailable(name)) body = `<div class="box">${t(name === 'iCloud Drive' ? 'ap.icloudSetup' : 'ap.oneDriveSetup')}</div>`;
+  else if (driveUnavailable(name)) body = `<div class="box">${t(name === 'iCloud Drive' ? 'ap.icloudSetup' : 'ap.oneDriveSetup')}</div><button class="btn btn--quiet" data-act="drivecheck">${t('ap.checkAgain')}</button>`;
   else if (d.api === 'dropbox') body = `<p class="hint" style="margin:0 0 4px">${t('ap.dropboxSteps')}</p><ol class="hint" style="margin:0 0 10px;padding-left:20px"><li>${t('ap.dropboxStep1')}</li><li>${t('ap.dropboxStep2')}</li><li>${t('ap.dropboxStep3')}</li></ol><div class="field"><span class="label">${t('ap.appKey')}</span><div class="input"><input data-bind="user" value="${esc(D.user || '')}" autocomplete="off"></div></div><div class="box">${t('ap.dropboxNote')}</div>`;
   else body = GOOGLE_FORM(D, !!d.sync);
   return `${list}${ways}${body}`;
@@ -2169,6 +2169,7 @@ const ACT = {
   confirmok: () => { const fn = D.fn; close(); fn(); },
   opt: (el) => { const b = el.dataset.bind; if (b && D) upd({ [b]: el.dataset.val, err: '' }); else if (b === 'wpick' || b === 'whow') { S[b] = el.dataset.val; render(true); } else el.parentElement.querySelectorAll('.opt').forEach((o) => o.classList.toggle('on', o === el)); },
   drivepick: (el) => { const b = el.dataset.bind; if (b && D) upd({ [b]: el.value, err: '' }); else if (b === 'wpick' || b === 'whow') { S[b] = el.value; render(true); } },
+  drivecheck: () => { const n = D?.pick || S.wpick, d = driveOf(n); d.sync = [n === 'iCloud Drive' ? '~/Library/Mobile Documents' : '~/OneDrive', [50, 'GB']]; if (D) upd({ err: '' }); else render(true); },
   check: (el) => { const b = el.dataset.bind, v = el.dataset.val, a = (D[b] || []).slice(), i = a.indexOf(v); if (i < 0) a.push(v); else a.splice(i, 1); upd({ [b]: a }); },
   flag: (el) => { const b = el.dataset.bind; if (D) upd({ [b]: !D[b] }); else { S[b] = !S[b]; render(true); } },
   toggle: (el) => el.classList.toggle('on'),

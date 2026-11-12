@@ -883,6 +883,7 @@
   'ap.driveNotFound': '데스크톱 앱의 동기화 폴더를 찾을 수 없어요',
   'ap.icloudSetup': 'Apple 계정 설정에서 iCloud Drive를 켜세요. 동기화 폴더가 생기면 여기에 자동으로 표시돼요.',
   'ap.oneDriveSetup': 'OneDrive를 설치하고 로그인하세요. 동기화 폴더가 생기면 여기에 자동으로 표시돼요.',
+  'ap.checkAgain': '다시 확인',
   'ap.howApi.sub': '데스크톱 앱이 없는 컴퓨터용. 내 앱을 한 번 등록',
   'ap.howApi': '해당 페이지에서 로그인',
   'ap.howSync.sub': '{path} · 등록할 필요 없음',

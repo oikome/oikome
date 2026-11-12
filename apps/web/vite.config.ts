@@ -6,7 +6,7 @@
 //
 // `npm run build` writes the app to dist/ for `oikome serve --web
 // --web-root apps/web/dist`. `npm run dev` serves it with hot reload and
-// sends /api and /login to a running node (OIKOME_WEB_URL, default
+// sends /api, /login and /mcp to a running node (OIKOME_WEB_URL, default
 // http://127.0.0.1:7340), presenting the node's own origin so its
 // same-origin checks pass. Log in by opening the node's login link with
 // this server's address instead of the node's.
@@ -33,6 +33,10 @@ export default defineConfig({
         },
       },
       "/login": { target: node, changeOrigin: true },
+      // The AI Assistants screen builds its `claude mcp add` command from
+      // this page's own address. No Origin is added: the node refuses
+      // /mcp requests that carry one.
+      "/mcp": { target: node, changeOrigin: true },
     },
   },
 });

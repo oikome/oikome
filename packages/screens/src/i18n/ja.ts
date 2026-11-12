@@ -701,6 +701,8 @@ export const ja: Strings = {
     driveNotFound: "デスクトップアプリの同期フォルダが見つかりません",
     icloudSetup: "Apple アカウントの設定で iCloud Drive をオンにしてください。同期フォルダができると、ここに自動で表示されます。",
     oneDriveSetup: "OneDrive をインストールしてサインインしてください。同期フォルダができると、ここに自動で表示されます。",
+    checkAgain: "再確認",
+    checking: "確認中…",
     whichDrive: "クラウドドライブのサービス",
     howConnects: "接続方法",
     howSync: "デスクトップアプリのフォルダ",

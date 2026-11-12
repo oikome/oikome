@@ -883,6 +883,7 @@
   'ap.driveNotFound': '找不到電腦版的同步資料夾',
   'ap.icloudSetup': '在 Apple 帳號設定中開啟 iCloud 雲碟。同步資料夾出現後，這裡會自動顯示。',
   'ap.oneDriveSetup': '安裝 OneDrive 並登入。同步資料夾出現後，這裡會自動顯示。',
+  'ap.checkAgain': '重新檢測',
   'ap.howApi.sub': '適合沒裝電腦版的電腦；用你自己登記一次的應用程式',
   'ap.howApi': '在它的頁面上登入',
   'ap.howSync.sub': '{path} · 不用登記',

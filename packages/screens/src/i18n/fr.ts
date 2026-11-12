@@ -735,6 +735,8 @@ export const fr: Strings = {
     driveNotFound: "Dossier de l’application de bureau introuvable",
     icloudSetup: "Activez iCloud Drive dans les réglages de votre compte Apple. Son dossier de synchronisation apparaîtra ici automatiquement.",
     oneDriveSetup: "Installez OneDrive et connectez-vous. Son dossier de synchronisation apparaîtra ici automatiquement.",
+    checkAgain: "Vérifier à nouveau",
+    checking: "Vérification…",
     whichDrive: "Fournisseur de stockage cloud",
     howConnects: "Méthode de connexion",
     howSync: "Le dossier de son application de bureau",

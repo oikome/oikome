@@ -694,6 +694,8 @@ export const zhHans: Strings = {
     driveNotFound: "没找到电脑版的同步文件夹",
     icloudSetup: "在 Apple 账户设置中开启 iCloud 云盘。同步文件夹出现后，这里会自动显示。",
     oneDriveSetup: "安装 OneDrive 并登录。同步文件夹出现后，这里会自动显示。",
+    checkAgain: "重新检测",
+    checking: "正在检测…",
     whichDrive: "选择网盘",
     howConnects: "连接方式",
     howSync: "电脑版的同步文件夹",

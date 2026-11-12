@@ -388,6 +388,9 @@ export function useStoragePicker({ withThisComputer }: { withThisComputer: boole
               <strong>{s.driveNotFound}</strong>
             </p>
             <p className="screen-well-text">{drive.label === ICLOUD ? s.icloudSetup : s.oneDriveSetup}</p>
+            <Button variant="quiet" onClick={places.reload} disabled={places.loading}>
+              {places.loading ? s.checking : s.checkAgain}
+            </Button>
           </InsetWell>
         ) : (
           <>

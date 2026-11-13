@@ -446,7 +446,11 @@ export const fr: Strings = {
     colKind: "Type",
     colSize: "Taille",
     colModified: "Modifié",
-    fileKinds: { image: "Photo", note: "Note", table: "Tableau", other: "Fichier" },
+    fileKinds: { image: "Photo", note: "Note", table: "Tableau", audio: "Audio", video: "Vidéo", vector: "Image vectorielle", other: "Fichier" },
+    zoomImage: "Agrandir l’image",
+    imageUnavailable: "Impossible d’afficher cette image.",
+    mediaUnavailable: "Ce navigateur ne peut pas lire ce fichier. Essayez de l’ouvrir dans l’app par défaut.",
+    svgUnavailable: "Impossible d’afficher ce SVG en toute sécurité.",
     info: "Infos",
     showInFinder: (platform: string) =>
       platform === "macos"

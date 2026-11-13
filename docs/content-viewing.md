@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: direction agreed 2026-11-12. PR 18 is merged. PR 19 implements the content descriptor, safe Markdown and source views, and lazy-loaded data grids; PR 20 and safe editing have not started.
+> **Status**: PR 18 and PR 19 are merged. PR 20 implements lazy-loaded image gestures, safe SVG, native media and source-linked retrieval; safe editing has not started.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 
@@ -59,11 +59,11 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 
 ### PR 20: media and retrieval results
 
-- Lazy-load PhotoSwipe for image navigation and gestures; do not implement a second gesture engine.
-- Use native audio/video playback and HTTP range reads. Keep local opening for unsupported codecs.
-- Sanitize SVG and block scripts and external references.
-- Present search and vector hits as results linked to their source, not as a meaningful visualization of an embedding.
-- Compare build output with the baseline and verify that optional modules do not enter the first paint.
+- Lazy-load PhotoSwipe 5.4.4 for image navigation, zoom, pan and touch gestures; do not implement a second gesture engine. Gallery changes update the same file address and preserve Info; originals load only for the current and adjacent slides.
+- Use native audio/video playback and single-range HTTP reads. Keep local opening for unsupported codecs and show a playback failure rather than a blank viewer.
+- Sanitize SVG on demand with DOMPurify 3.4.17 under Apache-2.0, remove scripts, event handlers, foreign content and external references, and serialize to a blob image rather than inserting SVG into the page. Raw SVG responses also carry a restrictive CSP.
+- Present search and vector hits as excerpts with real links to their original content, preserving keyboard selection and modified-click behavior, not as a meaningful visualization of an embedding.
+- The PR 19 first-paint baseline was 666.01 kB of JS and 99.70 kB of CSS; PR 20 is 668.35 kB and 100.35 kB. PhotoSwipe (61.94 kB JS, 4.56 kB CSS) and DOMPurify (32.13 kB JS) remain separate lazy chunks. No Office, PSD, RAW or transcoding engine enters the core.
 
 ### PR 21: safe editing
 

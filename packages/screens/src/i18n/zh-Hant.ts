@@ -418,7 +418,11 @@ export const zhHant: Strings = {
     colKind: "種類",
     colSize: "大小",
     colModified: "修改時間",
-    fileKinds: { image: "照片", note: "筆記", table: "表格", other: "檔案" },
+    fileKinds: { image: "照片", note: "筆記", table: "表格", audio: "音訊", video: "影片", vector: "向量圖", other: "檔案" },
+    zoomImage: "放大圖片",
+    imageUnavailable: "無法顯示這張圖片。",
+    mediaUnavailable: "瀏覽器無法播放此檔案，請嘗試在預設應用程式中開啟。",
+    svgUnavailable: "無法安全顯示此 SVG。",
     info: "資訊",
     showInFinder: (platform: string) =>
       platform === "macos" ? "在訪達中顯示" : platform === "windows" ? "在檔案總管中顯示" : "在檔案管理器中顯示",

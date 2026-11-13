@@ -33,7 +33,7 @@
 
 ## PR 20: media and retrieval results
 
-Keep the agreed scope in `docs/content-viewing.md`: lazy-loaded image navigation and gestures, native audio/video with range reads, sanitized SVG, source-linked search/vector results, and bundle-size verification. No Office, PSD, RAW or transcoding engine enters the core.
+Keep the agreed scope in `docs/content-viewing.md`: lazy-loaded PhotoSwipe navigation and gestures with Info preserved, native audio/video with range reads and codec failures, DOMPurify SVG blob previews with external references blocked, source-linked search/vector results, and bundle-size verification. PhotoSwipe and DOMPurify are separate lazy chunks; the first-paint increase is about 2.3 kB JS and 0.65 kB CSS. No Office, PSD, RAW or transcoding engine enters the core.
 
 ## PR 21: safe editing
 

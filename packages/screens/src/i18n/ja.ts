@@ -428,7 +428,11 @@ export const ja: Strings = {
     colKind: "種類",
     colSize: "サイズ",
     colModified: "更新日時",
-    fileKinds: { image: "写真", note: "メモ", table: "表", other: "ファイル" },
+    fileKinds: { image: "写真", note: "メモ", table: "表", audio: "オーディオ", video: "動画", vector: "ベクター画像", other: "ファイル" },
+    zoomImage: "画像を拡大",
+    imageUnavailable: "この画像を表示できません。",
+    mediaUnavailable: "このブラウザではこのファイルを再生できません。デフォルトのアプリで開いてください。",
+    svgUnavailable: "この SVG を安全に表示できません。",
     info: "情報",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Finderで表示" : platform === "windows" ? "エクスプローラーで表示" : "ファイルマネージャーで表示",

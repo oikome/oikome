@@ -441,7 +441,11 @@ export const en = {
     colKind: "Kind",
     colSize: "Size",
     colModified: "Changed",
-    fileKinds: { image: "Photo", note: "Note", table: "Table", other: "File" } as Record<string, string>,
+    fileKinds: { image: "Photo", note: "Note", table: "Table", audio: "Audio", video: "Video", vector: "Vector Image", other: "File" } as Record<string, string>,
+    zoomImage: "Zoom image",
+    imageUnavailable: "This image can’t be displayed.",
+    mediaUnavailable: "This browser can’t play this file. Try opening it in its default app.",
+    svgUnavailable: "This SVG can’t be displayed safely.",
     info: "Info",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Show in Finder" : platform === "windows" ? "Show in File Explorer" : "Show in File Manager",

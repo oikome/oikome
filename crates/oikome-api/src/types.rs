@@ -299,6 +299,8 @@ pub enum ContentView {
     Source,
     Table,
     Image,
+    Audio,
+    Video,
 }
 
 /// Operations available for a file on the node that answered.

@@ -447,7 +447,11 @@ export const ru: Strings = {
     colKind: "Тип",
     colSize: "Размер",
     colModified: "Изменён",
-    fileKinds: { image: "Фото", note: "Заметка", table: "Таблица", other: "Файл" } as Record<string, string>,
+    fileKinds: { image: "Фото", note: "Заметка", table: "Таблица", audio: "Аудио", video: "Видео", vector: "Векторное изображение", other: "Файл" } as Record<string, string>,
+    zoomImage: "Увеличить изображение",
+    imageUnavailable: "Не удалось показать это изображение.",
+    mediaUnavailable: "Браузер не может воспроизвести этот файл. Попробуйте открыть его в приложении по умолчанию.",
+    svgUnavailable: "Не удалось безопасно показать этот SVG.",
     info: "Сведения",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Показать в Finder" : platform === "windows" ? "Показать в проводнике" : "Показать в файловом менеджере",

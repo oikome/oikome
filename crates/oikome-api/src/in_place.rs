@@ -154,7 +154,7 @@ fn add_selected_source(sources: &mut Vec<InPlaceSource>, file: &Path) -> Result<
     Ok(())
 }
 
-/// An original photo, or part of one.
+/// An original image, audio or video file, or part of one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Original {
     pub bytes: Vec<u8>,
@@ -242,7 +242,7 @@ fn content_of(
         "tsv" => Some("text/tab-separated-values"),
         "json" | "jsonl" | "ndjson" => Some("application/json"),
         "parquet" => Some("application/vnd.apache.parquet"),
-        _ => image_type(name),
+        _ => original_type(name),
     }
     .map(str::to_owned);
     let table_readable = !matches!(kind, FileKind::Table)
@@ -258,6 +258,12 @@ fn content_of(
             )
             .is_ok()
         });
+    let original_view = match media_type.as_deref() {
+        Some("image/svg+xml") => Some(ContentView::Image),
+        Some(media) if media.starts_with("audio/") => Some(ContentView::Audio),
+        Some(media) if media.starts_with("video/") => Some(ContentView::Video),
+        _ => None,
+    };
     let views = match kind {
         FileKind::Note if format == "markdown" => vec![ContentView::Read, ContentView::Source],
         FileKind::Note => vec![ContentView::Source],
@@ -267,7 +273,7 @@ fn content_of(
         }
         FileKind::Table => vec![ContentView::Table],
         FileKind::Image => vec![ContentView::Image],
-        FileKind::Other => vec![],
+        FileKind::Other => original_view.into_iter().collect(),
     };
     let unavailable_reason = if !table_readable {
         Some(format!(
@@ -322,14 +328,25 @@ fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
     }
 }
 
-/// The media type of an image Oikome shows, by its name.
-fn image_type(name: &str) -> Option<&'static str> {
+/// The media type of an original Oikome's image or native media views show.
+fn original_type(name: &str) -> Option<&'static str> {
     let extension = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
     Some(match extension.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" | "oga" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "flac" => "audio/flac",
+        "mp4" | "m4v" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        "ogv" => "video/ogg",
         _ => return None,
     })
 }
@@ -1043,8 +1060,8 @@ impl Api {
             .ok_or_else(|| ApiError::not_found("no thumbnail"))
     }
 
-    /// A photo as it is in its folder, or the `range` of it asked for: only a
-    /// file the index lists as a photo, read where it is.
+    /// An image, audio or video original, or the one `range` asked for: only
+    /// an indexed file with a built-in original view, read where it is.
     pub async fn file_original(
         &self,
         caller: &Caller,
@@ -1053,13 +1070,11 @@ impl Api {
     ) -> Result<Original, ApiError> {
         caller.require_owner()?;
         let location = self.in_place_of(&req.space)?;
-        let file = inplace::file(&self.catalog, &location, &req.path)?
-            .filter(|f| f.kind == inplace::IMAGE)
-            .ok_or_else(|| {
-                ApiError::not_found(format!("{} has no photo {}", req.space, req.path))
-            })?;
-        let content_type =
-            image_type(&file.name).ok_or_else(|| ApiError::not_found("not a photo shown"))?;
+        let file = inplace::file(&self.catalog, &location, &req.path)?.ok_or_else(|| {
+            ApiError::not_found(format!("{} has no file {}", req.space, req.path))
+        })?;
+        let content_type = original_type(&file.name)
+            .ok_or_else(|| ApiError::not_found("not an original Oikome shows"))?;
         let total = file.size;
         let (start, end) = match range {
             None => (0, total),
@@ -1072,7 +1087,7 @@ impl Api {
             }
         };
         if range.is_none() && total > inplace::MAX_IMAGE_BYTES {
-            return Err(ApiError::invalid("ask for a large photo in ranges"));
+            return Err(ApiError::invalid("ask for a large original in ranges"));
         }
         let place = inplace::place_of(&self.catalog, &self.engines, &location)?;
         if !place.reachable().await {

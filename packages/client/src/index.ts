@@ -193,7 +193,7 @@ export interface NodeClient {
   showFolder(request: ShowFolder): Promise<Empty>;
   /** Open an indexed local file with its default application on this computer. */
   openWith(request: FileRef): Promise<Empty>;
-  /** Where the app shows a photo's thumbnail or original from. */
+  /** Where the app reads a thumbnail or an original image, audio or video file. */
   fileUrl(kind: "thumb" | "original", file: FileRef): string;
   listPlugins(): Promise<Plugin[]>;
   inspectPlugin(request: PluginFolder): Promise<Plugin>;

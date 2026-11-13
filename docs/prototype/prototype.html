@@ -553,6 +553,12 @@ button.cover { width: 100%; padding: 0; border: 0; background: none; color: inhe
 .fview__facts .kv:last-child { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid var(--line2); border-bottom: 0; }
 .fview__photo { position: relative; display: grid; place-items: center; min-height: 380px; background: #141310; }
 .fview__photo img { display: block; max-width: 100%; max-height: calc(100vh - 190px); object-fit: contain; }
+.fview__photo--zoom { place-items: start; overflow: auto; cursor: zoom-out; }
+.fview__photo--zoom img { width: 140%; max-width: none; max-height: none; }
+.fview__media { display: grid; place-content: center; min-height: 380px; padding: 32px; }
+.fview__media audio { width: min(560px, 100%); }
+.fview__media--video { background: #141310; }
+.fview__media video { display: block; width: 100%; max-height: calc(100vh - 190px); }
 .fview__badge { position: absolute; left: 16px; bottom: 16px; padding: 5px 9px; border-radius: var(--r-btn); background: rgba(20,19,16,.82); color: #fcfcfb; font-size: 12px; }
 .fview__note { max-width: 72ch; min-height: 320px; margin: 0 auto; padding: 36px clamp(20px, 5vw, 64px); }
 .fview__note p { margin: 0 0 18px; font: 400 16px/26px var(--font); }
@@ -835,6 +841,17 @@ const PH = {
   belem: 'lisbon/pick/5-belem-tower-46384128782.jpg',
   sunset: 'lisbon/pick/6-sunset-in-lisbon-36542861635.jpg',
 };
+const SVG_SAMPLE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#edf2e9"/><path d="M40 290C160 210 190 90 300 160S450 280 600 60" fill="none" stroke="#386641" stroke-width="12" stroke-linecap="round"/><circle cx="40" cy="290" r="16" fill="#bc4749"/><circle cx="600" cy="60" r="16" fill="#bc4749"/></svg>');
+const AUDIO_SAMPLE = (() => {
+  const bytes = new Uint8Array(8044), view = new DataView(bytes.buffer);
+  const text = (at, value) => [...value].forEach((letter, i) => { bytes[at + i] = letter.charCodeAt(0); });
+  text(0, 'RIFF'); view.setUint32(4, 8036, true); text(8, 'WAVEfmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true); view.setUint16(32, 1, true); view.setUint16(34, 8, true);
+  text(36, 'data'); view.setUint32(40, 8000, true);
+  for (let i = 0; i < 8000; i++) bytes[44 + i] = 128 + Math.round(Math.sin(i / 20) * 32);
+  return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+})();
 const C = [
   { name: 'family-photos', kind: 'photos', count: { n: 3912, u: 'photos' }, source: 'iPhone photos', stored: 'Home NAS', art: ['sunset', 'pasteis', 'tram'] },
   { name: 'flomo-notes', kind: 'notes', count: { n: 1284, u: 'notes' }, source: 'flomo', stored: 'Local', note: 'Read Pessoa on the train. "To be great, be whole; leave out nothing of you."', when: '2025-11-02T08:12' },
@@ -1142,9 +1159,10 @@ const TREES = {
     'Lisbon 2025': { folders: {}, files: [['Alfama.jpg', 'photo', [1.9, 'MB'], '2025-10-12T10:20', 'alfama'], ['Belém Tower.jpg', 'photo', [2.4, 'MB'], '2025-10-12T15:02', 'belem'], ['Pastéis de Belém.jpg', 'photo', [1.1, 'MB'], '2025-10-13T09:41', 'pasteis'], ['Tram 28E.jpg', 'photo', [2.0, 'MB'], '2025-10-13T11:03', 'tram'], ['Sunset.jpg', 'photo', [1.6, 'MB'], '2025-10-13T19:12', 'sunset']] },
     'Porto 2024': { folders: { Ribeira: { folders: {}, files: [['Ribeira at dusk.jpg', 'photo', [2.2, 'MB'], '2024-06-02T18:20', 'sunset']] } }, files: [['Azulejos.jpg', 'photo', [1.7, 'MB'], '2024-06-01T12:11', 'tiles'], ['Rooftops.jpg', 'photo', [1.8, 'MB'], '2024-06-01T16:30', 'alfama']] },
     '旅行笔记': { folders: {}, files: [['里斯本.md', 'note', [3, 'KB'], '2025-10-14T22:10', null, '坐 28 路电车上山，在 Graça 下车，再一路走回 Alfama。'], ['Porto.md', 'note', [2, 'KB'], '2024-06-03T21:40', null, 'Ribeira at dusk, the port cellars lit up across the river.']] },
+    Media: { folders: {}, files: [['field-recording.wav', 'audio', [8, 'KB'], '2025-10-14T18:20'], ['tram.mp4', 'video', [1.8, 'MB'], '2025-10-14T18:25'], ['route.svg', 'svg', [2, 'KB'], '2025-10-14T18:30']] },
   }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['Flights', '240.00'], ['Hotel', '410.00'], ['Trams', '18.00'], ['Dinner', '64.50']]], ['Portfolio.psd', 'psd', [84.2, 'MB'], '2025-10-28T20:50', null, null], ['DSC_2041.NEF', 'raw', [28.4, 'MB'], '2025-10-28T20:45', null, null], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
 };
-const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', psd: 'file', raw: 'photo', other: 'file' };
+const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', audio: 'activity', video: 'photo', svg: 'photo', psd: 'file', raw: 'photo', other: 'file' };
 // The top crumb goes on into a folder viewed in place: each folder a way back up.
 // On a phone it says only where one is, as on every page; Back goes up.
 function folderCrumb(route, arg, child) {
@@ -1742,8 +1760,14 @@ DLG.fview = (D) => {
   const c = C.find((x) => x.name === D.c);
   const richNote = n === 'itinerary.md' && D.mode !== 'source';
   const body = k === 'photo'
-    ? `<div class="fview__photo"><img src="${PH[ph]}" alt="${esc(n)}"></div>`
-    : k === 'note'
+    ? `<div class="fview__photo ${D.zoom ? 'fview__photo--zoom' : ''}" data-act="fzoom" title="${t('fv.zoom')}"><img src="${PH[ph]}" alt="${esc(n)}"></div>`
+    : k === 'audio'
+      ? `<div class="fview__media"><audio controls preload="metadata" src="${AUDIO_SAMPLE}" aria-label="${esc(n)}"></audio></div>`
+      : k === 'video'
+        ? `<div class="fview__media fview__media--video"><video controls playsinline preload="metadata" poster="${PH.tram}" aria-label="${esc(n)}"></video></div>`
+        : k === 'svg'
+          ? `<div class="fview__photo ${D.zoom ? 'fview__photo--zoom' : ''}" data-act="fzoom" title="${t('fv.zoom')}"><img src="${SVG_SAMPLE}" alt="${esc(n)}"></div>`
+          : k === 'note'
       ? D.mode === 'source'
         ? `<pre class="fview__source">${esc(n === 'itinerary.md' ? ITINERARY_SOURCE : x || '')}</pre>`
         : richNote
@@ -1898,7 +1922,7 @@ function hitsHTML(D) {
     if (!items.length) return;
     html += `<div class="cmdk__group"><span class="label">${t(`search.g.${g}`)}</span>${items.map((h) => {
       const i = HITS.push(h) - 1;
-      return `<div class="hit ${i === D.sel ? 'on' : ''}" data-act="hit" data-i="${i}">${h.img ? `<img src="${h.img}" alt="">` : `<span class="ico ${ico[g]}">${I(h.ic)}</span>`}<div class="li__main"><span class="li__title">${hl(h.t, words)}</span><span class="li__meta">${h.m}${h.related ? ` · ${t('search.related')}` : ''}</span></div>${i === D.sel ? `<span class="faint mono" style="font-size:11px">↵ ${t('search.open')}</span>` : ''}</div>`;
+      return `<a class="hit ${i === D.sel ? 'on' : ''}" href="${h.go ? '#' + h.go : h.c ? '#collection/' + h.c : '#'}" data-act="hit" data-i="${i}">${h.img ? `<img src="${h.img}" alt="">` : `<span class="ico ${ico[g]}">${I(h.ic)}</span>`}<div class="li__main"><span class="li__title">${hl(h.t, words)}</span><span class="li__meta">${h.m}${h.related ? ` · ${t('search.related')}` : ''}</span></div>${i === D.sel ? `<span class="faint mono" style="font-size:11px">↵ ${t('search.open')}</span>` : ''}</a>`;
     }).join('')}</div>`;
   });
   return html || `<div class="empty" style="padding:28px 16px"><span class="muted">${D.scope ? t('search.noneIn', { q: D.q, c: D.scope }) : t('search.none', { q: D.q })}</span></div>`;
@@ -2031,7 +2055,8 @@ const ACT = {
     const c = el.dataset.c, set = orderedFolderFiles(c);
     open('fview', { c, set, i: Math.max(0, set.findIndex((f) => f[0] === el.dataset.n)), info: false, mode: 'read' });
   },
-  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length, mode: 'read' }),
+  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length, mode: 'read', zoom: false }),
+  fzoom: () => upd({ zoom: !D.zoom }),
   finfo: () => upd({ info: !D.info }),
   fnoteview: (el) => upd({ mode: el.dataset.v }),
   fcopy: () => {

@@ -423,7 +423,11 @@ export const zhHans: Strings = {
     colKind: "类型",
     colSize: "大小",
     colModified: "修改时间",
-    fileKinds: { image: "照片", note: "笔记", table: "表格", other: "文件" },
+    fileKinds: { image: "照片", note: "笔记", table: "表格", audio: "音频", video: "视频", vector: "矢量图", other: "文件" },
+    zoomImage: "放大图片",
+    imageUnavailable: "无法显示这张图片。",
+    mediaUnavailable: "浏览器无法播放此文件，请尝试在默认应用中打开。",
+    svgUnavailable: "无法安全显示此 SVG。",
     info: "信息",
     showInFinder: (platform: string) =>
       platform === "macos" ? "在访达中显示" : platform === "windows" ? "在文件资源管理器中显示" : "在文件管理器中显示",

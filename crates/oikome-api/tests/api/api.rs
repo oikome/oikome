@@ -3322,6 +3322,69 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
 }
 
 #[tokio::test]
+async fn media_files_have_native_views_and_ranged_originals() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let media = root.join("Media originals");
+    std::fs::create_dir_all(&media).unwrap();
+    let bytes = (0..=255).collect::<Vec<u8>>();
+    for name in ["voice.wav", "clip.webm", "vector.svg"] {
+        std::fs::write(media.join(name), &bytes).unwrap();
+    }
+    std::fs::write(media.join("notes.txt"), "not media").unwrap();
+    std::fs::write(media.join("document.pdf"), &bytes).unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: media.to_string_lossy().into_owned(),
+                name: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    for (path, media_type, view) in [
+        ("voice.wav", "audio/wav", ContentView::Audio),
+        ("clip.webm", "video/webm", ContentView::Video),
+        ("vector.svg", "image/svg+xml", ContentView::Image),
+    ] {
+        let reference = FileRef {
+            space: "media-originals".into(),
+            path: path.into(),
+        };
+        let file = n.api.read_file(&OWNER, reference.clone()).await.unwrap();
+        assert_eq!(file.kind, FileKind::Other);
+        assert_eq!(file.content.media_type.as_deref(), Some(media_type));
+        assert_eq!(file.content.views, vec![view]);
+        let part = n
+            .api
+            .file_original(&OWNER, reference, Some((4, Some(9))))
+            .await
+            .unwrap();
+        assert_eq!(part.content_type, media_type);
+        assert_eq!((part.start, part.total), (4, 256));
+        assert_eq!(part.bytes, bytes[4..10]);
+    }
+    for path in ["notes.txt", "document.pdf"] {
+        assert!(n
+            .api
+            .file_original(
+                &OWNER,
+                FileRef {
+                    space: "media-originals".into(),
+                    path: path.into(),
+                },
+                None,
+            )
+            .await
+            .is_err());
+    }
+}
+
+#[tokio::test]
 async fn open_with_accepts_only_an_owner_and_an_indexed_local_path() {
     let n = node();
     let root = std::path::PathBuf::from(n.catalog.root_path());

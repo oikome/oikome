@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "title": "Oikome Acceptance",
+  "addExamples": true,
+  "collections": [
+    { "action": "viewInPlace", "name": "media", "path": "media" },
+    { "action": "viewInPlace", "name": "content-files", "path": "content-files" },
+    { "action": "addCsvSource", "path": "tables/readings.csv" }
+  ]
+}

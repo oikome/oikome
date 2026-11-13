@@ -242,9 +242,22 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
               </dd>
             ) : folder ? (
               <dd className="screen-facts__from">
-                <span title={folder.path} translate="no">
-                  {folderWhere}
-                </span>
+                {folder.place ? (
+                  <span title={folder.path} translate="no">
+                    {folderWhere}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="oik-link screen-facts__source"
+                    title={strings.sources.showFiles}
+                    translate="no"
+                    disabled={sync.busy}
+                    onClick={() => void sync.run(() => client.showFolder({ space: space.name }))}
+                  >
+                    {folderWhere}
+                  </button>
+                )}
                 <span className="screen-facts__note">
                   {[s.readWhereItIs, folder.scannedAtMs != null ? s.readAgo(since(folder.scannedAtMs)) : null]
                     .filter(Boolean)

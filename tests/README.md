@@ -1,5 +1,7 @@
 # Oikome Integration Tests
 
+For the complete real-node acceptance environment, see [`scenarios/README.md`](scenarios/README.md). Run `npm run acceptance` for the full workspace, `npm run acceptance -- --first-run` for fresh setup, or `npm run test:acceptance` for isolated browser tests.
+
 This crate (`oikome-tests`) runs system-level tests against a fixed,
 deterministically generated TPC-H dataset. Queries go through
 `OikomeSession`, which pushes them down to DuckDB.

@@ -11,7 +11,9 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspace @oikome/e2e"
+    "test": "npm test --workspace @oikome/e2e",
+    "acceptance": "node e2e/acceptance.mjs",
+    "test:acceptance": "npm test --workspace @oikome/e2e -- --workers=1 acceptance.spec.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

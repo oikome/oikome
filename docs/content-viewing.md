@@ -63,7 +63,7 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 - Use native audio/video playback and single-range HTTP reads. Keep local opening for unsupported codecs and show a playback failure rather than a blank viewer.
 - Sanitize SVG on demand with DOMPurify 3.4.17 under Apache-2.0, remove scripts, event handlers, foreign content and external references, and serialize to a blob image rather than inserting SVG into the page. Raw SVG responses also carry a restrictive CSP.
 - Present search and vector hits as excerpts with real links to their original content, preserving keyboard selection and modified-click behavior, not as a meaningful visualization of an embedding.
-- The PR 19 first-paint baseline was 666.01 kB of JS and 99.70 kB of CSS; PR 20 is 668.35 kB and 100.35 kB. PhotoSwipe (61.94 kB JS, 4.56 kB CSS) and DOMPurify (32.13 kB JS) remain separate lazy chunks. No Office, PSD, RAW or transcoding engine enters the core.
+- The PR 19 first-paint baseline was 666.01 kB of JS and 99.70 kB of CSS; PR 20 is 668.56 kB and 100.58 kB. PhotoSwipe (61.94 kB JS, 4.56 kB CSS) and DOMPurify (32.13 kB JS) remain separate lazy chunks. No Office, PSD, RAW or transcoding engine enters the core.
 
 ### PR 21: safe editing
 

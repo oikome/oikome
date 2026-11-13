@@ -3551,6 +3551,22 @@ tr.screen-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.screen-facts__source {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.screen-facts__source:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .screen-facts__note {
   font: var(--text-meta);
   color: var(--ink3);

@@ -4,6 +4,7 @@ target/
 .claude
 .DS_Store
 tests/oikome-local/
+tests/.generated/
 node_modules/
 packages/node/pkg/
 packages/client/dist/

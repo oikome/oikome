@@ -7,6 +7,7 @@
 | [`content-viewing.md`](content-viewing.md) | The agreed content-viewing direction and delivery plan: light core viewers, safe editing, local opening and optional content plugins | English |
 | [`roadmap.md`](roadmap.md) | The consolidated app implementation queue: current facts, PR stages, data-source targets, plugin capabilities, Home composition and network access | English |
 | [`prototype/`](prototype/prototype.html) | The design folder: the clickable prototype of the apps (`prototype.html`, nine languages in `i18n/`, photos in `lisbon/`) and the design references (`references/`) | — |
+| [`../tests/scenarios/`](../tests/scenarios/README.md) | The complete real-node acceptance workspace and fresh first-run mode, with one-command browser opening and isolated tests | English |
 
 `AGENT.md` at the repository root is the development protocol for contributors and agents.
 

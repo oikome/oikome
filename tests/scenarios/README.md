@@ -6,14 +6,17 @@ One command starts one complete acceptance workspace. It uses real Oikome nodes,
 npm run acceptance
 ```
 
-This opens the main workspace at `http://127.0.0.1:7342` and prints a second peer's loopback address. The main workspace contains:
+This opens the main workspace at `http://127.0.0.1:7342` and prints a second peer's loopback address. The full workspace deliberately uses only seven purposeful collections rather than duplicating the ordinary first-run examples:
 
-- the four ordinary first-run examples;
-- local in-place media, text, code, tables, damaged and unsafe files;
-- a real CSV connector writing a local transactional collection;
-- collections on a mounted-NAS-folder test double and a drive-sync-folder test double;
-- an encrypted collection on a real RustFS server started inside the generated directory;
-- a real second node that accepted the media collection through the ordinary contact/share flow.
+- `photos`: original photos read from the mounted-NAS-folder test double and shared with the real second node;
+- `media`: local audio, video and SVG;
+- `notes`: one meaningful Markdown document;
+- `content-files`: code, structured files, valid PDF/PSD documents, and deliberately damaged or unsafe negative cases;
+- `readings`: 72 hours of sensor rows written by the real CSV connector;
+- `drive-reading`: a reading list stored through the drive-sync-folder test double;
+- `rustfs-archive`: family archive metadata stored through real RustFS with encryption.
+
+The peer accepts `photos` through the ordinary contact/share flow and reads the same collection live. There are no duplicate startup collections or placeholder PDF/PSD files. Fresh first-run mode creates the four ordinary examples separately through the actual UI.
 
 The mounted folder and sync folder are named as test doubles, not as WebDAV, Google Drive or Dropbox. No real cloud account is configured implicitly and no fake connected state is shown. WebDAV and provider API coverage remains in their dedicated tests and real-account checks.
 

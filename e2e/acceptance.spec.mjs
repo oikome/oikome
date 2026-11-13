@@ -28,7 +28,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.goto(running.loginLink);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await page.goto(`${running.base}/collections`);
-    await expect(page.locator(".screen-cover")).toHaveCount(10);
+    await expect(page.locator(".screen-cover")).toHaveCount(7);
 
     await page.goto(`${running.base}/collections/media`);
     await page.locator("a.screen-ftile", { hasText: "tram.webm" }).click();
@@ -55,15 +55,21 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     expect(psd.readUInt16BE(10)).toBe(3);
     expect(psd.readUInt16BE(38)).toBe(0);
 
-    for (const collection of ["readings", "nas-recipes", "drive-reading", "rustfs-archive"]) {
+    for (const collection of ["readings", "drive-reading", "rustfs-archive"]) {
       await page.goto(`${running.base}/collections/${collection}`);
       await expect(page.getByRole("heading", { name: collection, level: 1 })).toBeVisible();
-      await expect(page.locator(".screen-facts")).toContainText(collection === "readings" ? "Local" : collection === "nas-recipes" ? "NAS Mounted Folder" : collection === "drive-reading" ? "Drive Sync Folder" : "RustFS Acceptance");
+      await expect(page.locator(".screen-facts")).toContainText(collection === "readings" ? "Local" : collection === "drive-reading" ? "Drive Sync Folder" : "RustFS Acceptance");
     }
     await page.goto(`${running.base}/collections/readings`);
     await expect(page.locator(".screen-series")).toBeVisible();
-    await page.goto(`${running.base}/collections/nas-recipes`);
-    await expect(page.getByText("Bacalhau à Brás").first()).toBeVisible();
+    await page.goto(`${running.base}/collections/notes`);
+    await expect(page.getByText("Lisbon, slowly").first()).toBeVisible();
+    await page.goto(`${running.base}/collections/photos`);
+    await expect(page.locator(".screen-facts")).toContainText("NAS Mounted Folder");
+    await page.locator("a.screen-ftile", { hasText: "Tram 28E.jpg" }).click();
+    const photo = page.getByRole("dialog", { name: "Tram 28E.jpg" }).locator("img").first();
+    await expect.poll(() => photo.evaluate((element) => element.naturalWidth)).toBeGreaterThan(512);
+    await page.keyboard.press("Escape");
     await page.goto(`${running.base}/collections/drive-reading`);
     await expect(page.getByText("The Book of Disquiet").first()).toBeVisible();
     await page.goto(`${running.base}/collections/rustfs-archive`);
@@ -73,8 +79,8 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
 
     await page.goto(running.peerLoginLink);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await page.goto(`${running.peerBase}/collections/media-from-acceptance`);
-    await expect(page.getByRole("heading", { name: "media-from-acceptance", level: 1 })).toBeVisible();
+    await page.goto(`${running.peerBase}/collections/photos-from-acceptance`);
+    await expect(page.getByRole("heading", { name: "photos-from-acceptance", level: 1 })).toBeVisible();
     await expect(page.locator(".screen-facts")).toContainText("Oikome Acceptance");
     await expect(page.locator(".screen-facts")).toContainText("View live");
   } finally {

@@ -145,9 +145,9 @@ function validPsd() {
 }
 
 function generateFiles(root) {
-  const photos = join(REPO, "crates", "oikome-api", "assets", "lisbon");
-  for (const [source, target] of [["tram.jpg", "Tram 28E.jpg"], ["pasteis.jpg", "Pastéis de Belém.jpg"], ["sunset.jpg", "Sunset.jpg"]]) {
-    const destination = resolve(root, "media", target);
+  const photos = join(REPO, "docs", "prototype", "lisbon", "pick");
+  for (const [source, target] of [["2-tram-of-line-28e-on-rua-augusto.jpg", "Tram 28E.jpg"], ["4-pasteis-de-belem-4128575449.jpg", "Pastéis de Belém.jpg"], ["6-sunset-in-lisbon-36542861635.jpg", "Sunset.jpg"]]) {
+    const destination = resolve(root, "nas-mount", "Oikome", "photos", target);
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(join(photos, source), destination);
   }
@@ -163,7 +163,7 @@ function generateFiles(root) {
     <image href="http://127.0.0.1:9/pixel.png" width="320" height="180" />
     <rect width="320" height="180" fill="#bc4749" />
   </svg>`);
-  write(root, "content-files/Reading.md", "# A real place for every format\n\nOpen **source**, copy this note, or select it all with Cmd/Ctrl+A.\n\n- Markdown\n- Code\n- Tables\n");
+  write(root, "notes/Reading.md", "# Lisbon, slowly\n\nThree days on foot, with time for coffee.\n\n> Keep Thursday open for Porto.\n\n## First morning\n\n- Take tram 28 to Graça.\n- Walk down through Alfama.\n- Save the sunset for Santa Luzia.\n\n| Place | Day |\n| --- | --- |\n| Belém | Monday |\n| Sintra | Wednesday |\n");
   write(root, "content-files/example.ts", "export const greet = (name: string): string => `Hello, ${name}`;\n");
   write(root, "content-files/config.yaml", "preview:\n  lazy: true\n  formats: [markdown, images, audio, video]\n");
   write(root, "content-files/rows.csv", "day,category,amount\n2026-11-01,Train,18.40\n2026-11-02,Books,24.90\n");
@@ -231,7 +231,6 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
   return withApi(loginLink, async (call) => {
     await call("rename_node", { name: config.title });
     await call("confirm_recovery_key");
-    await call("add_examples", { language: "en" });
     for (const collection of config.collections) {
       if (collection.action === "viewInPlace") {
         await call("view_in_place", { path: join(files, collection.path), name: collection.name });
@@ -242,27 +241,25 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
       }
     }
 
-    const storages = [
-      {
-        label: "NAS Mounted Folder (test double)",
-        type: "folder",
-        address: join(files, "nas-mount"),
-        collection: "nas-recipes",
-        sql: 'CREATE TABLE "nas-recipes".recipes (id BIGINT, title VARCHAR, notes VARCHAR); INSERT INTO "nas-recipes".recipes VALUES (1, \'Bacalhau à Brás\', \'Potatoes, eggs, olives and cod\'), (2, \'Caldo Verde\', \'Kale, potatoes and olive oil\'), (3, \'Pastéis de nata\', \'Crisp pastry with warm custard\');',
-      },
-      {
-        label: "Drive Sync Folder (test double)",
-        type: "drive",
-        address: join(files, "drive-sync"),
-        collection: "drive-reading",
-        sql: 'CREATE TABLE "drive-reading".books (id BIGINT, title VARCHAR, status VARCHAR); INSERT INTO "drive-reading".books VALUES (1, \'The Book of Disquiet\', \'Reading\'), (2, \'Blindness\', \'Read\'), (3, \'Pereira Maintains\', \'Next\');',
-      },
-    ];
-    for (const { label, type, address, collection, sql } of storages) {
-      const storage = await call("add_storage", { label, type, address, encrypted: true });
-      await call("create_space", { name: collection, storage: storage.name });
-      await call("run_sql", { sql });
-    }
+    const nas = await call("add_storage", {
+      label: "NAS Mounted Folder (test double)",
+      type: "folder",
+      address: join(files, "nas-mount"),
+      encrypted: false,
+    });
+    await call("view_in_place", { place: nas.name, path: "photos", name: "photos" });
+
+    const drive = await call("add_storage", {
+      label: "Drive Sync Folder (test double)",
+      type: "drive",
+      address: join(files, "drive-sync"),
+      encrypted: true,
+    });
+    await call("create_space", { name: "drive-reading", storage: drive.name });
+    await call("run_sql", {
+      sql: 'CREATE TABLE "drive-reading".books (id BIGINT, title VARCHAR, status VARCHAR); INSERT INTO "drive-reading".books VALUES (1, \'The Book of Disquiet\', \'Reading\'), (2, \'Blindness\', \'Read\'), (3, \'Pereira Maintains\', \'Next\');',
+    });
+
     const object = await call("add_storage", {
       label: "RustFS Acceptance",
       type: "s3",
@@ -278,7 +275,7 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     });
 
     await call("add_contact", { did: peerDid, name: "Acceptance Peer" });
-    return call("share_space", { space: "media", did: peerDid });
+    return call("share_space", { space: "photos", did: peerDid });
   });
 }
 
@@ -287,7 +284,7 @@ async function seedPeer(loginLink, invite) {
     await call("rename_node", { name: "Acceptance Peer" });
     await call("confirm_recovery_key");
     const pending = await call("add_invite", { invite: invite.invite });
-    await call("accept_invite", { id: pending.id, name: "media-from-acceptance" });
+    await call("accept_invite", { id: pending.id, name: "photos-from-acceptance" });
   });
 }
 

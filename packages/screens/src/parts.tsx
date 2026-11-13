@@ -125,7 +125,7 @@ export function numeric(field: Field): boolean {
  * values has (up to 4), so the column's figures line up: 46.2, 40 and 31.75
  * read 46.20, 40.00 and 31.75.
  */
-function columnDecimals(table: Table, column: number): number {
+export function columnDecimals(table: Table, column: number): number {
   let most = 0;
   const vector = table.getChildAt(column);
   for (let r = 0; r < table.numRows; r++) {

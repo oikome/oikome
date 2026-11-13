@@ -2610,6 +2610,382 @@ async fn daily_totals_stay_here_unless_the_lender_may_read_all_of_a_big_collecti
     assert_eq!(e.code, ErrorCode::NotFound);
 }
 
+#[tokio::test]
+async fn imported_files_become_a_new_local_folder_without_overwriting() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let request = |name: &str, file: &str, data: &str| ImportFiles {
+        name: Some(name.into()),
+        space: None,
+        folder: None,
+        files: vec![ImportFile {
+            name: file.into(),
+            data_base64: data.into(),
+        }],
+    };
+
+    let e = n
+        .api
+        .import_files(
+            &Caller::Principal { did: did(8) },
+            request("imported", "note.md", "SGVsbG8="),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    for file in ["../escape", "a/b", ".", ""] {
+        let e = n
+            .api
+            .import_files(&OWNER, request("imported", file, "SGVsbG8="))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Invalid, "{file}: {e}");
+    }
+    let e = n
+        .api
+        .import_files(&OWNER, request("imported", "note.md", "not base64"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert!(!root.join("Imports").join("imported").exists());
+
+    let imported = n
+        .api
+        .import_files(
+            &OWNER,
+            ImportFiles {
+                name: Some("imported".into()),
+                space: None,
+                folder: None,
+                files: vec![
+                    ImportFile {
+                        name: "note.md".into(),
+                        data_base64: "SGVsbG8sIGltcG9ydGVkLg==".into(),
+                    },
+                    ImportFile {
+                        name: "rows.csv".into(),
+                        data_base64: "aSxiCjEsMgo=".into(),
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(imported.name, "imported");
+    assert!(imported.readonly);
+    let place = imported.in_place.unwrap();
+    assert_eq!(place.place, None);
+    assert_eq!(place.files, 2);
+    assert_eq!(
+        std::path::PathBuf::from(place.path),
+        std::fs::canonicalize(root.join("Imports").join("imported")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("Imports/imported/note.md")).unwrap(),
+        "Hello, imported."
+    );
+
+    let e = n
+        .api
+        .import_files(&OWNER, request("imported", "note.md", "UkVQTEFDRUQ="))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert_eq!(
+        std::fs::read_to_string(root.join("Imports/imported/note.md")).unwrap(),
+        "Hello, imported."
+    );
+}
+
+#[tokio::test]
+async fn imports_stay_in_the_current_folder_and_convert_only_an_empty_collection() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let upload = |space: &str, folder: Option<&str>, file: &str| ImportFiles {
+        name: None,
+        space: Some(space.into()),
+        folder: folder.map(Into::into),
+        files: vec![ImportFile {
+            name: file.into(),
+            data_base64: "aW1wb3J0ZWQ=".into(),
+        }],
+    };
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "T".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let converted = n
+        .api
+        .import_files(&OWNER, upload("T", None, "one.md"))
+        .await
+        .unwrap();
+    assert_eq!(converted.name, "T");
+    assert_eq!(converted.in_place.as_ref().unwrap().files, 1);
+    assert_eq!(
+        std::fs::read_to_string(root.join("Imports/T/one.md")).unwrap(),
+        "imported"
+    );
+
+    n.api
+        .import_files(&OWNER, upload("T", None, "two.md"))
+        .await
+        .unwrap();
+    std::fs::create_dir(root.join("Imports/T/Nested")).unwrap();
+    n.api
+        .import_files(&OWNER, upload("T", Some("Nested"), "three.md"))
+        .await
+        .unwrap();
+    let nested = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "T".into(),
+                folder: Some("Nested".into()),
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(nested.files[0].name, "three.md");
+    assert!(n
+        .api
+        .import_files(&OWNER, upload("T", Some("../outside"), "escape.md"))
+        .await
+        .is_err());
+    assert!(!root.join("Imports/outside").exists());
+
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "occupied".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(&n, "CREATE TABLE occupied.t (id BIGINT)").await;
+    let e = n
+        .api
+        .import_files(&OWNER, upload("occupied", None, "no.md"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert!(n.catalog.get_space("occupied").unwrap().location == "occupied");
+}
+
+#[tokio::test]
+async fn selected_originals_form_a_multi_source_collection_without_exposing_siblings() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let one = root.join("one");
+    let two = root.join("two");
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::create_dir_all(&two).unwrap();
+    std::fs::write(one.join("keep.md"), "first original").unwrap();
+    std::fs::write(one.join("sibling.md"), "not selected").unwrap();
+    std::fs::write(one.join(".hidden.md"), "hidden").unwrap();
+    std::fs::write(two.join("other.txt"), "second original").unwrap();
+    std::fs::write(two.join("sibling.txt"), "not selected either").unwrap();
+    let private = root.join(".oikome/index");
+    std::fs::create_dir_all(&private).unwrap();
+    std::fs::write(private.join("private.md"), "private").unwrap();
+    let file = |path: &std::path::Path| vec![path.to_string_lossy().into_owned()];
+
+    for files in [
+        vec![],
+        vec!["relative.md".into()],
+        file(&one),
+        file(&one.join(".hidden.md")),
+        file(&private.join("private.md")),
+    ] {
+        let e = n
+            .api
+            .view_in_place(
+                &OWNER,
+                ViewInPlace {
+                    place: None,
+                    path: String::new(),
+                    name: Some("references".into()),
+                    files: Some(files),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Invalid);
+    }
+    #[cfg(unix)]
+    {
+        let link = root.join("link.md");
+        std::os::unix::fs::symlink(one.join("keep.md"), &link).unwrap();
+        assert!(n
+            .api
+            .view_in_place(
+                &OWNER,
+                ViewInPlace {
+                    place: None,
+                    path: String::new(),
+                    name: Some("references".into()),
+                    files: Some(file(&link)),
+                },
+            )
+            .await
+            .is_err());
+    }
+    let e = n
+        .api
+        .add_in_place_files(
+            &Caller::Principal { did: did(8) },
+            AddInPlaceFiles {
+                space: "references".into(),
+                files: file(&one.join("keep.md")),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+
+    let viewed = n
+        .api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: String::new(),
+                name: Some("references".into()),
+                files: Some(file(&one.join("keep.md"))),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(viewed.in_place.as_ref().unwrap().files, 1);
+    let read = |path: &str| FileRef {
+        space: "references".into(),
+        path: path.into(),
+    };
+    assert_eq!(
+        n.api
+            .read_file(&OWNER, read("keep.md"))
+            .await
+            .unwrap()
+            .text
+            .as_deref(),
+        Some("first original")
+    );
+    assert!(n.api.read_file(&OWNER, read("sibling.md")).await.is_err());
+
+    let expanded = n
+        .api
+        .add_in_place_files(
+            &OWNER,
+            AddInPlaceFiles {
+                space: "references".into(),
+                files: file(&two.join("other.txt")),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(expanded.in_place.as_ref().unwrap().files, 2);
+    assert_eq!(
+        n.api
+            .read_file(&OWNER, read("one/keep.md"))
+            .await
+            .unwrap()
+            .text
+            .as_deref(),
+        Some("first original")
+    );
+    assert_eq!(
+        n.api
+            .read_file(&OWNER, read("two/other.txt"))
+            .await
+            .unwrap()
+            .text
+            .as_deref(),
+        Some("second original")
+    );
+    for absent in ["one/sibling.md", "two/sibling.txt", "sibling.md"] {
+        assert!(n.api.read_file(&OWNER, read(absent)).await.is_err());
+    }
+    let count = |result: SqlResult| match result {
+        SqlResult::Rows(rows) => row_count(&rows),
+        other => panic!("expected rows, got {other:?}"),
+    };
+    assert_eq!(
+        count(sql(&n, "SELECT path FROM \"references\".files").await),
+        2
+    );
+
+    n.api
+        .import_files(
+            &OWNER,
+            ImportFiles {
+                name: None,
+                space: Some("references".into()),
+                folder: None,
+                files: vec![ImportFile {
+                    name: "copied.md".into(),
+                    data_base64: "Y29waWVk".into(),
+                }],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        n.api
+            .read_file(&OWNER, read("copied.md"))
+            .await
+            .unwrap()
+            .text
+            .as_deref(),
+        Some("copied")
+    );
+    assert_eq!(
+        count(sql(&n, "SELECT path FROM \"references\".files").await),
+        3
+    );
+    assert!(!root.join("Imports/references").exists());
+
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "empty-reference".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let converted = n
+        .api
+        .add_in_place_files(
+            &OWNER,
+            AddInPlaceFiles {
+                space: "empty-reference".into(),
+                files: file(&two.join("other.txt")),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(converted.name, "empty-reference");
+    assert_eq!(converted.in_place.as_ref().unwrap().files, 1);
+}
+
 /// A folder viewed in place: chosen by its path, browsed from its index,
 /// shared to view and never to copy; a folder source of old becomes one,
 /// keeping its name and whom it was shared with.
@@ -2630,6 +3006,7 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
             .view_in_place(
                 &OWNER,
                 ViewInPlace {
+                    files: None,
                     place: None,
                     path: path.into(),
                     name: None,
@@ -2644,6 +3021,7 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
+                files: None,
                 place: Some("nas".into()),
                 path: "photos".into(),
                 name: None,
@@ -2659,6 +3037,7 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
+                files: None,
                 place: None,
                 path: inside.to_string_lossy().into_owned(),
                 name: None,
@@ -2682,6 +3061,7 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
+                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -2690,6 +3070,11 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .await
         .unwrap();
     assert_eq!(viewed.name, "trip-2025");
+    let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(
+        storages[0].spaces, 1,
+        "a folder viewed here counts on this computer"
+    );
     assert!(viewed.readonly);
     let in_place = viewed.in_place.unwrap();
     assert_eq!(in_place.files, 5);
@@ -2778,6 +3163,20 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .await
         .unwrap();
     assert_eq!(note.text.as_deref(), Some("Ferry to Cacilhas"));
+    assert_eq!(note.content.format, "markdown");
+    assert_eq!(note.content.media_type.as_deref(), Some("text/markdown"));
+    assert_eq!(
+        note.content.views,
+        vec![ContentView::Read, ContentView::Source]
+    );
+    assert_eq!(note.content.source, "in_place");
+    assert_eq!(
+        note.content.version,
+        format!("{}:{}", note.modified_ms, note.size)
+    );
+    assert!(note.content.capabilities.open_default && note.content.capabilities.reveal);
+    assert!(!note.content.capabilities.edit);
+    assert_eq!(first.files[0].content.views, vec![ContentView::Image]);
     assert!(n
         .api
         .list_files(&OWNER, page(Some("../.."), 0, 10))
@@ -2933,6 +3332,7 @@ async fn open_with_accepts_only_an_owner_and_an_indexed_local_path() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
+                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -3010,6 +3410,7 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
+                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -3140,6 +3541,37 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
     assert!(n
         .api
         .read_file_rows(&stranger, rows("budget.csv", 0, 100))
+        .await
+        .is_err());
+
+    std::fs::write(trip.join("damaged.json"), "{\"place\": broken json}\n").unwrap();
+    n.api
+        .refresh_space(
+            &OWNER,
+            SpaceRef {
+                space: "trip-tables".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let damaged = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "trip-tables".into(),
+                path: "damaged.json".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(damaged.text.is_some());
+    assert_eq!(damaged.content.views, vec![ContentView::Source]);
+    assert!(damaged.content.unavailable_reason.is_some());
+    sql(&n, "SELECT path FROM \"trip-tables\".files").await;
+    assert!(n
+        .api
+        .read_file_rows(&OWNER, rows("damaged.json", 0, 100))
         .await
         .is_err());
 }

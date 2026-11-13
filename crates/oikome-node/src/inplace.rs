@@ -73,7 +73,11 @@ const CACHE_BYTES: u64 = 2 << 30;
 const REACH_FOR: Duration = Duration::from_secs(5);
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp"];
-const NOTE_EXTENSIONS: &[&str] = &["md", "markdown", "txt"];
+const NOTE_EXTENSIONS: &[&str] = &[
+    "md", "markdown", "txt", "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java", "js",
+    "jsx", "kt", "php", "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "xml", "yaml",
+    "yml",
+];
 /// Tables written as text: their first lines are kept, to show some rows.
 const TEXT_TABLE_EXTENSIONS: &[&str] = &["csv", "tsv"];
 /// The bytes of a text table read for its first lines, and how many are kept.
@@ -84,6 +88,10 @@ const HEAD_LINES: usize = 4;
 const UNREAD: i64 = 0;
 const READ: i64 = 1;
 const LISTED_ONLY: i64 = 2;
+/// The source is indexed, but its table parser rejected it.
+const INVALID_TABLE: i64 = 3;
+/// Old indexes validated JSON only for its source text, not its table view.
+const JSON_VALIDATED: &str = "json_table_validation_v1";
 
 const SCHEMA_SQL: &str = "
 CREATE TABLE IF NOT EXISTS files(
@@ -260,7 +268,7 @@ pub fn place_of(
     engines: &EngineRegistry,
     location: &Location,
 ) -> Result<Place, SessionError> {
-    let LocationFormat::InPlace { place, path } = &location.format else {
+    let LocationFormat::InPlace { place, path, .. } = &location.format else {
         return Err(SessionError::Unsupported(format!(
             "location '{}' is not a folder viewed in place",
             location.id
@@ -519,16 +527,83 @@ async fn walk_remote(store: &RemoteStore) -> Result<BTreeMap<String, Listed>, Se
     Ok(out)
 }
 
-async fn walk(place: &Place) -> Result<BTreeMap<String, Listed>, SessionError> {
-    match place {
-        Place::Local(root) => {
-            let root = root.clone();
-            tokio::task::spawn_blocking(move || walk_local(&root))
-                .await
-                .map_err(io)?
+fn walk_local_selected(
+    root: &Path,
+    files: &[String],
+) -> Result<BTreeMap<String, Listed>, SessionError> {
+    let mut out = BTreeMap::new();
+    for relative in files {
+        check_owner_path(relative).map_err(io)?;
+        let full = root.join(relative);
+        let Ok(meta) = std::fs::symlink_metadata(&full) else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
         }
-        Place::Remote { store, .. } => walk_remote(store).await,
+        out.insert(
+            relative.clone(),
+            Listed {
+                size: meta.len(),
+                modified_ms: meta.modified().map(millis).unwrap_or(0),
+            },
+        );
     }
+    Ok(out)
+}
+
+async fn walk(
+    place: &Place,
+    location: &Location,
+) -> Result<BTreeMap<String, Listed>, SessionError> {
+    let LocationFormat::InPlace { sources, .. } = &location.format else {
+        return Err(io("not a folder viewed in place"));
+    };
+    let Some(sources) = sources else {
+        return match place {
+            Place::Local(root) => {
+                let root = root.clone();
+                tokio::task::spawn_blocking(move || walk_local(&root))
+                    .await
+                    .map_err(io)?
+            }
+            Place::Remote { store, .. } => walk_remote(store).await,
+        };
+    };
+    let Place::Local(common) = place else {
+        return Err(io(
+            "multiple file references are available only on this computer",
+        ));
+    };
+    let mut out = BTreeMap::new();
+    for source in sources {
+        let root = PathBuf::from(&source.root);
+        let listed = match &source.files {
+            Some(files) => {
+                let root = root.clone();
+                let files = files.clone();
+                tokio::task::spawn_blocking(move || walk_local_selected(&root, &files))
+                    .await
+                    .map_err(io)??
+            }
+            None => {
+                let root = root.clone();
+                tokio::task::spawn_blocking(move || walk_local(&root))
+                    .await
+                    .map_err(io)??
+            }
+        };
+        for (relative, file) in listed {
+            let full = root.join(relative);
+            let path = full
+                .strip_prefix(common)
+                .map_err(io)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.insert(path, file);
+        }
+    }
+    Ok(out)
 }
 
 fn folder_of(path: &str) -> &str {
@@ -620,8 +695,8 @@ fn apply_listing(
     for (path, file) in listed {
         let kind = kind_of(name_of(path));
         // Other files have nothing to read beyond their listing; a text
-        // table, its first lines.
-        let state = if matches!(kind, IMAGE | NOTE) || is_text_table(path) {
+        // table, its first lines or JSON source.
+        let state = if matches!(kind, IMAGE | NOTE) || is_text_table(path) || is_json_text(path) {
             UNREAD
         } else {
             READ
@@ -677,13 +752,24 @@ fn apply_listing(
         .map_err(sql)?;
     }
     // Text tables indexed before their first lines were kept: once.
-    let unread = tx
+    let mut unread = tx
         .execute(
             "UPDATE files SET state = ?1 WHERE state = ?2 AND kind = 'table' AND text IS NULL \
              AND (lower(name) LIKE '%.csv' OR lower(name) LIKE '%.tsv')",
             params![UNREAD, READ],
         )
         .map_err(sql)?;
+    if fact(&tx, JSON_VALIDATED)?.is_none() {
+        unread += tx
+            .execute(
+                "UPDATE files SET state = ?1 WHERE state = ?2 AND kind = 'table' \
+                 AND (lower(name) LIKE '%.json' OR lower(name) LIKE '%.jsonl' \
+                 OR lower(name) LIKE '%.ndjson')",
+                params![UNREAD, READ],
+            )
+            .map_err(sql)?;
+        set_fact(&tx, JSON_VALIDATED, "1")?;
+    }
     tx.commit().map_err(sql)?;
     Ok(changed || unread > 0)
 }
@@ -694,6 +780,13 @@ fn is_text_table(path: &str) -> bool {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| TEXT_TABLE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn is_json_text(path: &str) -> bool {
+    Path::new(name_of(path))
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "json" | "jsonl" | "ndjson"))
 }
 
 /// The first lines of a text table, from the start of the file: a line cut
@@ -850,6 +943,32 @@ async fn fill(place: &Place, dir: &Path, budget: Option<Duration>) -> Result<usi
                             }
                             read.text = Some(body.to_string());
                             read.state = READ;
+                        }
+                    }
+                    read
+                }
+                TABLE if is_json_text(&path) => {
+                    let mut read = Read {
+                        state: LISTED_ONLY,
+                        ..Read::default()
+                    };
+                    if size <= MAX_NOTE_BYTES {
+                        if let Ok(bytes) = place.read(&path, 0..u64::MAX, MAX_NOTE_BYTES).await {
+                            read.text = Some(String::from_utf8_lossy(&bytes).into_owned());
+                            read.state = if oikome_connect::rows::read_page(
+                                FileFormat::Json,
+                                name_of(&path),
+                                &bytes,
+                                0,
+                                1,
+                                false,
+                            )
+                            .is_ok()
+                            {
+                                READ
+                            } else {
+                                INVALID_TABLE
+                            };
                         }
                     }
                     read
@@ -1024,7 +1143,7 @@ pub async fn refresh(
     let mut changed = false;
     let mut read = 0;
     if reachable {
-        let listed = walk(&place).await?;
+        let listed = walk(&place, location).await?;
         let dir_owned = dir.clone();
         changed = tokio::task::spawn_blocking(move || {
             let mut conn = open_index(&dir_owned)?;
@@ -1124,7 +1243,7 @@ pub async fn bound(
             exported(&conn, &dir_owned)?.ok_or_else(|| io("the index has no files table"))?;
         let mut stmt = conn
             .prepare(
-                "SELECT path, size, modified_ms FROM files WHERE folder = '' AND kind = ?1 \
+                "SELECT path, size, modified_ms, state FROM files WHERE folder = '' AND kind = ?1 \
                  ORDER BY path",
             )
             .map_err(sql)?;
@@ -1134,6 +1253,7 @@ pub async fn bound(
                     r.get::<_, String>(0)?,
                     u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
                     r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
                 ))
             })
             .map_err(sql)?
@@ -1146,7 +1266,7 @@ pub async fn bound(
 
     let mut tables = Vec::new();
     let mut taken: BTreeSet<String> = BTreeSet::from([FILES.to_string()]);
-    for (path, size, modified_ms) in top {
+    for (path, size, modified_ms, state) in top {
         // The captions of the photos beside it, not a table of its own.
         if name_of(&path) == CAPTIONS {
             continue;
@@ -1164,7 +1284,11 @@ pub async fn bound(
             name = format!("{}_{n}", table_name(&path));
             n += 1;
         }
-        let source = if !reachable {
+        let source = if state == INVALID_TABLE {
+            TableSource::Unavailable {
+                message: format!("{path} is not a readable table"),
+            }
+        } else if !reachable {
             TableSource::Unavailable {
                 message: format!("{} can't be reached right now", place.label()),
             }
@@ -2004,6 +2128,9 @@ mod tests {
         assert_eq!(kind_of("1 Welcome.md"), NOTE);
         assert_eq!(kind_of("2025.csv"), TABLE);
         assert_eq!(kind_of("rows.parquet"), TABLE);
+        assert_eq!(kind_of("rows.json"), TABLE);
+        assert_eq!(kind_of("main.rs"), NOTE);
+        assert_eq!(kind_of("config.yaml"), NOTE);
         assert_eq!(kind_of("movie.mov"), OTHER);
         assert_eq!(kind_of("README"), OTHER);
     }

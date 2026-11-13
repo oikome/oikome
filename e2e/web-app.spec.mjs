@@ -39,7 +39,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -144,6 +144,7 @@ test.beforeAll(async ({ browser }) => {
   server = await serveWeb(owner, openerEnv);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
   page = await context.newPage();
   page.on("pageerror", (e) => console.error(`[page] ${e.message}`));
 });
@@ -201,6 +202,9 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(
     page.getByRole("heading", { name: /^Good (morning|afternoon|evening)$/, level: 1 }),
   ).toBeVisible();
+  const activity = page.getByRole("region", { name: "Recent Activity" });
+  await expect(activity).toContainText("You set up this data center");
+  await expect(activity).toContainText("You added the examples");
   // The data center starts with the examples, once: they show on Home.
   await expect(page.getByText(/^(lisbon-photos|spending|home-climate) · /).first()).toBeVisible();
   await expect(page.getByText("Back up your recovery key")).toHaveCount(0);
@@ -211,7 +215,7 @@ test("the examples open as photos, notes, a table and readings; a collection of 
   // One example of each kind.
   await page.getByRole("link", { name: "Collections" }).first().click();
   await expect(page.locator(".screen-cover")).toHaveCount(4);
-  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(4);
+  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(0);
   // A folder viewed where it is looks like one, and says where it is first.
   const lisbonCover = page.locator(".screen-cover", { hasText: "lisbon-photos" });
   await expect(lisbonCover.locator(".screen-cover__chip")).toHaveText("Folder");
@@ -489,7 +493,7 @@ test("a photo opens large and the arrow keys move through every file; a note ope
   // The captions are a file too, and open as a table read in place.
   await page.locator("a.screen-ftile", { hasText: "captions.csv" }).click();
   const captions = page.getByRole("dialog", { name: "captions.csv" });
-  await expect(captions.getByRole("table", { name: "captions.csv" })).toBeVisible();
+  await expect(captions.getByRole("region", { name: "captions.csv" })).toBeVisible();
   await page.keyboard.press("Escape");
 
   // A note with a line of tags: the tags show as tags, the note in full.
@@ -519,11 +523,11 @@ test("a CSV opens as a table where it is, with its details behind Info", async (
     await page.goto(`${base}/collections/oikome-guide`);
     await page.locator("a.screen-ftile", { hasText: "tips.csv" }).click();
     const viewer = page.getByRole("dialog", { name: "tips.csv" });
-    const table = viewer.getByRole("table", { name: "tips.csv" });
+    const table = viewer.getByRole("region", { name: "tips.csv" });
     await expect(table.getByRole("columnheader", { name: "What" })).toBeVisible();
     await expect(table.getByRole("columnheader", { name: "Where" })).toBeVisible();
-    await expect(table.getByRole("cell", { name: "Tram 28" })).toBeVisible();
-    await expect(table.getByRole("cell", { name: "Cacilhas" })).toBeVisible();
+    await expect(table.getByRole("gridcell", { name: "Tram 28" })).toBeVisible();
+    await expect(table.getByRole("gridcell", { name: "Cacilhas" })).toBeVisible();
     await expect(viewer).not.toContainText("Kept on");
     await viewer.getByRole("button", { name: "Info" }).click();
     await expect(viewer).toContainText("Kept on");
@@ -538,6 +542,249 @@ test("a CSV opens as a table where it is, with its details behind Info", async (
   } finally {
     rmSync(tips, { force: true });
     await api("refresh_space", { space: "oikome-guide" });
+  }
+});
+
+test("Markdown has a safe reading view and source loads only when asked", async () => {
+  const note = join(owner, "Examples", "oikome-guide", "Reading.md");
+  writeFileSync(
+    note,
+    `# Lisbon, slowly\n\n> Keep Thursday open.\n\n| Place | Day |\n| --- | --- |\n| Belém | Monday |\n\n- [x] Take tram 28\n\n![remote pixel](https://127.0.0.1:9/pixel.png)\n\n<img src=x onerror=alert(1)>\n\n[unsafe](javascript:alert(1))\n`,
+  );
+  try {
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.goto(`${base}/collections/oikome-guide`);
+    await page.locator("a.screen-ftile", { hasText: "Reading.md" }).click();
+    const viewer = page.getByRole("dialog", { name: "Reading.md" });
+    await expect(viewer.getByRole("heading", { name: "Lisbon, slowly" })).toBeVisible();
+    await expect(viewer.getByRole("cell", { name: "Belém" })).toBeVisible();
+    await expect(viewer.getByRole("checkbox")).toBeChecked();
+    await expect(viewer.getByRole("checkbox")).toBeDisabled();
+    await expect(viewer.locator("img")).toHaveCount(0);
+    await expect(viewer.locator(".screen-source")).toHaveCount(0);
+    await expect(viewer.getByText("unsafe", { exact: true })).not.toHaveAttribute("href");
+    await viewer.getByRole("button", { name: "Copy", exact: true }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("# Lisbon, slowly");
+
+    await viewer.getByRole("radio", { name: "Source" }).click();
+    await expect(viewer.locator(".cm-content")).toContainText("# Lisbon, slowly");
+    await expect(viewer.locator(".cm-line").first()).toBeVisible();
+    await viewer.locator(".cm-content").click();
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${modifier}+A`);
+    await page.keyboard.press(`${modifier}+C`);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("[unsafe](javascript:alert(1))");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).not.toContain("⌄");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).not.toMatch(/^1\n/);
+    await expect(viewer.getByRole("button", { name: "Wrap lines" })).toHaveCount(0);
+    await expect(viewer.locator(".cm-lineWrapping")).toBeVisible();
+    await viewer.getByRole("radio", { name: "Read" }).click();
+    await expect(viewer.getByRole("heading", { name: "Lisbon, slowly" })).toBeVisible();
+  } finally {
+    rmSync(note, { force: true });
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.evaluate(() => localStorage.removeItem("oikome.file.view.markdown"));
+  }
+});
+
+test("files copied from this computer become a browsable collection", async () => {
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Files" });
+  await expect(dialog.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
+  await dialog.getByLabel("Add To").selectOption("__new__");
+  await dialog.getByRole("radio", { name: /Copy to Oikome/ }).click();
+  await dialog.getByLabel("Files", { exact: true }).setInputFiles([
+    { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("first") },
+    { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("second") },
+  ]);
+  await expect(dialog).toContainText("Files with the same name cannot be copied together");
+  await expect(dialog.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
+  await dialog.getByLabel("Files", { exact: true }).setInputFiles([
+    { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported note\n\nCopied deliberately.") },
+    { name: "rows.csv", mimeType: "text/csv", buffer: Buffer.from("name,value\nfirst,1\n") },
+  ]);
+  await expect(dialog.getByLabel("New Collection Name")).toHaveValue("note");
+  await dialog.getByLabel("New Collection Name").fill("imported-files");
+  await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/collections/imported-files`);
+  await expect(page.locator("a.screen-ftile", { hasText: "note.md" })).toBeVisible();
+  await expect(page.locator("a.screen-ftile", { hasText: "rows.csv" })).toBeVisible();
+  expect(readFileSync(join(owner, "Imports", "imported-files", "note.md"), "utf8")).toContain("Copied deliberately.");
+  await page.locator("a.screen-ftile", { hasText: "note.md" }).click();
+  await expect(page.getByRole("dialog", { name: "note.md" })).toContainText("Copied deliberately.");
+  await page.getByRole("dialog", { name: "note.md" }).getByRole("button", { name: "Close", exact: true }).click();
+
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const existing = page.getByRole("dialog", { name: "Add Files" });
+  await existing.getByLabel("Add To").selectOption("imported-files");
+  await existing.getByRole("radio", { name: /Copy to Oikome/ }).click();
+  await existing.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "existing.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("Added to an existing collection from the overview"),
+  });
+  await existing.getByRole("button", { name: "Add Files", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/collections/imported-files`);
+  await expect(page.locator("a.screen-ftile", { hasText: "existing.md" })).toBeVisible();
+});
+
+test("an empty collection and the current folder copy files without going back", async () => {
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "New Collection" }).click();
+  await page.getByLabel("Name").fill("empty-import");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).toHaveURL(`${base}/collections/empty-import`);
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Files" });
+  await dialog.getByRole("radio", { name: /Copy to Oikome/ }).click();
+  await expect(dialog.getByLabel("Name")).toHaveCount(0);
+  await expect(dialog).toContainText("empty-import");
+  await dialog.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "inside.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("Inside this collection"),
+  });
+  await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/collections/empty-import`);
+  await expect(page.locator("a.screen-ftile", { hasText: "inside.md" })).toBeVisible();
+  expect(readFileSync(join(owner, "Imports", "empty-import", "inside.md"), "utf8")).toBe("Inside this collection");
+
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const again = page.getByRole("dialog", { name: "Add Files" });
+  await again.getByRole("radio", { name: /Copy to Oikome/ }).click();
+  await again.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "another.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("Another file in the same collection"),
+  });
+  await again.getByRole("button", { name: "Add Files", exact: true }).click();
+  await expect(page.locator("a.screen-ftile", { hasText: "another.md" })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/collections/empty-import`);
+});
+
+test("Add Files references only selected originals and shows each file's real source", async () => {
+  const first = mkdtempSync(join(homedir(), "oikome-reference-one-"));
+  const second = mkdtempSync(join(homedir(), "oikome-reference-two-"));
+  const label = (path) => path.split(/[\\/]/).pop();
+  const name = label(first).toLowerCase();
+  writeFileSync(join(first, "keep.md"), "The selected original");
+  writeFileSync(join(first, "sibling.md"), "Must not be added");
+  writeFileSync(join(second, "other.txt"), "An original from another folder");
+  writeFileSync(join(second, "sibling.txt"), "Must not be added either");
+  try {
+    await page.goto(`${base}/collections`);
+    await page.getByRole("button", { name: "Add Files", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Add Files" });
+    await expect(dialog.getByRole("radio", { name: /Keep in Place/ })).toBeChecked();
+    await dialog.getByLabel("Add To").selectOption("__new__");
+    await dialog.getByRole("button", { name: "Choose Files…" }).click();
+    const browser = page.getByRole("dialog", { name: "Choose Files" });
+    await browser.getByRole("button", { name: label(first), exact: true }).click();
+    await browser.getByRole("checkbox", { name: "keep.md" }).check();
+    await browser.getByRole("button", { name: "Choose Files…" }).click();
+    await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
+    await expect(page).toHaveURL(`${base}/collections/${name}`);
+    await expect(page.locator("a.screen-ftile", { hasText: "keep.md" })).toBeVisible();
+    await expect(page.locator(".screen-ftile", { hasText: "sibling.md" })).toHaveCount(0);
+    await page.locator("a.screen-ftile", { hasText: "keep.md" }).click();
+    const viewer = page.getByRole("dialog", { name: "keep.md" });
+    await viewer.getByRole("button", { name: "Info" }).click();
+    await expect(viewer).toContainText(`~/${label(first)}/keep.md`);
+    await expect(viewer).not.toContainText(".oikome/index");
+    await viewer.getByRole("button", { name: "Close", exact: true }).click();
+
+    await page.getByRole("button", { name: "Add Files", exact: true }).click();
+    const again = page.getByRole("dialog", { name: "Add Files" });
+    await again.getByRole("button", { name: "Choose Files…" }).click();
+    const secondBrowser = page.getByRole("dialog", { name: "Choose Files" });
+    await secondBrowser.getByRole("button", { name: label(second), exact: true }).click();
+    await secondBrowser.getByRole("checkbox", { name: "other.txt" }).check();
+    await secondBrowser.getByRole("button", { name: "Choose Files…" }).click();
+    await again.getByRole("button", { name: "Add Files", exact: true }).click();
+    await page.locator(".screen-subfolders .screen-cover", { hasText: label(second) }).click();
+    await expect(page.locator("a.screen-ftile", { hasText: "other.txt" })).toBeVisible();
+    const deep = await api("list_files", { space: name, deep: true });
+    expect(deep.total).toBe(2);
+    expect(deep.files.map((file) => file.path).sort()).toEqual([`${label(first)}/keep.md`, `${label(second)}/other.txt`]);
+    expect(existsSync(join(owner, "Imports", name))).toBe(false);
+    await api("drop_space", { space: name });
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
+  }
+});
+
+test("JSON Lines switches between a data grid, source and phone records", async () => {
+  const data = join(owner, "Examples", "oikome-guide", "places.jsonl");
+  const damaged = join(owner, "Examples", "oikome-guide", "damaged.json");
+  writeFileSync(data, '{"place":"贝伦","day":"2025-10-06","cost":12.50,"note":null}\n{"place":"Graça","day":"2025-10-07","cost":3,"note":"A long note that stays readable when the source line wraps within a narrow file viewer instead of extending beyond it"}\n');
+  try {
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.goto(`${base}/collections/oikome-guide`);
+    await page.locator("a.screen-ftile", { hasText: "places.jsonl" }).click();
+    const viewer = page.getByRole("dialog", { name: "places.jsonl" });
+    const grid = viewer.getByRole("region", { name: "places.jsonl" });
+    await expect(grid.getByRole("gridcell", { name: "贝伦" })).toBeVisible();
+    await expect(grid.getByRole("gridcell", { name: "12.5" })).toBeVisible();
+    await expect(grid.getByRole("gridcell", { name: "3.0" })).toBeVisible();
+    await expect(grid.getByRole("gridcell", { name: "—" })).toBeVisible();
+    await viewer.getByRole("button", { name: "Copy", exact: true }).click();
+    await expect(viewer.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Cost\tDay\tNote\tPlace");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("\n12.5\tOct 6, 2025\t\t贝伦");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Graça");
+
+    await viewer.getByRole("radio", { name: "Source" }).click();
+    await expect(viewer.locator(".cm-content")).toContainText('"place":"贝伦"');
+    await page.setViewportSize({ width: 390, height: 844 });
+    const sourceWidth = () => viewer.locator(".cm-scroller").evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
+    await expect(viewer.getByRole("button", { name: "Wrap lines" })).toHaveCount(0);
+    await expect(viewer.locator(".cm-lineWrapping")).toBeVisible();
+    const wrapped = await sourceWidth();
+    expect(wrapped.scroll).toBeLessThanOrEqual(wrapped.client + 1);
+    await expect(viewer.locator(".cm-lineNumbers .cm-gutterElement").filter({ hasText: /^2$/ })).toBeVisible();
+    await expect
+      .poll(() =>
+        viewer.locator(".cm-line").nth(1).evaluate((el) => {
+          const line = el.getBoundingClientRect();
+          const gutter = [...el.closest(".cm-editor").querySelectorAll(".cm-lineNumbers .cm-gutterElement")].find((n) => n.textContent === "2");
+          const number = gutter?.getBoundingClientRect();
+          return number?.y === line.y && number?.height === line.height;
+        }),
+      )
+      .toBe(true);
+    await viewer.getByRole("radio", { name: "Table", exact: true }).click();
+    await expect(viewer.locator(".screen-data-grid__records")).toContainText("Graça");
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(grid.getByRole("gridcell", { name: "Graça" })).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(viewer.locator(".screen-data-grid__records")).toBeVisible();
+    await expect(viewer.locator(".screen-data-grid__records dl").first()).toContainText("贝伦");
+    await expect(viewer.locator(".screen-data-grid__grid")).toBeHidden();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.keyboard.press("Escape");
+
+    writeFileSync(damaged, '{"place": broken json}\n');
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.reload();
+    await page.locator("a.screen-ftile", { hasText: "damaged.json" }).click();
+    const broken = page.getByRole("dialog", { name: "damaged.json" });
+    await expect(broken.locator(".cm-content")).toContainText("broken json");
+    await expect(broken.getByRole("radio", { name: "Table" })).toHaveCount(0);
+    await broken.getByRole("button", { name: "Copy", exact: true }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("broken json");
+  } finally {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    rmSync(data, { force: true });
+    rmSync(damaged, { force: true });
+    await api("refresh_space", { space: "oikome-guide" });
+    await page.evaluate(() => {
+      localStorage.removeItem("oikome.file.view.jsonl");
+      localStorage.removeItem("oikome.file.view.json");
+    });
   }
 });
 
@@ -565,9 +812,9 @@ async function mcp(endpoint, token, method, params = {}, { modern = true, header
 
 test("an AI assistant connects over MCP, reads only what it is given, and is cut off at once", async () => {
   await page.goto(`${base}/assistants`);
-  await expect(page.getByRole("heading", { name: "AI Assistants", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "Connect an Assistant" }).click();
-  const dialog = page.getByRole("dialog", { name: "Connect an Assistant" });
+  await expect(page.getByRole("heading", { name: "MCP Access", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  const dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
   await dialog.getByRole("button", { name: "Next", exact: true }).click();
   await dialog.getByRole("checkbox", { name: "oikome-guide" }).check();
   await dialog.getByRole("button", { name: "Next: Connect" }).click();
@@ -647,7 +894,7 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   expect((await call("list_collections")).status).toBe(401);
   await page.getByRole("button", { name: "Remove Claude Code" }).click();
   await page.getByRole("dialog", { name: "Remove Claude Code?" }).getByRole("button", { name: "Remove" }).click();
-  await expect(page.getByText("No assistant is connected yet.", { exact: false })).toBeVisible();
+  await expect(page.getByText("No MCP client is connected yet.", { exact: false })).toBeVisible();
 });
 
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
@@ -1107,7 +1354,7 @@ test("a contact adds the invite in their own Oikome, reads it, and leaves it onc
   await expect(asked).toContainText(
     "To share notes with Bob wherever they are, Oikome needs to open a port on your router.",
   );
-  await expect(asked).toContainText("Oikome's own pages and your AI assistants stay on this computer only.");
+  await expect(asked).toContainText("Oikome's own pages and your MCP clients stay on this computer only.");
   await expect(asked).toContainText(
     "The port stays open while you share notes with Bob, and closes when nothing needs it.",
   );
@@ -1438,10 +1685,10 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
   try {
     // The dialog offers a folder of this computer to read where it is.
     await page.goto(`${base}/collections`);
-    await page.getByRole("button", { name: "View a Folder" }).click();
-    const dialog = page.getByRole("dialog", { name: "View a Folder" });
-    await expect(dialog).toContainText("never changes it");
-    await expect(dialog.getByRole("button", { name: "View in Place" })).toBeDisabled();
+    await page.getByRole("button", { name: "Add Files", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Add Files" });
+    await expect(dialog).toContainText("without copying or changing them");
+    await expect(dialog.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     // The folder picker browses from the home folder; the test's folder is
     // elsewhere, so it is named directly.
@@ -1503,7 +1750,7 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     // Its CSV opens as a table, read where it is, not through a table picker.
     await page.locator("a.screen-ftile", { hasText: "2025.csv" }).click();
     const csv = page.getByRole("dialog", { name: "2025.csv" });
-    await expect(csv.getByRole("table", { name: "2025.csv" }).getByRole("cell", { name: "Jan 2, 2025" })).toBeVisible();
+    await expect(csv.getByRole("region", { name: "2025.csv" }).getByRole("gridcell", { name: "Jan 2, 2025" })).toBeVisible();
     await page.keyboard.press("Escape");
 
     // A photo is sent only to the owner's own pages.
@@ -1519,6 +1766,11 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     renameSync(away, trip);
     await page.getByRole("button", { name: "Read Again" }).click();
     await expect(page.getByRole("status").filter({ hasText: "can't be reached right now" })).toHaveCount(0);
+
+    await page.goto(`${base}/places/this-computer`);
+    const keptHere = page.locator(".screen-place-list");
+    await expect(keptHere.getByRole("link", { name, exact: true })).toBeVisible();
+    await expect(keptHere).toContainText("Read where it is");
 
     // Shared with Bob to view: he queries it live, and can't keep a copy.
     const bobDid = oikome(contact, "identity").trim();
@@ -1853,7 +2105,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/sources/spending", "spending.csv"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
-    ["/assistants", "AI Assistants"],
+    ["/assistants", "MCP Access"],
     ["/plugins", "Plugins"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],

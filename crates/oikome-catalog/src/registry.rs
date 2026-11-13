@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use iceberg::{Catalog, NamespaceIdent};
-use oikome_core::{CatalogError, CreateSpaceRequest, SpaceKind};
+use oikome_core::{AccessMode, CatalogError, CreateSpaceRequest, SpaceKind};
 use serde::{Deserialize, Serialize};
 
 use crate::acl::{Grant, RowPolicy, SpaceGrant, ViewDef};
@@ -32,7 +32,9 @@ use crate::contact::Contact;
 use crate::graph::GraphDef;
 use crate::peer::Peer;
 use crate::source::SourceDef;
-use crate::space::{validate_binding, Location, LocationFormat, LocationId, Space, STORAGE_DISK};
+use crate::space::{
+    validate_binding, InPlaceSource, Location, LocationFormat, LocationId, Space, STORAGE_DISK,
+};
 use crate::storage::StorageDef;
 use crate::ucan::{IssuedUcan, RemoteToken, Revocation};
 
@@ -583,6 +585,88 @@ impl OikomeCatalog {
                 .ok_or_else(|| CatalogError::SpaceNotFound(target.to_string()))?;
             space.published_from = Some(source.to_string());
             Ok(space.clone())
+        })
+    }
+
+    /// Turn an empty analytical Space into a file-backed one on its first
+    /// import, keeping its name and whole-Space grants. The old Location is
+    /// left registered so a later removal still leaves the name taken.
+    pub fn make_space_in_place(
+        &self,
+        name: &str,
+        path: String,
+        sources: Option<Vec<InPlaceSource>>,
+    ) -> Result<Location, CatalogError> {
+        self.mutate_registry(|reg| {
+            let space = reg
+                .spaces
+                .get_mut(name)
+                .ok_or_else(|| CatalogError::SpaceNotFound(name.to_string()))?;
+            let old = reg
+                .locations
+                .get(&space.location)
+                .ok_or_else(|| CatalogError::LocationNotFound(space.location.clone()))?;
+            if !matches!(old.format, LocationFormat::IcebergParquet { .. }) {
+                return Err(CatalogError::Registry(format!(
+                    "space '{name}' is not an empty analytical Space"
+                )));
+            }
+            let id = format!("{name}-files");
+            if reg.locations.contains_key(&id) {
+                return Err(CatalogError::Registry(format!(
+                    "location '{id}' already exists"
+                )));
+            }
+            let location = Location {
+                id: id.clone(),
+                format: LocationFormat::InPlace {
+                    place: None,
+                    path,
+                    sources,
+                },
+                residency: vec![STORAGE_DISK.to_string()],
+                writer: None,
+                storage: None,
+            };
+            reg.locations.insert(id.clone(), location.clone());
+            space.location = id;
+            space.access = AccessMode::ReadOnly;
+            reg.views.retain(|(space, _), _| space != name);
+            reg.graphs.retain(|(space, _), _| space != name);
+            reg.grants.retain(|(_, space, _), _| space != name);
+            reg.policies.retain(|(space, _, _), _| space != name);
+            Ok(location)
+        })
+    }
+
+    /// Add local file references to an existing file collection, keeping its
+    /// name and replacing its index with the expanded set of sources.
+    pub fn add_in_place_files(
+        &self,
+        name: &str,
+        path: String,
+        sources: Vec<InPlaceSource>,
+    ) -> Result<Location, CatalogError> {
+        self.mutate_registry(|reg| {
+            let space = reg
+                .spaces
+                .get(name)
+                .ok_or_else(|| CatalogError::SpaceNotFound(name.to_string()))?;
+            let location = reg
+                .locations
+                .get_mut(&space.location)
+                .ok_or_else(|| CatalogError::LocationNotFound(space.location.clone()))?;
+            if !matches!(location.format, LocationFormat::InPlace { place: None, .. }) {
+                return Err(CatalogError::Registry(format!(
+                    "space '{name}' is not a local file collection"
+                )));
+            }
+            location.format = LocationFormat::InPlace {
+                place: None,
+                path,
+                sources: Some(sources),
+            };
+            Ok(location.clone())
         })
     }
 

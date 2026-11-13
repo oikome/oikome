@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: direction agreed 2026-11-12. The first Open in Default App feature is implemented; the remaining production stages have not started.
+> **Status**: direction agreed 2026-11-12. PR 18 is merged. PR 19 implements the content descriptor, safe Markdown and source views, and lazy-loaded data grids; PR 20 and safe editing have not started.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 
@@ -49,10 +49,13 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 ### PR 19: text and structured content
 
 - Render Markdown with react-markdown and remark-gfm. Do not enable uncontrolled raw HTML or remote resources.
-- Lazy-load CodeMirror for source and code views.
+- Lazy-load CodeMirror for source and code views. Wrap long lines by default without a separate toggle; place Read/Source or Table/Source switching in a quiet content toolbar, not in the file-action header.
 - Validate AG Grid Community with React 19, Arrow data, the existing themes, mobile layouts and bundle output before adopting it. Load only required Community modules.
-- Add useful column widths, a sticky header, faithful value formatting, long-text behavior, copying, and column or record choices on phones.
+- Add useful column widths, a sticky header, faithful value formatting, long-text behavior, copying, and column or record choices on phones. Keep Copy beside the view switch in one toolbar: Markdown and source copy the whole file, tables copy the current page as TSV, failures are shown, and Cmd/Ctrl+A then Cmd/Ctrl+C selects and copies source content rather than the whole page.
 - Cover Markdown injection, wide tables, long CJK and Latin text, nulls, dates without zones and decimals in all nine languages.
+- Keep a damaged JSON file available as source while isolating its unavailable table binding, rather than failing the collection's whole `files` query. Open damaged JSON directly as source without offering a table action that must fail. Count in-place collections on their actual storage page.
+- Allow only the viewer libraries' inline styles in CSP; inline scripts remain blocked. The file dialog uses three grid rows normally and four with Info open, so the data grid cannot collapse when details are toggled.
+- One Add Files action replaces separate Import Files and View a Folder entries. Keep in Place references selected original files or a whole folder without copying; Copy to Oikome deliberately copies into the current collection or subfolder and refreshes it there. The current collection is the default target, never requiring the owner to go back to the overview. Selected files from several folders can belong to one collection without exposing unselected siblings. An empty analytical collection's first add of either kind turns it into a file collection while keeping its name and whole-Space grants; a non-empty collection is never converted implicitly. The overview asks for a destination collection; creating a new one is an explicit option, never the default. Copies select files before naming an explicitly new collection, suggest an editable name from the first file, preserve original filenames and reject duplicate base names before submission. Copies never replace existing files and are limited to 32 MiB decoded (48 MiB JSON body); ordinary API requests remain limited to 1 MiB. Came from shows the current file's full original or remote-provider path, never the index or cache path. Analysis later produces structured records, chunks and vectors from either references or copies; it does not itself require another copy of the original.
 
 ### PR 20: media and retrieval results
 

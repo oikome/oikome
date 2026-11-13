@@ -208,7 +208,7 @@ export function Palette({ onClose, scope }: { onClose: () => void; scope?: strin
         group: s.collections,
         icon: space.kind === "remote" ? "person-plus" : "collection",
         title: space.name,
-        meta: space.kind === "remote" ? strings.collections.fromElsewhere : space.example ? strings.collections.example : undefined,
+        meta: space.kind === "remote" ? strings.collections.fromElsewhere : undefined,
         run: go(`/collections/${encodeURIComponent(space.name)}`),
       });
     }

@@ -33,7 +33,7 @@ export default defineConfig({
         },
       },
       "/login": { target: node, changeOrigin: true },
-      // The AI Assistants screen builds its `claude mcp add` command from
+      // The MCP Access screen builds its `claude mcp add` command from
       // this page's own address. No Origin is added: the node refuses
       // /mcp requests that carry one.
       "/mcp": { target: node, changeOrigin: true },

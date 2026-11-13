@@ -51,6 +51,7 @@ import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
 import { FileView } from "../viewer";
+import { AddFiles } from "../import";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
@@ -81,6 +82,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [importing, setImporting] = useState(false);
   const remove = useAction();
 
   const list = spaces.data ?? [];
@@ -157,7 +159,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           folder
             ? s.viewedOn(folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer))
             : local
-              ? [kind ? s.kinds[kind] : null, space.example ? s.fromExampleShort : s.fromYouShort].filter(Boolean).join(" · ")
+              ? (kind ? s.kinds[kind] : s.fromYouShort)
               : s.sharedWithYouFrom(from)
         }
         title={<span translate="no">{collectionTitle(space)}</span>}
@@ -177,6 +179,11 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
         {source && (
           <Button icon="sync" disabled={sync.busy} spinning={sync.busy} onClick={syncNow}>
             {strings.sources.syncNow}
+          </Button>
+        )}
+        {folder && !folder.place && (
+          <Button icon="upload" onClick={() => setImporting(true)}>
+            {s.addFiles}
           </Button>
         )}
         {folder && (
@@ -321,6 +328,21 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
       )}
 
       {searching && <Palette scope={space.name} onClose={() => setSearching(false)} />}
+      {importing && (
+        <AddFiles
+          target={{
+            space: space.name,
+            folder: folder ? openFolder : undefined,
+            label: folder && openFolder ? `${space.name}/${openFolder}` : space.name,
+          }}
+          onClose={() => setImporting(false)}
+          onAdded={() => {
+            spaces.reload();
+            preview.reload();
+            setContentsKey((key) => key + 1);
+          }}
+        />
+      )}
 
       {sync.error && <ErrorText>{sync.error}</ErrorText>}
       {(() => {
@@ -332,6 +354,20 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
               : space.example
                 ? s.fromExample
                 : s.fromYou,
+          cameFromPath: folder
+            ? (path: string) => {
+                const root = folder.path.replace(/[\\/]+$/, "");
+                const full = `${root}/${path}`;
+                const shown = folder.place
+                  ? `${folderPlace ? storageLabel(folderPlace) : folder.place}: ${full}`
+                  : homeRelative(full);
+                return (
+                  <span title={full} translate="no">
+                    {shown}
+                  </span>
+                );
+              }
+            : undefined,
           keptOn,
           who: listNames([strings.common.you, ...names]),
         };
@@ -345,7 +381,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             placeLabel={folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer)}
           />
         ) : (
-          <Contents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} />
+          <Contents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} onImport={() => setImporting(true)} />
         );
       })()}
     </>
@@ -355,11 +391,12 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
 /** What an item's own view says of its collection. */
 interface Facts {
   cameFrom: ReactNode;
+  cameFromPath?: (path: string) => ReactNode;
   keptOn: ReactNode;
   who: string;
 }
 
-function Contents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuery; facts: Facts }) {
+function Contents({ space, item, facts, onImport }: { space: SpaceSummary; item?: ItemQuery; facts: Facts; onImport: () => void }) {
   const client = useClient();
   // A shared collection is read from its owner's computer, which can be off
   // or may have stopped sharing; say so instead of the node's message.
@@ -461,7 +498,16 @@ function Contents({ space, item, facts }: { space: SpaceSummary; item?: ItemQuer
   if (tables.data && tables.data.length === 0) {
     return (
       <Card>
-        <EmptyState icon="table" title={s.nothingYetTitle} body={s.nothingYetBody} />
+        <EmptyState
+          icon="table"
+          title={s.nothingYetTitle}
+          body={s.nothingYetBody}
+          action={
+            <Button icon="upload" onClick={onImport}>
+              {s.addFiles}
+            </Button>
+          }
+        />
       </Card>
     );
   }

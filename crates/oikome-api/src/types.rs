@@ -175,6 +175,48 @@ pub struct ViewInPlace {
     pub path: String,
     /// The collection's name; made from the folder's when left out.
     pub name: Option<String>,
+    /// Selected absolute local file paths; `None` means the whole folder.
+    #[serde(default)]
+    pub files: Option<Vec<String>>,
+}
+
+/// `add_in_place_files`: add original local files to a file collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AddInPlaceFiles {
+    pub space: String,
+    /// Absolute paths of original files on this computer.
+    pub files: Vec<String>,
+}
+
+/// One file deliberately copied from the owner's browser into a new collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFile {
+    /// Its base name, without a directory.
+    pub name: String,
+    /// Its bytes, encoded as standard base64 for the JSON API.
+    pub data_base64: String,
+}
+
+/// `import_files`: copy files into a new collection or the current folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFiles {
+    /// A new collection's name; exactly one of `name` and `space` is required.
+    #[serde(default)]
+    #[ts(optional)]
+    pub name: Option<String>,
+    /// An existing collection to import into.
+    #[serde(default)]
+    #[ts(optional)]
+    pub space: Option<String>,
+    /// Its current subfolder, `/`-separated; the top when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub folder: Option<String>,
+    /// At most 32 MiB decoded in total. Existing files are never replaced.
+    pub files: Vec<ImportFile>,
 }
 
 /// `list_files`: one folder of a collection viewed in place.
@@ -249,6 +291,42 @@ pub enum FileKind {
     Other,
 }
 
+/// A presentation Oikome can offer for one file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentView {
+    Read,
+    Source,
+    Table,
+    Image,
+}
+
+/// Operations available for a file on the node that answered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentCapabilities {
+    pub open_default: bool,
+    pub reveal: bool,
+    pub edit: bool,
+}
+
+/// How one file can be presented, and which source version that describes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileContent {
+    /// A lowercase physical format name, or `file` when there is no extension.
+    pub format: String,
+    pub media_type: Option<String>,
+    pub views: Vec<ContentView>,
+    /// The source contract that produced this descriptor.
+    pub source: String,
+    /// The indexed source size and modification time, not a content hash.
+    pub version: String,
+    pub capabilities: ContentCapabilities,
+    /// Why no built-in view is available, if there is none.
+    pub unavailable_reason: Option<String>,
+}
+
 /// A file of a collection viewed in place, as its index knows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -274,6 +352,7 @@ pub struct FileItem {
     pub text: Option<String>,
     /// Whether the index has a thumbnail of it.
     pub thumbnail: bool,
+    pub content: FileContent,
 }
 
 /// One file of a collection viewed in place.
@@ -714,8 +793,8 @@ pub struct FolderRef {
     pub path: Option<String>,
 }
 
-/// The folders in one folder, hidden ones left out, its CSV files, and how
-/// many photos and notes it holds (what a source of it would read).
+/// The folders and files in one folder, hidden ones left out, and how many
+/// photos and notes it holds (what a source of it would read).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderListing {
@@ -723,6 +802,7 @@ pub struct FolderListing {
     /// The folder above; `None` at the top.
     pub parent: Option<String>,
     pub folders: Vec<FolderEntry>,
+    pub files: Vec<FolderEntry>,
     pub csv_files: Vec<FolderEntry>,
     pub photos: u32,
     pub notes: u32,

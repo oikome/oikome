@@ -719,17 +719,20 @@ export function AddStorage({
 /**
  * Browse this computer's folders, as the node lists them (a web page can't
  * open the system's folder picker), and choose one; with `csv`, choose one
- * of the CSV files in a folder instead.
+ * of the CSV files in a folder instead. `onChooseFiles` selects any number
+ * of ordinary files in the same folder instead.
  */
 export function FolderBrowser({
   onClose,
   onChoose,
+  onChooseFiles,
   title = s.browseTitle,
   hint,
   csv = false,
 }: {
   onClose: () => void;
-  onChoose: (path: string) => void;
+  onChoose?: (path: string) => void;
+  onChooseFiles?: (paths: string[]) => void;
   title?: string;
   /** Under the list: what choosing this folder would do. */
   hint?: (here: FolderListing) => ReactNode;
@@ -737,8 +740,14 @@ export function FolderBrowser({
 }) {
   const client = useClient();
   const [path, setPath] = useState<string>();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const listing = useLoad(() => client.listFolders(path ? { path } : {}), [path]);
   const here = listing.data;
+  const open = (next: string) => {
+    setSelected(new Set());
+    setPath(next);
+  };
+  const choosingFiles = onChooseFiles !== undefined;
   return (
     <Dialog
       title={title}
@@ -747,9 +756,14 @@ export function FolderBrowser({
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          {!csv && (
-            <Button variant="primary" disabled={!here} onClick={() => here && onChoose(here.path)}>
+          {!csv && !choosingFiles && (
+            <Button variant="primary" disabled={!here} onClick={() => here && onChoose?.(here.path)}>
               {s.choose}
+            </Button>
+          )}
+          {choosingFiles && (
+            <Button variant="primary" disabled={selected.size === 0} onClick={() => onChooseFiles([...selected])}>
+              {strings.collections.chooseFiles}
             </Button>
           )}
         </>
@@ -761,7 +775,7 @@ export function FolderBrowser({
             icon="back"
             label={s.up}
             disabled={!here?.parent}
-            onClick={() => here?.parent && setPath(here.parent)}
+            onClick={() => here?.parent && open(here.parent)}
           />
           <span className="screen-path" translate="no" title={here?.path}>
             {here ? homeRelative(here.path) : "…"}
@@ -770,21 +784,44 @@ export function FolderBrowser({
         {listing.error && <ErrorText>{listing.error}</ErrorText>}
         <ul className="screen-browser__list" aria-label={title}>
           {!here && !listing.error && <li className="screen-browser__empty oik-skel" aria-hidden="true" />}
-          {here && here.folders.length === 0 && (!csv || here.csvFiles.length === 0) && (
-            <li className="screen-browser__empty">{csv ? s.noCsv : s.noFolders}</li>
-          )}
+          {here &&
+            here.folders.length === 0 &&
+            (choosingFiles ? here.files.length === 0 : !csv || here.csvFiles.length === 0) && (
+              <li className="screen-browser__empty">{csv ? s.noCsv : choosingFiles ? strings.collections.emptyFolder : s.noFolders}</li>
+            )}
           {csv &&
             here?.csvFiles.map((file) => (
               <li key={file.path}>
-                <button type="button" className="screen-browser__folder" onClick={() => onChoose(file.path)}>
+                <button type="button" className="screen-browser__folder" onClick={() => onChoose?.(file.path)}>
                   <Icon name="table" />
                   <span translate="no">{file.name}</span>
                 </button>
               </li>
             ))}
+          {choosingFiles &&
+            here?.files.map((file) => (
+              <li key={file.path}>
+                <label className="screen-browser__folder">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(file.path)}
+                    onChange={() =>
+                      setSelected((current) => {
+                        const next = new Set(current);
+                        if (next.has(file.path)) next.delete(file.path);
+                        else next.add(file.path);
+                        return next;
+                      })
+                    }
+                  />
+                  <Icon name="note" />
+                  <span translate="no">{file.name}</span>
+                </label>
+              </li>
+            ))}
           {here?.folders.map((folder) => (
             <li key={folder.path}>
-              <button type="button" className="screen-browser__folder" onClick={() => setPath(folder.path)}>
+              <button type="button" className="screen-browser__folder" onClick={() => open(folder.path)}>
                 <Icon name="folder" />
                 <span translate="no">{folder.name}</span>
                 <Icon name="chevron" />

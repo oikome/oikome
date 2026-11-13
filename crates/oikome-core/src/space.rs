@@ -292,6 +292,8 @@ pub struct CreateSpaceRequest {
     /// computer (`PATH` absolute), or the name of a storage (`PATH` within
     /// it). The Space is read-only and holds no data of its own.
     pub place: Option<String>,
+    /// Selected files within `path`; `None` means the whole folder.
+    pub include: Option<Vec<String>>,
     /// Format of a new analytical Location (default Iceberg).
     pub format: Option<SpaceFormat>,
     /// Flight endpoint of the node owning a remote Space (`http://host:port`).

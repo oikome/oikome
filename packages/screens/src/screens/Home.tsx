@@ -58,12 +58,8 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const storages = useLoad(() => client.listStorages(), []);
   const sources = useLoad(() => client.listSources(), []);
   const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
-  // People's reads: a plugin's reads of its own cards are in Activity, not here.
-  const access = useLoad(() => client.listAccess({ limit: 100 }), []);
-  const log = {
-    ...access,
-    data: access.data?.filter((item) => item.method !== "plugin_read" && !item.method.startsWith("owner_")),
-  };
+  // Home and Activity read the same log, including your own and plugin reads.
+  const log = useLoad(() => client.listAccess({ limit: 100 }), []);
   const [previews, setPreviews] = useState<Map<string, Preview>>();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);

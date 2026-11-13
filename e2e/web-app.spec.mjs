@@ -202,6 +202,9 @@ test("first run: name the data center and save its recovery key", async () => {
   await expect(
     page.getByRole("heading", { name: /^Good (morning|afternoon|evening)$/, level: 1 }),
   ).toBeVisible();
+  const activity = page.getByRole("region", { name: "Recent Activity" });
+  await expect(activity).toContainText("You set up this data center");
+  await expect(activity).toContainText("You added the examples");
   // The data center starts with the examples, once: they show on Home.
   await expect(page.getByText(/^(lisbon-photos|spending|home-climate) · /).first()).toBeVisible();
   await expect(page.getByText("Back up your recovery key")).toHaveCount(0);
@@ -588,12 +591,21 @@ test("files copied from this computer become a browsable collection", async () =
   await page.goto(`${base}/collections`);
   await page.getByRole("button", { name: "Add Files", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Add Files" });
+  await expect(dialog.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
+  await dialog.getByLabel("Add To").selectOption("__new__");
   await dialog.getByRole("radio", { name: /Copy to Oikome/ }).click();
-  await dialog.getByLabel("Name").fill("imported-files");
+  await dialog.getByLabel("Files", { exact: true }).setInputFiles([
+    { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("first") },
+    { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("second") },
+  ]);
+  await expect(dialog).toContainText("Files with the same name cannot be copied together");
+  await expect(dialog.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
   await dialog.getByLabel("Files", { exact: true }).setInputFiles([
     { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported note\n\nCopied deliberately.") },
     { name: "rows.csv", mimeType: "text/csv", buffer: Buffer.from("name,value\nfirst,1\n") },
   ]);
+  await expect(dialog.getByLabel("New Collection Name")).toHaveValue("note");
+  await dialog.getByLabel("New Collection Name").fill("imported-files");
   await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
   await expect(page).toHaveURL(`${base}/collections/imported-files`);
   await expect(page.locator("a.screen-ftile", { hasText: "note.md" })).toBeVisible();
@@ -601,6 +613,21 @@ test("files copied from this computer become a browsable collection", async () =
   expect(readFileSync(join(owner, "Imports", "imported-files", "note.md"), "utf8")).toContain("Copied deliberately.");
   await page.locator("a.screen-ftile", { hasText: "note.md" }).click();
   await expect(page.getByRole("dialog", { name: "note.md" })).toContainText("Copied deliberately.");
+  await page.getByRole("dialog", { name: "note.md" }).getByRole("button", { name: "Close", exact: true }).click();
+
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const existing = page.getByRole("dialog", { name: "Add Files" });
+  await existing.getByLabel("Add To").selectOption("imported-files");
+  await existing.getByRole("radio", { name: /Copy to Oikome/ }).click();
+  await existing.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "existing.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("Added to an existing collection from the overview"),
+  });
+  await existing.getByRole("button", { name: "Add Files", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/collections/imported-files`);
+  await expect(page.locator("a.screen-ftile", { hasText: "existing.md" })).toBeVisible();
 });
 
 test("an empty collection and the current folder copy files without going back", async () => {
@@ -651,6 +678,7 @@ test("Add Files references only selected originals and shows each file's real so
     await page.getByRole("button", { name: "Add Files", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Add Files" });
     await expect(dialog.getByRole("radio", { name: /Keep in Place/ })).toBeChecked();
+    await dialog.getByLabel("Add To").selectOption("__new__");
     await dialog.getByRole("button", { name: "Choose Files…" }).click();
     const browser = page.getByRole("dialog", { name: "Choose Files" });
     await browser.getByRole("button", { name: label(first), exact: true }).click();
@@ -784,9 +812,9 @@ async function mcp(endpoint, token, method, params = {}, { modern = true, header
 
 test("an AI assistant connects over MCP, reads only what it is given, and is cut off at once", async () => {
   await page.goto(`${base}/assistants`);
-  await expect(page.getByRole("heading", { name: "AI Assistants", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "Connect an Assistant" }).click();
-  const dialog = page.getByRole("dialog", { name: "Connect an Assistant" });
+  await expect(page.getByRole("heading", { name: "MCP Access", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  const dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
   await dialog.getByRole("button", { name: "Next", exact: true }).click();
   await dialog.getByRole("checkbox", { name: "oikome-guide" }).check();
   await dialog.getByRole("button", { name: "Next: Connect" }).click();
@@ -866,7 +894,7 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   expect((await call("list_collections")).status).toBe(401);
   await page.getByRole("button", { name: "Remove Claude Code" }).click();
   await page.getByRole("dialog", { name: "Remove Claude Code?" }).getByRole("button", { name: "Remove" }).click();
-  await expect(page.getByText("No assistant is connected yet.", { exact: false })).toBeVisible();
+  await expect(page.getByText("No MCP client is connected yet.", { exact: false })).toBeVisible();
 });
 
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
@@ -1326,7 +1354,7 @@ test("a contact adds the invite in their own Oikome, reads it, and leaves it onc
   await expect(asked).toContainText(
     "To share notes with Bob wherever they are, Oikome needs to open a port on your router.",
   );
-  await expect(asked).toContainText("Oikome's own pages and your AI assistants stay on this computer only.");
+  await expect(asked).toContainText("Oikome's own pages and your MCP clients stay on this computer only.");
   await expect(asked).toContainText(
     "The port stays open while you share notes with Bob, and closes when nothing needs it.",
   );
@@ -2077,7 +2105,7 @@ test("every screen fits desktop and phone widths, and its text is readable, in b
     ["/sources/spending", "spending.csv"],
     ["/collections/notes", "notes"],
     ["/sharing", "Sharing"],
-    ["/assistants", "AI Assistants"],
+    ["/assistants", "MCP Access"],
     ["/plugins", "Plugins"],
     ["/activity", "Activity"],
     ["/settings", "Settings"],

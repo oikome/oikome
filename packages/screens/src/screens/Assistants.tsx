@@ -1,7 +1,7 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// AI Assistants: the assistants the owner connected over MCP, what each can
+// MCP Access: the clients the owner connected over MCP, what each can
 // read (switched on and off in place), and what it searched and read
 // lately, from Activity. Connecting one takes three steps: the app, what it
 // can read, and the command (or address and header) to paste, with its key

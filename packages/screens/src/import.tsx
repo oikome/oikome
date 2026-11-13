@@ -1,7 +1,7 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, ChoiceList, Dialog, ErrorText, Icon, Select, TextField, useToast } from "@oikome/ui";
 import type { SpaceSummary } from "@oikome/client";
 import { forgetPreviews } from "./content";
@@ -14,6 +14,7 @@ import { strings } from "./strings";
 const s = strings.collections;
 const NAME = /^[A-Za-z_-][A-Za-z0-9_-]{0,63}$/;
 const LOCAL = "";
+const NEW = "__new__";
 const MAX_IMPORT_BYTES = 32 * 1024 * 1024;
 
 function base64(file: File): Promise<string> {
@@ -31,6 +32,13 @@ function base64(file: File): Promise<string> {
   });
 }
 
+function suggestedName(file: File): string {
+  const stem = file.name.replace(/\.[^/.]+$/, "");
+  const cleaned = stem.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "");
+  const base = cleaned || "imported-files";
+  return (/^[A-Za-z_]/.test(base) ? base : `import-${base}`).slice(0, 64);
+}
+
 export function AddFiles({
   target,
   onClose,
@@ -44,44 +52,62 @@ export function AddFiles({
   const toast = useToast();
   const adding = useAction();
   const storages = useLoad(() => client.listStorages(), []);
+  const spaces = useLoad(() => client.listSpaces(), []);
+  const [destination, setDestination] = useState("");
   const [mode, setMode] = useState<"reference" | "copy">("reference");
   const [source, setSource] = useState<"files" | "folder">("files");
   const [place, setPlace] = useState(LOCAL);
   const [name, setName] = useState("");
+  const [nameEdited, setNameEdited] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [originals, setOriginals] = useState<string[]>([]);
   const [path, setPath] = useState<string>();
   const [within, setWithin] = useState("");
   const [browsing, setBrowsing] = useState<"files" | "folder">();
+  const makingNew = !target && destination === NEW;
+  const currentPlace = makingNew ? place : LOCAL;
   const total = files.reduce((sum, file) => sum + file.size, 0);
+  const duplicateNames = new Set(files.map((file) => file.name)).size !== files.length;
+  const collections = (spaces.data ?? []).filter(
+    (space) => space.kind !== "remote" && ((space.inPlace && !space.inPlace.place) || (!space.inPlace && space.kind === "analytical")),
+  );
   const places = (storages.data ?? []).filter((storage) => storage.viewsInPlace && storage.name !== null);
-  const currentPlace = target ? LOCAL : place;
   const remote = places.find((storage) => storage.name === currentPlace);
+
+  useEffect(() => {
+    if (makingNew && !nameEdited && files[0]) setName(suggestedName(files[0]));
+  }, [makingNew, nameEdited, files]);
+
+  const destinationReady = target !== undefined || destination !== "";
   const ready =
-    mode === "copy"
-      ? (target !== undefined || NAME.test(name)) && files.length > 0 && total <= MAX_IMPORT_BYTES
-      : currentPlace !== LOCAL
-        ? true
-        : target || source === "files"
-          ? originals.length > 0
-          : path !== undefined;
+    !destinationReady || duplicateNames
+      ? false
+      : mode === "copy"
+        ? (!makingNew || NAME.test(name)) && files.length > 0 && total <= MAX_IMPORT_BYTES
+        : makingNew && currentPlace !== LOCAL
+          ? true
+          : makingNew && source === "folder"
+            ? path !== undefined
+            : originals.length > 0;
 
   const add = async () => {
     const added = await adding.run(async () => {
       if (mode === "copy") {
         return client.importFiles({
-          ...(target ? { space: target.space, folder: target.folder } : { name }),
+          ...(makingNew ? { name } : { space: target?.space ?? destination, folder: target?.folder }),
           files: await Promise.all(files.map(async (file) => ({ name: file.name, dataBase64: await base64(file) }))),
         });
       }
-      if (target) return client.addInPlaceFiles({ space: target.space, files: originals });
+      if (!makingNew) {
+        return client.addInPlaceFiles({ space: target?.space ?? destination, files: originals });
+      }
       if (currentPlace !== LOCAL) return client.viewInPlace({ place: currentPlace, path: within.trim() });
       if (source === "folder") return client.viewInPlace({ path: path! });
       return client.viewInPlace({ path: "", files: originals });
     }, rawMessage);
     if (!added) return;
     forgetPreviews();
-    toast(mode === "copy" ? s.imported(added.name) : target ? s.added(added.name) : s.viewed(added.name));
+    toast(mode === "copy" && makingNew ? s.imported(added.name) : makingNew ? s.viewed(added.name) : s.added(added.name));
     onAdded?.(added);
     onClose();
     if (!target || mode === "reference") navigate(`/collections/${encodeURIComponent(added.name)}`);
@@ -103,10 +129,24 @@ export function AddFiles({
         }
       >
         <p className="oik-dialog__text">{target ? s.addFilesCurrent : s.addFilesBody}</p>
-        {target && (
+        {target ? (
           <p className="screen-path" translate="no">
             {target.label}
           </p>
+        ) : (
+          <Select
+            label={s.addTo}
+            value={destination}
+            onChange={(value) => {
+              setDestination(value);
+              adding.clear();
+            }}
+            options={[
+              { value: "", label: s.chooseCollection },
+              ...collections.map((space) => ({ value: space.name, label: space.name })),
+              { value: NEW, label: s.newCollection },
+            ]}
+          />
         )}
         <ChoiceList
           label={s.addHow}
@@ -121,7 +161,7 @@ export function AddFiles({
             { value: "copy", title: s.copyToOikome, meta: s.copyToOikomeBody, leading: <Icon name="download" /> },
           ]}
         />
-        {mode === "reference" && !target && places.length > 0 && (
+        {mode === "reference" && makingNew && places.length > 0 && (
           <Select
             label={s.viewOn}
             value={place}
@@ -135,7 +175,7 @@ export function AddFiles({
             ]}
           />
         )}
-        {mode === "reference" && currentPlace !== LOCAL ? (
+        {mode === "reference" && makingNew && currentPlace !== LOCAL ? (
           <TextField
             name="folder-on-place"
             label={s.folderOn(remote?.label ?? currentPlace)}
@@ -145,7 +185,7 @@ export function AddFiles({
           />
         ) : mode === "reference" ? (
           <>
-            {!target && (
+            {makingNew && (
               <Select
                 label={s.addWhat}
                 value={source}
@@ -159,14 +199,14 @@ export function AddFiles({
                 ]}
               />
             )}
-            {(target || source === "files") && (
+            {(!makingNew || source === "files") && (
               <>
                 <div className="screen-source-pick">
                   <span className="screen-path">{originals.length === 0 ? s.noFilesYet : s.selectedPaths(originals.length)}</span>
                   <Button onClick={() => setBrowsing("files")}>{s.chooseFiles}</Button>
                 </div>
                 {originals.length > 0 && (
-                  <ul className="screen-import-files" aria-label={s.files}>
+                  <ul className="screen-import-files" aria-label={s.selectedFiles}>
                     {originals.map((original) => (
                       <li key={original}>
                         <span translate="no" title={original}>
@@ -178,7 +218,7 @@ export function AddFiles({
                 )}
               </>
             )}
-            {!target && source === "folder" && (
+            {makingNew && source === "folder" && (
               <div className="screen-source-pick">
                 <span className="screen-path" translate="no" title={path}>
                   {path ? homeRelative(path) : s.noFolderYet}
@@ -189,20 +229,6 @@ export function AddFiles({
           </>
         ) : (
           <>
-            {!target && (
-              <TextField
-                name="import-collection-name"
-                label={s.nameLabel}
-                hint={s.nameHint}
-                placeholder={s.namePlaceholder}
-                value={name}
-                mono
-                onChange={(value) => {
-                  setName(value);
-                  adding.clear();
-                }}
-              />
-            )}
             <div className="screen-gapp__file">
               <label className="oik-button oik-button--secondary screen-file-pick">
                 <Icon name="upload" />
@@ -220,7 +246,7 @@ export function AddFiles({
               <span className="screen-help">{files.length === 0 ? s.noFilesYet : s.importLimit}</span>
             </div>
             {files.length > 0 && (
-              <ul className="screen-import-files" aria-label={s.files}>
+              <ul className="screen-import-files" aria-label={s.selectedFiles}>
                 {files.map((file, index) => (
                   <li key={`${file.name}:${index}`}>
                     <span translate="no">{file.name}</span>
@@ -229,6 +255,22 @@ export function AddFiles({
                 ))}
               </ul>
             )}
+            {makingNew && (
+              <TextField
+                name="import-collection-name"
+                label={s.collectionNameLabel}
+                hint={s.importNameHint}
+                placeholder={s.namePlaceholder}
+                value={name}
+                mono
+                onChange={(value) => {
+                  setName(value);
+                  setNameEdited(true);
+                  adding.clear();
+                }}
+              />
+            )}
+            {duplicateNames && <ErrorText>{s.duplicateFiles}</ErrorText>}
             {total > MAX_IMPORT_BYTES && <ErrorText>{s.importLimit}</ErrorText>}
           </>
         )}

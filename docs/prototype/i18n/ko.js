@@ -9,7 +9,7 @@
   'nav.collections': '컬렉션',
   'nav.sources': '소스',
   'nav.sharing': '공유',
-  'nav.assistants': 'AI 어시스턴트',
+  'nav.assistants': 'MCP 액세스',
   'nav.plugins': '플러그인',
   'nav.activity': '활동',
   'nav.settings': '설정',
@@ -217,8 +217,12 @@
 
   // Collections
   importFiles: '파일 추가',
-  importFilesBody: '원본 파일을 원래 위치에서 참조하거나 Oikome의 새 컬렉션으로 복사해요.',
+  importFilesBody: '컬렉션을 선택한 다음 원본 파일을 원래 위치에서 참조하거나 해당 컬렉션으로 복사해요.',
   importFilesCurrent: '원본 파일을 원래 위치에서 참조하거나 현재 폴터로 복사해요.',
+  addTo: '추가 대상',
+  chooseCollection: '컬렉션 선택',
+  collectionNameLabel: '새 컬렉션 이름',
+  importNameHint: '파일은 이 컬렉션에서 원래 이름을 그대로 유지해요.',
   addHow: '추가 방식',
   keepInPlace: '원래 위치에 유지',
   keepInPlaceBody: '원본 파일을 복사하거나 변경하지 않고 표시해요.',

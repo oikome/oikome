@@ -25,18 +25,18 @@ export const en = {
     sources: "Sources",
     sharing: "Sharing",
     activity: "Activity",
-    assistants: "AI Assistants",
+    assistants: "MCP Access",
     plugins: "Plugins",
     settings: "Settings",
   },
 
   assistants: {
-    title: "AI Assistants",
-    lede: "Assistants read only the collections you give them, and every read shows up in Activity.",
-    connect: "Connect an Assistant",
+    title: "MCP Access",
+    lede: "MCP clients read only the collections you give them, and every read shows up in Activity.",
+    connect: "Connect MCP Client",
     connected: "Connected",
     overMcp: "over MCP \u00b7 on this computer",
-    none: "No assistant is connected yet. Connect one to let it search the collections you choose.",
+    none: "No MCP client is connected yet. Connect one to let it search the collections you choose.",
     reads: (list: string[]) => (list.length > 0 ? `Reads ${list.join(", ")}` : "Reads nothing yet"),
     lastUsed: (when: string) => `last used ${when}`,
     notYet: "not used yet",
@@ -57,7 +57,7 @@ export const en = {
     latelyNone: (name: string) => `${name} hasn't searched or read anything yet.`,
     openActivity: "Open Activity",
     // Connecting
-    connectTitle: "Connect an Assistant",
+    connectTitle: "Connect MCP Client",
     steps: "Step",
     stepApp: "App",
     stepReads: "What it can read",
@@ -365,8 +365,13 @@ export const en = {
     title: "Collections",
     newCollection: "New Collection",
     addFiles: "Add Files",
-    addFilesBody: "Reference original files where they are, or copy them into a new collection in Oikome.",
+    addFilesBody: "Choose a collection, then reference original files where they are or copy them into it.",
     addFilesCurrent: "Reference original files where they are, or copy them into the current folder.",
+    addTo: "Add To",
+    chooseCollection: "Choose a collection",
+    collectionNameLabel: "New Collection Name",
+    importNameHint: "Files keep their original names inside this collection.",
+    duplicateFiles: "Files with the same name cannot be copied together. Change the selection so each name is unique.",
     addHow: "How to Add",
     keepInPlace: "Keep in Place",
     keepInPlaceBody: "Show the originals without copying or changing them.",
@@ -1034,7 +1039,7 @@ export const en = {
       `A computer you don't know asked for ${what}${n > 1 ? ` ${n} times` : ""}. Nobody gave it a share, so ${n > 1 ? "every request was" : "it was"} refused and nothing was sent.`,
     goSharing: "Open Sharing",
     goPlugins: "Open Plugins",
-    goAssistants: "Open AI Assistants",
+    goAssistants: "Open MCP Access",
     goSettings: "Open Settings",
     goCollections: "Open Collections",
     colResult: "Result",
@@ -1092,7 +1097,7 @@ export const en = {
     whyLend: (names: string) =>
       `To lend this computer to ${names} wherever they are, Oikome needs to open a port on your router.`,
     risk: "Anyone on the internet could then find that port. Only the people you share with can read anything through it, and every attempt shows in Activity.",
-    stays: "Oikome's own pages and your AI assistants stay on this computer only.",
+    stays: "Oikome's own pages and your MCP clients stay on this computer only.",
     whileShare: (collection: string, name: string) =>
       `The port stays open while you share ${collection} with ${name}, and closes when nothing needs it.`,
     whileLend: (names: string) =>
@@ -1166,7 +1171,7 @@ export const en = {
     helpContactsBody:
       "When this computer can be reached directly, contacts who can't reach each other meet here first. Only a few kilobytes pass through, never their data.",
     networkFootnote:
-      "Oikome asks your router to open one port for itself. Its own pages and your AI assistants stay on this computer.",
+      "Oikome asks your router to open one port for itself. Its own pages and your MCP clients stay on this computer.",
     networkSaved: "Saved.",
   },
 };

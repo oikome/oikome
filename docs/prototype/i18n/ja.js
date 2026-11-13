@@ -9,7 +9,7 @@
   'nav.collections': 'コレクション',
   'nav.sources': 'ソース',
   'nav.sharing': '共有',
-  'nav.assistants': 'AIアシスタント',
+  'nav.assistants': 'MCP アクセス',
   'nav.plugins': 'プラグイン',
   'nav.activity': 'アクティビティ',
   'nav.settings': '設定',
@@ -217,8 +217,12 @@
 
   // Collections
   importFiles: 'ファイルを追加',
-  importFilesBody: '元のファイルをその場所で参照するか、Oikome の新しいコレクションにコピーします。',
+  importFilesBody: 'コレクションを選択し、元のファイルをその場所で参照するか、そのコレクションにコピーします。',
   importFilesCurrent: '元のファイルをその場所で参照するか、現在のフォルダーにコピーします。',
+  addTo: '追加先',
+  chooseCollection: 'コレクションを選択',
+  collectionNameLabel: '新しいコレクションの名前',
+  importNameHint: 'ファイルはこのコレクション内で元の名前のまま保持されます。',
   addHow: '追加方法',
   keepInPlace: 'その場所に保持',
   keepInPlaceBody: '元のファイルをコピーや変更せずに表示します。',

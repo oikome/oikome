@@ -9,7 +9,7 @@
   'nav.collections': 'Collections',
   'nav.sources': 'Sources',
   'nav.sharing': 'Partage',
-  'nav.assistants': 'Assistants IA',
+  'nav.assistants': 'Accès MCP',
   'nav.plugins': 'Plugins',
   'nav.activity': 'Activité',
   'nav.settings': 'Réglages',
@@ -233,8 +233,12 @@
 
   // Collections
   importFiles: 'Ajouter des fichiers',
-  importFilesBody: 'Référencez les fichiers originaux à leur emplacement ou copiez-les dans une nouvelle collection Oikome.',
+  importFilesBody: 'Choisissez une collection, puis référencez les fichiers originaux à leur emplacement ou copiez-les dans celle-ci.',
   importFilesCurrent: 'Référencez les fichiers originaux à leur emplacement ou copiez-les dans le dossier actuel.',
+  addTo: 'Ajouter à',
+  chooseCollection: 'Choisir une collection',
+  collectionNameLabel: 'Nom de la nouvelle collection',
+  importNameHint: 'Les fichiers conservent leur nom d’origine dans cette collection.',
   addHow: 'Mode d’ajout',
   keepInPlace: 'Conserver sur place',
   keepInPlaceBody: 'Affiche les originaux sans les copier ni les modifier.',

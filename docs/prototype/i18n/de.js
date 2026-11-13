@@ -9,7 +9,7 @@
   'nav.collections': 'Sammlungen',
   'nav.sources': 'Quellen',
   'nav.sharing': 'Freigaben',
-  'nav.assistants': 'KI-Assistenten',
+  'nav.assistants': 'MCP-Zugriff',
   'nav.plugins': 'Plugins',
   'nav.activity': 'Aktivität',
   'nav.settings': 'Einstellungen',
@@ -232,8 +232,12 @@
 
   // Collections
   importFiles: 'Dateien hinzufügen',
-  importFilesBody: 'Verweise auf Originaldateien an ihrem Ort oder kopiere sie in eine neue Sammlung in Oikome.',
+  importFilesBody: 'Wähle eine Sammlung und verweise dann auf Originaldateien an ihrem Ort oder kopiere sie in diese Sammlung.',
   importFilesCurrent: 'Verweise auf Originaldateien an ihrem Ort oder kopiere sie in den aktuellen Ordner.',
+  addTo: 'Hinzufügen zu',
+  chooseCollection: 'Sammlung auswählen',
+  collectionNameLabel: 'Name der neuen Sammlung',
+  importNameHint: 'Dateien behalten in dieser Sammlung ihre ursprünglichen Namen.',
   addHow: 'Art des Hinzufügens',
   keepInPlace: 'Am Ort belassen',
   keepInPlaceBody: 'Originaldateien anzeigen, ohne sie zu kopieren oder zu verändern.',

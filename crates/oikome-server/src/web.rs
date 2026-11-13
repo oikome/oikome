@@ -91,8 +91,8 @@ const TRUNCATED_HEADER: &str = "oikome-truncated";
 /// The app loads only its own files and talks only to this server.
 const CONTENT_SECURITY_POLICY: &str =
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-     img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
-     form-action 'self'";
+     img-src 'self' data: blob:; media-src 'self'; connect-src 'self'; \
+     frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /// A plugin page runs only its own scripts and reaches nothing: no
 /// connections, frames, workers or forms. `sandbox` gives it an origin of
@@ -595,8 +595,8 @@ fn parse<T: DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
     serde_json::from_slice(body).map_err(|e| ApiError::invalid(format!("request: {e}")))
 }
 
-/// Photos of folders viewed in place: `/files/thumb/<collection>/<path>`
-/// and `/files/original/<collection>/<path>`, for the app's `<img>`.
+/// Thumbnails and original media of folders viewed in place:
+/// `/files/thumb/<collection>/<path>` and `/files/original/<collection>/<path>`.
 const FILES_PREFIX: &str = "/files/";
 
 /// `%XX` escapes decoded; `None` for a broken escape or text that is not
@@ -634,7 +634,7 @@ fn byte_range(headers: &HeaderMap) -> Option<(u64, Option<u64>)> {
 }
 
 impl WebState {
-    /// A photo's thumbnail or original, for the app's own pages only: the
+    /// A thumbnail or original medium, for the app's own pages only: the
     /// owner's session, and no other site's page.
     async fn serve_folder_file(&self, headers: &HeaderMap, host: &str, path: &str) -> Response {
         if let Some(origin) = headers.get(header::ORIGIN) {
@@ -684,6 +684,7 @@ impl WebState {
                     Ok(original) => {
                         let end = original.start + original.bytes.len() as u64;
                         let partial = range.is_some();
+                        let svg = original.content_type == "image/svg+xml";
                         let mut response = respond(
                             if partial {
                                 StatusCode::PARTIAL_CONTENT
@@ -699,6 +700,14 @@ impl WebState {
                             header::CACHE_CONTROL,
                             HeaderValue::from_static("private, max-age=60"),
                         );
+                        if svg {
+                            headers.insert(
+                                header::CONTENT_SECURITY_POLICY,
+                                HeaderValue::from_static(
+                                    "default-src 'none'; style-src 'unsafe-inline'",
+                                ),
+                            );
+                        }
                         if partial {
                             if let Ok(value) = HeaderValue::from_str(&format!(
                                 "bytes {}-{}/{}",

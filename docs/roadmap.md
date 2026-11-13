@@ -33,7 +33,14 @@
 
 ## PR 20: media and retrieval results
 
-Keep the agreed scope in `docs/content-viewing.md`: lazy-loaded image navigation and gestures, native audio/video with range reads, sanitized SVG, source-linked search/vector results, and bundle-size verification. No Office, PSD, RAW or transcoding engine enters the core.
+Keep the agreed scope in `docs/content-viewing.md`: lazy-loaded PhotoSwipe navigation and gestures with Info preserved, native audio/video with range reads and codec failures, DOMPurify SVG blob previews with external references blocked, source-linked search/vector results, and bundle-size verification. PhotoSwipe and DOMPurify are separate lazy chunks; the first-paint increase is about 2.6 kB JS and 0.88 kB CSS. No Office, PSD, RAW or transcoding engine enters the core.
+
+## Complete acceptance environment (PR 20)
+
+- Keep ordinary first-run examples unchanged. One `tests/scenarios/acceptance` workspace covers content, local files, mounted NAS and drive-sync-folder test doubles, real RustFS, and a real second node with an accepted share; do not split these into separate demos that people must switch between.
+- `npm run acceptance` opens the fully seeded workspace and its peer. `npm run acceptance -- --first-run` starts empty and completes setup through the real UI. Every launch uses fresh isolated state, never `~/Oikome`, a mock `NodeClient`, committed node snapshots or committed generated media.
+- Mounted/sync folders, OAuth stand-ins and real cloud accounts remain distinctly named levels of verification; no fake connected cloud state is shown.
+- The launcher prints and opens the main and peer URLs. Generated roots are marked and ignored; only those roots may be reset, and running the same command again opens the existing workspace rather than resetting it.
 
 ## PR 21: safe editing
 

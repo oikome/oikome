@@ -8,7 +8,7 @@
 // does an address that names the item (`?item=`), so each one has a link of
 // its own.
 
-import { useEffect, useId, useMemo, useRef } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import { ErrorText, IconButton, Tag } from "@oikome/ui";
 import type { Table } from "apache-arrow";
@@ -21,6 +21,7 @@ import { show } from "./parts";
 import { plainClick } from "./router";
 import { strings } from "./strings";
 
+const ImageView = lazy(() => import("./ImageView"));
 const s = strings.collections;
 
 /** Which item: its collection, table and primary key. */
@@ -63,6 +64,12 @@ export function itemPath(ref: ItemRef): string {
   return `/collections/${encodeURIComponent(ref.collection)}?${query.toString()}`;
 }
 
+export interface ImageGallery {
+  index: number;
+  items: { src: string; alt: string }[];
+  open: (index: number) => void;
+}
+
 /** Moving to the item before or after: where this one is, and how to move. */
 export interface ItemNav {
   /** 1-based, among `total`. */
@@ -70,6 +77,7 @@ export interface ItemNav {
   total: number;
   previous?: () => void;
   next?: () => void;
+  gallery?: ImageGallery;
 }
 
 /**
@@ -161,7 +169,7 @@ export function ItemDialog({
   moving.current = nav;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented || document.querySelector(".pswp--open")) return;
       const go = e.key === "ArrowLeft" ? moving.current?.previous : e.key === "ArrowRight" ? moving.current?.next : undefined;
       if (!go) return;
       e.preventDefault();
@@ -219,7 +227,11 @@ export function ItemDialog({
       {photo ? (
         <>
           <div className="screen-item__image">
-            {shown && <img src={shown.it.image} alt={shown.it.text ?? ""} />}
+            {shown?.it.image && (
+              <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
+                <ImageView src={shown.it.image} alt={shown.it.text ?? ""} gallery={nav?.gallery} />
+              </Suspense>
+            )}
           </div>
           <div className="screen-item__side">
             {head}

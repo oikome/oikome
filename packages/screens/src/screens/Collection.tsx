@@ -50,7 +50,7 @@ import { RowsTable, ScreenHeader } from "../parts";
 import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
-import { FileView } from "../viewer";
+import { FileView, fileKindLabel } from "../viewer";
 import { AddFiles } from "../import";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
@@ -242,9 +242,22 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
               </dd>
             ) : folder ? (
               <dd className="screen-facts__from">
-                <span title={folder.path} translate="no">
-                  {folderWhere}
-                </span>
+                {folder.place ? (
+                  <span title={folder.path} translate="no">
+                    {folderWhere}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="oik-link screen-facts__source"
+                    title={strings.sources.showFiles}
+                    translate="no"
+                    disabled={sync.busy}
+                    onClick={() => void sync.run(() => client.showFolder({ space: space.name }))}
+                  >
+                    {folderWhere}
+                  </button>
+                )}
                 <span className="screen-facts__note">
                   {[s.readWhereItIs, folder.scannedAtMs != null ? s.readAgo(since(folder.scannedAtMs)) : null]
                     .filter(Boolean)
@@ -484,6 +497,11 @@ function Contents({ space, item, facts, onImport }: { space: SpaceSummary; item?
         })
       : -1;
   const more = count === pageSize && (total === 0 || offset + count < total);
+  const galleryItems = shape?.view === "photos" ? items.filter((it) => it.image) : [];
+  const galleryIndex = galleryItems.findIndex((it) => {
+    const key = keyOf(it);
+    return key !== undefined && key.length === item?.key.length && key.every((part, i) => part === item.key[i]);
+  });
   const nav: ItemNav | undefined =
     here >= 0
       ? {
@@ -491,6 +509,11 @@ function Contents({ space, item, facts, onImport }: { space: SpaceSummary; item?
           total: Math.max(total, offset + count),
           previous: here > 0 ? () => open(items[here - 1], true) : offset > 0 ? () => turn(Math.max(0, offset - pageSize), "last") : undefined,
           next: here < items.length - 1 ? () => open(items[here + 1], true) : more ? () => turn(offset + pageSize, "first") : undefined,
+          gallery: {
+            index: galleryIndex,
+            items: galleryItems.map((it) => ({ src: it.image!, alt: it.text ?? "" })),
+            open: (index) => open(galleryItems[index], true),
+          },
         }
       : undefined;
 
@@ -700,13 +723,6 @@ function Photo({
   );
 }
 
-/** What a file is, in a word: a data file by its format. */
-function kindLabel(name: string, kind: string): string {
-  if (kind !== "table") return s.fileKinds[kind] ?? s.fileKinds.other!;
-  const extension = name.split(".").pop()?.toLowerCase() ?? "";
-  return extension === "parquet" ? "Parquet" : extension.startsWith("json") || extension === "ndjson" ? "JSON" : "CSV";
-}
-
 /** Files of a folder viewed in place are read a page at a time. */
 const FOLDER_PAGE = 120;
 
@@ -816,6 +832,8 @@ function FolderContents({
   // Into a folder: an address of its own, so Back comes out again.
   const into = (name: string) => navigate(folderPath(space.name, folder ? `${folder}/${name}` : name));
   const here = opened ? openable.findIndex((it) => it.path === opened) : -1;
+  const galleryFiles = files.filter((file) => file.content.views.includes("image") && file.content.format !== "svg");
+  const galleryIndex = galleryFiles.findIndex((file) => file.path === opened);
   const nav: ItemNav | undefined =
     here >= 0
       ? {
@@ -823,6 +841,14 @@ function FolderContents({
           total: openable.length,
           previous: here > 0 ? () => open(openable[here - 1], true) : undefined,
           next: here < openable.length - 1 ? () => open(openable[here + 1], true) : undefined,
+          gallery: {
+            index: galleryIndex,
+            items: galleryFiles.map((file) => ({
+              src: client.fileUrl("original", { space: space.name, path: file.path }),
+              alt: file.title ?? file.name,
+            })),
+            open: (index) => open(itemOf.get(galleryFiles[index]?.path), true),
+          },
         }
       : undefined;
   const offline = space.inPlace?.reachable === false;
@@ -1014,7 +1040,7 @@ function FolderContents({
                       </span>
                     </td>
                     <td className="screen-wide-only">
-                      {"folder" in entry ? s.folderKind : kindLabel(entry.file.name, entry.file.kind)}
+                      {"folder" in entry ? s.folderKind : fileKindLabel(entry.file.name, entry.file.kind, entry.file.content.mediaType)}
                     </td>
                     <td className="oik-num oik-table__one-line">{metaOf(entry)}</td>
                     <td className="screen-wide-only oik-table__one-line">{changedOf(entry)}</td>

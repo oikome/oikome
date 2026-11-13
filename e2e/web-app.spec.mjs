@@ -403,6 +403,7 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   await box.fill("belem");
   const pasteis = palette.getByRole("group", { name: "Photos" }).getByRole("option", { name: /Pastéis de Belém/ });
   await expect(pasteis.locator("mark")).toHaveText("Belém");
+  await expect(pasteis).toHaveAttribute("href", /\/collections\/lisbon-photos\?table=files&item=/);
   await expect.poll(() => pasteis.locator("img").evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
   await pasteis.click();
   await expect(page).toHaveURL(/\/collections\/lisbon-photos\?table=[^&]+&item=/);
@@ -1795,6 +1796,153 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
   } finally {
     if (existsSync(away)) renameSync(away, trip);
     rmSync(trip, { recursive: true, force: true });
+  }
+});
+
+test("images, SVG and native media open safely with gestures and range reads", async () => {
+  const media = mkdtempSync(join(tmpdir(), "oikome-media-"));
+  const externalRequests = [];
+  const external = (request) => {
+    if (request.url().startsWith("http://127.0.0.1:9/")) externalRequests.push(request.url());
+  };
+  const alerted = (dialog) => {
+    externalRequests.push(`alert:${dialog.message()}`);
+    void dialog.dismiss();
+  };
+  page.on("request", external);
+  page.on("dialog", alerted);
+  try {
+    const rate = 8000;
+    const samples = Buffer.alloc(rate, 128);
+    const wav = Buffer.alloc(44 + samples.length);
+    wav.write("RIFF", 0);
+    wav.writeUInt32LE(36 + samples.length, 4);
+    wav.write("WAVEfmt ", 8);
+    wav.writeUInt32LE(16, 16);
+    wav.writeUInt16LE(1, 20);
+    wav.writeUInt16LE(1, 22);
+    wav.writeUInt32LE(rate, 24);
+    wav.writeUInt32LE(rate, 28);
+    wav.writeUInt16LE(1, 32);
+    wav.writeUInt16LE(8, 34);
+    wav.write("data", 36);
+    wav.writeUInt32LE(samples.length, 40);
+    samples.copy(wav, 44);
+    writeFileSync(join(media, "voice.wav"), wav);
+    writeFileSync(
+      join(media, "diagram.svg"),
+      `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90" onload="alert(1)">
+        <script>alert(1)</script><style>@import url('http://127.0.0.1:9/style.css');</style>
+        <image href="http://127.0.0.1:9/pixel.png" width="160" height="90" />
+        <foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><img src="http://127.0.0.1:9/embed.png" onerror="alert(2)" /></body></foreignObject>
+        <rect width="160" height="90" fill="#386641" /><a href="https://127.0.0.1:9/"><text x="12" y="48" fill="white">Safe</text></a>
+      </svg>`,
+    );
+    const photos = readdirSync(join(owner, "Examples", "lisbon-photos")).filter((name) => name.endsWith(".jpg")).slice(0, 2);
+    expect(photos).toHaveLength(2);
+    copyFileSync(join(owner, "Examples", "lisbon-photos", photos[0]), join(media, "first.jpg"));
+    copyFileSync(join(owner, "Examples", "lisbon-photos", photos[1]), join(media, "second.jpg"));
+    const webm = await page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 160;
+      canvas.height = 90;
+      const context = canvas.getContext("2d");
+      const stream = canvas.captureStream(12);
+      const chunks = [];
+      const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+      recorder.ondataavailable = (event) => chunks.push(event.data);
+      const done = new Promise((resolve) => {
+        recorder.onstop = async () => {
+          stream.getTracks().forEach((track) => track.stop());
+          const bytes = new Uint8Array(await new Blob(chunks, { type: "video/webm" }).arrayBuffer());
+          resolve(Array.from(bytes));
+        };
+      });
+      recorder.start();
+      let frame = 0;
+      const drawing = setInterval(() => {
+        context.fillStyle = frame++ % 2 ? "#386641" : "#bc4749";
+        context.fillRect(0, 0, 160, 90);
+      }, 40);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      clearInterval(drawing);
+      recorder.stop();
+      return done;
+    });
+    expect(webm.length).toBeGreaterThan(500);
+    writeFileSync(join(media, "clip.webm"), new Uint8Array(webm));
+    const viewed = await api("view_in_place", { path: media, name: "media" });
+    expect(viewed.name).toBe("media");
+    await page.goto(`${base}/collections/media`);
+
+    await page.locator("a.screen-ftile", { hasText: "voice.wav" }).click();
+    const audioViewer = page.getByRole("dialog", { name: "voice.wav" });
+    const audio = audioViewer.locator("audio");
+    await expect.poll(() => audio.evaluate((element) => element.readyState)).toBeGreaterThan(1);
+    await audio.evaluate((element) => {
+      element.currentTime = 0.5;
+    });
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBe(0.5);
+    await audio.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeGreaterThan(0.5);
+    await expect(audioViewer).toBeVisible();
+    await audioViewer.getByRole("button", { name: "Close" }).click();
+
+    await page.locator("a.screen-ftile", { hasText: "clip.webm" }).click();
+    const videoViewer = page.getByRole("dialog", { name: "clip.webm" });
+    const video = videoViewer.locator("video");
+    await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(1);
+    await video.evaluate((element) => element.play());
+    await expect.poll(() => video.evaluate((element) => element.currentTime)).toBeGreaterThan(0);
+    await video.evaluate((element) => element.pause());
+    await videoViewer.getByRole("button", { name: "Close" }).click();
+
+    const ranged = await page.evaluate(async (url) => {
+      const response = await fetch(url, { headers: { Range: "bytes=4-19" } });
+      return {
+        status: response.status,
+        contentRange: response.headers.get("content-range"),
+        bytes: (await response.arrayBuffer()).byteLength,
+      };
+    }, `${base}/files/original/media/voice.wav`);
+    expect(ranged).toEqual({ status: 206, contentRange: "bytes 4-19/8044", bytes: 16 });
+    const rawSvgPolicy = await page.evaluate(async (url) => {
+      const response = await fetch(url);
+      return response.headers.get("content-security-policy");
+    }, `${base}/files/original/media/diagram.svg`);
+    expect(rawSvgPolicy).toBe("default-src 'none'; style-src 'unsafe-inline'");
+
+    await page.locator("a.screen-ftile", { hasText: "diagram.svg" }).click();
+    const svgViewer = page.getByRole("dialog", { name: "diagram.svg" });
+    const svg = svgViewer.getByRole("img", { name: "diagram" });
+    await expect.poll(() => svg.evaluate((element) => element.naturalWidth)).toBe(160);
+    expect(await svg.getAttribute("src")).toMatch(/^blob:/);
+    expect(externalRequests).toEqual([]);
+    await svgViewer.getByRole("button", { name: "Info" }).click();
+    await expect(svgViewer).toContainText("Vector Image");
+    await svgViewer.getByRole("button", { name: "Close" }).click();
+
+    await page.locator("a.screen-ftile", { hasText: "first.jpg" }).click();
+    const first = page.getByRole("dialog", { name: "first.jpg" });
+    await first.getByRole("button", { name: "Info" }).click();
+    await first.getByRole("button", { name: "Zoom image" }).click();
+    const gestures = page.locator(".pswp--open");
+    await expect(gestures).toBeVisible();
+    await expect.poll(() => gestures.locator(".pswp__img").first().evaluate((element) => element.naturalWidth)).toBeGreaterThan(0);
+    await page.keyboard.press("ArrowRight");
+    await expect(gestures.locator(".pswp__counter")).toHaveText("2 / 2");
+    await page.keyboard.press("Escape");
+    await expect(gestures).toHaveCount(0);
+    const second = page.getByRole("dialog", { name: "second.jpg" });
+    await expect(second).toBeVisible();
+    await expect(second.locator(".screen-fileview__facts")).toBeVisible();
+    await second.getByRole("button", { name: "Close" }).click();
+  } finally {
+    page.off("request", external);
+    page.off("dialog", alerted);
+    await api("drop_space", { space: "media" }).catch(() => {});
+    rmSync(media, { recursive: true, force: true });
   }
 });
 

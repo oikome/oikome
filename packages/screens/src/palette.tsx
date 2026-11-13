@@ -17,7 +17,7 @@ import { errorMessage, useClient, useLoad } from "./data";
 import type { NodeClient } from "@oikome/client";
 import { columnLabel } from "./format";
 import { itemPath } from "./item";
-import { navigate } from "./router";
+import { navigate, plainClick } from "./router";
 import { strings } from "./strings";
 import { applyTheme } from "./theme";
 
@@ -41,6 +41,8 @@ interface Entry {
   marks?: SearchMark[];
   /** A photo hit, whose picture is read to show it. */
   photo?: SearchHit;
+  /** The original content a retrieval hit opens. */
+  href?: string;
   run: () => void;
 }
 
@@ -258,6 +260,9 @@ export function Palette({ onClose, scope }: { onClose: () => void; scope?: strin
       const where = known && known.table !== hit.table ? s.inTable(hit.collection, hit.table) : hit.collection;
       const column = view === "table" || view === "series" ? columnLabel(hit.column) : undefined;
       const key = hit.key;
+      const href = key
+        ? itemPath({ collection: hit.collection, table: hit.table, key })
+        : `/collections/${encodeURIComponent(hit.collection)}`;
       return {
         key: `h:${i}:${hit.collection}:${hit.table}:${JSON.stringify(key)}`,
         group,
@@ -266,11 +271,8 @@ export function Palette({ onClose, scope }: { onClose: () => void; scope?: strin
         meta: column ? `${where} · ${column}` : where,
         marks: hit.marks,
         photo: view === "photos" ? hit : undefined,
-        run: go(
-          key
-            ? itemPath({ collection: hit.collection, table: hit.table, key })
-            : `/collections/${encodeURIComponent(hit.collection)}`,
-        ),
+        href,
+        run: go(href),
       };
     });
   }, [found]);
@@ -366,15 +368,20 @@ export function Palette({ onClose, scope }: { onClose: () => void; scope?: strin
               const i = index;
               const content = entry.marks !== undefined;
               return (
-                <div
+                <a
                   key={entry.key}
                   id={`palette-${entry.key}`}
+                  href={entry.href}
                   role="option"
                   aria-selected={i === current}
                   data-index={i}
                   className="screen-palette__hit"
                   onMouseMove={() => setActive(i)}
-                  onClick={() => run(entry)}
+                  onClick={(event) => {
+                    if (entry.href && !plainClick(event)) return;
+                    event.preventDefault();
+                    run(entry);
+                  }}
                 >
                   {entry.photo ? (
                     <Thumb hit={entry.photo} />
@@ -397,7 +404,7 @@ export function Palette({ onClose, scope }: { onClose: () => void; scope?: strin
                     )}
                   </span>
                   {i === current && <span className="screen-palette__enter">{s.open}</span>}
-                </div>
+                </a>
               );
             })}
           </div>

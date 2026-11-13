@@ -33,14 +33,15 @@ function freePort() {
  * A running RustFS: `{ endpoint, accessKey, secretKey, stop() }`, or `null`
  * where there is none (and not on CI).
  */
-export async function startRustfs() {
+export async function startRustfs({ root } = {}) {
   const found = spawnSync("rustfs", ["--version"], { stdio: "ignore" }).status === 0;
   if (!found) {
-    if (process.env.CI) throw new Error("no RustFS: install it (brew install rustfs/tap/rustfs)");
+    if (process.env.CI || root) throw new Error("no RustFS: install it (brew install rustfs/tap/rustfs)");
     return null;
   }
   const api = await freePort();
-  const dir = mkdtempSync(join(tmpdir(), "oikome-rustfs-"));
+  const dir = root ?? mkdtempSync(join(tmpdir(), "oikome-rustfs-"));
+  mkdirSync(dir, { recursive: true });
   // RustFS keeps its files in a folder that must exist already.
   const volume = join(dir, "data");
   mkdirSync(volume);

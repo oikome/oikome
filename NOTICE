@@ -245,6 +245,15 @@ AG Grid Community (ag-grid-community, ag-grid-react; data files, loaded on deman
   https://www.ag-grid.com/  -  MIT License
   Copyright 2015-2026 AG Grid Ltd.
 
+PhotoSwipe (image navigation, zoom, pan and touch gestures, loaded on demand)
+  https://photoswipe.com/  -  MIT License
+  Copyright 2014-2026 Dmytro Semenov
+
+DOMPurify (SVG sanitization, loaded on demand; distributed under Apache-2.0 or MPL-2.0,
+  used here under Apache-2.0)
+  https://github.com/cure53/DOMPurify  -  Apache License 2.0
+  Copyright 2015-2026 Cure53 and contributors
+
 Vite and Rollup (building the web app; development only)
   https://vite.dev/  -  MIT License
   https://rollupjs.org/  -  MIT License

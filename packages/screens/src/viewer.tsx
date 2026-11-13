@@ -21,15 +21,22 @@ import { strings } from "./strings";
 const MarkdownView = lazy(() => import("./MarkdownView"));
 const SourceView = lazy(() => import("./SourceView"));
 const DataGrid = lazy(() => import("./DataGrid"));
+const ImageView = lazy(() => import("./ImageView"));
+const SafeSvgImage = lazy(() => import("./SafeSvgImage"));
 
 const s = strings.collections;
 const PAGE_ROWS = 100;
 
-/** What a file is, in a word: a data file by its format. */
-export function fileKindLabel(name: string, kind: string): string {
-  if (kind !== "table") return s.fileKinds[kind] ?? s.fileKinds.other!;
+/** What a file is, in a word: a data file or original medium by its format. */
+export function fileKindLabel(name: string, kind: string, mediaType?: string | null): string {
   const extension = name.split(".").pop()?.toLowerCase() ?? "";
-  return extension === "parquet" ? "Parquet" : extension.startsWith("json") || extension === "ndjson" ? "JSON" : "CSV";
+  if (kind === "table") {
+    return extension === "parquet" ? "Parquet" : extension.startsWith("json") || extension === "ndjson" ? "JSON" : "CSV";
+  }
+  if (mediaType?.startsWith("audio/")) return s.fileKinds.audio!;
+  if (mediaType?.startsWith("video/")) return s.fileKinds.video!;
+  if (mediaType === "image/svg+xml") return s.fileKinds.vector!;
+  return s.fileKinds[kind] ?? s.fileKinds.other!;
 }
 
 export function FileView({
@@ -61,6 +68,7 @@ export function FileView({
   const [offset, setOffset] = useState(0);
   const [view, setView] = useState("read");
   const [copied, setCopied] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
   const reveal = useAction();
   const copy = useAction();
   const detail = useLoad(
@@ -84,7 +92,10 @@ export function FileView({
     if (dialog && !dialog.open) dialog.showModal();
     return () => dialog?.close();
   }, []);
-  useEffect(() => setOffset(0), [path]);
+  useEffect(() => {
+    setOffset(0);
+    setMediaError(false);
+  }, [path]);
   useEffect(() => setCopied(false), [path, view, offset]);
   useEffect(() => {
     let preferred = "read";
@@ -128,7 +139,8 @@ export function FileView({
         }
         return;
       }
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented || document.querySelector(".pswp--open")) return;
+      if (e.target instanceof HTMLElement && e.target.closest("audio, video, input, textarea, [contenteditable='true']")) return;
       const go = e.key === "ArrowLeft" ? moving.current?.previous : e.key === "ArrowRight" ? moving.current?.next : undefined;
       if (!go) return;
       e.preventDefault();
@@ -173,7 +185,7 @@ export function FileView({
   const factsList: [string, ReactNode][] = file
     ? [
         [s.in_, space],
-        [s.colKind, fileKindLabel(file.name, file.kind)],
+        [s.colKind, fileKindLabel(file.name, file.kind, file.content.mediaType)],
         [s.colSize, bytes(Number(file.size))],
         [s.colModified, changed],
         [s.keptOn, facts.keptOn],
@@ -278,9 +290,46 @@ export function FileView({
           {detail.error && <ErrorText>{detail.error}</ErrorText>}
           {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
           {!file && !detail.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
-          {file?.kind === "image" && (
+          {file?.content.views.includes("image") && (
             <div className="screen-fileview__image">
-              <img src={client.fileUrl("original", { space, path: file.path })} alt={file.title ?? file.name} />
+              <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
+                {file.content.format === "svg" ? (
+                  <SafeSvgImage src={client.fileUrl("original", { space, path: file.path })} alt={file.title ?? file.name} />
+                ) : (
+                  <ImageView
+                    src={client.fileUrl("original", { space, path: file.path })}
+                    alt={file.title ?? file.name}
+                    gallery={nav?.gallery}
+                  />
+                )}
+              </Suspense>
+            </div>
+          )}
+          {file?.content.views.includes("audio") && (
+            <div className="screen-fileview__media">
+              <audio
+                key={file.path}
+                controls
+                preload="metadata"
+                aria-label={file.name}
+                src={client.fileUrl("original", { space, path: file.path })}
+                onError={() => setMediaError(true)}
+              />
+              {mediaError && <ErrorText>{s.mediaUnavailable}</ErrorText>}
+            </div>
+          )}
+          {file?.content.views.includes("video") && (
+            <div className="screen-fileview__media screen-fileview__media--video">
+              <video
+                key={file.path}
+                controls
+                playsInline
+                preload="metadata"
+                aria-label={file.name}
+                src={client.fileUrl("original", { space, path: file.path })}
+                onError={() => setMediaError(true)}
+              />
+              {mediaError && <ErrorText>{s.mediaUnavailable}</ErrorText>}
             </div>
           )}
           {file && (shownView === "read" || shownView === "source") && (
@@ -336,7 +385,7 @@ export function FileView({
           {file && file.content.views.length === 0 && (
             <div className="screen-fileview__other">
               <Icon name="collection" />
-              <p>{fileKindLabel(file.name, file.kind)}</p>
+              <p>{fileKindLabel(file.name, file.kind, file.content.mediaType)}</p>
               <p className="screen-muted">{bytes(Number(file.size))}</p>
               {file.content.unavailableReason && <p className="screen-muted">{file.content.unavailableReason}</p>}
               {local && (

@@ -218,6 +218,7 @@
   // Collections
   importFiles: '导入文件',
   importFilesBody: '所选文件会复制到 Oikome 的 Imports 文件夹，并以资料库名称新建子文件夹。已有文件不会被覆盖。',
+  importFilesCurrent: '所选文件会复制到当前文件夹，已有文件不会被覆盖。',
   chooseFiles: '选择文件…',
   importLimit: '每次最多导入 32 MB。',
   importNow: '导入',

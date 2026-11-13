@@ -107,7 +107,14 @@ fn kind_of(kind: &str) -> FileKind {
     }
 }
 
-fn content_of(name: &str, kind: FileKind, modified_ms: u64, size: u64, local: bool) -> FileContent {
+fn content_of(
+    name: &str,
+    kind: FileKind,
+    modified_ms: u64,
+    size: u64,
+    local: bool,
+    text: Option<&str>,
+) -> FileContent {
     let extension = Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
@@ -128,9 +135,23 @@ fn content_of(name: &str, kind: FileKind, modified_ms: u64, size: u64, local: bo
         _ => image_type(name),
     }
     .map(str::to_owned);
+    let table_readable = !matches!(kind, FileKind::Table)
+        || !matches!(format, "json" | "jsonl" | "ndjson")
+        || text.is_none_or(|text| {
+            oikome_connect::rows::read_page(
+                oikome_engine::FileFormat::Json,
+                name,
+                text.as_bytes(),
+                0,
+                1,
+                false,
+            )
+            .is_ok()
+        });
     let views = match kind {
         FileKind::Note if format == "markdown" => vec![ContentView::Read, ContentView::Source],
         FileKind::Note => vec![ContentView::Source],
+        FileKind::Table if !table_readable => vec![ContentView::Source],
         FileKind::Table if matches!(format, "json" | "jsonl" | "ndjson") => {
             vec![ContentView::Table, ContentView::Source]
         }
@@ -138,9 +159,15 @@ fn content_of(name: &str, kind: FileKind, modified_ms: u64, size: u64, local: bo
         FileKind::Image => vec![ContentView::Image],
         FileKind::Other => vec![],
     };
-    let unavailable_reason = views
-        .is_empty()
-        .then(|| format!("No built-in preview is available for this {format} file"));
+    let unavailable_reason = if !table_readable {
+        Some(format!(
+            "This {format} file cannot be parsed as a table; its source is available"
+        ))
+    } else {
+        views
+            .is_empty()
+            .then(|| format!("No built-in preview is available for this {format} file"))
+    };
     FileContent {
         format: format.to_owned(),
         media_type,
@@ -159,7 +186,14 @@ fn content_of(name: &str, kind: FileKind, modified_ms: u64, size: u64, local: bo
 fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
     let kind = kind_of(&entry.kind);
     let modified_ms = u64::try_from(entry.modified_ms).unwrap_or(0);
-    let content = content_of(&entry.name, kind, modified_ms, entry.size, local);
+    let content = content_of(
+        &entry.name,
+        kind,
+        modified_ms,
+        entry.size,
+        local,
+        entry.text.as_deref(),
+    );
     FileItem {
         kind,
         path: entry.path,
@@ -259,9 +293,10 @@ impl Api {
             .ok_or_else(|| ApiError::internal("the collection is missing"))
     }
 
-    /// Deliberately copy browser files into a new local folder, then view it
-    /// in place. Every name and all bytes are checked before writing; an
-    /// existing collection or file is never replaced.
+    /// Deliberately copy browser files into a new collection or the current
+    /// folder. An empty analytical Space becomes file-backed on this first
+    /// import; a non-empty one is never converted implicitly. Existing files
+    /// are never replaced.
     pub async fn import_files(
         &self,
         caller: &Caller,
@@ -269,30 +304,156 @@ impl Api {
     ) -> Result<SpaceSummary, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        oikome_core::validate_space_name(&req.name)?;
         if req.files.is_empty() {
             return Err(ApiError::invalid("choose at least one file"));
         }
-        if self.catalog.get_space(&req.name).is_ok() || self.catalog.get_location(&req.name).is_ok()
-        {
-            return Err(ApiError::new(
-                crate::ErrorCode::Conflict,
-                format!("{} is taken; choose another name", req.name),
-            ));
+        let imports = std::path::PathBuf::from(self.catalog.root_path()).join("Imports");
+        let (space_name, folder, create_folder, mode) = match (req.name, req.space) {
+            (Some(name), None) => {
+                oikome_core::validate_space_name(&name)?;
+                if self.catalog.get_space(&name).is_ok() || self.catalog.get_location(&name).is_ok()
+                {
+                    return Err(ApiError::new(
+                        crate::ErrorCode::Conflict,
+                        format!("{name} is taken; choose another name"),
+                    ));
+                }
+                let folder = imports.join(&name);
+                if folder.exists() {
+                    return Err(ApiError::new(
+                        crate::ErrorCode::Conflict,
+                        format!("the import folder for {name} already exists"),
+                    ));
+                }
+                (name, folder, true, 0)
+            }
+            (None, Some(name)) => {
+                let space = self.catalog.get_space(&name)?;
+                let location = self.catalog.get_location(&space.location)?;
+                match location.format {
+                    LocationFormat::InPlace { place: None, path } => {
+                        let root = std::fs::canonicalize(path).map_err(|e| {
+                            ApiError::invalid(format!("this folder cannot be reached: {e}"))
+                        })?;
+                        let within = req.folder.unwrap_or_default();
+                        if !within.is_empty() && !inplace::is_path_within(&within) {
+                            return Err(ApiError::invalid(
+                                "choose a folder inside this collection",
+                            ));
+                        }
+                        let folder = std::fs::canonicalize(root.join(within)).map_err(|e| {
+                            ApiError::invalid(format!("this folder cannot be reached: {e}"))
+                        })?;
+                        if !folder.starts_with(&root) || !folder.is_dir() {
+                            return Err(ApiError::invalid(
+                                "choose a folder inside this collection",
+                            ));
+                        }
+                        (name, folder, false, 2)
+                    }
+                    LocationFormat::InPlace { place: Some(_), .. } => {
+                        return Err(ApiError::invalid(
+                            "imports are available only in folders on this computer",
+                        ))
+                    }
+                    LocationFormat::IcebergParquet { .. } => {
+                        if req
+                            .folder
+                            .as_deref()
+                            .is_some_and(|folder| !folder.is_empty())
+                        {
+                            return Err(ApiError::invalid("this collection has no subfolders"));
+                        }
+                        if space.kind != oikome_core::SpaceKind::Analytical
+                            || self.catalog.get_source(&name).is_ok()
+                            || !self
+                                .session(None)
+                                .readable_relations(&name)
+                                .await?
+                                .is_empty()
+                        {
+                            return Err(ApiError::new(
+                                crate::ErrorCode::Conflict,
+                                "only an empty collection can become a file collection on its first import",
+                            ));
+                        }
+                        let folder = imports.join(&name);
+                        if folder.exists() {
+                            return Err(ApiError::new(
+                                crate::ErrorCode::Conflict,
+                                format!("the import folder for {name} already exists"),
+                            ));
+                        }
+                        (name, folder, true, 1)
+                    }
+                    _ => {
+                        return Err(ApiError::invalid(
+                            "imports are available only in local file collections",
+                        ))
+                    }
+                }
+            }
+            _ => {
+                return Err(ApiError::invalid(
+                    "choose either a new collection name or an existing collection",
+                ))
+            }
+        };
+        let decoded = Self::decode_import(req.files)?;
+        if create_folder {
+            if let Some(parent) = folder.parent() {
+                std::fs::create_dir_all(parent).map_err(ApiError::internal)?;
+            }
+            std::fs::create_dir(&folder).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    ApiError::new(
+                        crate::ErrorCode::Conflict,
+                        "this import folder already exists",
+                    )
+                } else {
+                    ApiError::internal(e)
+                }
+            })?;
         }
-        let folder = std::path::PathBuf::from(self.catalog.root_path())
-            .join("Imports")
-            .join(&req.name);
-        if folder.exists() {
-            return Err(ApiError::new(
-                crate::ErrorCode::Conflict,
-                format!("the import folder for {} already exists", req.name),
-            ));
+        Self::write_import(&folder, &decoded, create_folder)?;
+        match mode {
+            0 => {
+                if let Err(e) = self
+                    .session(None)
+                    .create_space(CreateSpaceRequest {
+                        name: space_name.clone(),
+                        place: Some(oikome_catalog::space::PLACE_LOCAL.to_string()),
+                        path: Some(folder.to_string_lossy().into_owned()),
+                        ..Default::default()
+                    })
+                    .await
+                {
+                    Self::discard_import(&folder, &decoded, create_folder);
+                    return Err(e.into());
+                }
+            }
+            1 => {
+                if let Err(e) = self
+                    .catalog
+                    .make_space_in_place(&space_name, folder.to_string_lossy().into_owned())
+                {
+                    Self::discard_import(&folder, &decoded, create_folder);
+                    return Err(e.into());
+                }
+                self.session(None).refresh_in_place(&space_name).await?;
+            }
+            _ => {
+                self.session(None).refresh_in_place(&space_name).await?;
+            }
         }
+        self.summary_of(caller, &space_name).await
+    }
+
+    fn decode_import(files: Vec<crate::ImportFile>) -> Result<Vec<(String, Vec<u8>)>, ApiError> {
         let mut names = BTreeSet::new();
-        let mut decoded = Vec::with_capacity(req.files.len());
+        let mut decoded = Vec::with_capacity(files.len());
         let mut total = 0usize;
-        for file in req.files {
+        for file in files {
             let name = file.name;
             if name.is_empty()
                 || name.len() > 255
@@ -315,21 +476,16 @@ impl Api {
             }
             decoded.push((name, bytes));
         }
-        if let Some(parent) = folder.parent() {
-            std::fs::create_dir_all(parent).map_err(ApiError::internal)?;
-        }
-        std::fs::create_dir(&folder).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::AlreadyExists {
-                ApiError::new(
-                    crate::ErrorCode::Conflict,
-                    "this import folder already exists",
-                )
-            } else {
-                ApiError::internal(e)
-            }
-        })?;
+        Ok(decoded)
+    }
+
+    fn write_import(
+        folder: &Path,
+        decoded: &[(String, Vec<u8>)],
+        remove_folder: bool,
+    ) -> Result<(), ApiError> {
         let mut written = Vec::new();
-        for (name, bytes) in &decoded {
+        for (name, bytes) in decoded {
             let path = folder.join(name);
             let write = std::fs::OpenOptions::new()
                 .write(true)
@@ -340,7 +496,9 @@ impl Api {
                 for path in written {
                     let _ = std::fs::remove_file(path);
                 }
-                let _ = std::fs::remove_dir(&folder);
+                if remove_folder {
+                    let _ = std::fs::remove_dir(folder);
+                }
                 return Err(if e.kind() == std::io::ErrorKind::AlreadyExists {
                     ApiError::new(crate::ErrorCode::Conflict, format!("{name} already exists"))
                 } else {
@@ -349,23 +507,16 @@ impl Api {
             }
             written.push(path);
         }
-        if let Err(e) = self
-            .session(None)
-            .create_space(CreateSpaceRequest {
-                name: req.name.clone(),
-                place: Some(oikome_catalog::space::PLACE_LOCAL.to_string()),
-                path: Some(folder.to_string_lossy().into_owned()),
-                ..Default::default()
-            })
-            .await
-        {
-            for (name, _) in &decoded {
-                let _ = std::fs::remove_file(folder.join(name));
-            }
-            let _ = std::fs::remove_dir(&folder);
-            return Err(e.into());
+        Ok(())
+    }
+
+    fn discard_import(folder: &Path, decoded: &[(String, Vec<u8>)], remove_folder: bool) {
+        for (name, _) in decoded {
+            let _ = std::fs::remove_file(folder.join(name));
         }
-        self.summary_of(caller, &req.name).await
+        if remove_folder {
+            let _ = std::fs::remove_dir(folder);
+        }
     }
 
     /// A new collection that views a folder where it is: on this computer

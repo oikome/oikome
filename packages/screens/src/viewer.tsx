@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 import { Button, ErrorText, Icon, IconButton, Segmented, Tag } from "@oikome/ui";
 import type { FileItem } from "@oikome/client";
 import { fileItems, tagsOf, withoutTagLines } from "./content";
+import { tableText, writeClipboard } from "./clipboard";
 import { itemDate } from "./covers";
 import { rawMessage, useAction, useClient, useLoad } from "./data";
 import { bytes, dayAndTime } from "./format";
@@ -59,8 +60,9 @@ export function FileView({
   const [info, setInfo] = useState(false);
   const [offset, setOffset] = useState(0);
   const [view, setView] = useState("read");
-  const [wrap, setWrap] = useState(false);
+  const [copied, setCopied] = useState(false);
   const reveal = useAction();
+  const copy = useAction();
   const detail = useLoad(
     () => client.readFile({ space, path }),
     [space, path],
@@ -83,6 +85,7 @@ export function FileView({
     return () => dialog?.close();
   }, []);
   useEffect(() => setOffset(0), [path]);
+  useEffect(() => setCopied(false), [path, view, offset]);
   useEffect(() => {
     let preferred = "read";
     try {
@@ -94,9 +97,37 @@ export function FileView({
   }, [path, file?.content.format]);
 
   const moving = useRef(nav);
+  const selectAll = useRef(false);
+  const currentText = useRef("");
   moving.current = nav;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && selectAll.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        selectAll.current = false;
+        void copy.run(async () => {
+          await writeClipboard(currentText.current);
+          return true;
+        }).then((done) => {
+          if (done) setCopied(true);
+        });
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        const content = ref.current?.querySelector<HTMLElement>(".cm-content, .screen-fileview__note, .screen-data-grid");
+        if (content) {
+          e.preventDefault();
+          e.stopPropagation();
+          selectAll.current = true;
+          const range = document.createRange();
+          range.selectNodeContents(content);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+        return;
+      }
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented) return;
       const go = e.key === "ArrowLeft" ? moving.current?.previous : e.key === "ArrowRight" ? moving.current?.next : undefined;
       if (!go) return;
@@ -125,6 +156,19 @@ export function FileView({
   }));
   const shownView = availableViews.find((available) => available === view) ?? availableViews[0];
   const count = rows.data?.table.numRows ?? 0;
+  const canCopy = file?.text != null || (shownView === "table" && rows.data !== undefined);
+  currentText.current = shownView === "table" && rows.data ? tableText(rows.data.table) : (file?.text ?? "");
+  const copyCurrent = async () => {
+    if (!file) return;
+    setCopied(false);
+    const text = currentText.current;
+    if (!canCopy) return;
+    const done = await copy.run(async () => {
+      await writeClipboard(text);
+      return true;
+    });
+    if (done) setCopied(true);
+  };
   const factsList: [string, ReactNode][] = file
     ? [
         [s.in_, space],
@@ -157,6 +201,9 @@ export function FileView({
       ref={ref}
       className={`screen-item screen-fileview screen-fileview--${file?.kind ?? "other"}${info ? " screen-fileview--info" : ""}`}
       aria-labelledby={titleId}
+      onPointerDown={() => {
+        selectAll.current = false;
+      }}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -173,26 +220,6 @@ export function FileView({
           <p className="screen-fileview__quiet">{quiet}</p>
         </div>
         <div className="screen-fileview__tools">
-          {file && viewOptions.length > 1 && (
-            <Segmented
-              label={s.fileView}
-              value={shownView ?? "read"}
-              onChange={(next) => {
-                setView(next);
-                try {
-                  localStorage.setItem(`oikome.file.view.${file.content.format}`, next);
-                } catch {
-                  // The choice still applies to this open viewer.
-                }
-              }}
-              options={viewOptions}
-            />
-          )}
-          {file && shownView === "source" && (
-            <Button variant="quiet" aria-pressed={wrap} onClick={() => setWrap((on) => !on)}>
-              {s.wrapLines}
-            </Button>
-          )}
           {local && file && (
             <Button variant="quiet" disabled={reveal.busy} onClick={() => void reveal.run(() => client.openWith({ space, path: file.path }))}>
               {s.openWith}
@@ -221,77 +248,104 @@ export function FileView({
       )}
 
       <div className="screen-fileview__content">
-        {detail.error && <ErrorText>{detail.error}</ErrorText>}
-        {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
-        {!file && !detail.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
-        {file?.kind === "image" && (
-          <div className="screen-fileview__image">
-            <img src={client.fileUrl("original", { space, path: file.path })} alt={file.title ?? file.name} />
-          </div>
-        )}
-        {file && (shownView === "read" || shownView === "source") && (
-          <div className={`screen-fileview__note ${shownView === "source" ? "screen-fileview__note--source" : ""}`}>
-            {file.text == null ? (
-              <ErrorText>{s.sourceUnavailable}</ErrorText>
-            ) : (
-              <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
-                {shownView === "read" ? (
-                  <>
-                    <MarkdownView text={withoutTagLines(file.text) ?? ""} />
-                    {tags.length > 0 && (
-                      <div className="screen-tags">
-                        {tags.map((tag) => (
-                          <Tag key={tag}>#{tag}</Tag>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <SourceView text={file.text} name={file.name} wrap={wrap} />
-                )}
-              </Suspense>
+        {file && (viewOptions.length > 1 || canCopy) && (
+          <div className="screen-fileview__viewbar">
+            {viewOptions.length > 1 && (
+              <Segmented
+                label={s.fileView}
+                value={shownView ?? "read"}
+                onChange={(next) => {
+                  setView(next);
+                  try {
+                    localStorage.setItem(`oikome.file.view.${file.content.format}`, next);
+                  } catch {
+                    // The choice still applies to this open viewer.
+                  }
+                }}
+                options={viewOptions}
+              />
             )}
-          </div>
-        )}
-        {file && shownView === "table" && (
-          <div className="screen-fileview__table">
-            {rows.error && <ErrorText>{rows.error}</ErrorText>}
-            {!rows.data && !rows.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
-            {rows.data && (
-              <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
-                <DataGrid table={rows.data.table} label={file.name} />
-              </Suspense>
-            )}
-            {rows.data && count === 0 && <p className="screen-muted">{s.noRows}</p>}
-            {rows.data?.truncated && <p className="screen-footnote">{s.fileCut}</p>}
-            {(offset > 0 || count === PAGE_ROWS) && (
-              <div className="screen-pager">
-                <span className="screen-muted">{s.rows(offset + 1, offset + count)}</span>
-                <span>
-                  <Button variant="quiet" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_ROWS))}>
-                    {s.previous}
-                  </Button>
-                  <Button variant="quiet" disabled={count < PAGE_ROWS} onClick={() => setOffset(offset + PAGE_ROWS)}>
-                    {s.next}
-                  </Button>
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-        {file && file.content.views.length === 0 && (
-          <div className="screen-fileview__other">
-            <Icon name="collection" />
-            <p>{fileKindLabel(file.name, file.kind)}</p>
-            <p className="screen-muted">{bytes(Number(file.size))}</p>
-            {file.content.unavailableReason && <p className="screen-muted">{file.content.unavailableReason}</p>}
-            {local && (
-              <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
-                {s.showInFinder(host.data?.platform ?? "")}
+            {canCopy && (
+              <Button icon="copy" variant="quiet" disabled={copy.busy} onClick={() => void copyCurrent()}>
+                {copied ? strings.common.copied : strings.common.copy}
               </Button>
             )}
+            {copy.error && <ErrorText>{copy.error}</ErrorText>}
           </div>
         )}
+        <div className="screen-fileview__body">
+          {detail.error && <ErrorText>{detail.error}</ErrorText>}
+          {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
+          {!file && !detail.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
+          {file?.kind === "image" && (
+            <div className="screen-fileview__image">
+              <img src={client.fileUrl("original", { space, path: file.path })} alt={file.title ?? file.name} />
+            </div>
+          )}
+          {file && (shownView === "read" || shownView === "source") && (
+            <div className={`screen-fileview__note ${shownView === "source" ? "screen-fileview__note--source" : ""}`}>
+              {file.text == null ? (
+                <ErrorText>{s.sourceUnavailable}</ErrorText>
+              ) : (
+                <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
+                  {shownView === "read" ? (
+                    <>
+                      <MarkdownView text={withoutTagLines(file.text) ?? ""} />
+                      {tags.length > 0 && (
+                        <div className="screen-tags">
+                          {tags.map((tag) => (
+                            <Tag key={tag}>#{tag}</Tag>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <SourceView text={file.text} name={file.name} />
+                  )}
+                </Suspense>
+              )}
+            </div>
+          )}
+          {file && shownView === "table" && (
+            <div className="screen-fileview__table">
+              {rows.error && <ErrorText>{rows.error}</ErrorText>}
+              {!rows.data && !rows.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
+              {rows.data && (
+                <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
+                  <DataGrid table={rows.data.table} label={file.name} />
+                </Suspense>
+              )}
+              {rows.data && count === 0 && <p className="screen-muted">{s.noRows}</p>}
+              {rows.data?.truncated && <p className="screen-footnote">{s.fileCut}</p>}
+              {(offset > 0 || count === PAGE_ROWS) && (
+                <div className="screen-pager">
+                  <span className="screen-muted">{s.rows(offset + 1, offset + count)}</span>
+                  <span>
+                    <Button variant="quiet" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_ROWS))}>
+                      {s.previous}
+                    </Button>
+                    <Button variant="quiet" disabled={count < PAGE_ROWS} onClick={() => setOffset(offset + PAGE_ROWS)}>
+                      {s.next}
+                    </Button>
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          {file && file.content.views.length === 0 && (
+            <div className="screen-fileview__other">
+              <Icon name="collection" />
+              <p>{fileKindLabel(file.name, file.kind)}</p>
+              <p className="screen-muted">{bytes(Number(file.size))}</p>
+              {file.content.unavailableReason && <p className="screen-muted">{file.content.unavailableReason}</p>}
+              {local && (
+                <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
+                  {s.showInFinder(host.data?.platform ?? "")}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {nav && (

@@ -237,6 +237,7 @@
   // Collections
   importFiles: 'Import Files',
   importFilesBody: 'The selected files are copied into a new folder named after the collection inside Oikome’s Imports folder. Existing files are never overwritten.',
+  importFilesCurrent: 'The selected files are copied into the current folder. Existing files are never overwritten.',
   chooseFiles: 'Choose Files…',
   importLimit: 'Up to 32 MB per import.',
   importNow: 'Import',

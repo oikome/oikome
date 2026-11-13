@@ -2615,7 +2615,9 @@ async fn imported_files_become_a_new_local_folder_without_overwriting() {
     let n = node();
     let root = std::path::PathBuf::from(n.catalog.root_path());
     let request = |name: &str, file: &str, data: &str| ImportFiles {
-        name: name.into(),
+        name: Some(name.into()),
+        space: None,
+        folder: None,
         files: vec![ImportFile {
             name: file.into(),
             data_base64: data.into(),
@@ -2652,7 +2654,9 @@ async fn imported_files_become_a_new_local_folder_without_overwriting() {
         .import_files(
             &OWNER,
             ImportFiles {
-                name: "imported".into(),
+                name: Some("imported".into()),
+                space: None,
+                folder: None,
                 files: vec![
                     ImportFile {
                         name: "note.md".into(),
@@ -2691,6 +2695,97 @@ async fn imported_files_become_a_new_local_folder_without_overwriting() {
         std::fs::read_to_string(root.join("Imports/imported/note.md")).unwrap(),
         "Hello, imported."
     );
+}
+
+#[tokio::test]
+async fn imports_stay_in_the_current_folder_and_convert_only_an_empty_collection() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let upload = |space: &str, folder: Option<&str>, file: &str| ImportFiles {
+        name: None,
+        space: Some(space.into()),
+        folder: folder.map(Into::into),
+        files: vec![ImportFile {
+            name: file.into(),
+            data_base64: "aW1wb3J0ZWQ=".into(),
+        }],
+    };
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "T".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let converted = n
+        .api
+        .import_files(&OWNER, upload("T", None, "one.md"))
+        .await
+        .unwrap();
+    assert_eq!(converted.name, "T");
+    assert_eq!(converted.in_place.as_ref().unwrap().files, 1);
+    assert_eq!(
+        std::fs::read_to_string(root.join("Imports/T/one.md")).unwrap(),
+        "imported"
+    );
+
+    n.api
+        .import_files(&OWNER, upload("T", None, "two.md"))
+        .await
+        .unwrap();
+    std::fs::create_dir(root.join("Imports/T/Nested")).unwrap();
+    n.api
+        .import_files(&OWNER, upload("T", Some("Nested"), "three.md"))
+        .await
+        .unwrap();
+    let nested = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "T".into(),
+                folder: Some("Nested".into()),
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(nested.files[0].name, "three.md");
+    assert!(n
+        .api
+        .import_files(&OWNER, upload("T", Some("../outside"), "escape.md"))
+        .await
+        .is_err());
+    assert!(!root.join("Imports/outside").exists());
+
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "occupied".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(&n, "CREATE TABLE occupied.t (id BIGINT)").await;
+    let e = n
+        .api
+        .import_files(&OWNER, upload("occupied", None, "no.md"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert!(n.catalog.get_space("occupied").unwrap().location == "occupied");
 }
 
 /// A folder viewed in place: chosen by its path, browsed from its index,
@@ -3267,6 +3362,8 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
         .await
         .unwrap();
     assert!(damaged.text.is_some());
+    assert_eq!(damaged.content.views, vec![ContentView::Source]);
+    assert!(damaged.content.unavailable_reason.is_some());
     sql(&n, "SELECT path FROM \"trip-tables\".files").await;
     assert!(n
         .api

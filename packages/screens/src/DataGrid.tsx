@@ -1,17 +1,15 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AgGridReact } from "ag-grid-react";
 import { ClientSideRowModelModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
-import type { CellFocusedEvent, ColDef, ValueFormatterParams } from "ag-grid-community";
+import type { ColDef, ValueFormatterParams } from "ag-grid-community";
 import { DataType } from "apache-arrow";
 import type { Table } from "apache-arrow";
-import { Button } from "@oikome/ui";
 import { columnLabel } from "./format";
 import { locale } from "./i18n/languages";
 import { columnDecimals, numeric, show } from "./parts";
-import { strings } from "./strings";
 
 ModuleRegistry.registerModules([ClientSideRowModelModule]);
 
@@ -31,8 +29,6 @@ const theme = themeQuartz.withParams({
 type GridRow = Record<string, unknown> & { __row: number };
 
 export default function DataGrid({ table, label }: { table: Table; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const [focused, setFocused] = useState<string>();
   const fields = table.schema.fields;
   const rows = useMemo<GridRow[]>(
     () =>
@@ -72,41 +68,14 @@ export default function DataGrid({ table, label }: { table: Table; label: string
     [table, fields],
   );
 
-  const focus = (event: CellFocusedEvent<GridRow>) => {
-    const id = typeof event.column === "string" ? event.column : event.column?.getColId();
-    const column = fields.findIndex((item) => item.name === id);
-    const field = fields[column];
-    const value = event.rowIndex === null || event.rowIndex === undefined ? undefined : table.getChildAt(column)?.get(event.rowIndex);
-    setFocused(field ? (show(field, value as unknown) ?? "—") : undefined);
-    setCopied(false);
-  };
-
   return (
     <div className="screen-data-grid" role="region" aria-label={label}>
-      <div className="screen-data-grid__bar">
-        <Button
-          variant="quiet"
-          disabled={focused === undefined}
-          onClick={async () => {
-            if (focused === undefined) return;
-            try {
-              await navigator.clipboard.writeText(focused);
-              setCopied(true);
-            } catch {
-              // The selected cell stays visible to copy by hand.
-            }
-          }}
-        >
-          {copied ? strings.common.copied : strings.common.copy}
-        </Button>
-      </div>
       <div className="screen-data-grid__grid">
         <AgGridReact<GridRow>
           theme={theme}
           rowData={rows}
           columnDefs={columns}
           getRowId={(params) => String(params.data.__row)}
-          onCellFocused={focus}
           defaultColDef={{ suppressMovable: true }}
           headerHeight={36}
           suppressRowHoverHighlight={false}

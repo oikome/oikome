@@ -8,7 +8,7 @@ import { languages } from "@codemirror/language-data";
 import { LanguageDescription } from "@codemirror/language";
 import type { LanguageSupport } from "@codemirror/language";
 
-export default function SourceView({ text, name, wrap }: { text: string; name: string; wrap: boolean }) {
+export default function SourceView({ text, name }: { text: string; name: string }) {
   const [language, setLanguage] = useState<LanguageSupport>();
   useEffect(() => {
     let current = true;
@@ -29,7 +29,7 @@ export default function SourceView({ text, name, wrap }: { text: string; name: s
       readOnly
       editable={false}
       theme="none"
-      extensions={[...(language ? [language] : []), ...(wrap ? [EditorView.lineWrapping] : [])]}
+      extensions={[...(language ? [language] : []), EditorView.lineWrapping]}
       basicSetup={{
         lineNumbers: true,
         foldGutter: true,

@@ -218,6 +218,7 @@
   // Collections
   importFiles: '파일 가져오기',
   importFilesBody: 'Oikome의 Imports 아래에 컬렉션 이름으로 새 디렉터리를 만들어 파일을 복사해요. 기존 파일은 덮어쓰지 않아요.',
+  importFilesCurrent: '선택한 파일을 현재 디렉터리에 복사해요. 기존 파일은 덮어쓰지 않아요.',
   chooseFiles: '파일 선택…',
   importLimit: '한 번에 최대 32MB까지 가져올 수 있어요.',
   importNow: '가져오기',

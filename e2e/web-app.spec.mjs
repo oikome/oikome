@@ -560,11 +560,20 @@ test("Markdown has a safe reading view and source loads only when asked", async 
     await expect(viewer.locator("img")).toHaveCount(0);
     await expect(viewer.locator(".screen-source")).toHaveCount(0);
     await expect(viewer.getByText("unsafe", { exact: true })).not.toHaveAttribute("href");
+    await viewer.getByRole("button", { name: "Copy", exact: true }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("# Lisbon, slowly");
 
     await viewer.getByRole("radio", { name: "Source" }).click();
     await expect(viewer.locator(".cm-content")).toContainText("# Lisbon, slowly");
     await expect(viewer.locator(".cm-line").first()).toBeVisible();
-    await viewer.getByRole("button", { name: "Wrap lines" }).click();
+    await viewer.locator(".cm-content").click();
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${modifier}+A`);
+    await page.keyboard.press(`${modifier}+C`);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("[unsafe](javascript:alert(1))");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).not.toContain("⌄");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).not.toMatch(/^1\n/);
+    await expect(viewer.getByRole("button", { name: "Wrap lines" })).toHaveCount(0);
     await expect(viewer.locator(".cm-lineWrapping")).toBeVisible();
     await viewer.getByRole("radio", { name: "Read" }).click();
     await expect(viewer.getByRole("heading", { name: "Lisbon, slowly" })).toBeVisible();
@@ -593,6 +602,38 @@ test("files imported from this computer become a browsable collection", async ()
   await expect(page.getByRole("dialog", { name: "note.md" })).toContainText("Copied deliberately.");
 });
 
+test("an empty collection and the current folder import files without going back", async () => {
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "New Collection" }).click();
+  await page.getByLabel("Name").fill("empty-import");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page).toHaveURL(`${base}/collections/empty-import`);
+  await page.getByRole("button", { name: "Import Files" }).click();
+  const dialog = page.getByRole("dialog", { name: "Import Files" });
+  await expect(dialog.getByLabel("Name")).toHaveCount(0);
+  await expect(dialog).toContainText("empty-import");
+  await dialog.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "inside.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("Inside this collection"),
+  });
+  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/collections/empty-import`);
+  await expect(page.locator("a.screen-ftile", { hasText: "inside.md" })).toBeVisible();
+  expect(readFileSync(join(owner, "Imports", "empty-import", "inside.md"), "utf8")).toBe("Inside this collection");
+
+  await page.getByRole("button", { name: "Import Files" }).click();
+  const again = page.getByRole("dialog", { name: "Import Files" });
+  await again.getByLabel("Files", { exact: true }).setInputFiles({
+    name: "another.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("Another file in the same collection"),
+  });
+  await again.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.locator("a.screen-ftile", { hasText: "another.md" })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/collections/empty-import`);
+});
+
 test("JSON Lines switches between a data grid, source and phone records", async () => {
   const data = join(owner, "Examples", "oikome-guide", "places.jsonl");
   const damaged = join(owner, "Examples", "oikome-guide", "damaged.json");
@@ -607,18 +648,17 @@ test("JSON Lines switches between a data grid, source and phone records", async 
     await expect(grid.getByRole("gridcell", { name: "12.5" })).toBeVisible();
     await expect(grid.getByRole("gridcell", { name: "3.0" })).toBeVisible();
     await expect(grid.getByRole("gridcell", { name: "—" })).toBeVisible();
-    await grid.getByRole("gridcell", { name: "贝伦" }).click();
     await viewer.getByRole("button", { name: "Copy", exact: true }).click();
     await expect(viewer.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("贝伦");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Cost\tDay\tNote\tPlace");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("\n12.5\tOct 6, 2025\t\t贝伦");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Graça");
 
     await viewer.getByRole("radio", { name: "Source" }).click();
     await expect(viewer.locator(".cm-content")).toContainText('"place":"贝伦"');
     await page.setViewportSize({ width: 390, height: 844 });
     const sourceWidth = () => viewer.locator(".cm-scroller").evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
-    const unwrapped = await sourceWidth();
-    expect(unwrapped.scroll).toBeGreaterThan(unwrapped.client);
-    await viewer.getByRole("button", { name: "Wrap lines" }).click();
+    await expect(viewer.getByRole("button", { name: "Wrap lines" })).toHaveCount(0);
     await expect(viewer.locator(".cm-lineWrapping")).toBeVisible();
     const wrapped = await sourceWidth();
     expect(wrapped.scroll).toBeLessThanOrEqual(wrapped.client + 1);
@@ -650,9 +690,10 @@ test("JSON Lines switches between a data grid, source and phone records", async 
     await page.reload();
     await page.locator("a.screen-ftile", { hasText: "damaged.json" }).click();
     const broken = page.getByRole("dialog", { name: "damaged.json" });
-    await expect(broken.locator(".oik-error")).toBeVisible();
-    await broken.getByRole("radio", { name: "Source" }).click();
     await expect(broken.locator(".cm-content")).toContainText("broken json");
+    await expect(broken.getByRole("radio", { name: "Table" })).toHaveCount(0);
+    await broken.getByRole("button", { name: "Copy", exact: true }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("broken json");
   } finally {
     await page.setViewportSize({ width: 1280, height: 800 });
     rmSync(data, { force: true });

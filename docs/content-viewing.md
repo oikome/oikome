@@ -49,13 +49,13 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 ### PR 19: text and structured content
 
 - Render Markdown with react-markdown and remark-gfm. Do not enable uncontrolled raw HTML or remote resources.
-- Lazy-load CodeMirror for source and code views.
+- Lazy-load CodeMirror for source and code views. Wrap long lines by default without a separate toggle; place Read/Source or Table/Source switching in a quiet content toolbar, not in the file-action header.
 - Validate AG Grid Community with React 19, Arrow data, the existing themes, mobile layouts and bundle output before adopting it. Load only required Community modules.
-- Add useful column widths, a sticky header, faithful value formatting, long-text behavior, copying, and column or record choices on phones.
+- Add useful column widths, a sticky header, faithful value formatting, long-text behavior, copying, and column or record choices on phones. Keep Copy beside the view switch in one toolbar: Markdown and source copy the whole file, tables copy the current page as TSV, failures are shown, and Cmd/Ctrl+A then Cmd/Ctrl+C selects and copies source content rather than the whole page.
 - Cover Markdown injection, wide tables, long CJK and Latin text, nulls, dates without zones and decimals in all nine languages.
-- Keep a damaged JSON file available as source while isolating its unavailable table binding, rather than failing the collection's whole `files` query. Count in-place collections on their actual storage page.
+- Keep a damaged JSON file available as source while isolating its unavailable table binding, rather than failing the collection's whole `files` query. Open damaged JSON directly as source without offering a table action that must fail. Count in-place collections on their actual storage page.
 - Allow only the viewer libraries' inline styles in CSP; inline scripts remain blocked. The file dialog uses three grid rows normally and four with Info open, so the data grid cannot collapse when details are toggled.
-- Import Files deliberately copies selected browser files into `Imports/<collection>` under the node's data directory and creates an in-place collection over that copy. It is not a Save To rule and never converts arbitrary files into Iceberg tables. Names cannot contain directories, existing collections or files are never replaced, and one import is limited to 32 MiB decoded (48 MiB JSON body). The 1 MiB limit remains on ordinary API requests.
+- Import Files copies into the current collection or subfolder and refreshes it in place, never requiring the owner to go back to the overview. An empty analytical collection's first import turns it into a file collection under `Imports/<collection>` while keeping its name and whole-Space grants; a non-empty collection is never converted implicitly. Only the overview's Import Files creates a new collection. Names cannot contain directories, existing files are never replaced, and one import is limited to 32 MiB decoded (48 MiB JSON body). The 1 MiB limit remains on ordinary API requests.
 
 ### PR 20: media and retrieval results
 

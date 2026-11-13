@@ -30,9 +30,11 @@ function base64(file: File): Promise<string> {
 }
 
 export function ImportFiles({
+  target,
   onClose,
   onImported,
 }: {
+  target?: { space: string; folder?: string; label: string };
   onClose: () => void;
   onImported?: (space: SpaceSummary) => void;
 }) {
@@ -42,7 +44,7 @@ export function ImportFiles({
   const [name, setName] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const total = files.reduce((sum, file) => sum + file.size, 0);
-  const ready = NAME.test(name) && files.length > 0 && total <= MAX_IMPORT_BYTES;
+  const ready = (target !== undefined || NAME.test(name)) && files.length > 0 && total <= MAX_IMPORT_BYTES;
 
   return (
     <Dialog
@@ -59,7 +61,7 @@ export function ImportFiles({
               const imported = await importing.run(
                 async () =>
                   client.importFiles({
-                    name,
+                    ...(target ? { space: target.space, folder: target.folder } : { name }),
                     files: await Promise.all(files.map(async (file) => ({ name: file.name, dataBase64: await base64(file) }))),
                   }),
                 rawMessage,
@@ -68,7 +70,8 @@ export function ImportFiles({
               forgetPreviews();
               toast(s.imported(imported.name));
               onImported?.(imported);
-              navigate(`/collections/${encodeURIComponent(imported.name)}`);
+              onClose();
+              if (!target) navigate(`/collections/${encodeURIComponent(imported.name)}`);
             }}
           >
             {importing.busy ? s.importing : s.importAction}
@@ -76,19 +79,25 @@ export function ImportFiles({
         </>
       }
     >
-      <p className="oik-dialog__text">{s.importFilesBody}</p>
-      <TextField
-        name="import-collection-name"
-        label={s.nameLabel}
-        hint={s.nameHint}
-        placeholder={s.namePlaceholder}
-        value={name}
-        mono
-        onChange={(value) => {
-          setName(value);
-          importing.clear();
-        }}
-      />
+      <p className="oik-dialog__text">{target ? s.importFilesCurrent : s.importFilesBody}</p>
+      {target ? (
+        <p className="screen-path" translate="no">
+          {target.label}
+        </p>
+      ) : (
+        <TextField
+          name="import-collection-name"
+          label={s.nameLabel}
+          hint={s.nameHint}
+          placeholder={s.namePlaceholder}
+          value={name}
+          mono
+          onChange={(value) => {
+            setName(value);
+            importing.clear();
+          }}
+        />
+      )}
       <div className="screen-gapp__file">
         <label className="oik-button oik-button--secondary screen-file-pick">
           <Icon name="upload" />

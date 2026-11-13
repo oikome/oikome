@@ -1199,7 +1199,7 @@ function folderView(c) {
   const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
   const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
     <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
-  return `${head(esc(c.label), t('fv.browseNote'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
+  return `${head(esc(c.label), t('fv.browseNote'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}${c.stored === 'Local' ? `<button class="btn" data-act="importfiles" data-c="${c.name}">${Is('upload', 15)}${t('importFiles')}</button>` : ''}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
   ${all.length ? (S.fview === 'list' ? rows : tiles) : `<div class="card empty" style="padding:28px 16px"><span class="muted">${t('fv.empty')}</span></div>`}`;
 }
 
@@ -1235,7 +1235,7 @@ screens.collection = (name) => {
   else if (c.kind === 'table') body = tableView(c.name);
   else body = c.source
     ? `<div class="card empty"><span class="ico c2">${I('sync')}</span><b>${t('col.bringing', { app: c.source })}</b><p class="muted" style="margin:0">${t('col.firstSyncBody')}</p><div class="prog" style="width:220px"><i></i></div></div>`
-    : `<div class="card empty"><span class="ico">${I('source')}</span><b>${t('col.emptyTitle')}</b><p class="muted" style="margin:0">${t('col.emptyBody')}</p><button class="btn btn--primary" data-act="addsrc" data-into="${c.name}">${I('plus')}${t('addSource')}</button></div>`;
+    : `<div class="card empty"><span class="ico">${I('source')}</span><b>${t('col.emptyTitle')}</b><p class="muted" style="margin:0">${t('col.emptyBody')}</p><button class="btn btn--primary" data-act="importfiles" data-c="${c.name}">${Is('upload', 15)}${t('importFiles')}</button></div>`;
   const search = `<button class="btn" data-act="cmdk" data-scope="${c.name}">${I('search')}${t('col.searchIn')}</button>`;
   if (theirs) {
     return `${head(c.name, '', `${search}<button class="btn" data-act="leave" data-c="${c.name}">${t('col.leave')}</button>`, t('col.sharedFrom', { who: c.from }), true)}
@@ -1525,8 +1525,8 @@ DLG.newcol = (D) => (D.confirming ? placeAsk(D, slug(D.cname)) : dlg(t('nc.title
 foot('', `${cancel()}<button class="btn btn--primary" data-act="newcolok">${t('nc.create')}</button>`)));
 
 DLG.importfiles = (D) => dlg(t('importFiles'), `
-  <p class="muted" style="margin:0">${t('importFilesBody')}</p>
-  <div class="field"><span class="label">${t('name')}</span><div class="input"><input data-bind="cname" value="${esc(D.cname)}" placeholder="imported-files" autocomplete="off" data-autofocus></div>${D.err ? `<span class="err">${D.err}</span>` : `<span class="hint">${t('nc.nameHint')}</span>`}</div>
+  <p class="muted" style="margin:0">${t(D.collection ? 'importFilesCurrent' : 'importFilesBody')}</p>
+  ${D.collection ? `<div class="box"><span class="mono">${esc(D.collection)}</span>${D.err ? `<span class="err">${D.err}</span>` : ''}</div>` : `<div class="field"><span class="label">${t('name')}</span><div class="input"><input data-bind="cname" value="${esc(D.cname)}" placeholder="imported-files" autocomplete="off" data-autofocus></div>${D.err ? `<span class="err">${D.err}</span>` : `<span class="hint">${t('nc.nameHint')}</span>`}</div>`}
   <div class="row" style="gap:12px;flex-wrap:wrap"><button class="btn">${Is('upload', 15)}${t('chooseFiles')}</button><span class="hint">${t('importLimit')}</span></div>
   <div class="box"><div class="row row--between"><span>note.md</span><span class="faint mono">37 B</span></div><div class="row row--between"><span>rows.csv</span><span class="faint mono">19 B</span></div></div>`,
   foot('', `${cancel()}<button class="btn btn--primary" data-act="importok">${t('importNow')}</button>`));
@@ -1751,8 +1751,9 @@ DLG.fview = (D) => {
   const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><a class="link" href="#place/${c ? slug(c.stored) : ''}">${c ? esc(placeName(c.stored)) : ''}</a></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div><div class="kv"><span class="label">${t('fact.comesFrom')}</span><button class="link" data-act="ffinder" title="${fileManagerAction()}" style="padding:0;border:0;border-bottom:1px solid var(--line);background:none;font:inherit;text-align:left;cursor:pointer">${c ? esc(placeName(c.stored)) : ''} · Trips</button></div></div>` : '';
   const title = `<span class="fview__name">${esc(n)}</span><span class="fview__quiet">${md(changed)} · ${c ? esc(placeName(c.stored)) : ''} · ${whoLine(D.c)}</span>`;
   const move = D.set.length > 1 ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
-  const tools = `<div class="fview__tools">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div>${btn(t('fv.editSource'), 'data-act="fedit"', 'btn--primary')}` : ''}${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;
-  return dlg(title, `${details}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.browseNote'), move), 'fview', tools);
+  const modes = k === 'note' || k === 'csv' ? `<div class="fview__viewbar">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div>` : ''}<button class="btn btn--ghost" data-act="fcopy" style="margin-left:auto">${Is('copy', 15)}${t('copy')}</button></div>` : '';
+  const tools = `<div class="fview__tools">${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;
+  return dlg(title, `${details}${modes}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.browseNote'), move), 'fview', tools);
 };
 
 DLG.fsave = (D) => dlg(t('fv.saveTitle', { name: D.file }),
@@ -1973,13 +1974,24 @@ const ACT = {
   cmdk: (el) => open('cmdk', { q: el.dataset.scope ? '' : 'pessoa train', scope: el.dataset.scope || '', sel: 0 }),
   hit: (el) => { const h = HITS[+el.dataset.i]; close(); if (h.go) go(h.go); else h.run(); },
   edit: () => { S.edit = !S.edit; render(true); },
-  importfiles: () => open('importfiles', { cname: '', err: '' }),
+  importfiles: (el) => open('importfiles', { cname: '', collection: el.dataset.c || '', err: '' }),
   importok: () => {
+    const files = [['note.md', 'note', [37, 'B'], '2026-11-13T10:00', null, '# Imported note\n\nCopied deliberately.'], ['rows.csv', 'csv', [19, 'B'], '2026-11-13T10:00', null, [['first', '1']]]];
+    if (D.collection) {
+      const c = C.find((x) => x.name === D.collection);
+      if (!c || (!c.inPlace && c.kind !== 'empty')) return upd({ err: t('err.taken', { c: D.collection }) });
+      c.inPlace = true; c.kind = 'notes'; c.label = c.label || c.name; c.count = { n: (c.count?.n || 0) + 2, u: 'items' };
+      TREES[c.name] ||= { folders: {}, files: [] };
+      for (const file of files) if (!TREES[c.name].files.some((existing) => existing[0] === file[0])) TREES[c.name].files.push(file);
+      if (!DEVICES[1].reads.includes(c.name)) DEVICES[1].reads.push(c.name);
+      close(); go('collection/' + c.name); toast(t('toast.created', { c: c.name }));
+      return;
+    }
     const name = slug(D.cname);
     if (!name) return upd({ err: t('err.name') });
     if (C.concat(fromList()).some((c) => c.name === name)) return upd({ err: t('err.taken', { c: name }) });
     C.push({ name, label: name, kind: 'notes', count: { n: 2, u: 'items' }, source: null, stored: 'Local', inPlace: true });
-    TREES[name] = { folders: {}, files: [['note.md', 'note', [37, 'B'], '2026-11-13T10:00', null, '# Imported note\n\nCopied deliberately.'], ['rows.csv', 'csv', [19, 'B'], '2026-11-13T10:00', null, [['first', '1']]]] };
+    TREES[name] = { folders: {}, files };
     DEVICES[1].reads.push(name);
     close(); go('collection/' + name); toast(t('toast.created', { c: name }));
   },
@@ -2015,6 +2027,12 @@ const ACT = {
   fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length, mode: 'read' }),
   finfo: () => upd({ info: !D.info }),
   fnoteview: (el) => upd({ mode: el.dataset.v }),
+  fcopy: () => {
+    const [name, kind, , , , content] = D.set[D.i];
+    const text = kind === 'note' ? (name === 'itinerary.md' ? ITINERARY_SOURCE : content || '') : kind === 'csv' ? ['Item\tEUR', ...(content || []).map((row) => row.join('\t'))].join('\n') : '';
+    void navigator.clipboard.writeText(text);
+    toast(t('toast.copied', { what: name }));
+  },
   fedit: () => open('fsave', { file: D.set[D.i][0], saveTarget: 'original', dontAsk: false, scope: 'folder' }),
   fsaveok: () => { const target = D.saveTarget; close(); toast(t(target === 'copy' ? 'fv.copySaved' : 'fv.originalSaved')); },
   fopenwith: () => toast(t('fv.openOnThisComputer')),
@@ -2349,6 +2367,15 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open('cmdk', { q: '', scope: '', sel: 0 }); return; }
   if (e.key === 'Escape') { if (MENU) closeMenu(); else if (D) close(); return; }
   if (!D) return;
+  if (D.name === 'fview' && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
+    const content = layer.querySelector('.fview__source, .fview__note, .fview__table');
+    if (content) {
+      e.preventDefault();
+      const range = document.createRange(); range.selectNodeContents(content);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    }
+    return;
+  }
   if (D.name === 'cmdk' && ['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) {
     e.preventDefault();
     if (e.key === 'Enter') { const h = HITS[D.sel]; if (h) { close(); if (h.go) go(h.go); else h.run(); } return; }

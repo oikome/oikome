@@ -218,6 +218,7 @@
   // Collections
   importFiles: 'ファイルを取り込む',
   importFilesBody: '選択したファイルは Oikome の Imports フォルダ内に、コレクションと同じ名前の新しいフォルダを作成してコピーされます。既存のファイルは上書きされません。',
+  importFilesCurrent: '選択したファイルは現在のフォルダにコピーされます。既存のファイルは上書きされません。',
   chooseFiles: 'ファイルを選択…',
   importLimit: '1 回につき 32 MB まで取り込めます。',
   importNow: '取り込む',

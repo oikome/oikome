@@ -1058,13 +1058,21 @@ name: string,
 dataBase64: string, };
 
 /**
- * `import_files`: copy files into `Imports/<name>` and view that folder.
+ * `import_files`: copy files into a new collection or the current folder.
  */
 export type ImportFiles = {
 /**
- * The new collection's name.
+ * A new collection's name; exactly one of `name` and `space` is required.
  */
-name: string,
+name?: string,
+/**
+ * An existing collection to import into.
+ */
+space?: string,
+/**
+ * Its current subfolder, `/`-separated; the top when left out.
+ */
+folder?: string,
 /**
  * At most 32 MiB decoded in total. Existing files are never replaced.
  */

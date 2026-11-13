@@ -187,12 +187,22 @@ pub struct ImportFile {
     pub data_base64: String,
 }
 
-/// `import_files`: copy files into `Imports/<name>` and view that folder.
+/// `import_files`: copy files into a new collection or the current folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportFiles {
-    /// The new collection's name.
-    pub name: String,
+    /// A new collection's name; exactly one of `name` and `space` is required.
+    #[serde(default)]
+    #[ts(optional)]
+    pub name: Option<String>,
+    /// An existing collection to import into.
+    #[serde(default)]
+    #[ts(optional)]
+    pub space: Option<String>,
+    /// Its current subfolder, `/`-separated; the top when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub folder: Option<String>,
     /// At most 32 MiB decoded in total. Existing files are never replaced.
     pub files: Vec<ImportFile>,
 }

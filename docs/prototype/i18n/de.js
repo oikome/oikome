@@ -233,6 +233,7 @@
   // Collections
   importFiles: 'Dateien importieren',
   importFilesBody: 'Die ausgewählten Dateien werden in Oikomes Imports-Ordner in einen neuen Ordner mit dem Namen der Sammlung kopiert. Vorhandene Dateien werden nicht überschrieben.',
+  importFilesCurrent: 'Die ausgewählten Dateien werden in den aktuellen Ordner kopiert. Vorhandene Dateien werden nicht überschrieben.',
   chooseFiles: 'Dateien auswählen…',
   importLimit: 'Bis zu 32 MB pro Import.',
   importNow: 'Importieren',

@@ -234,6 +234,7 @@
   // Collections
   importFiles: 'Importer des fichiers',
   importFilesBody: 'Les fichiers sélectionnés sont copiés dans un nouveau dossier portant le nom de la collection, dans le dossier Imports d’Oikome. Les fichiers existants ne sont jamais remplacés.',
+  importFilesCurrent: 'Les fichiers sélectionnés sont copiés dans le dossier actuel. Les fichiers existants ne sont jamais remplacés.',
   chooseFiles: 'Choisir des fichiers…',
   importLimit: 'Jusqu’à 32 Mo par importation.',
   importNow: 'Importer',

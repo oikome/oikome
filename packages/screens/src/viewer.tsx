@@ -46,7 +46,7 @@ export function FileView({
   path: string;
   /** The file as the folder's page already knows it; a direct address reads it. */
   file?: FileItem;
-  facts: { cameFrom: ReactNode; keptOn: ReactNode; who: string };
+  facts: { cameFrom: ReactNode; cameFromPath?: (path: string) => ReactNode; keptOn: ReactNode; who: string };
   placeLabel: string;
   /** Whether this computer can reveal the file in its file manager. */
   local: boolean;
@@ -169,6 +169,7 @@ export function FileView({
     });
     if (done) setCopied(true);
   };
+  const cameFrom = file ? (facts.cameFromPath?.(file.path) ?? facts.cameFrom) : facts.cameFrom;
   const factsList: [string, ReactNode][] = file
     ? [
         [s.in_, space],
@@ -187,10 +188,10 @@ export function FileView({
               disabled={reveal.busy}
               onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}
             >
-              {facts.cameFrom}
+              {cameFrom}
             </button>
           ) : (
-            facts.cameFrom
+            cameFrom
           ),
         ],
       ]

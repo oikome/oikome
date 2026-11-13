@@ -255,6 +255,9 @@ pub(crate) fn list_folders(path: Option<&str>) -> Result<FolderListing, ApiError
         .collect();
     folders.sort_by_key(|f| f.name.to_lowercase());
     folders.truncate(MAX_FOLDERS);
+    let mut all_files: Vec<FolderEntry> = files().filter_map(entry).collect();
+    all_files.sort_by_key(|f| f.name.to_lowercase());
+    all_files.truncate(MAX_FOLDERS);
     let mut csv_files: Vec<FolderEntry> = files()
         .filter(|p| extension(p) == "csv")
         .filter_map(entry)
@@ -275,6 +278,7 @@ pub(crate) fn list_folders(path: Option<&str>) -> Result<FolderListing, ApiError
         path: text(&dir).ok_or_else(|| ApiError::invalid("the folder's name is not text"))?,
         parent: dir.parent().and_then(text),
         folders,
+        files: all_files,
         csv_files,
         photos,
         notes,

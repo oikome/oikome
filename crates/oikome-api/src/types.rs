@@ -175,6 +175,18 @@ pub struct ViewInPlace {
     pub path: String,
     /// The collection's name; made from the folder's when left out.
     pub name: Option<String>,
+    /// Selected absolute local file paths; `None` means the whole folder.
+    #[serde(default)]
+    pub files: Option<Vec<String>>,
+}
+
+/// `add_in_place_files`: add original local files to a file collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AddInPlaceFiles {
+    pub space: String,
+    /// Absolute paths of original files on this computer.
+    pub files: Vec<String>,
 }
 
 /// One file deliberately copied from the owner's browser into a new collection.
@@ -781,8 +793,8 @@ pub struct FolderRef {
     pub path: Option<String>,
 }
 
-/// The folders in one folder, hidden ones left out, its CSV files, and how
-/// many photos and notes it holds (what a source of it would read).
+/// The folders and files in one folder, hidden ones left out, and how many
+/// photos and notes it holds (what a source of it would read).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderListing {
@@ -790,6 +802,7 @@ pub struct FolderListing {
     /// The folder above; `None` at the top.
     pub parent: Option<String>,
     pub folders: Vec<FolderEntry>,
+    pub files: Vec<FolderEntry>,
     pub csv_files: Vec<FolderEntry>,
     pub photos: u32,
     pub notes: u32,

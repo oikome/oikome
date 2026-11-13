@@ -135,6 +135,7 @@ fn bindings() -> String {
         StayedHere,
         InPlace,
         ViewInPlace,
+        AddInPlaceFiles,
         ImportFile,
         ImportFiles,
         ListFiles,

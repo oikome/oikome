@@ -1526,9 +1526,12 @@ foot('', `${cancel()}<button class="btn btn--primary" data-act="newcolok">${t('n
 
 DLG.importfiles = (D) => dlg(t('importFiles'), `
   <p class="muted" style="margin:0">${t(D.collection ? 'importFilesCurrent' : 'importFilesBody')}</p>
-  ${D.collection ? `<div class="box"><span class="mono">${esc(D.collection)}</span>${D.err ? `<span class="err">${D.err}</span>` : ''}</div>` : `<div class="field"><span class="label">${t('name')}</span><div class="input"><input data-bind="cname" value="${esc(D.cname)}" placeholder="imported-files" autocomplete="off" data-autofocus></div>${D.err ? `<span class="err">${D.err}</span>` : `<span class="hint">${t('nc.nameHint')}</span>`}</div>`}
-  <div class="row" style="gap:12px;flex-wrap:wrap"><button class="btn">${Is('upload', 15)}${t('chooseFiles')}</button><span class="hint">${t('importLimit')}</span></div>
-  <div class="box"><div class="row row--between"><span>note.md</span><span class="faint mono">37 B</span></div><div class="row row--between"><span>rows.csv</span><span class="faint mono">19 B</span></div></div>`,
+  ${D.collection ? `<div class="box"><span class="mono">${esc(D.collection)}</span>${D.err ? `<span class="err">${D.err}</span>` : ''}</div>` : ''}
+  <div class="field"><span class="label">${t('addHow')}</span><div class="opts">${opt('mode', 'reference', D.mode, `<span class="ico">${I('folder')}</span>${twoLine(t('keepInPlace'), t('keepInPlaceBody'))}`)}${opt('mode', 'copy', D.mode, `<span class="ico">${I('download')}</span>${twoLine(t('copyToOikome'), t('copyToOikomeBody'))}`)}</div></div>
+  ${!D.collection && D.mode === 'reference' ? `<div class="field"><span class="label">${t('addWhat')}</span><div class="opts opts--grid">${opt('source', 'files', D.source, twoLine(t('selectedFiles'), t('referenceFilesHint')))}${opt('source', 'folder', D.source, twoLine(t('wholeFolder'), t('referenceFolderHint')))}</div></div>` : ''}
+  ${!D.collection && D.mode === 'copy' ? `<div class="field"><span class="label">${t('name')}</span><div class="input"><input data-bind="cname" value="${esc(D.cname)}" placeholder="imported-files" autocomplete="off" data-autofocus></div>${D.err ? `<span class="err">${D.err}</span>` : `<span class="hint">${t('nc.nameHint')}</span>`}</div>` : ''}
+  <div class="row" style="gap:12px;flex-wrap:wrap"><button class="btn">${Is('upload', 15)}${t(D.mode === 'reference' && D.source === 'folder' ? 'chooseFolder' : 'chooseFiles')}</button><span class="hint">${t(D.mode === 'copy' ? 'importLimit' : 'referenceFilesHint')}</span></div>
+  ${D.mode === 'reference' && D.source === 'folder' ? `<div class="box"><span class="mono">~/Pictures/Lisbon</span></div>` : D.mode === 'reference' ? `<div class="box"><div class="row row--between"><span class="mono">~/Documents/notes/note.md</span></div><div class="row row--between"><span class="mono">~/Documents/data/rows.csv</span></div></div>` : `<div class="box"><div class="row row--between"><span>note.md</span><span class="faint mono">37 B</span></div><div class="row row--between"><span>rows.csv</span><span class="faint mono">19 B</span></div></div>`}`,
   foot('', `${cancel()}<button class="btn btn--primary" data-act="importok">${t('importNow')}</button>`));
 
 function partOf(c, D) {
@@ -1974,7 +1977,7 @@ const ACT = {
   cmdk: (el) => open('cmdk', { q: el.dataset.scope ? '' : 'pessoa train', scope: el.dataset.scope || '', sel: 0 }),
   hit: (el) => { const h = HITS[+el.dataset.i]; close(); if (h.go) go(h.go); else h.run(); },
   edit: () => { S.edit = !S.edit; render(true); },
-  importfiles: (el) => open('importfiles', { cname: '', collection: el.dataset.c || '', err: '' }),
+  importfiles: (el) => open('importfiles', { cname: '', collection: el.dataset.c || '', mode: 'reference', source: 'files', err: '' }),
   importok: () => {
     const files = [['note.md', 'note', [37, 'B'], '2026-11-13T10:00', null, '# Imported note\n\nCopied deliberately.'], ['rows.csv', 'csv', [19, 'B'], '2026-11-13T10:00', null, [['first', '1']]]];
     if (D.collection) {
@@ -1987,7 +1990,7 @@ const ACT = {
       close(); go('collection/' + c.name); toast(t('toast.created', { c: c.name }));
       return;
     }
-    const name = slug(D.cname);
+    const name = D.mode === 'reference' ? (D.source === 'folder' ? 'lisbon' : 'selected-files') : slug(D.cname);
     if (!name) return upd({ err: t('err.name') });
     if (C.concat(fromList()).some((c) => c.name === name)) return upd({ err: t('err.taken', { c: name }) });
     C.push({ name, label: name, kind: 'notes', count: { n: 2, u: 'items' }, source: null, stored: 'Local', inPlace: true });

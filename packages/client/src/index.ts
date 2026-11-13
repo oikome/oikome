@@ -11,6 +11,7 @@ import type {
   AcceptedInvite,
   AccessItem,
   AddExamples,
+  AddInPlaceFiles,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -178,6 +179,8 @@ export interface NodeClient {
   importFiles(request: ImportFiles): Promise<SpaceSummary>;
   /** A collection that views a folder where it is; nothing is copied. */
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
+  /** Add selected original files to a collection without copying them. */
+  addInPlaceFiles(request: AddInPlaceFiles): Promise<SpaceSummary>;
   /** Read a folder viewed in place again now. */
   refreshSpace(request: SpaceRef): Promise<SpaceSummary>;
   /** One folder of a collection viewed in place, from its index. */
@@ -519,6 +522,10 @@ export class HttpClient implements NodeClient {
 
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary> {
     return this.#json("view_in_place", request);
+  }
+
+  addInPlaceFiles(request: AddInPlaceFiles): Promise<SpaceSummary> {
+    return this.#json("add_in_place_files", request);
   }
 
   refreshSpace(request: SpaceRef): Promise<SpaceSummary> {

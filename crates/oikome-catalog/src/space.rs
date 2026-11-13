@@ -59,6 +59,17 @@ pub struct Space {
     pub published_from: Option<String>,
 }
 
+/// One root of a file collection, optionally limited to selected files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InPlaceSource {
+    /// An absolute local folder. Multi-source references are local only.
+    pub root: String,
+    /// Files within `root`; `None` means every file under it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
+}
+
 /// The on-disk format of a Location.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "format", rename_all = "snake_case")]
@@ -105,6 +116,9 @@ pub enum LocationFormat {
         place: Option<String>,
         /// The folder: absolute on this computer, else within the storage.
         path: String,
+        /// Multiple local roots for references added later; absent for one folder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sources: Option<Vec<InPlaceSource>>,
     },
 }
 
@@ -383,6 +397,12 @@ fn in_place(
         format: LocationFormat::InPlace {
             place: (place != PLACE_LOCAL).then(|| place.to_string()),
             path: path.to_string(),
+            sources: request.include.as_ref().map(|files| {
+                vec![InPlaceSource {
+                    root: path.to_string(),
+                    files: Some(files.clone()),
+                }]
+            }),
         },
         residency: vec![STORAGE_DISK.to_string()],
         writer: None,

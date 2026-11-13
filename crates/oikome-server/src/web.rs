@@ -57,13 +57,13 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, AddExamples, Api, ApiError, AssistantCollections, AssistantRef, BorrowedJobsOf,
-    BorrowedRef, Caller, ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef,
-    Empty, ErrorCode, FolderRef, HomeCards, ImportFiles, InstallPlugin, InviteCode, InviteRef,
-    ListAccess, ListShares, NewSource, NewSpace, NewStorage, NodeName, PauseSource,
-    PluginCollections, PluginFolder, PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows,
-    RunSql, Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef,
-    SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
+    AcceptInvite, AddExamples, AddInPlaceFiles, Api, ApiError, AssistantCollections, AssistantRef,
+    BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant, ContactInput, DailyTotalsOf,
+    DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards, ImportFiles, InstallPlugin,
+    InviteCode, InviteRef, ListAccess, ListShares, NewSource, NewSpace, NewStorage, NodeName,
+    PauseSource, PluginCollections, PluginFolder, PluginRead, PluginRef, ReadFileRows, ReadRow,
+    ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef,
+    SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, SetNetwork, ShowFolder, StartDropbox,
@@ -430,6 +430,7 @@ impl WebState {
             "drop_space" => json_op!(drop_space, SpaceRef),
             "import_files" => json_op!(import_files, ImportFiles),
             "view_in_place" => json_op!(view_in_place, ViewInPlace),
+            "add_in_place_files" => json_op!(add_in_place_files, AddInPlaceFiles),
             "refresh_space" => json_op!(refresh_space, SpaceRef),
             "list_files" => json_op!(list_files, ListFiles),
             "read_file" => json_op!(read_file, FileRef),

@@ -3664,8 +3664,16 @@ tr.screen-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.screen-browser__folder .oik-icon:first-child {
+.screen-browser__folder .oik-icon:first-child,
+.screen-browser__folder input + .oik-icon {
   color: var(--ink3);
+}
+.screen-browser__folder input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ink);
 }
 .screen-browser__folder .oik-icon:last-child {
   width: 15px;

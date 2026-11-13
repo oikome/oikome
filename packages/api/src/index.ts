@@ -454,14 +454,14 @@ label: string, type: StorageType, path: string, };
 export type FolderRef = { path?: string, };
 
 /**
- * The folders in one folder, hidden ones left out, its CSV files, and how
- * many photos and notes it holds (what a source of it would read).
+ * The folders and files in one folder, hidden ones left out, and how many
+ * photos and notes it holds (what a source of it would read).
  */
 export type FolderListing = { path: string,
 /**
  * The folder above; `None` at the top.
  */
-parent: string | null, folders: Array<FolderEntry>, csvFiles: Array<FolderEntry>, photos: number, notes: number, };
+parent: string | null, folders: Array<FolderEntry>, files: Array<FolderEntry>, csvFiles: Array<FolderEntry>, photos: number, notes: number, };
 
 export type FolderEntry = { name: string, path: string, };
 
@@ -1042,7 +1042,20 @@ path: string,
 /**
  * The collection's name; made from the folder's when left out.
  */
-name?: string, };
+name?: string,
+/**
+ * Selected absolute local file paths; `None` means the whole folder.
+ */
+files?: Array<string>, };
+
+/**
+ * `add_in_place_files`: add original local files to a file collection.
+ */
+export type AddInPlaceFiles = { space: string,
+/**
+ * Absolute paths of original files on this computer.
+ */
+files: Array<string>, };
 
 /**
  * One file deliberately copied from the owner's browser into a new collection.

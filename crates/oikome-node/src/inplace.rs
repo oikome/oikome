@@ -268,7 +268,7 @@ pub fn place_of(
     engines: &EngineRegistry,
     location: &Location,
 ) -> Result<Place, SessionError> {
-    let LocationFormat::InPlace { place, path } = &location.format else {
+    let LocationFormat::InPlace { place, path, .. } = &location.format else {
         return Err(SessionError::Unsupported(format!(
             "location '{}' is not a folder viewed in place",
             location.id
@@ -527,16 +527,83 @@ async fn walk_remote(store: &RemoteStore) -> Result<BTreeMap<String, Listed>, Se
     Ok(out)
 }
 
-async fn walk(place: &Place) -> Result<BTreeMap<String, Listed>, SessionError> {
-    match place {
-        Place::Local(root) => {
-            let root = root.clone();
-            tokio::task::spawn_blocking(move || walk_local(&root))
-                .await
-                .map_err(io)?
+fn walk_local_selected(
+    root: &Path,
+    files: &[String],
+) -> Result<BTreeMap<String, Listed>, SessionError> {
+    let mut out = BTreeMap::new();
+    for relative in files {
+        check_owner_path(relative).map_err(io)?;
+        let full = root.join(relative);
+        let Ok(meta) = std::fs::symlink_metadata(&full) else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
         }
-        Place::Remote { store, .. } => walk_remote(store).await,
+        out.insert(
+            relative.clone(),
+            Listed {
+                size: meta.len(),
+                modified_ms: meta.modified().map(millis).unwrap_or(0),
+            },
+        );
     }
+    Ok(out)
+}
+
+async fn walk(
+    place: &Place,
+    location: &Location,
+) -> Result<BTreeMap<String, Listed>, SessionError> {
+    let LocationFormat::InPlace { sources, .. } = &location.format else {
+        return Err(io("not a folder viewed in place"));
+    };
+    let Some(sources) = sources else {
+        return match place {
+            Place::Local(root) => {
+                let root = root.clone();
+                tokio::task::spawn_blocking(move || walk_local(&root))
+                    .await
+                    .map_err(io)?
+            }
+            Place::Remote { store, .. } => walk_remote(store).await,
+        };
+    };
+    let Place::Local(common) = place else {
+        return Err(io(
+            "multiple file references are available only on this computer",
+        ));
+    };
+    let mut out = BTreeMap::new();
+    for source in sources {
+        let root = PathBuf::from(&source.root);
+        let listed = match &source.files {
+            Some(files) => {
+                let root = root.clone();
+                let files = files.clone();
+                tokio::task::spawn_blocking(move || walk_local_selected(&root, &files))
+                    .await
+                    .map_err(io)??
+            }
+            None => {
+                let root = root.clone();
+                tokio::task::spawn_blocking(move || walk_local(&root))
+                    .await
+                    .map_err(io)??
+            }
+        };
+        for (relative, file) in listed {
+            let full = root.join(relative);
+            let path = full
+                .strip_prefix(common)
+                .map_err(io)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.insert(path, file);
+        }
+    }
+    Ok(out)
 }
 
 fn folder_of(path: &str) -> &str {
@@ -1076,7 +1143,7 @@ pub async fn refresh(
     let mut changed = false;
     let mut read = 0;
     if reachable {
-        let listed = walk(&place).await?;
+        let listed = walk(&place, location).await?;
         let dir_owned = dir.clone();
         changed = tokio::task::spawn_blocking(move || {
             let mut conn = open_index(&dir_owned)?;

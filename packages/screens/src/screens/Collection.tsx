@@ -51,7 +51,7 @@ import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
 import { FileView } from "../viewer";
-import { ImportFiles } from "../import";
+import { AddFiles } from "../import";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
@@ -183,7 +183,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
         )}
         {folder && !folder.place && (
           <Button icon="upload" onClick={() => setImporting(true)}>
-            {s.importFiles}
+            {s.addFiles}
           </Button>
         )}
         {folder && (
@@ -329,14 +329,14 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
 
       {searching && <Palette scope={space.name} onClose={() => setSearching(false)} />}
       {importing && (
-        <ImportFiles
+        <AddFiles
           target={{
             space: space.name,
             folder: folder ? openFolder : undefined,
             label: folder && openFolder ? `${space.name}/${openFolder}` : space.name,
           }}
           onClose={() => setImporting(false)}
-          onImported={() => {
+          onAdded={() => {
             spaces.reload();
             preview.reload();
             setContentsKey((key) => key + 1);
@@ -354,6 +354,20 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
               : space.example
                 ? s.fromExample
                 : s.fromYou,
+          cameFromPath: folder
+            ? (path: string) => {
+                const root = folder.path.replace(/[\\/]+$/, "");
+                const full = `${root}/${path}`;
+                const shown = folder.place
+                  ? `${folderPlace ? storageLabel(folderPlace) : folder.place}: ${full}`
+                  : homeRelative(full);
+                return (
+                  <span title={full} translate="no">
+                    {shown}
+                  </span>
+                );
+              }
+            : undefined,
           keptOn,
           who: listNames([strings.common.you, ...names]),
         };
@@ -377,6 +391,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
 /** What an item's own view says of its collection. */
 interface Facts {
   cameFrom: ReactNode;
+  cameFromPath?: (path: string) => ReactNode;
   keptOn: ReactNode;
   who: string;
 }
@@ -489,7 +504,7 @@ function Contents({ space, item, facts, onImport }: { space: SpaceSummary; item?
           body={s.nothingYetBody}
           action={
             <Button icon="upload" onClick={onImport}>
-              {s.importFiles}
+              {s.addFiles}
             </Button>
           }
         />

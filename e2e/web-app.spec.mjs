@@ -39,7 +39,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
@@ -584,16 +584,17 @@ test("Markdown has a safe reading view and source loads only when asked", async 
   }
 });
 
-test("files imported from this computer become a browsable collection", async () => {
+test("files copied from this computer become a browsable collection", async () => {
   await page.goto(`${base}/collections`);
-  await page.getByRole("button", { name: "Import Files" }).click();
-  const dialog = page.getByRole("dialog", { name: "Import Files" });
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Files" });
+  await dialog.getByRole("radio", { name: /Copy to Oikome/ }).click();
   await dialog.getByLabel("Name").fill("imported-files");
   await dialog.getByLabel("Files", { exact: true }).setInputFiles([
     { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported note\n\nCopied deliberately.") },
     { name: "rows.csv", mimeType: "text/csv", buffer: Buffer.from("name,value\nfirst,1\n") },
   ]);
-  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
   await expect(page).toHaveURL(`${base}/collections/imported-files`);
   await expect(page.locator("a.screen-ftile", { hasText: "note.md" })).toBeVisible();
   await expect(page.locator("a.screen-ftile", { hasText: "rows.csv" })).toBeVisible();
@@ -602,14 +603,15 @@ test("files imported from this computer become a browsable collection", async ()
   await expect(page.getByRole("dialog", { name: "note.md" })).toContainText("Copied deliberately.");
 });
 
-test("an empty collection and the current folder import files without going back", async () => {
+test("an empty collection and the current folder copy files without going back", async () => {
   await page.goto(`${base}/collections`);
   await page.getByRole("button", { name: "New Collection" }).click();
   await page.getByLabel("Name").fill("empty-import");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(`${base}/collections/empty-import`);
-  await page.getByRole("button", { name: "Import Files" }).click();
-  const dialog = page.getByRole("dialog", { name: "Import Files" });
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Files" });
+  await dialog.getByRole("radio", { name: /Copy to Oikome/ }).click();
   await expect(dialog.getByLabel("Name")).toHaveCount(0);
   await expect(dialog).toContainText("empty-import");
   await dialog.getByLabel("Files", { exact: true }).setInputFiles({
@@ -617,21 +619,73 @@ test("an empty collection and the current folder import files without going back
     mimeType: "text/markdown",
     buffer: Buffer.from("Inside this collection"),
   });
-  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
   await expect(page).toHaveURL(`${base}/collections/empty-import`);
   await expect(page.locator("a.screen-ftile", { hasText: "inside.md" })).toBeVisible();
   expect(readFileSync(join(owner, "Imports", "empty-import", "inside.md"), "utf8")).toBe("Inside this collection");
 
-  await page.getByRole("button", { name: "Import Files" }).click();
-  const again = page.getByRole("dialog", { name: "Import Files" });
+  await page.getByRole("button", { name: "Add Files", exact: true }).click();
+  const again = page.getByRole("dialog", { name: "Add Files" });
+  await again.getByRole("radio", { name: /Copy to Oikome/ }).click();
   await again.getByLabel("Files", { exact: true }).setInputFiles({
     name: "another.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("Another file in the same collection"),
   });
-  await again.getByRole("button", { name: "Import", exact: true }).click();
+  await again.getByRole("button", { name: "Add Files", exact: true }).click();
   await expect(page.locator("a.screen-ftile", { hasText: "another.md" })).toBeVisible();
   await expect(page).toHaveURL(`${base}/collections/empty-import`);
+});
+
+test("Add Files references only selected originals and shows each file's real source", async () => {
+  const first = mkdtempSync(join(homedir(), "oikome-reference-one-"));
+  const second = mkdtempSync(join(homedir(), "oikome-reference-two-"));
+  const label = (path) => path.split(/[\\/]/).pop();
+  const name = label(first).toLowerCase();
+  writeFileSync(join(first, "keep.md"), "The selected original");
+  writeFileSync(join(first, "sibling.md"), "Must not be added");
+  writeFileSync(join(second, "other.txt"), "An original from another folder");
+  writeFileSync(join(second, "sibling.txt"), "Must not be added either");
+  try {
+    await page.goto(`${base}/collections`);
+    await page.getByRole("button", { name: "Add Files", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Add Files" });
+    await expect(dialog.getByRole("radio", { name: /Keep in Place/ })).toBeChecked();
+    await dialog.getByRole("button", { name: "Choose Files…" }).click();
+    const browser = page.getByRole("dialog", { name: "Choose Files" });
+    await browser.getByRole("button", { name: label(first), exact: true }).click();
+    await browser.getByRole("checkbox", { name: "keep.md" }).check();
+    await browser.getByRole("button", { name: "Choose Files…" }).click();
+    await dialog.getByRole("button", { name: "Add Files", exact: true }).click();
+    await expect(page).toHaveURL(`${base}/collections/${name}`);
+    await expect(page.locator("a.screen-ftile", { hasText: "keep.md" })).toBeVisible();
+    await expect(page.locator(".screen-ftile", { hasText: "sibling.md" })).toHaveCount(0);
+    await page.locator("a.screen-ftile", { hasText: "keep.md" }).click();
+    const viewer = page.getByRole("dialog", { name: "keep.md" });
+    await viewer.getByRole("button", { name: "Info" }).click();
+    await expect(viewer).toContainText(`~/${label(first)}/keep.md`);
+    await expect(viewer).not.toContainText(".oikome/index");
+    await viewer.getByRole("button", { name: "Close", exact: true }).click();
+
+    await page.getByRole("button", { name: "Add Files", exact: true }).click();
+    const again = page.getByRole("dialog", { name: "Add Files" });
+    await again.getByRole("button", { name: "Choose Files…" }).click();
+    const secondBrowser = page.getByRole("dialog", { name: "Choose Files" });
+    await secondBrowser.getByRole("button", { name: label(second), exact: true }).click();
+    await secondBrowser.getByRole("checkbox", { name: "other.txt" }).check();
+    await secondBrowser.getByRole("button", { name: "Choose Files…" }).click();
+    await again.getByRole("button", { name: "Add Files", exact: true }).click();
+    await page.locator(".screen-subfolders .screen-cover", { hasText: label(second) }).click();
+    await expect(page.locator("a.screen-ftile", { hasText: "other.txt" })).toBeVisible();
+    const deep = await api("list_files", { space: name, deep: true });
+    expect(deep.total).toBe(2);
+    expect(deep.files.map((file) => file.path).sort()).toEqual([`${label(first)}/keep.md`, `${label(second)}/other.txt`]);
+    expect(existsSync(join(owner, "Imports", name))).toBe(false);
+    await api("drop_space", { space: name });
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
+  }
 });
 
 test("JSON Lines switches between a data grid, source and phone records", async () => {
@@ -1603,10 +1657,10 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
   try {
     // The dialog offers a folder of this computer to read where it is.
     await page.goto(`${base}/collections`);
-    await page.getByRole("button", { name: "View a Folder" }).click();
-    const dialog = page.getByRole("dialog", { name: "View a Folder" });
-    await expect(dialog).toContainText("never changes it");
-    await expect(dialog.getByRole("button", { name: "View in Place" })).toBeDisabled();
+    await page.getByRole("button", { name: "Add Files", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Add Files" });
+    await expect(dialog).toContainText("without copying or changing them");
+    await expect(dialog.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     // The folder picker browses from the home folder; the test's folder is
     // elsewhere, so it is named directly.

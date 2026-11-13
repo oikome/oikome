@@ -32,7 +32,9 @@ use crate::contact::Contact;
 use crate::graph::GraphDef;
 use crate::peer::Peer;
 use crate::source::SourceDef;
-use crate::space::{validate_binding, Location, LocationFormat, LocationId, Space, STORAGE_DISK};
+use crate::space::{
+    validate_binding, InPlaceSource, Location, LocationFormat, LocationId, Space, STORAGE_DISK,
+};
 use crate::storage::StorageDef;
 use crate::ucan::{IssuedUcan, RemoteToken, Revocation};
 
@@ -589,7 +591,12 @@ impl OikomeCatalog {
     /// Turn an empty analytical Space into a file-backed one on its first
     /// import, keeping its name and whole-Space grants. The old Location is
     /// left registered so a later removal still leaves the name taken.
-    pub fn make_space_in_place(&self, name: &str, path: String) -> Result<Location, CatalogError> {
+    pub fn make_space_in_place(
+        &self,
+        name: &str,
+        path: String,
+        sources: Option<Vec<InPlaceSource>>,
+    ) -> Result<Location, CatalogError> {
         self.mutate_registry(|reg| {
             let space = reg
                 .spaces
@@ -612,7 +619,11 @@ impl OikomeCatalog {
             }
             let location = Location {
                 id: id.clone(),
-                format: LocationFormat::InPlace { place: None, path },
+                format: LocationFormat::InPlace {
+                    place: None,
+                    path,
+                    sources,
+                },
                 residency: vec![STORAGE_DISK.to_string()],
                 writer: None,
                 storage: None,
@@ -625,6 +636,37 @@ impl OikomeCatalog {
             reg.grants.retain(|(_, space, _), _| space != name);
             reg.policies.retain(|(space, _, _), _| space != name);
             Ok(location)
+        })
+    }
+
+    /// Add local file references to an existing file collection, keeping its
+    /// name and replacing its index with the expanded set of sources.
+    pub fn add_in_place_files(
+        &self,
+        name: &str,
+        path: String,
+        sources: Vec<InPlaceSource>,
+    ) -> Result<Location, CatalogError> {
+        self.mutate_registry(|reg| {
+            let space = reg
+                .spaces
+                .get(name)
+                .ok_or_else(|| CatalogError::SpaceNotFound(name.to_string()))?;
+            let location = reg
+                .locations
+                .get_mut(&space.location)
+                .ok_or_else(|| CatalogError::LocationNotFound(space.location.clone()))?;
+            if !matches!(location.format, LocationFormat::InPlace { place: None, .. }) {
+                return Err(CatalogError::Registry(format!(
+                    "space '{name}' is not a local file collection"
+                )));
+            }
+            location.format = LocationFormat::InPlace {
+                place: None,
+                path,
+                sources: Some(sources),
+            };
+            Ok(location.clone())
         })
     }
 

@@ -32,8 +32,7 @@ import type { Layout, Order } from "../order";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
-import { ViewFolder } from "../folder";
-import { ImportFiles } from "../import";
+import { AddFiles } from "../import";
 
 const s = strings.collections;
 /** The node's rule for a name: ASCII letters, digits, _ and -, not led by a digit, 1 to 64. */
@@ -60,7 +59,6 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
   const shares = useLoad(() => client.listShares(), []);
   const storages = useLoad(() => client.listStorages(), []);
   const [creating, setCreating] = useState(startCreating);
-  const [viewing, setViewing] = useState(false);
   const [importing, setImporting] = useState(false);
   useEffect(() => {
     if (startCreating) setCreating(true);
@@ -175,12 +173,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
         {/* An empty page offers the same actions once, in its empty state. */}
         {!empty && (
           <Button icon="upload" onClick={() => setImporting(true)}>
-            {s.importFiles}
-          </Button>
-        )}
-        {!empty && (
-          <Button icon="folder" onClick={() => setViewing(true)}>
-            {s.viewFolder}
+            {s.addFiles}
           </Button>
         )}
         {!empty && (
@@ -191,8 +184,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
       </ScreenHeader>
 
       {creating && <NewCollection onClose={stopCreating} onCreated={spaces.reload} />}
-      {viewing && <ViewFolder onClose={() => setViewing(false)} onViewed={() => spaces.reload()} />}
-      {importing && <ImportFiles onClose={() => setImporting(false)} onImported={() => spaces.reload()} />}
+      {importing && <AddFiles onClose={() => setImporting(false)} onAdded={() => spaces.reload()} />}
 
       {spaces.data && !empty && (
         <div className="screen-toolbar screen-cols-tools">
@@ -267,10 +259,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
             action={
               <>
                 <Button icon="upload" onClick={() => setImporting(true)}>
-                  {s.importFiles}
-                </Button>
-                <Button icon="folder" onClick={() => setViewing(true)}>
-                  {s.viewFolder}
+                  {s.addFiles}
                 </Button>
                 <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                   {s.newCollection}

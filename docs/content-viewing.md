@@ -53,6 +53,9 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 - Validate AG Grid Community with React 19, Arrow data, the existing themes, mobile layouts and bundle output before adopting it. Load only required Community modules.
 - Add useful column widths, a sticky header, faithful value formatting, long-text behavior, copying, and column or record choices on phones.
 - Cover Markdown injection, wide tables, long CJK and Latin text, nulls, dates without zones and decimals in all nine languages.
+- Keep a damaged JSON file available as source while isolating its unavailable table binding, rather than failing the collection's whole `files` query. Count in-place collections on their actual storage page.
+- Allow only the viewer libraries' inline styles in CSP; inline scripts remain blocked. The file dialog uses three grid rows normally and four with Info open, so the data grid cannot collapse when details are toggled.
+- Import Files deliberately copies selected browser files into `Imports/<collection>` under the node's data directory and creates an in-place collection over that copy. It is not a Save To rule and never converts arbitrary files into Iceberg tables. Names cannot contain directories, existing collections or files are never replaced, and one import is limited to 32 MiB decoded (48 MiB JSON body). The 1 MiB limit remains on ordinary API requests.
 
 ### PR 20: media and retrieval results
 

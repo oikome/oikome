@@ -232,6 +232,11 @@
   'cards.more': 'D’autres cartes dans le catalogue de plugins',
 
   // Collections
+  importFiles: 'Importer des fichiers',
+  importFilesBody: 'Les fichiers sélectionnés sont copiés dans un nouveau dossier portant le nom de la collection, dans le dossier Imports d’Oikome. Les fichiers existants ne sont jamais remplacés.',
+  chooseFiles: 'Choisir des fichiers…',
+  importLimit: 'Jusqu’à 32 Mo par importation.',
+  importNow: 'Importer',
   'cols.sub': '{mine} à vous, {theirs} partagées avec vous.',
   yours: 'Les vôtres',
   sharedWithYou: 'Partagées avec vous',

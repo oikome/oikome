@@ -88,6 +88,10 @@ const HEAD_LINES: usize = 4;
 const UNREAD: i64 = 0;
 const READ: i64 = 1;
 const LISTED_ONLY: i64 = 2;
+/// The source is indexed, but its table parser rejected it.
+const INVALID_TABLE: i64 = 3;
+/// Old indexes validated JSON only for its source text, not its table view.
+const JSON_VALIDATED: &str = "json_table_validation_v1";
 
 const SCHEMA_SQL: &str = "
 CREATE TABLE IF NOT EXISTS files(
@@ -681,13 +685,24 @@ fn apply_listing(
         .map_err(sql)?;
     }
     // Text tables indexed before their first lines were kept: once.
-    let unread = tx
+    let mut unread = tx
         .execute(
             "UPDATE files SET state = ?1 WHERE state = ?2 AND kind = 'table' AND text IS NULL \
              AND (lower(name) LIKE '%.csv' OR lower(name) LIKE '%.tsv')",
             params![UNREAD, READ],
         )
         .map_err(sql)?;
+    if fact(&tx, JSON_VALIDATED)?.is_none() {
+        unread += tx
+            .execute(
+                "UPDATE files SET state = ?1 WHERE state = ?2 AND kind = 'table' \
+                 AND (lower(name) LIKE '%.json' OR lower(name) LIKE '%.jsonl' \
+                 OR lower(name) LIKE '%.ndjson')",
+                params![UNREAD, READ],
+            )
+            .map_err(sql)?;
+        set_fact(&tx, JSON_VALIDATED, "1")?;
+    }
     tx.commit().map_err(sql)?;
     Ok(changed || unread > 0)
 }
@@ -873,7 +888,20 @@ async fn fill(place: &Place, dir: &Path, budget: Option<Duration>) -> Result<usi
                     if size <= MAX_NOTE_BYTES {
                         if let Ok(bytes) = place.read(&path, 0..u64::MAX, MAX_NOTE_BYTES).await {
                             read.text = Some(String::from_utf8_lossy(&bytes).into_owned());
-                            read.state = READ;
+                            read.state = if oikome_connect::rows::read_page(
+                                FileFormat::Json,
+                                name_of(&path),
+                                &bytes,
+                                0,
+                                1,
+                                false,
+                            )
+                            .is_ok()
+                            {
+                                READ
+                            } else {
+                                INVALID_TABLE
+                            };
                         }
                     }
                     read
@@ -1148,7 +1176,7 @@ pub async fn bound(
             exported(&conn, &dir_owned)?.ok_or_else(|| io("the index has no files table"))?;
         let mut stmt = conn
             .prepare(
-                "SELECT path, size, modified_ms FROM files WHERE folder = '' AND kind = ?1 \
+                "SELECT path, size, modified_ms, state FROM files WHERE folder = '' AND kind = ?1 \
                  ORDER BY path",
             )
             .map_err(sql)?;
@@ -1158,6 +1186,7 @@ pub async fn bound(
                     r.get::<_, String>(0)?,
                     u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
                     r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
                 ))
             })
             .map_err(sql)?
@@ -1170,7 +1199,7 @@ pub async fn bound(
 
     let mut tables = Vec::new();
     let mut taken: BTreeSet<String> = BTreeSet::from([FILES.to_string()]);
-    for (path, size, modified_ms) in top {
+    for (path, size, modified_ms, state) in top {
         // The captions of the photos beside it, not a table of its own.
         if name_of(&path) == CAPTIONS {
             continue;
@@ -1188,7 +1217,11 @@ pub async fn bound(
             name = format!("{}_{n}", table_name(&path));
             n += 1;
         }
-        let source = if !reachable {
+        let source = if state == INVALID_TABLE {
+            TableSource::Unavailable {
+                message: format!("{path} is not a readable table"),
+            }
+        } else if !reachable {
             TableSource::Unavailable {
                 message: format!("{} can't be reached right now", place.label()),
             }

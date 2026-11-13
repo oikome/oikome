@@ -1045,6 +1045,32 @@ path: string,
 name?: string, };
 
 /**
+ * One file deliberately copied from the owner's browser into a new collection.
+ */
+export type ImportFile = {
+/**
+ * Its base name, without a directory.
+ */
+name: string,
+/**
+ * Its bytes, encoded as standard base64 for the JSON API.
+ */
+dataBase64: string, };
+
+/**
+ * `import_files`: copy files into `Imports/<name>` and view that folder.
+ */
+export type ImportFiles = {
+/**
+ * The new collection's name.
+ */
+name: string,
+/**
+ * At most 32 MiB decoded in total. Existing files are never replaced.
+ */
+files: Array<ImportFile>, };
+
+/**
  * `list_files`: one folder of a collection viewed in place.
  */
 export type ListFiles = { space: string,

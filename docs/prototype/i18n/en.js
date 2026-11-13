@@ -235,6 +235,11 @@
   'cards.more': 'More in the plugin directory',
 
   // Collections
+  importFiles: 'Import Files',
+  importFilesBody: 'The selected files are copied into a new folder named after the collection inside Oikome’s Imports folder. Existing files are never overwritten.',
+  chooseFiles: 'Choose Files…',
+  importLimit: 'Up to 32 MB per import.',
+  importNow: 'Import',
   'cols.sub': '{mine} of your own, {theirs} shared with you.',
   yours: 'Yours',
   sharedWithYou: 'Shared with you',

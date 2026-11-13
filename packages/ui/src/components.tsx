@@ -727,7 +727,7 @@ export function EmptyState({
       {icon && <Tile icon={icon} tone="stone" large />}
       <h3 className="oik-empty__title">{title}</h3>
       {body && <p className="oik-empty__body">{body}</p>}
-      {action}
+      {action && <div className="oik-empty__actions">{action}</div>}
     </div>
   );
 }

@@ -4,7 +4,7 @@
 // A collection's cover: what is in it, not what it is made of. Photos show
 // a collage, notes their first lines, anything else its first rows.
 
-import { AvatarStack, Icon, Tag, Tile } from "@oikome/ui";
+import { AvatarStack, Icon, Tile } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
 import type { FileFolder, Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
@@ -178,13 +178,7 @@ export function Cover({
               folder ? "folder" : space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]
             }
           />
-          {folder
-            ? s.folderKind
-            : space.kind === "remote"
-              ? from
-              : space.example
-                ? s.example
-                : s.kinds[preview.data?.shape.view ?? "table"]}
+          {folder ? s.folderKind : space.kind === "remote" ? from : s.kinds[preview.data?.shape.view ?? "table"]}
         </span>
       </span>
       <span className="screen-cover__caption">
@@ -199,7 +193,6 @@ export function Cover({
               {collectionTitle(space)}
             </span>
           )}
-          {space.example && <Tag>{s.example}</Tag>}
           {space.kind !== "remote" && (
             <span className="screen-cover__who" aria-hidden="true">
               <AvatarStack names={names} label={s.whoSentence(names)} you={strings.common.you} />

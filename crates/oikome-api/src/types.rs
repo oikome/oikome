@@ -177,6 +177,26 @@ pub struct ViewInPlace {
     pub name: Option<String>,
 }
 
+/// One file deliberately copied from the owner's browser into a new collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFile {
+    /// Its base name, without a directory.
+    pub name: String,
+    /// Its bytes, encoded as standard base64 for the JSON API.
+    pub data_base64: String,
+}
+
+/// `import_files`: copy files into `Imports/<name>` and view that folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFiles {
+    /// The new collection's name.
+    pub name: String,
+    /// At most 32 MiB decoded in total. Existing files are never replaced.
+    pub files: Vec<ImportFile>,
+}
+
 /// `list_files`: one folder of a collection viewed in place.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

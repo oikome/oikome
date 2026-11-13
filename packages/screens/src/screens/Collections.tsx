@@ -16,7 +16,6 @@ import {
   Menu,
   Segmented,
   Select,
-  Tag,
   TextField,
   collectionTones,
   useToast,
@@ -34,6 +33,7 @@ import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
 import { ViewFolder } from "../folder";
+import { ImportFiles } from "../import";
 
 const s = strings.collections;
 /** The node's rule for a name: ASCII letters, digits, _ and -, not led by a digit, 1 to 64. */
@@ -61,6 +61,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
   const storages = useLoad(() => client.listStorages(), []);
   const [creating, setCreating] = useState(startCreating);
   const [viewing, setViewing] = useState(false);
+  const [importing, setImporting] = useState(false);
   useEffect(() => {
     if (startCreating) setCreating(true);
   }, [startCreating]);
@@ -173,6 +174,11 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
       <ScreenHeader title={s.title} lede={spaces.data && !empty ? s.lede(mine.length, fromOthers.length) : undefined}>
         {/* An empty page offers the same actions once, in its empty state. */}
         {!empty && (
+          <Button icon="upload" onClick={() => setImporting(true)}>
+            {s.importFiles}
+          </Button>
+        )}
+        {!empty && (
           <Button icon="folder" onClick={() => setViewing(true)}>
             {s.viewFolder}
           </Button>
@@ -186,6 +192,7 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
 
       {creating && <NewCollection onClose={stopCreating} onCreated={spaces.reload} />}
       {viewing && <ViewFolder onClose={() => setViewing(false)} onViewed={() => spaces.reload()} />}
+      {importing && <ImportFiles onClose={() => setImporting(false)} onImported={() => spaces.reload()} />}
 
       {spaces.data && !empty && (
         <div className="screen-toolbar screen-cols-tools">
@@ -259,6 +266,9 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
             body={s.emptyBody}
             action={
               <>
+                <Button icon="upload" onClick={() => setImporting(true)}>
+                  {s.importFiles}
+                </Button>
                 <Button icon="folder" onClick={() => setViewing(true)}>
                   {s.viewFolder}
                 </Button>
@@ -277,7 +287,6 @@ export function Collections({ startCreating = false }: { startCreating?: boolean
             {s.yours}
           </h2>
           {mineShown.length > 0 ? present(mineShown, false) : <p className="screen-none">{s.noneMine}</p>}
-          {mineShown.some((space) => space.example) && <p className="screen-footnote">{s.examplesNote}</p>}
         </section>
       )}
       {fromOthers.length > 0 && picked === "all" && (
@@ -352,7 +361,6 @@ function CollectionRows({
                         {collectionTitle(space)}
                       </span>
                     </Link>
-                    {space.example && <Tag>{s.example}</Tag>}
                   </span>
                 </td>
                 <td className="screen-wide-only">{kind ?? "—"}</td>

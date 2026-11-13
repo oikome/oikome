@@ -353,6 +353,14 @@ export const ja: Strings = {
   collections: {
     title: "コレクション",
     newCollection: "新規コレクション",
+    importFiles: "ファイルを取り込む",
+    importFilesBody: "選択したファイルは Oikome の Imports フォルダ内に、コレクションと同じ名前の新しいフォルダを作成してコピーされます。既存のファイルは上書きされません。",
+    chooseFiles: "ファイルを選択…",
+    noFilesYet: "ファイルが選択されていません",
+    importLimit: "1 回につき 32 MB まで取り込めます。",
+    importAction: "取り込む",
+    importing: "取り込み中…",
+    imported: (name: string) => `${name} を取り込みました`,
     mine: "自分のコレクション",
     sharedWithYou: "あなたと共有",
     nameLabel: "名前",
@@ -365,7 +373,6 @@ export const ja: Strings = {
     create: "作成",
     emptyTitle: "コレクションはまだありません",
     emptyBody: "コレクションには、メモや写真など 1 種類のデータを入れます。最初のコレクションを作成しましょう。",
-    example: "サンプル",
     kinds: { photos: "写真", notes: "メモ", table: "表", series: "測定値" },
     viewFolder: "フォルダを表示",
     viewFolderBody:
@@ -419,7 +426,6 @@ export const ja: Strings = {
     factFrom: "取り込み元",
     fromExample: "Oikome のサンプル",
     fromYou: "自分で追加",
-    fromExampleShort: "サンプル",
     fromYouShort: "自分で追加",
     factKind: "保存形式",
     kindAnalytical: "主に読み取り用 · コピー可",
@@ -443,7 +449,6 @@ export const ja: Strings = {
     noneMine: "一致する自分のコレクションはありません。",
     noneTheirs: "一致する共有コレクションはありません。",
     viewedOn: (place: string) => `その場で表示 · ${place}`,
-    examplesNote: "「サンプル」と付いたコレクションは、Oikome に保存できるものの例です。いつでも削除できます。",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") =>
       kind === "photos"
         ? `写真 ${num(n)} 枚`
@@ -487,7 +492,7 @@ export const ja: Strings = {
       names.length === 0 ? "閲覧できるのは自分だけです。" : `自分と ${names.join("、")} が閲覧できます。`,
     manage: "管理",
     nothingYetTitle: "まだデータがありません",
-    nothingYetBody: "データを取り込むと、ここに表示されます。このコンピュータからファイルを取り込む機能は準備中です。",
+    nothingYetBody: "このコレクションにはまだテーブルがありません。「コレクション」ページでファイルを取り込み、新しいファイルコレクションを作成できます。",
     tableLabel: "表",
     rows: (from: number, to: number) => `${num(from)}〜${num(to)} 行目`,
     noRows: "行がありません",

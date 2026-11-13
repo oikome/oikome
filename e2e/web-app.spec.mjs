@@ -212,7 +212,7 @@ test("the examples open as photos, notes, a table and readings; a collection of 
   // One example of each kind.
   await page.getByRole("link", { name: "Collections" }).first().click();
   await expect(page.locator(".screen-cover")).toHaveCount(4);
-  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(4);
+  await expect(page.locator(".screen-cover .oik-tag")).toHaveCount(0);
   // A folder viewed where it is looks like one, and says where it is first.
   const lisbonCover = page.locator(".screen-cover", { hasText: "lisbon-photos" });
   await expect(lisbonCover.locator(".screen-cover__chip")).toHaveText("Folder");
@@ -575,10 +575,28 @@ test("Markdown has a safe reading view and source loads only when asked", async 
   }
 });
 
+test("files imported from this computer become a browsable collection", async () => {
+  await page.goto(`${base}/collections`);
+  await page.getByRole("button", { name: "Import Files" }).click();
+  const dialog = page.getByRole("dialog", { name: "Import Files" });
+  await dialog.getByLabel("Name").fill("imported-files");
+  await dialog.getByLabel("Files", { exact: true }).setInputFiles([
+    { name: "note.md", mimeType: "text/markdown", buffer: Buffer.from("# Imported note\n\nCopied deliberately.") },
+    { name: "rows.csv", mimeType: "text/csv", buffer: Buffer.from("name,value\nfirst,1\n") },
+  ]);
+  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page).toHaveURL(`${base}/collections/imported-files`);
+  await expect(page.locator("a.screen-ftile", { hasText: "note.md" })).toBeVisible();
+  await expect(page.locator("a.screen-ftile", { hasText: "rows.csv" })).toBeVisible();
+  expect(readFileSync(join(owner, "Imports", "imported-files", "note.md"), "utf8")).toContain("Copied deliberately.");
+  await page.locator("a.screen-ftile", { hasText: "note.md" }).click();
+  await expect(page.getByRole("dialog", { name: "note.md" })).toContainText("Copied deliberately.");
+});
+
 test("JSON Lines switches between a data grid, source and phone records", async () => {
   const data = join(owner, "Examples", "oikome-guide", "places.jsonl");
   const damaged = join(owner, "Examples", "oikome-guide", "damaged.json");
-  writeFileSync(data, '{"place":"贝伦","day":"2025-10-06","cost":12.50,"note":null}\n{"place":"Graça","day":"2025-10-07","cost":3,"note":"A long note that stays readable"}\n');
+  writeFileSync(data, '{"place":"贝伦","day":"2025-10-06","cost":12.50,"note":null}\n{"place":"Graça","day":"2025-10-07","cost":3,"note":"A long note that stays readable when the source line wraps within a narrow file viewer instead of extending beyond it"}\n');
   try {
     await api("refresh_space", { space: "oikome-guide" });
     await page.goto(`${base}/collections/oikome-guide`);
@@ -596,7 +614,28 @@ test("JSON Lines switches between a data grid, source and phone records", async 
 
     await viewer.getByRole("radio", { name: "Source" }).click();
     await expect(viewer.locator(".cm-content")).toContainText('"place":"贝伦"');
+    await page.setViewportSize({ width: 390, height: 844 });
+    const sourceWidth = () => viewer.locator(".cm-scroller").evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
+    const unwrapped = await sourceWidth();
+    expect(unwrapped.scroll).toBeGreaterThan(unwrapped.client);
+    await viewer.getByRole("button", { name: "Wrap lines" }).click();
+    await expect(viewer.locator(".cm-lineWrapping")).toBeVisible();
+    const wrapped = await sourceWidth();
+    expect(wrapped.scroll).toBeLessThanOrEqual(wrapped.client + 1);
+    await expect(viewer.locator(".cm-lineNumbers .cm-gutterElement").filter({ hasText: /^2$/ })).toBeVisible();
+    await expect
+      .poll(() =>
+        viewer.locator(".cm-line").nth(1).evaluate((el) => {
+          const line = el.getBoundingClientRect();
+          const gutter = [...el.closest(".cm-editor").querySelectorAll(".cm-lineNumbers .cm-gutterElement")].find((n) => n.textContent === "2");
+          const number = gutter?.getBoundingClientRect();
+          return number?.y === line.y && number?.height === line.height;
+        }),
+      )
+      .toBe(true);
     await viewer.getByRole("radio", { name: "Table", exact: true }).click();
+    await expect(viewer.locator(".screen-data-grid__records")).toContainText("Graça");
+    await page.setViewportSize({ width: 1280, height: 800 });
     await expect(grid.getByRole("gridcell", { name: "Graça" })).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1604,6 +1643,11 @@ test("a folder is viewed where it is: browsed, opened, queried, offline, and sha
     renameSync(away, trip);
     await page.getByRole("button", { name: "Read Again" }).click();
     await expect(page.getByRole("status").filter({ hasText: "can't be reached right now" })).toHaveCount(0);
+
+    await page.goto(`${base}/places/this-computer`);
+    const keptHere = page.locator(".screen-place-list");
+    await expect(keptHere.getByRole("link", { name, exact: true })).toBeVisible();
+    await expect(keptHere).toContainText("Read where it is");
 
     // Shared with Bob to view: he queries it live, and can't keep a copy.
     const bobDid = oikome(contact, "identity").trim();

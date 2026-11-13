@@ -349,6 +349,14 @@ export const zhHans: Strings = {
   collections: {
     title: "资料库",
     newCollection: "新建资料库",
+    importFiles: "导入文件",
+    importFilesBody: "所选文件会复制到 Oikome 的 Imports 文件夹，并以资料库名称新建子文件夹。已有文件不会被覆盖。",
+    chooseFiles: "选择文件…",
+    noFilesYet: "未选择文件",
+    importLimit: "每次最多导入 32 MB。",
+    importAction: "导入",
+    importing: "正在导入…",
+    imported: (name: string) => `已导入 ${name}`,
     mine: "我的资料库",
     sharedWithYou: "分享给你的",
     nameLabel: "名称",
@@ -360,7 +368,6 @@ export const zhHans: Strings = {
     create: "创建",
     emptyTitle: "还没有资料库",
     emptyBody: "一个资料库存放一类数据，比如笔记或照片。创建你的第一个资料库吧。",
-    example: "示例",
     kinds: { photos: "照片", notes: "笔记", table: "表格", series: "读数" },
     viewFolder: "查看文件夹",
     viewFolderBody:
@@ -414,7 +421,6 @@ export const zhHans: Strings = {
     factFrom: "来自",
     fromExample: "Oikome 提供的示例",
     fromYou: "你添加的",
-    fromExampleShort: "示例",
     fromYouShort: "你添加的",
     factKind: "存储方式",
     kindAnalytical: "以读取为主 · 可复制",
@@ -437,7 +443,6 @@ export const zhHans: Strings = {
     noneMine: "你的资料库中没有符合条件的。",
     noneTheirs: "分享给你的资料库中没有符合条件的。",
     viewedOn: (place: string) => `原地查看 · ${place}`,
-    examplesNote: "标有“示例”的资料库展示了 Oikome 能保存什么。随时可以移除。",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const unit = kind === "photos" ? "张照片" : kind === "notes" ? "条笔记" : kind === "series" ? "条读数" : "行";
       return `${num(n)} ${unit}`;
@@ -462,10 +467,10 @@ export const zhHans: Strings = {
     factUntil: "期限",
     youGetLive: "实时查看：从对方的数据中心读取",
     viewLive: "实时查看",
-    leave: "离开",
-    leaveTitle: (name: string) => `离开 ${name}？`,
+    leave: "移除",
+    leaveTitle: (name: string) => `移除 ${name}？`,
     leaveBody: (from: string) => `它会从你的资料库中移除，你将无法再打开它。${from} 可以再次分享给你。`,
-    left: (name: string) => `已离开 ${name}`,
+    left: (name: string) => `已移除 ${name}`,
 
     share: "分享…",
     remove: "移除资料库",
@@ -481,7 +486,7 @@ export const zhHans: Strings = {
           : `你、${names.slice(0, -1).join("、")} 和 ${names[names.length - 1]} 能看到。`,
     manage: "管理",
     nothingYetTitle: "还没有数据",
-    nothingYetBody: "导入数据后会显示在这里。从这台电脑导入文件的功能即将推出。",
+    nothingYetBody: "这个资料库还没有数据表。可在“资料库”页面导入文件，创建一个新的文件资料库。",
     tableLabel: "表格",
     rows: (from: number, to: number) => `第 ${num(from)}–${num(to)} 行`,
     noRows: "没有数据行",

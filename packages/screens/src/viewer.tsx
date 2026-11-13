@@ -155,7 +155,7 @@ export function FileView({
   return (
     <dialog
       ref={ref}
-      className={`screen-item screen-fileview screen-fileview--${file?.kind ?? "other"}`}
+      className={`screen-item screen-fileview screen-fileview--${file?.kind ?? "other"}${info ? " screen-fileview--info" : ""}`}
       aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();

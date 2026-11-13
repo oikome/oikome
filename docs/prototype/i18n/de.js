@@ -231,6 +231,11 @@
   'cards.more': 'Mehr im Plugin-Verzeichnis',
 
   // Collections
+  importFiles: 'Dateien importieren',
+  importFilesBody: 'Die ausgewählten Dateien werden in Oikomes Imports-Ordner in einen neuen Ordner mit dem Namen der Sammlung kopiert. Vorhandene Dateien werden nicht überschrieben.',
+  chooseFiles: 'Dateien auswählen…',
+  importLimit: 'Bis zu 32 MB pro Import.',
+  importNow: 'Importieren',
   'cols.sub': 'Eigene: {mine}, mit dir geteilt: {theirs}.',
   yours: 'Deine',
   sharedWithYou: 'Mit dir geteilt',

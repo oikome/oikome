@@ -378,6 +378,14 @@ export const ko: Strings = {
   collections: {
     title: "컬렉션",
     newCollection: "새 컬렉션",
+    importFiles: "파일 가져오기",
+    importFilesBody: "Oikome의 Imports 아래에 컬렉션 이름으로 새 디렉터리를 만들어 파일을 복사해요. 기존 파일은 덮어쓰지 않아요.",
+    chooseFiles: "파일 선택…",
+    noFilesYet: "선택한 파일 없음",
+    importLimit: "한 번에 최대 32MB까지 가져올 수 있어요.",
+    importAction: "가져오기",
+    importing: "가져오는 중…",
+    imported: (name: string) => `${name} 컬렉션을 가져왔어요.`,
     mine: "내 컬렉션",
     sharedWithYou: "나와 공유됨",
     nameLabel: "이름",
@@ -389,7 +397,6 @@ export const ko: Strings = {
     create: "만들기",
     emptyTitle: "아직 컬렉션이 없어요",
     emptyBody: "컬렉션에는 메모나 사진처럼 한 종류의 데이터를 담아요. 첫 컬렉션을 만들어 보세요.",
-    example: "예시",
     kinds: { photos: "사진", notes: "메모", table: "표", series: "측정값" },
     viewFolder: "폴더 보기",
     viewFolderBody:
@@ -442,7 +449,6 @@ export const ko: Strings = {
     factFrom: "가져오는 곳",
     fromExample: "Oikome 예시",
     fromYou: "내가 추가함",
-    fromExampleShort: "예시",
     fromYouShort: "내가 추가함",
     factKind: "보관 형식",
     kindAnalytical: "주로 읽기용 · 사본 가능",
@@ -469,7 +475,6 @@ export const ko: Strings = {
     noneMine: "일치하는 내 컬렉션이 없어요.",
     noneTheirs: "일치하는 공유 컬렉션이 없어요.",
     viewedOn: (place: string) => `그 자리에서 보기 · ${place}`,
-    examplesNote: "예시 표시가 있는 컬렉션은 Oikome에 무엇을 보관할 수 있는지 보여 줘요. 언제든 제거할 수 있어요.",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") =>
       kind === "photos"
         ? `사진 ${num(n)}장`
@@ -512,7 +517,7 @@ export const ko: Strings = {
     whoSentence: (names: string[]) => (names.length === 0 ? "나만 볼 수 있어요." : `나와 ${people(names)}이 볼 수 있어요.`),
     manage: "관리",
     nothingYetTitle: "아직 데이터가 없어요",
-    nothingYetBody: "데이터를 가져오면 여기에 표시돼요. 이 컴퓨터의 파일을 가져오는 기능은 곧 추가될 예정이에요.",
+    nothingYetBody: "이 컬렉션에는 아직 테이블이 없어요. ‘컬렉션’ 페이지에서 파일을 가져와 새 파일 컬렉션을 만들 수 있어요.",
     tableLabel: "표",
     rows: (from: number, to: number) => `${num(from)}–${num(to)}행`,
     noRows: "행 없음",

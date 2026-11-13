@@ -813,7 +813,7 @@ function ago(min) {
   if (a < 1440) return rtf.format(-Math.round(min / 60), 'hour');
   return rtf.format(-Math.round(min / 1440), 'day');
 }
-const UNITS = { KB: 'kilobyte', MB: 'megabyte', GB: 'gigabyte', TB: 'terabyte' };
+const UNITS = { B: 'byte', KB: 'kilobyte', MB: 'megabyte', GB: 'gigabyte', TB: 'terabyte' };
 const sz = (v) => (v ? nf(v[0], { style: 'unit', unit: UNITS[v[1]], maximumFractionDigits: 2 }) : '…');
 const cnt = (c) => (c ? t(`unit.${c.u}`, { n: c.n }) : '');
 // Greeting by the viewer's own clock (?hour=8 to try another time): morning 5–11, afternoon 12–17, evening otherwise.
@@ -1009,7 +1009,7 @@ function cover(c, from) {
   const people = from ? av(c.from, c.av) : av('You', 'd') + viewers(c.name).filter((v) => v.t === 'person').map((v) => av(v.n, v.k)).join('');
   return `<a class="cover" href="#collection/${c.name}">
     <div class="cover__art">${art(c)}<span class="src-glyph">${chip}</span></div>
-    <div class="cover__cap"><div class="cover__line"><span class="cover__name ${c.inPlace ? 'cover__name--folder' : ''}">${c.inPlace ? `${Is('folder', 14)}${esc(c.label || c.name)}` : c.name}</span>${c.example ? `<span class="tag">${t('example')}</span>` : ''}<span class="stack">${people}</span></div>
+    <div class="cover__cap"><div class="cover__line"><span class="cover__name ${c.inPlace ? 'cover__name--folder' : ''}">${c.inPlace ? `${Is('folder', 14)}${esc(c.label || c.name)}` : c.name}</span><span class="stack">${people}</span></div>
     <div class="cover__meta">${meta}</div></div></a>`;
 }
 const closeX = () => `<button class="btn btn--ghost icon-btn" data-close aria-label="${t('close')}">${I('close')}</button>`;
@@ -1108,7 +1108,7 @@ const sortHead = (act, key, cur, dir, label, cls) => `<th class="label ${cls || 
 const viewSeg = (act, cur) => `<div class="seg" role="group" aria-label="${t('view.label')}"><button class="${cur === 'grid' ? 'on' : ''}" data-act="${act}" data-v="grid" aria-label="${t('view.grid')}" title="${t('view.grid')}">${Is('grid', 15)}</button><button class="${cur === 'list' ? 'on' : ''}" data-act="${act}" data-v="list" aria-label="${t('view.list')}" title="${t('view.list')}">${Is('rows', 15)}</button></div>`;
 function colRows(list, from) {
   return `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('csort', 'name', S.csort, S.cdir, t('sort.name'))}${sortHead('csort', 'kind', S.csort, S.cdir, t('sort.kind'), 'hide-s')}<th class="label hide-s">${t('cols.place')}</th>${sortHead('csort', 'size', S.csort, S.cdir, t('sort.size'), 'num')}${sortHead('csort', 'changed', S.csort, S.cdir, t('sort.changed'), 'hide-s')}</tr></thead>
-    <tbody>${list.map((c) => `<tr data-go="collection/${c.name}"><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(c.inPlace ? 'folder' : kindIcon[c.kind], 15)}</span><span class="cols-name">${esc(c.label || c.name)}</span>${c.example ? `<span class="tag">${t('example')}</span>` : ''}</span></td>
+    <tbody>${list.map((c) => `<tr data-go="collection/${c.name}"><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(c.inPlace ? 'folder' : kindIcon[c.kind], 15)}</span><span class="cols-name">${esc(c.label || c.name)}</span></span></td>
       <td class="hide-s">${kindName(c)}</td><td class="hide-s">${from ? esc(t('cover.from', { who: c.from })) : `${esc(placeName(c.stored))}${c.inPlace ? ` · <span class="faint">${t('cols.inPlace')}</span>` : ''}`}</td>
       <td class="num mono">${SIZES[c.name] ? sz(SIZES[c.name]) : '—'}</td><td class="hide-s">${CHANGED[c.name] ? md(CHANGED[c.name]) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -1127,7 +1127,7 @@ screens.collections = () => {
     <button class="btn" data-act="csortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.csort}`)}</button>
     ${viewSeg('cview', S.cview)}</div>`;
   return `${head(t('nav.collections'), t('cols.sub', { mine: cnt({ n: C.length, u: 'collections' }), theirs: nf(fromList().length) }),
-    `<button class="btn btn--primary" data-act="newcol">${I('plus')}${t('newCol')}</button>`)}
+    `<button class="btn" data-act="importfiles">${Is('upload', 15)}${t('importFiles')}</button><button class="btn btn--primary" data-act="newcol">${I('plus')}${t('newCol')}</button>`)}
   ${tools}
   <span class="label" style="display:block;margin-bottom:12px">${t('yours')}</span>
   ${mine.length ? show(mine) : none(t('cols.noneMine'))}
@@ -1523,6 +1523,13 @@ DLG.newcol = (D) => (D.confirming ? placeAsk(D, slug(D.cname)) : dlg(t('nc.title
   <div class="field"><span class="label">${t('nc.whatGoesIn')}</span><div class="opts opts--grid">${[['photos', 'photo'], ['notes', 'note'], ['table', 'table'], ['later', 'plus']].map(([v, ic]) => opt('ckind', v, D.ckind, `<span class="ico">${I(ic)}</span>${twoLine(t(`nc.${v}`), t(`nc.${v}.sub`))}`)).join('')}</div></div>
   <div class="field"><span class="label">${t('nc.keepOn')}</span><div class="opts">${PLACES.map((p) => opt('cplace', p.name, D.cplace, `<span class="ico">${I(p.ico)}</span><div style="flex:1"><b>${esc(placeName(p.name))}</b><div class="faint mono" style="font-size:12px">${p.free ? t('place.free', { size: sz(p.free) }) : t('checking')}${p.kind === 'local' ? '' : ` · ${t('encrypted')}`}</div></div>${p.kind === 'local' && D.ckind !== 'later' ? `<span class="tag">${t('nc.bestForSources')}</span>` : p.def ? `<span class="tag">${t('default')}</span>` : ''}`)).join('')}</div>${D.ckind !== 'later' && D.cplace !== 'Local' ? `<span class="hint">${t('nc.asksFirst', { place: placeName(D.cplace) })}</span>` : ''}</div>`,
 foot('', `${cancel()}<button class="btn btn--primary" data-act="newcolok">${t('nc.create')}</button>`)));
+
+DLG.importfiles = (D) => dlg(t('importFiles'), `
+  <p class="muted" style="margin:0">${t('importFilesBody')}</p>
+  <div class="field"><span class="label">${t('name')}</span><div class="input"><input data-bind="cname" value="${esc(D.cname)}" placeholder="imported-files" autocomplete="off" data-autofocus></div>${D.err ? `<span class="err">${D.err}</span>` : `<span class="hint">${t('nc.nameHint')}</span>`}</div>
+  <div class="row" style="gap:12px;flex-wrap:wrap"><button class="btn">${Is('upload', 15)}${t('chooseFiles')}</button><span class="hint">${t('importLimit')}</span></div>
+  <div class="box"><div class="row row--between"><span>note.md</span><span class="faint mono">37 B</span></div><div class="row row--between"><span>rows.csv</span><span class="faint mono">19 B</span></div></div>`,
+  foot('', `${cancel()}<button class="btn btn--primary" data-act="importok">${t('importNow')}</button>`));
 
 function partOf(c, D) {
   const tb = TABLES[c.name];
@@ -1966,6 +1973,16 @@ const ACT = {
   cmdk: (el) => open('cmdk', { q: el.dataset.scope ? '' : 'pessoa train', scope: el.dataset.scope || '', sel: 0 }),
   hit: (el) => { const h = HITS[+el.dataset.i]; close(); if (h.go) go(h.go); else h.run(); },
   edit: () => { S.edit = !S.edit; render(true); },
+  importfiles: () => open('importfiles', { cname: '', err: '' }),
+  importok: () => {
+    const name = slug(D.cname);
+    if (!name) return upd({ err: t('err.name') });
+    if (C.concat(fromList()).some((c) => c.name === name)) return upd({ err: t('err.taken', { c: name }) });
+    C.push({ name, label: name, kind: 'notes', count: { n: 2, u: 'items' }, source: null, stored: 'Local', inPlace: true });
+    TREES[name] = { folders: {}, files: [['note.md', 'note', [37, 'B'], '2026-11-13T10:00', null, '# Imported note\n\nCopied deliberately.'], ['rows.csv', 'csv', [19, 'B'], '2026-11-13T10:00', null, [['first', '1']]]] };
+    DEVICES[1].reads.push(name);
+    close(); go('collection/' + name); toast(t('toast.created', { c: name }));
+  },
   newcol: () => open('newcol', { cname: '', ckind: 'photos', cplace: 'Local', err: '' }),
   newcolok: () => {
     const name = slug(D.cname);

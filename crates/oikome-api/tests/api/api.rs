@@ -2610,6 +2610,89 @@ async fn daily_totals_stay_here_unless_the_lender_may_read_all_of_a_big_collecti
     assert_eq!(e.code, ErrorCode::NotFound);
 }
 
+#[tokio::test]
+async fn imported_files_become_a_new_local_folder_without_overwriting() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let request = |name: &str, file: &str, data: &str| ImportFiles {
+        name: name.into(),
+        files: vec![ImportFile {
+            name: file.into(),
+            data_base64: data.into(),
+        }],
+    };
+
+    let e = n
+        .api
+        .import_files(
+            &Caller::Principal { did: did(8) },
+            request("imported", "note.md", "SGVsbG8="),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    for file in ["../escape", "a/b", ".", ""] {
+        let e = n
+            .api
+            .import_files(&OWNER, request("imported", file, "SGVsbG8="))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::Invalid, "{file}: {e}");
+    }
+    let e = n
+        .api
+        .import_files(&OWNER, request("imported", "note.md", "not base64"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    assert!(!root.join("Imports").join("imported").exists());
+
+    let imported = n
+        .api
+        .import_files(
+            &OWNER,
+            ImportFiles {
+                name: "imported".into(),
+                files: vec![
+                    ImportFile {
+                        name: "note.md".into(),
+                        data_base64: "SGVsbG8sIGltcG9ydGVkLg==".into(),
+                    },
+                    ImportFile {
+                        name: "rows.csv".into(),
+                        data_base64: "aSxiCjEsMgo=".into(),
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(imported.name, "imported");
+    assert!(imported.readonly);
+    let place = imported.in_place.unwrap();
+    assert_eq!(place.place, None);
+    assert_eq!(place.files, 2);
+    assert_eq!(
+        std::path::PathBuf::from(place.path),
+        std::fs::canonicalize(root.join("Imports").join("imported")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("Imports/imported/note.md")).unwrap(),
+        "Hello, imported."
+    );
+
+    let e = n
+        .api
+        .import_files(&OWNER, request("imported", "note.md", "UkVQTEFDRUQ="))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert_eq!(
+        std::fs::read_to_string(root.join("Imports/imported/note.md")).unwrap(),
+        "Hello, imported."
+    );
+}
+
 /// A folder viewed in place: chosen by its path, browsed from its index,
 /// shared to view and never to copy; a folder source of old becomes one,
 /// keeping its name and whom it was shared with.
@@ -2690,6 +2773,11 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .await
         .unwrap();
     assert_eq!(viewed.name, "trip-2025");
+    let storages = n.api.list_storages(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(
+        storages[0].spaces, 1,
+        "a folder viewed here counts on this computer"
+    );
     assert!(viewed.readonly);
     let in_place = viewed.in_place.unwrap();
     assert_eq!(in_place.files, 5);
@@ -3154,6 +3242,35 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
     assert!(n
         .api
         .read_file_rows(&stranger, rows("budget.csv", 0, 100))
+        .await
+        .is_err());
+
+    std::fs::write(trip.join("damaged.json"), "{\"place\": broken json}\n").unwrap();
+    n.api
+        .refresh_space(
+            &OWNER,
+            SpaceRef {
+                space: "trip-tables".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let damaged = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "trip-tables".into(),
+                path: "damaged.json".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(damaged.text.is_some());
+    sql(&n, "SELECT path FROM \"trip-tables\".files").await;
+    assert!(n
+        .api
+        .read_file_rows(&OWNER, rows("damaged.json", 0, 100))
         .await
         .is_err());
 }

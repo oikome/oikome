@@ -157,7 +157,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           folder
             ? s.viewedOn(folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer))
             : local
-              ? [kind ? s.kinds[kind] : null, space.example ? s.fromExampleShort : s.fromYouShort].filter(Boolean).join(" · ")
+              ? (kind ? s.kinds[kind] : s.fromYouShort)
               : s.sharedWithYouFrom(from)
         }
         title={<span translate="no">{collectionTitle(space)}</span>}

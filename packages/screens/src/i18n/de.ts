@@ -365,6 +365,14 @@ export const de: Strings = {
   collections: {
     title: "Sammlungen",
     newCollection: "Neue Sammlung",
+    importFiles: "Dateien importieren",
+    importFilesBody: "Die ausgewählten Dateien werden in Oikomes Imports-Ordner in einen neuen Ordner mit dem Namen der Sammlung kopiert. Vorhandene Dateien werden nicht überschrieben.",
+    chooseFiles: "Dateien auswählen…",
+    noFilesYet: "Keine Dateien ausgewählt",
+    importLimit: "Bis zu 32 MB pro Import.",
+    importAction: "Importieren",
+    importing: "Wird importiert…",
+    imported: (name: string) => `${name} importiert.`,
     mine: "Meine Sammlungen",
     sharedWithYou: "Mit dir geteilt",
     nameLabel: "Name",
@@ -378,7 +386,6 @@ export const de: Strings = {
     create: "Erstellen",
     emptyTitle: "Noch keine Sammlungen",
     emptyBody: "Eine Sammlung enthält eine Art von Daten, etwa Notizen oder Fotos. Erstelle deine erste.",
-    example: "Beispiel",
     kinds: { photos: "Fotos", notes: "Notizen", table: "Tabelle", series: "Messwerte" },
     viewFolder: "Ordner ansehen",
     viewFolderBody:
@@ -432,7 +439,6 @@ export const de: Strings = {
     factFrom: "Kommt von",
     fromExample: "Ein Beispiel von Oikome",
     fromYou: "Von dir hinzugefügt",
-    fromExampleShort: "Beispiel",
     fromYouShort: "von dir hinzugefügt",
     factKind: "Gespeichert als",
     kindAnalytical: "Vor allem zum Lesen · kopierbar",
@@ -455,7 +461,6 @@ export const de: Strings = {
     noneMine: "Keine deiner Sammlungen passt.",
     noneTheirs: "Nichts, was mit dir geteilt wurde, passt.",
     viewedOn: (place: string) => `Direkt angesehen · ${place}`,
-    examplesNote: "Sammlungen mit der Markierung „Beispiel“ zeigen, was Oikome aufbewahren kann. Entferne sie, wann immer du willst.",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") =>
       `${num(n)} ${pl(
         n,
@@ -506,7 +511,7 @@ export const de: Strings = {
           : `Du, ${names.slice(0, -1).join(", ")} und ${names[names.length - 1]} könnt das sehen.`,
     manage: "Verwalten",
     nothingYetTitle: "Noch keine Daten",
-    nothingYetBody: "Wenn du Daten hereinbringst, erscheinen sie hier. Dateien von diesem Computer hereinholen kommt bald.",
+    nothingYetBody: "Diese Sammlung enthält noch keine Tabellen. Unter „Sammlungen“ kannst du Dateien als neue Dateisammlung importieren.",
     tableLabel: "Tabelle",
     rows: (from: number, to: number) => `Zeilen ${num(from)}–${num(to)}`,
     noRows: "Keine Zeilen",

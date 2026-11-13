@@ -216,6 +216,11 @@
   'cards.more': '플러그인 디렉터리에서 더 보기',
 
   // Collections
+  importFiles: '파일 가져오기',
+  importFilesBody: 'Oikome의 Imports 아래에 컬렉션 이름으로 새 디렉터리를 만들어 파일을 복사해요. 기존 파일은 덮어쓰지 않아요.',
+  chooseFiles: '파일 선택…',
+  importLimit: '한 번에 최대 32MB까지 가져올 수 있어요.',
+  importNow: '가져오기',
   'cols.sub': '내 {mine}, 공유받은 컬렉션 {theirs}개가 있어요.',
   yours: '내 컬렉션',
   sharedWithYou: '나와 공유됨',

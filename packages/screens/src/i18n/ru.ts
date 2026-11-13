@@ -371,6 +371,14 @@ export const ru: Strings = {
   collections: {
     title: "Коллекции",
     newCollection: "Новая коллекция",
+    importFiles: "Импортировать файлы",
+    importFilesBody: "Выбранные файлы копируются в новую папку с именем коллекции внутри папки Imports в Oikome. Существующие файлы не перезаписываются.",
+    chooseFiles: "Выбрать файлы…",
+    noFilesYet: "Файлы не выбраны",
+    importLimit: "До 32 МБ за один импорт.",
+    importAction: "Импортировать",
+    importing: "Импорт…",
+    imported: (name: string) => `Коллекция ${name} импортирована.`,
     mine: "Мои коллекции",
     sharedWithYou: "Доступные вам",
     nameLabel: "Название",
@@ -383,7 +391,6 @@ export const ru: Strings = {
     create: "Создать",
     emptyTitle: "Коллекций пока нет",
     emptyBody: "В коллекции хранится один вид данных, например заметки или фото. Создайте первую.",
-    example: "Пример",
     kinds: { photos: "Фото", notes: "Заметки", table: "Таблица", series: "Показания" },
     viewFolder: "Посмотреть папку",
     viewFolderBody:
@@ -438,7 +445,6 @@ export const ru: Strings = {
     factFrom: "Откуда",
     fromExample: "Пример от Oikome",
     fromYou: "Добавлено вами",
-    fromExampleShort: "пример",
     fromYouShort: "добавлено вами",
     factKind: "Как хранится",
     kindAnalytical: "В основном для чтения · можно копировать",
@@ -461,7 +467,6 @@ export const ru: Strings = {
     noneMine: "Среди ваших ничего не найдено.",
     noneTheirs: "Среди доступных вам ничего не найдено.",
     viewedOn: (place: string) => `Просмотр на месте · ${place}`,
-    examplesNote: "Коллекции с пометкой «Пример» показывают, что может хранить Oikome. Уберите их, когда захотите.",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const forms =
         kind === "photos"
@@ -513,7 +518,7 @@ export const ru: Strings = {
           : `Это видите вы, ${names.slice(0, -1).join(", ")} и ${names[names.length - 1]}.`,
     manage: "Настроить",
     nothingYetTitle: "Данных пока нет",
-    nothingYetBody: "Когда вы добавите данные, они появятся здесь. Скоро можно будет добавлять файлы с этого компьютера.",
+    nothingYetBody: "В этой коллекции пока нет таблиц. На странице «Коллекции» можно импортировать файлы в новую файловую коллекцию.",
     tableLabel: "Таблица",
     rows: (from: number, to: number) => `Строки ${from}–${to}`,
     noRows: "Строк нет",

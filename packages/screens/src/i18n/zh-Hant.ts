@@ -345,6 +345,14 @@ export const zhHant: Strings = {
   collections: {
     title: "資料庫",
     newCollection: "新增資料庫",
+    importFiles: "輸入檔案",
+    importFilesBody: "所選檔案會複製到 Oikome 的 Imports 資料夾，並以資料庫名稱新建子資料夾。現有檔案不會被覆寫。",
+    chooseFiles: "選擇檔案…",
+    noFilesYet: "尚未選擇檔案",
+    importLimit: "每次最多輸入 32 MB。",
+    importAction: "輸入",
+    importing: "輸入中…",
+    imported: (name: string) => `已輸入 ${name}`,
     mine: "我的資料庫",
     sharedWithYou: "分享給你的",
     nameLabel: "名稱",
@@ -356,7 +364,6 @@ export const zhHant: Strings = {
     create: "建立",
     emptyTitle: "還沒有資料庫",
     emptyBody: "一個資料庫存放一種資料，例如筆記或照片。建立你的第一個資料庫吧。",
-    example: "範例",
     kinds: { photos: "照片", notes: "筆記", table: "表格", series: "讀數" },
     viewFolder: "查看資料夾",
     viewFolderBody:
@@ -409,7 +416,6 @@ export const zhHant: Strings = {
     factFrom: "來自",
     fromExample: "Oikome 提供的範例",
     fromYou: "由你新增",
-    fromExampleShort: "範例",
     fromYouShort: "由你新增",
     factKind: "儲存方式",
     kindAnalytical: "以讀取為主 · 可複製",
@@ -432,7 +438,6 @@ export const zhHant: Strings = {
     noneMine: "你的資料庫中沒有符合條件的項目。",
     noneTheirs: "分享給你的資料庫中沒有符合條件的項目。",
     viewedOn: (place: string) => `原地檢視 · ${place}`,
-    examplesNote: "標示為「範例」的資料庫，展示了 Oikome 能存放哪些資料。不需要時隨時都可以移除。",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const unit = kind === "photos" ? "張照片" : kind === "notes" ? "則筆記" : kind === "series" ? "筆讀數" : "列";
       return `${num(n)} ${unit}`;
@@ -476,7 +481,7 @@ export const zhHant: Strings = {
           : `你、${names.slice(0, -1).join("、")} 和 ${names[names.length - 1]} 能看到。`,
     manage: "管理",
     nothingYetTitle: "尚無資料",
-    nothingYetBody: "匯入資料後，就會顯示在這裡。從這台電腦匯入檔案的功能即將推出。",
+    nothingYetBody: "這個資料庫還沒有資料表。可在「資料庫」頁面輸入檔案，建立新的檔案資料庫。",
     tableLabel: "表格",
     rows: (from: number, to: number) => `第 ${num(from)}–${num(to)} 列`,
     noRows: "沒有資料列",

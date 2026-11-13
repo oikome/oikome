@@ -216,6 +216,11 @@
   'cards.more': '外掛程式目錄裡還有更多',
 
   // Collections
+  importFiles: '輸入檔案',
+  importFilesBody: '所選檔案會複製到 Oikome 的 Imports 資料夾，並以資料庫名稱新建子資料夾。現有檔案不會被覆寫。',
+  chooseFiles: '選擇檔案…',
+  importLimit: '每次最多輸入 32 MB。',
+  importNow: '輸入',
   'cols.sub': '你自己的 {mine}，別人分享給你的 {theirs} 個。',
   yours: '你的',
   sharedWithYou: '分享給你的',

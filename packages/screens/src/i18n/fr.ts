@@ -367,6 +367,14 @@ export const fr: Strings = {
   collections: {
     title: "Collections",
     newCollection: "Nouvelle collection",
+    importFiles: "Importer des fichiers",
+    importFilesBody: "Les fichiers sélectionnés sont copiés dans un nouveau dossier portant le nom de la collection, dans le dossier Imports d’Oikome. Les fichiers existants ne sont jamais remplacés.",
+    chooseFiles: "Choisir des fichiers…",
+    noFilesYet: "Aucun fichier sélectionné",
+    importLimit: "Jusqu’à 32 Mo par importation.",
+    importAction: "Importer",
+    importing: "Importation…",
+    imported: (name: string) => `${name} importée.`,
     mine: "Mes collections",
     sharedWithYou: "Partagées avec vous",
     nameLabel: "Nom",
@@ -380,7 +388,6 @@ export const fr: Strings = {
     create: "Créer",
     emptyTitle: "Aucune collection",
     emptyBody: "Une collection contient un seul type de données, comme des notes ou des photos. Créez la première.",
-    example: "Exemple",
     kinds: { photos: "Photos", notes: "Notes", table: "Tableau", series: "Relevés" },
     viewFolder: "Voir un dossier",
     viewFolderBody:
@@ -441,7 +448,6 @@ export const fr: Strings = {
     factFrom: "Provient de",
     fromExample: "Un exemple d’Oikome",
     fromYou: "Ajoutée par vous",
-    fromExampleShort: "exemple",
     fromYouShort: "ajoutée par vous",
     factKind: "Format",
     kindAnalytical: "Surtout en lecture · copiable",
@@ -467,7 +473,6 @@ export const fr: Strings = {
     noneMine: "Aucune des vôtres ne correspond.",
     noneTheirs: "Rien de ce qui est partagé avec vous ne correspond.",
     viewedOn: (place: string) => `Consulté sur place · ${place}`,
-    examplesNote: "Les collections marquées « Exemple » montrent ce qu’Oikome peut conserver. Retirez-les quand vous voulez.",
     count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const [one, many] =
         kind === "photos"
@@ -519,7 +524,7 @@ export const fr: Strings = {
           : `Visible par vous, ${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}.`,
     manage: "Gérer",
     nothingYetTitle: "Pas encore de données",
-    nothingYetBody: "Quand vous importez des données, elles apparaissent ici. L’import de fichiers depuis cet ordinateur arrive bientôt.",
+    nothingYetBody: "Cette collection ne contient encore aucun tableau. Depuis « Collections », importez des fichiers pour créer une nouvelle collection de fichiers.",
     tableLabel: "Tableau",
     rows: (from: number, to: number) => `Lignes ${num(from)}–${num(to)}`,
     noRows: "Aucune ligne",

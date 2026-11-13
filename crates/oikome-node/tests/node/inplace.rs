@@ -451,6 +451,45 @@ async fn offline_the_index_still_answers_and_deleted_it_is_rebuilt() {
 }
 
 #[tokio::test]
+async fn damaged_json_is_isolated_from_files_even_in_an_old_index() {
+    let n = node();
+    let folder = trip();
+    std::fs::write(
+        folder.path().join("damaged.json"),
+        "{\"place\": broken json}\n",
+    )
+    .unwrap();
+    n.sql(&format!(
+        "CREATE SPACE trip WITH PLACE = 'local', PATH = '{}'",
+        folder.path().display()
+    ))
+    .await;
+    n.sql("REFRESH SPACE trip").await;
+    n.sql("SELECT path, kind FROM trip.files ORDER BY path")
+        .await;
+
+    // An index written before damaged JSON was marked unavailable: reading
+    // it again must validate that old row rather than bind the broken view.
+    let location = n.location("trip");
+    let index =
+        rusqlite::Connection::open(n.catalog.index_dir(&location).join("index.sqlite")).unwrap();
+    index
+        .execute("UPDATE files SET state = 1 WHERE path = 'damaged.json'", [])
+        .unwrap();
+    index
+        .execute(
+            "DELETE FROM facts WHERE key = 'json_table_validation_v1'",
+            [],
+        )
+        .unwrap();
+    drop(index);
+    n.owner.refresh_in_place("trip").await.unwrap();
+    n.sql("SELECT path, kind FROM trip.files ORDER BY path")
+        .await;
+    assert!(n.owner.sql("SELECT * FROM trip.damaged").await.is_err());
+}
+
+#[tokio::test]
 async fn only_a_visible_folder_of_the_owners_can_be_viewed() {
     let n = node();
     let folder = trip();

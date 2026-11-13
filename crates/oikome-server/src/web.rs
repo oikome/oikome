@@ -25,7 +25,8 @@
 //! - **Every request.** `Host` must name this server (DNS rebinding).
 //! - **API calls.** `Origin` must be this server, `Sec-Fetch-Site` (when
 //!   sent) `same-origin`, `Content-Type` JSON, and the session cookie valid.
-//!   Bodies are capped at 1 MiB.
+//!   Ordinary bodies are capped at 1 MiB; deliberate file imports at 48 MiB
+//!   (base64 JSON for at most 32 MiB of files).
 //! - **The app.** With a web root (`--web-root`, the `apps/web` build), GET
 //!   serves its files under a strict Content-Security-Policy. Paths are
 //!   checked segment by segment and must resolve inside the root; paths
@@ -58,11 +59,11 @@ use base64::Engine;
 use oikome_api::{
     AcceptInvite, AddExamples, Api, ApiError, AssistantCollections, AssistantRef, BorrowedJobsOf,
     BorrowedRef, Caller, ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef,
-    Empty, ErrorCode, FolderRef, HomeCards, InstallPlugin, InviteCode, InviteRef, ListAccess,
-    ListShares, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
-    PluginFolder, PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search,
-    SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef,
-    UseBorrowed, PLUGIN_SDK,
+    Empty, ErrorCode, FolderRef, HomeCards, ImportFiles, InstallPlugin, InviteCode, InviteRef,
+    ListAccess, ListShares, NewSource, NewSpace, NewStorage, NodeName, PauseSource,
+    PluginCollections, PluginFolder, PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows,
+    RunSql, Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef,
+    SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, SetNetwork, ShowFolder, StartDropbox,
@@ -79,14 +80,17 @@ pub const DEFAULT_WEB_LISTEN: &str = "127.0.0.1:7340";
 pub const LOGIN_TTL: Duration = Duration::from_secs(10 * 60);
 /// A session ends after this long without a request.
 pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 3600);
-/// Largest request body.
+/// Largest ordinary request body.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
+/// Base64 and JSON overhead on an import of at most 32 MiB of files.
+pub const MAX_IMPORT_BODY_BYTES: usize = 48 * 1024 * 1024;
 const ARROW_STREAM: &str = "application/vnd.apache.arrow.stream";
 /// Where Google sends the owner back to, on this server.
 const GOOGLE_CALLBACK: &str = "/oauth/google/callback";
 const TRUNCATED_HEADER: &str = "oikome-truncated";
 /// The app loads only its own files and talks only to this server.
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+const CONTENT_SECURITY_POLICY: &str =
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
      img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
      form-action 'self'";
 
@@ -424,6 +428,7 @@ impl WebState {
             "list_spaces" => json_op!(list_spaces, Empty),
             "create_space" => json_op!(create_space, NewSpace),
             "drop_space" => json_op!(drop_space, SpaceRef),
+            "import_files" => json_op!(import_files, ImportFiles),
             "view_in_place" => json_op!(view_in_place, ViewInPlace),
             "refresh_space" => json_op!(refresh_space, SpaceRef),
             "list_files" => json_op!(list_files, ListFiles),
@@ -926,12 +931,17 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
             if let Err(e) = state.api_request_ok(&parts.headers, host) {
                 return error(e);
             }
-            let body = match to_bytes(body, MAX_BODY_BYTES).await {
+            let limit = if path == "/api/import_files" {
+                MAX_IMPORT_BODY_BYTES
+            } else {
+                MAX_BODY_BYTES
+            };
+            let body = match to_bytes(body, limit).await {
                 Ok(body) => body,
                 Err(_) => {
                     return error(ApiError::invalid(format!(
                         "request bodies are limited to {} KiB",
-                        MAX_BODY_BYTES / 1024
+                        limit / 1024
                     )))
                 }
             };

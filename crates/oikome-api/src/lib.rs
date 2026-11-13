@@ -863,8 +863,10 @@ impl Api {
                 .catalog
                 .get_location(&space.location)
                 .ok()
-                .and_then(|l| l.storage)
-                .map(|b| b.storage);
+                .and_then(|l| match l.format {
+                    LocationFormat::InPlace { place, .. } => place,
+                    _ => l.storage.map(|b| b.storage),
+                });
             *counts.entry(storage).or_default() += 1;
         }
         let settings = self.settings()?;

@@ -364,6 +364,14 @@ export const en = {
   collections: {
     title: "Collections",
     newCollection: "New Collection",
+    importFiles: "Import Files",
+    importFilesBody: "The selected files are copied into a new folder named after the collection inside Oikome's Imports folder. Existing files are never overwritten.",
+    chooseFiles: "Choose Files…",
+    noFilesYet: "No files selected",
+    importLimit: "Up to 32 MB per import.",
+    importAction: "Import",
+    importing: "Importing…",
+    imported: (name: string) => `Imported ${name}.`,
     mine: "My Collections",
     sharedWithYou: "Shared With You",
     nameLabel: "Name",
@@ -377,7 +385,6 @@ export const en = {
     create: "Create",
     emptyTitle: "No Collections Yet",
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
-    example: "Example",
     kinds: { photos: "Photos", notes: "Notes", table: "Table", series: "Readings" },
     // A folder viewed where it is (3.9).
     viewFolder: "View a Folder",
@@ -432,7 +439,6 @@ export const en = {
     factFrom: "Comes from",
     fromExample: "An example from Oikome",
     fromYou: "Added by you",
-    fromExampleShort: "example",
     fromYouShort: "added by you",
     factKind: "Kept as",
     kindAnalytical: "Read-mostly · can be copied",
@@ -456,7 +462,6 @@ export const en = {
     noneMine: "None of yours match.",
     noneTheirs: "Nothing shared with you matches.",
     viewedOn: (place: string) => `Viewed where it is · ${place}`,
-    examplesNote: "Collections marked Example show what Oikome can keep. Remove them whenever you like.",
     /** "6 photos", "1 note", "10 rows", "336 readings". */
     count: (n: number, kind: "photos" | "notes" | "table" | "series") => {
       const [one, many] =
@@ -510,7 +515,7 @@ export const en = {
           : `You, ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} can see this.`,
     manage: "Manage",
     nothingYetTitle: "No Data Yet",
-    nothingYetBody: "When you bring data in, it shows up here. Bringing in files from this computer is on the way.",
+    nothingYetBody: "This collection has no tables yet.",
     tableLabel: "Table",
     rows: (from: number, to: number) => `Rows ${from}–${to}`,
     noRows: "No rows",

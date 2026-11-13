@@ -13,6 +13,7 @@ import { homeRelative, listNames, usedOfTotal } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { strings } from "../strings";
+import { placeOf } from "./Collections";
 
 const s = strings.place;
 
@@ -102,8 +103,8 @@ export function PlaceDetail({ name }: { name: string }) {
     );
   }
   const label = labelOf(place);
-  // Collections of one's own kept here; those shared with you live elsewhere.
-  const here = (spaces.data ?? []).filter((x) => x.storage === place.name && !x.fromDid && !x.inPlace);
+  // Collections kept here and folders read here; those shared with you live elsewhere.
+  const here = (spaces.data ?? []).filter((x) => placeOf(x) === place.name && !x.fromDid);
   const known = place.totalBytes != null && place.freeBytes != null;
   const kind = place.name === null ? strings.storage.thisComputer : strings.settings.storageKind[place.type];
 
@@ -171,6 +172,9 @@ export function PlaceDetail({ name }: { name: string }) {
                   <Link to={`/collections/${encodeURIComponent(space.name)}`} className="oik-link screen-link-mono">
                     {space.name}
                   </Link>
+                  <span className="screen-place-list__kind">
+                    {space.inPlace ? strings.collections.readWhereItIs : s.keptHere}
+                  </span>
                 </li>
               ))}
             </ul>

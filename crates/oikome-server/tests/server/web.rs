@@ -24,6 +24,7 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::http::{header, Request, Response, StatusCode};
 use axum::Router;
+use base64::Engine as _;
 use common::Node;
 use http_body_util::BodyExt;
 use oikome_api::Api;
@@ -236,6 +237,19 @@ async fn api_calls_need_this_host_this_origin_json_and_a_session() {
         .await,
         StatusCode::BAD_REQUEST
     );
+    // A deliberate file import has its own larger limit, still bounded.
+    let imported = format!(
+        "{{\"name\":\"large-import\",\"files\":[{{\"name\":\"large.bin\",\"dataBase64\":\"{}\"}}]}}",
+        base64::engine::general_purpose::STANDARD.encode(vec![b'x'; MAX_BODY_BYTES])
+    );
+    assert_eq!(
+        call(
+            w.api("import_files").header(header::COOKIE, &cookie),
+            Body::from(imported)
+        )
+        .await,
+        StatusCode::OK
+    );
     // With everything in place.
     assert_eq!(
         call(
@@ -367,10 +381,12 @@ async fn the_app_is_served_with_a_strict_policy() {
     for path in ["/", "/sharing", "/collections/notes"] {
         let response = get(path).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "{path}");
-        assert!(response.headers()[header::CONTENT_SECURITY_POLICY]
+        let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
             .to_str()
-            .unwrap()
-            .contains("default-src 'self'"));
+            .unwrap();
+        assert!(policy.contains("default-src 'self'"));
+        assert!(policy.contains("script-src 'self';"));
+        assert!(policy.contains("style-src 'self' 'unsafe-inline'"));
         assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }

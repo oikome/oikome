@@ -20,8 +20,11 @@
 //! file into a SQLite file; [`Api::view_folders_in_place`] turns each into a
 //! collection of the same name that views the same folder, once.
 
+use std::collections::BTreeSet;
+use std::io::Write;
 use std::path::Path;
 
+use base64::Engine as _;
 use oikome_catalog::{Location, LocationFormat};
 use oikome_connect::SourceConfig;
 use oikome_core::CreateSpaceRequest;
@@ -254,6 +257,115 @@ impl Api {
             .into_iter()
             .find(|s| s.name == name)
             .ok_or_else(|| ApiError::internal("the collection is missing"))
+    }
+
+    /// Deliberately copy browser files into a new local folder, then view it
+    /// in place. Every name and all bytes are checked before writing; an
+    /// existing collection or file is never replaced.
+    pub async fn import_files(
+        &self,
+        caller: &Caller,
+        req: crate::ImportFiles,
+    ) -> Result<SpaceSummary, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        oikome_core::validate_space_name(&req.name)?;
+        if req.files.is_empty() {
+            return Err(ApiError::invalid("choose at least one file"));
+        }
+        if self.catalog.get_space(&req.name).is_ok() || self.catalog.get_location(&req.name).is_ok()
+        {
+            return Err(ApiError::new(
+                crate::ErrorCode::Conflict,
+                format!("{} is taken; choose another name", req.name),
+            ));
+        }
+        let folder = std::path::PathBuf::from(self.catalog.root_path())
+            .join("Imports")
+            .join(&req.name);
+        if folder.exists() {
+            return Err(ApiError::new(
+                crate::ErrorCode::Conflict,
+                format!("the import folder for {} already exists", req.name),
+            ));
+        }
+        let mut names = BTreeSet::new();
+        let mut decoded = Vec::with_capacity(req.files.len());
+        let mut total = 0usize;
+        for file in req.files {
+            let name = file.name;
+            if name.is_empty()
+                || name.len() > 255
+                || matches!(name.as_str(), "." | "..")
+                || name != name.trim()
+                || name.contains(['/', '\\'])
+                || name.chars().any(char::is_control)
+                || !names.insert(name.clone())
+            {
+                return Err(ApiError::invalid(format!(
+                    "{name:?} is not a unique file name without a directory"
+                )));
+            }
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(file.data_base64)
+                .map_err(|_| ApiError::invalid(format!("{name} is not valid base64")))?;
+            total = total.saturating_add(bytes.len());
+            if total > 32 << 20 {
+                return Err(ApiError::invalid("one import is limited to 32 MiB"));
+            }
+            decoded.push((name, bytes));
+        }
+        if let Some(parent) = folder.parent() {
+            std::fs::create_dir_all(parent).map_err(ApiError::internal)?;
+        }
+        std::fs::create_dir(&folder).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                ApiError::new(
+                    crate::ErrorCode::Conflict,
+                    "this import folder already exists",
+                )
+            } else {
+                ApiError::internal(e)
+            }
+        })?;
+        let mut written = Vec::new();
+        for (name, bytes) in &decoded {
+            let path = folder.join(name);
+            let write = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(bytes));
+            if let Err(e) = write {
+                for path in written {
+                    let _ = std::fs::remove_file(path);
+                }
+                let _ = std::fs::remove_dir(&folder);
+                return Err(if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    ApiError::new(crate::ErrorCode::Conflict, format!("{name} already exists"))
+                } else {
+                    ApiError::internal(e)
+                });
+            }
+            written.push(path);
+        }
+        if let Err(e) = self
+            .session(None)
+            .create_space(CreateSpaceRequest {
+                name: req.name.clone(),
+                place: Some(oikome_catalog::space::PLACE_LOCAL.to_string()),
+                path: Some(folder.to_string_lossy().into_owned()),
+                ..Default::default()
+            })
+            .await
+        {
+            for (name, _) in &decoded {
+                let _ = std::fs::remove_file(folder.join(name));
+            }
+            let _ = std::fs::remove_dir(&folder);
+            return Err(e.into());
+        }
+        self.summary_of(caller, &req.name).await
     }
 
     /// A new collection that views a folder where it is: on this computer

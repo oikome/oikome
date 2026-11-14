@@ -46,7 +46,7 @@ import { SORT_KEYS, SortHeader, nextOrder, sortBy, useLayout, useOrder } from ".
 import type { Layout, SortKey } from "../order";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
-import { RowsTable, ScreenHeader } from "../parts";
+import { PathText, RowsTable, ScreenHeader } from "../parts";
 import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
@@ -227,9 +227,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             <dt className="oik-label">{s.factFrom}</dt>
             {source ? (
               <dd className="screen-facts__from">
-                <Link to={`/sources/${encodeURIComponent(source.name)}`}>
+                <Link to={`/sources/${encodeURIComponent(source.name)}`} className="oik-link">
                   <span title={source.place} translate="no">
-                    {homeRelative(source.place)}
+                    <PathText path={homeRelative(source.place)} />
                   </span>
                 </Link>
                 <span className="screen-facts__note">
@@ -244,18 +244,18 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
               <dd className="screen-facts__from">
                 {folder.place ? (
                   <span title={folder.path} translate="no">
-                    {folderWhere}
+                    <PathText path={folderWhere ?? ""} />
                   </span>
                 ) : (
                   <button
                     type="button"
                     className="oik-link screen-facts__source"
-                    title={strings.sources.showFiles}
+                    title={folder.path}
                     translate="no"
                     disabled={sync.busy}
                     onClick={() => void sync.run(() => client.showFolder({ space: space.name }))}
                   >
-                    {folderWhere}
+                    <PathText path={folderWhere ?? ""} />
                   </button>
                 )}
                 <span className="screen-facts__note">

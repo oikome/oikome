@@ -373,9 +373,21 @@ export type SourceKind = "photos" | "notes" | "csv" | "flomo-export" | "flomo-mc
 
 /**
  * A source: where a collection's data comes from, and how its last pull
- * went. A source writes the collection of its own name.
+ * went. Its identity and destination are different.
  */
-export type SourceSummary = { name: string, kind: SourceKind,
+export type SourceSummary = {
+/**
+ * The source's stable identity, used for sync settings and removal.
+ */
+name: string,
+/**
+ * The collection this source writes.
+ */
+space: string,
+/**
+ * The table it writes, when the connector has one main table.
+ */
+table: string | null, kind: SourceKind,
 /**
  * The folder or file it reads, or the service it asks.
  */
@@ -399,10 +411,22 @@ pulledAtMs: number | null,
 failedAtMs: number | null, failure: string | null, };
 
 /**
- * `add_source`: a folder of photos or notes, or a CSV file, by its path on
- * this computer. The collection is named after it.
+ * `add_source`: a CSV file by its path on this computer, written into an
+ * existing collection and table chosen by the owner.
  */
-export type NewSource = { kind: SourceKind, path: string, };
+export type NewSource = { kind: SourceKind, path: string,
+/**
+ * The existing collection to write. Required: sources never create one implicitly.
+ */
+space?: string,
+/**
+ * The destination table; the CSV file's stem when left out.
+ */
+table?: string,
+/**
+ * The source's stable identity; derived from the file when left out.
+ */
+name?: string, };
 
 /**
  * `pause_source`: pause a source, or resume it.
@@ -1056,6 +1080,15 @@ export type AddInPlaceFiles = { space: string,
  * Absolute paths of original files on this computer.
  */
 files: Array<string>, };
+
+/**
+ * `add_in_place_folder`: add a whole local folder to an existing file collection.
+ */
+export type AddInPlaceFolder = { space: string,
+/**
+ * Absolute path of the folder on this computer.
+ */
+path: string, };
 
 /**
  * One file deliberately copied from the owner's browser into a new collection.

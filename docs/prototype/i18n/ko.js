@@ -803,6 +803,10 @@
   'as.file': '파일',
   'as.readsInPlace': 'Oikome는 원래 위치에서 읽어요. 아무것도 업로드하지 않아요.',
   'as.intoNew': '새 컬렉션으로',
+  'as.intoExisting': '기존 컬렉션으로',
+  'as.intoHint': '소스와 대상은 분리되어 있으며, 소스가 컬렉션을 직접 만들지 않습니다.',
+  'as.table': '대상 테이블',
+  'as.tableHint': 'CSV 행을 이 테이블에 동기화합니다.',
   'as.placeHint': '소스에서 가져오는 항목은 로컬이 가장 좋아요. 다른 위치를 고르면 먼저 물어봐요.',
   'as.go': '연결',
 

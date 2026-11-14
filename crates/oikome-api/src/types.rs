@@ -180,6 +180,15 @@ pub struct ViewInPlace {
     pub files: Option<Vec<String>>,
 }
 
+/// `add_in_place_folder`: add a whole local folder to an existing file collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AddInPlaceFolder {
+    pub space: String,
+    /// Absolute path of the folder on this computer.
+    pub path: String,
+}
+
 /// `add_in_place_files`: add original local files to a file collection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -531,11 +540,16 @@ pub enum SourceKind {
 }
 
 /// A source: where a collection's data comes from, and how its last pull
-/// went. A source writes the collection of its own name.
+/// went. Its identity and destination are different.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceSummary {
+    /// The source's stable identity, used for sync settings and removal.
     pub name: String,
+    /// The collection this source writes.
+    pub space: String,
+    /// The table it writes, when the connector has one main table.
+    pub table: Option<String>,
     pub kind: SourceKind,
     /// The folder or file it reads, or the service it asks.
     pub place: String,
@@ -551,13 +565,22 @@ pub struct SourceSummary {
     pub failure: Option<String>,
 }
 
-/// `add_source`: a folder of photos or notes, or a CSV file, by its path on
-/// this computer. The collection is named after it.
+/// `add_source`: a CSV file by its path on this computer, written into an
+/// existing collection and table chosen by the owner.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct NewSource {
     pub kind: SourceKind,
     pub path: String,
+    /// The existing collection to write. Required: sources never create one implicitly.
+    pub space: Option<String>,
+    /// The destination table; the CSV file's stem when left out.
+    #[serde(default)]
+    pub table: Option<String>,
+    /// The source's stable identity; derived from the file when left out.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 /// `set_source_every`: how often a source is read: every this many seconds

@@ -1744,6 +1744,98 @@ async fn activity_names_who_it_was() {
     assert_eq!(items.iter().filter(|i| i.who == AccessWho::You).count(), 1);
 }
 
+#[tokio::test]
+async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinations() {
+    let n = node();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "finance".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let csv = root.join("bank.csv");
+    std::fs::write(
+        &csv,
+        "id,day,amount\n1,2026-01-01,12.50\n2,2026-01-02,18.25\n",
+    )
+    .unwrap();
+    let request = |space: Option<&str>, table: Option<&str>, name: Option<&str>| NewSource {
+        kind: SourceKind::Csv,
+        path: csv.to_string_lossy().into_owned(),
+        space: space.map(Into::into),
+        table: table.map(Into::into),
+        name: name.map(Into::into),
+    };
+    assert!(n
+        .api
+        .add_source(&OWNER, request(None, Some("entries"), Some("bank-import")))
+        .await
+        .is_err());
+    assert!(n.catalog.get_space("finance").is_ok());
+    assert!(n.catalog.get_space("bank-import").is_err());
+
+    let source = n
+        .api
+        .add_source(
+            &OWNER,
+            request(Some("finance"), Some("entries"), Some("bank-import")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(source.name, "bank-import");
+    assert_eq!(source.space, "finance");
+    assert_eq!(source.table.as_deref(), Some("entries"));
+    assert!(n.catalog.get_space("bank-import").is_err());
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "finance".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let entries = tables.iter().find(|table| table.name == "entries").unwrap();
+    assert_eq!(entries.rows, Some(2));
+    assert!(n
+        .api
+        .add_source(
+            &OWNER,
+            request(Some("finance"), Some("entries"), Some("another-import")),
+        )
+        .await
+        .is_err());
+
+    let settings =
+        serde_json::from_value(n.catalog.get_source("bank-import").unwrap().config.clone())
+            .unwrap();
+    oikome_node::OikomeSession::new(
+        n.catalog.clone(),
+        n.engines.clone(),
+        oikome_node::SessionConfig::default(),
+    )
+    .add_source("legacy", settings, None, None)
+    .await
+    .unwrap();
+    let legacy = n
+        .api
+        .list_sources(&OWNER, Empty {})
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|source| source.name == "legacy")
+        .unwrap();
+    assert_eq!(legacy.space, "legacy");
+    assert!(n.catalog.get_source("legacy").unwrap().space.is_none());
+}
+
 /// A source can be paused and resumed; removed, its collection stays, and
 /// adding the same file again puts it back into that collection.
 #[tokio::test]
@@ -1790,6 +1882,9 @@ async fn a_source_pauses_and_comes_back_into_its_collection() {
             NewSource {
                 kind: SourceKind::Csv,
                 path: place,
+                space: Some("spending".into()),
+                table: None,
+                name: None,
             },
         )
         .await
@@ -2051,6 +2146,17 @@ async fn a_principal_searches_only_what_it_may_read() {
          trams.md,The trams of Lisbon climb all day.\n",
     )
     .unwrap();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "journal".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
     let source = n
         .api
         .add_source(
@@ -2058,6 +2164,9 @@ async fn a_principal_searches_only_what_it_may_read() {
             NewSource {
                 kind: SourceKind::Csv,
                 path: file.to_string_lossy().into_owned(),
+                space: Some("journal".into()),
+                table: None,
+                name: None,
             },
         )
         .await
@@ -3319,6 +3428,156 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .downcast_ref::<arrow_array::BinaryArray>()
         .unwrap();
     assert!(photo.value(0).starts_with(&[0xff, 0xd8]), "its thumbnail");
+}
+
+#[tokio::test]
+async fn a_whole_folder_joins_an_existing_file_collection() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let first = root.join("first");
+    let second = root.join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("one.md"), "first note").unwrap();
+    std::fs::write(second.join("two.md"), "second note").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: first.to_string_lossy().into_owned(),
+                name: Some("notes".into()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .add_in_place_folder(
+            &OWNER,
+            AddInPlaceFolder {
+                space: "notes".into(),
+                path: second.to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "notes".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: Some(true),
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.total, 2);
+    let second_note = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "second/two.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(second_note.text.as_deref(), Some("second note"));
+    let duplicate = n
+        .api
+        .add_in_place_folder(
+            &OWNER,
+            AddInPlaceFolder {
+                space: "notes".into(),
+                path: second.to_string_lossy().into_owned(),
+            },
+        )
+        .await;
+    assert_eq!(duplicate.unwrap_err().code, ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn an_empty_analytical_collection_accepts_a_folder() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let vault = root.join("vault");
+    std::fs::create_dir_all(&vault).unwrap();
+    std::fs::write(vault.join("trip.md"), "Lisbon, slowly").unwrap();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "file-library".into(),
+                kind: Some(SpaceKind::Analytical),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "source-destination".into(),
+                kind: Some(SpaceKind::Analytical),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.catalog
+        .add_source_to(
+            "separate-source-id",
+            "source-destination",
+            serde_json::json!({}),
+            None,
+        )
+        .unwrap();
+    assert!(n
+        .api
+        .add_in_place_folder(
+            &OWNER,
+            AddInPlaceFolder {
+                space: "source-destination".into(),
+                path: vault.to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .is_err());
+
+    let added = n
+        .api
+        .add_in_place_folder(
+            &OWNER,
+            AddInPlaceFolder {
+                space: "file-library".into(),
+                path: vault.to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(added.in_place.is_some());
+    let file = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "file-library".into(),
+                path: "trip.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(file.text.as_deref(), Some("Lisbon, slowly"));
 }
 
 #[tokio::test]

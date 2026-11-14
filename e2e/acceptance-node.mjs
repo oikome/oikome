@@ -235,7 +235,8 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
       if (collection.action === "viewInPlace") {
         await call("view_in_place", { path: join(files, collection.path), name: collection.name });
       } else if (collection.action === "addCsvSource") {
-        await call("add_source", { kind: "csv", path: join(files, collection.path) });
+        await call("create_space", { name: "readings", kind: "transactional" });
+        await call("add_source", { kind: "csv", path: join(files, collection.path), space: "readings", table: "readings" });
       } else {
         throw new Error(`Unknown acceptance action ${collection.action}`);
       }

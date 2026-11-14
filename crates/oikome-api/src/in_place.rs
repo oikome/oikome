@@ -742,6 +742,121 @@ impl Api {
         self.summary_of(caller, &req.space).await
     }
 
+    /// Add a whole local folder to an existing file collection without
+    /// copying it or creating a collection for the source.
+    pub async fn add_in_place_folder(
+        &self,
+        caller: &Caller,
+        req: crate::AddInPlaceFolder,
+    ) -> Result<SpaceSummary, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let space = self.catalog.get_space(&req.space)?;
+        let location = self.catalog.get_location(&space.location)?;
+        let convert = matches!(&location.format, LocationFormat::IcebergParquet { .. });
+        let LocationFormat::InPlace {
+            place: None,
+            path,
+            sources,
+        } = location.format
+        else {
+            if convert {
+                if self
+                    .catalog
+                    .list_sources()
+                    .iter()
+                    .any(|source| source.space() == req.space)
+                    || !self
+                        .session(None)
+                        .readable_relations(&req.space)
+                        .await?
+                        .is_empty()
+                {
+                    return Err(ApiError::new(
+                        crate::ErrorCode::Conflict,
+                        "only an empty collection can become a file collection",
+                    ));
+                }
+                let given = Path::new(req.path.trim());
+                if !given.is_absolute() {
+                    return Err(ApiError::invalid("choose a folder on this computer"));
+                }
+                let root = given.canonicalize().map_err(|e| {
+                    ApiError::invalid(format!("{} cannot be read: {e}", given.display()))
+                })?;
+                if !root.is_dir()
+                    || root.starts_with(self.catalog.oikome_dir())
+                    || root
+                        .components()
+                        .any(|part| part.as_os_str() == oikome_catalog::registry::OIKOME_DIR)
+                    || root
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_none_or(|name| name.starts_with('.'))
+                {
+                    return Err(ApiError::invalid(format!(
+                        "{} is not a folder Oikome can add",
+                        root.display()
+                    )));
+                }
+                let root = root.to_string_lossy().into_owned();
+                self.catalog.make_space_in_place(&req.space, root, None)?;
+                self.session(None).refresh_in_place(&req.space).await?;
+                return self.summary_of(caller, &req.space).await;
+            }
+            return Err(ApiError::invalid(
+                "folder references can be added only to a local file collection",
+            ));
+        };
+        let given = Path::new(req.path.trim());
+        if !given.is_absolute() {
+            return Err(ApiError::invalid("choose a folder on this computer"));
+        }
+        let folder = given
+            .canonicalize()
+            .map_err(|e| ApiError::invalid(format!("{} cannot be read: {e}", given.display())))?;
+        if !folder.is_dir()
+            || folder.starts_with(self.catalog.oikome_dir())
+            || folder
+                .components()
+                .any(|part| part.as_os_str() == oikome_catalog::registry::OIKOME_DIR)
+            || folder
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_none_or(|name| name.starts_with('.'))
+        {
+            return Err(ApiError::invalid(format!(
+                "{} is not a folder Oikome can add",
+                folder.display()
+            )));
+        }
+        let mut sources = sources.unwrap_or_else(|| {
+            vec![InPlaceSource {
+                root: path.clone(),
+                files: None,
+            }]
+        });
+        if sources.iter().any(|source| {
+            source.files.is_none()
+                && (Path::new(&source.root) == folder || folder.starts_with(&source.root))
+        }) {
+            return Err(ApiError::new(
+                crate::ErrorCode::Conflict,
+                "this folder is already in the collection",
+            ));
+        }
+        sources.push(InPlaceSource {
+            root: folder.to_string_lossy().into_owned(),
+            files: None,
+        });
+        let root = common_root(vec![std::path::PathBuf::from(path), folder])?
+            .to_string_lossy()
+            .into_owned();
+        self.catalog.add_in_place_files(&req.space, root, sources)?;
+        self.session(None).refresh_in_place(&req.space).await?;
+        self.summary_of(caller, &req.space).await
+    }
+
     /// A new collection that views a folder where it is: on this computer
     /// (a full path), or within a storage. Nothing is copied; its files are
     /// read now and kept up with every minute.

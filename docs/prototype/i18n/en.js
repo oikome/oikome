@@ -833,6 +833,10 @@
   'as.file': 'File',
   'as.readsInPlace': 'Oikome reads it where it is. Nothing is uploaded.',
   'as.intoNew': 'Into a new collection',
+  'as.intoExisting': 'Into an existing collection',
+  'as.intoHint': 'The source and its destination are separate. It never creates a collection on its own.',
+  'as.table': 'Target table',
+  'as.tableHint': 'Rows from the CSV sync into this table.',
   'as.placeHint': 'Local is best for what a source brings in. Other places ask you first.',
   'as.go': 'Connect',
 

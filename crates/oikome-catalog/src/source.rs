@@ -20,7 +20,7 @@
 //! the node's secret store; the cursor of the last pull is in the Space
 //! itself, committed with the data.
 
-use oikome_core::CatalogError;
+use oikome_core::{validate_space_name, CatalogError};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::OikomeCatalog;
@@ -29,8 +29,12 @@ use crate::registry::now_ms;
 /// A registered source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceDef {
-    /// Also the name of the Space the source writes.
+    /// The source's stable identity, independent of its destination.
     pub name: String,
+    /// The Space the source writes. `None` is the legacy one-to-one mapping
+    /// from `name`; old registries keep working without a rewrite.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space: Option<String>,
     /// The connector's settings (`oikome_connect::SourceConfig`).
     pub config: serde_json::Value,
     /// Pull every this many seconds while the node serves; `None` pulls only
@@ -46,6 +50,13 @@ pub struct SourceDef {
     /// pull that succeeds clears it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure: Option<SourceFailure>,
+}
+
+impl SourceDef {
+    /// The destination collection, including the legacy `name` mapping.
+    pub fn space(&self) -> &str {
+        self.space.as_deref().unwrap_or(&self.name)
+    }
 }
 
 /// Why a source's last pull failed.
@@ -75,16 +86,39 @@ pub fn validate_source_name(name: &str) -> Result<(), CatalogError> {
 }
 
 impl OikomeCatalog {
-    /// Register the source `name`. Fails if the name is taken.
+    /// Register the source `name` with the legacy destination of the same name.
     pub fn add_source(
         &self,
         name: &str,
         config: serde_json::Value,
         every_secs: Option<u64>,
     ) -> Result<SourceDef, CatalogError> {
+        self.register_source(name, None, config, every_secs)
+    }
+
+    /// Register the source `name` with an explicit destination Space.
+    pub fn add_source_to(
+        &self,
+        name: &str,
+        space: &str,
+        config: serde_json::Value,
+        every_secs: Option<u64>,
+    ) -> Result<SourceDef, CatalogError> {
+        validate_space_name(space)?;
+        self.register_source(name, Some(space.to_string()), config, every_secs)
+    }
+
+    fn register_source(
+        &self,
+        name: &str,
+        space: Option<String>,
+        config: serde_json::Value,
+        every_secs: Option<u64>,
+    ) -> Result<SourceDef, CatalogError> {
         validate_source_name(name)?;
         let def = SourceDef {
             name: name.to_string(),
+            space,
             config,
             every_secs,
             paused: false,

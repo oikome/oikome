@@ -15,7 +15,9 @@ import {
   Icon,
   IconButton,
   Menu,
+  Select,
   Status,
+  TextField,
   useToast,
 } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
@@ -125,7 +127,7 @@ function Row({
               </span>
             </Link>
             <span className="screen-source__meta">
-              {s.kinds[source.kind]} → <Link to={`/collections/${encodeURIComponent(source.name)}`}>{source.name}</Link>
+              {s.kinds[source.kind]} → <Link to={`/collections/${encodeURIComponent(source.space)}`}>{source.space}</Link>
             </span>
             {failed && source.failure && <span className="screen-source__failure">{source.failure}</span>}
           </span>
@@ -149,7 +151,7 @@ function Row({
           spinning={sync.busy}
           onClick={async () => {
             const done = await sync.run(() => client.pullSource({ source: source.name }));
-            forgetPreviews(source.name);
+            forgetPreviews(source.space);
             if (done) toast(s.synced(placeName(source.place)));
             onChange();
           }}
@@ -164,7 +166,7 @@ function Row({
                 await sync.run(() => client.showSourceFiles({ source: source.name }));
               },
             },
-            { label: s.openCollection, onSelect: () => navigate(`/collections/${encodeURIComponent(source.name)}`) },
+            { label: s.openCollection, onSelect: () => navigate(`/collections/${encodeURIComponent(source.space)}`) },
             {
               label: source.paused ? s.resume : s.pause,
               onSelect: async () => {
@@ -184,7 +186,7 @@ function Row({
         {removing && (
           <ConfirmDialog
             title={s.removeTitle(placeName(source.place))}
-            body={s.removeBody(source.name, placeName(source.place))}
+            body={s.removeBody(source.space, placeName(source.place))}
             confirmLabel={s.removeYes}
             cancelLabel={strings.common.cancel}
             busy={remove.busy}
@@ -214,6 +216,12 @@ const KINDS: { kind: SourceKind; icon: IconName }[] = [
   { kind: "csv", icon: "table" },
 ];
 
+function tableName(path: string | undefined): string {
+  const stem = path?.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
+  const name = stem.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return /^[a-z_][a-z0-9_]*$/.test(name) ? name : "rows";
+}
+
 /** Bring in a folder of photos or notes, or a CSV file. */
 export function AddSource({
   start,
@@ -226,11 +234,19 @@ export function AddSource({
 }) {
   const client = useClient();
   const toast = useToast();
+  const spaces = useLoad(() => client.listSpaces(), []);
   const [kind, setKind] = useState<SourceKind>(start);
   const [path, setPath] = useState<string>();
+  const [space, setSpace] = useState<string>();
+  const [table, setTable] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const add = useAction();
   const csv = kind === "csv";
+  const eligible = (spaces.data ?? []).filter((space) =>
+    csv ? space.kind === "transactional" && !space.inPlace : space.inPlace || (space.kind === "analytical" && !space.inPlace),
+  );
+  const destination = eligible.some((item) => item.name === space) ? space : eligible[0]?.name;
+  const destinationTable = table || tableName(path);
   return (
     <>
       <Dialog
@@ -242,20 +258,22 @@ export function AddSource({
             <Button onClick={onClose}>{strings.common.cancel}</Button>
             <Button
               variant="primary"
-              disabled={!path || add.busy}
+              disabled={!path || !destination || add.busy}
               onClick={async () => {
-                if (!path) return;
+                if (!path || !destination) return;
                 if (!csv) {
-                  // A folder is viewed where it is, never copied (3.9).
-                  const viewed = await add.run(() => client.viewInPlace({ path }));
+                  const viewed = await add.run(() => client.addInPlaceFolder({ space: destination, path }));
                   if (!viewed) return;
-                  forgetPreviews();
+                  forgetPreviews(viewed.name);
                   toast(strings.collections.viewed(viewed.name));
                   navigate(`/collections/${encodeURIComponent(viewed.name)}`);
                   return;
                 }
-                const added = await add.run(() => client.addSource({ kind, path }));
-                if (added) onAdded(added);
+                const added = await add.run(() => client.addSource({ kind, path, space: destination, table: destinationTable }));
+                if (added) {
+                  forgetPreviews(added.space);
+                  onAdded(added);
+                }
               }}
             >
               {add.busy ? s.reading : s.add}
@@ -270,6 +288,7 @@ export function AddSource({
           onChange={(value) => {
             setKind(value as SourceKind);
             setPath(undefined);
+            setTable("");
             add.clear();
           }}
           choices={KINDS.map(({ kind: k, icon }) => ({
@@ -279,6 +298,23 @@ export function AddSource({
             leading: <Icon name={icon} />,
           }))}
         />
+        <Select
+          label={s.targetCollection}
+          value={destination ?? ""}
+          onChange={setSpace}
+          options={eligible.map((space) => ({ value: space.name, label: space.name }))}
+        />
+        {csv && (
+          <TextField
+            label={s.targetTable}
+            name="target-table"
+            hint={s.targetHint}
+            value={destinationTable}
+            onChange={setTable}
+            mono
+          />
+        )}
+        {spaces.data && eligible.length === 0 && <p className="screen-help">{s.noTarget}</p>}
         <div className="screen-source-pick">
           <span className="screen-path" translate="no" title={path}>
             {path ? homeRelative(path) : csv ? s.noFile : s.noFolder}
@@ -364,7 +400,7 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
                 <Row
                   key={source.name}
                   source={source}
-                  space={spaces.data?.find((x) => x.name === source.name)}
+                  space={spaces.data?.find((x) => x.name === source.space)}
                   onChange={reload}
                 />
               ))}

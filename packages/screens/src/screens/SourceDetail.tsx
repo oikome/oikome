@@ -63,12 +63,12 @@ export function SourceDetail({ name }: { name: string }) {
       </Card>
     );
   }
-  const space = spaces.data?.find((x) => x.name === name);
+  const space = spaces.data?.find((x) => x.name === source.space);
   const status = statusOf(source);
   const title = placeName(source.place);
   const into = (
-    <Link to={`/collections/${encodeURIComponent(source.name)}`} className="oik-link screen-link-mono">
-      {source.name}
+    <Link to={`/collections/${encodeURIComponent(source.space)}`} className="oik-link screen-link-mono">
+      {source.space}
     </Link>
   );
   // The collection's link goes where the language puts it in the sentence.
@@ -95,7 +95,7 @@ export function SourceDetail({ name }: { name: string }) {
           spinning={sync.busy}
           onClick={async () => {
             const done = await sync.run(() => client.pullSource({ source: source.name }));
-            forgetPreviews(source.name);
+            forgetPreviews(source.space);
             reload();
             if (done) toast(s.synced(title));
           }}
@@ -105,7 +105,7 @@ export function SourceDetail({ name }: { name: string }) {
       </ScreenHeader>
       {sync.error && <ErrorText>{sync.error}</ErrorText>}
 
-      {status.kind === "bad" && source.failure && <Banner title={source.failure} body={s.badBody(source.name)} />}
+      {status.kind === "bad" && source.failure && <Banner title={source.failure} body={s.badBody(source.space)} />}
 
       <dl className="oik-card screen-facts">
         <div>
@@ -208,7 +208,7 @@ export function SourceDetail({ name }: { name: string }) {
       {removing && (
         <ConfirmDialog
           title={s.removeTitle(title)}
-          body={s.removeBody(source.name, title)}
+          body={s.removeBody(source.space, title)}
           confirmLabel={s.removeYes}
           cancelLabel={strings.common.cancel}
           busy={remove.busy}

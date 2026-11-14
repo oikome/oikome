@@ -829,6 +829,10 @@
   'as.file': 'Datei',
   'as.readsInPlace': 'Oikome liest es dort, wo es liegt. Nichts wird hochgeladen.',
   'as.intoNew': 'In eine neue Sammlung',
+  'as.intoExisting': 'In eine vorhandene Sammlung',
+  'as.intoHint': 'Quelle und Ziel sind getrennt. Die Quelle erstellt keine eigene Sammlung.',
+  'as.table': 'Zieltabelle',
+  'as.tableHint': 'Die Zeilen der CSV werden in diese Tabelle synchronisiert.',
   'as.placeHint': 'Was eine Quelle bringt, speicherst du am besten lokal. Bei anderen Orten wirst du vorher gefragt.',
   'as.go': 'Verbinden',
 

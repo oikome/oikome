@@ -65,7 +65,7 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 - Present search and vector hits as excerpts with real links to their original content, preserving keyboard selection and modified-click behavior, not as a meaningful visualization of an embedding.
 - The PR 19 first-paint baseline was 666.01 kB of JS and 99.70 kB of CSS; PR 20 is 668.56 kB and 100.58 kB. PhotoSwipe (61.94 kB JS, 4.56 kB CSS) and DOMPurify (32.13 kB JS) remain separate lazy chunks. No Office, PSD, RAW or transcoding engine enters the core.
 
-### PR 21: safe editing
+### PR 22: safe editing
 
 Start with Markdown and plain text only, after the viewing stages. The editing interaction is reviewed again before implementation.
 

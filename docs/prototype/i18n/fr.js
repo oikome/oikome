@@ -830,6 +830,10 @@
   'as.file': 'Fichier',
   'as.readsInPlace': 'Oikome le lit là où il se trouve. Rien n’est envoyé en ligne.',
   'as.intoNew': 'Dans une nouvelle collection',
+  'as.intoExisting': 'Dans une collection existante',
+  'as.intoHint': 'La source et sa destination sont distinctes. Elle ne crée pas de collection elle-même.',
+  'as.table': 'Table cible',
+  'as.tableHint': 'Les lignes du CSV se synchronisent dans cette table.',
   'as.placeHint': 'Pour ce qu’une source apporte, le mieux est de rester en local. Pour les autres emplacements, Oikome vous demande d’abord.',
   'as.go': 'Connecter',
 

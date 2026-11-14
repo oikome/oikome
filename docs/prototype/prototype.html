@@ -1631,7 +1631,7 @@ DLG.addsrc = (D) => {
     : `<div class="field"><span class="label">${t(app.how === 'folder' ? 'as.folder' : 'as.file')}</span><div class="opts">${app.files.map(([ic, n, m]) => opt('pick', n, D.pick, `<span class="ico">${I(ic)}</span>${nameCell(n, fileMeta(m))}`)).join('')}</div><span class="hint">${t('as.readsInPlace')}</span></div>`;
   const into = D.fixedInto
     ? `<div class="row row--between"><span>${t('src.goesInto')}</span><span class="mono">${esc(D.fixedInto)}</span></div>`
-    : `<div class="field"><span class="label">${t('as.intoNew')}</span><div class="input"><input data-bind="into" value="${esc(D.into)}" autocomplete="off"></div></div><div class="field"><span class="label">${t('nc.keepOn')}</span><div class="seg" style="flex-wrap:wrap">${PLACES.map((p) => segBtn('cplace', p.name, D.cplace, esc(placeName(p.name)))).join('')}</div><span class="hint">${t('as.placeHint')}</span></div>`;
+    : `<div class="field"><span class="label">${t('as.intoExisting')}</span><div class="input"><select data-bind="into">${C.map((c) => `<option value="${c.name}" ${D.into === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}</select></div><span class="hint">${t('as.intoHint')}</span></div>${app.id === 'csv' ? `<div class="field"><span class="label">${t('as.table')}</span><div class="input"><input data-bind="table" value="${esc(D.table || 'entries')}" autocomplete="off"></div><span class="hint">${t('as.tableHint')}</span></div>` : ''}`;
   return dlg(t('as.connect', { app: appName(app) }), `${st(2)}${how}${into}<div class="field"><span class="label">${t('src.checkNew')}</span><div class="seg" style="flex-wrap:wrap">${FREQS.map((f) => segBtn('freq', f, D.freq, t(`freq.${f}`))).join('')}</div></div>${D.err ? `<span class="err">${D.err}</span>` : ''}`,
     foot('', btn(t('back'), 'data-act="step" data-to="1"') + btn(t('as.go'), 'data-act="addsrcok"', 'btn--primary')));
 };
@@ -2107,9 +2107,9 @@ const ACT = {
   },
   addsrc: (el) => {
     const app = appBy(el.dataset.app);
-    open('addsrc', { step: app ? 2 : 1, app: app ? app.id : '', token: '', pick: app && app.files ? app.files[0][1] : '', into: app ? slug(app.n || app.id) : '', fixedInto: el.dataset.into || '', freq: 'hourly', cplace: 'Local', err: '' });
+    open('addsrc', { step: app ? 2 : 1, app: app ? app.id : '', token: '', pick: app && app.files ? app.files[0][1] : '', into: app ? 'reading-list' : '', table: 'entries', fixedInto: el.dataset.into || '', freq: 'hourly', cplace: 'Local', err: '' });
   },
-  addsrcpick: (el) => { const app = appBy(el.dataset.app); upd({ step: 2, app: app.id, pick: app.files ? app.files[0][1] : '', into: D.fixedInto ? D.into : slug(app.n || app.id), err: '' }); },
+  addsrcpick: (el) => { const app = appBy(el.dataset.app); upd({ step: 2, app: app.id, pick: app.files ? app.files[0][1] : '', into: D.fixedInto ? D.into : 'reading-list', err: '' }); },
   addsrcok: () => {
     const app = appBy(D.app);
     if (app.how === 'token' && !D.token.trim()) return upd({ err: t('err.token', { app: appName(app) }) });

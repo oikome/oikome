@@ -296,6 +296,13 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await expect(page.locator(".oik-toasts")).toContainText("Read spending.csv again.");
   await page.goto(`${base}/collections/spending`);
   await expect(page.locator(".screen-facts")).toContainText("Examples/spending/spending.csv");
+  const sourcePath = page.locator(".screen-facts__from a");
+  await expect(sourcePath).toHaveCSS("border-bottom-style", "solid");
+  await expect(sourcePath).toHaveCSS("white-space", "nowrap");
+  const sourceTail = sourcePath.locator(".screen-path-value__tail");
+  await expect(sourceTail).toHaveText("spending/spending.csv");
+  await expect.poll(() => sourceTail.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(sourcePath.locator("span[title]")).toHaveAttribute("title", realpathSync(spendingCsv));
   await expect(
     page.getByRole("table", { name: "spending" }).getByRole("cell", { name: "Coffee at the airport" }),
   ).toBeVisible();
@@ -326,7 +333,7 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await expect(page.locator(".oik-toasts")).toContainText("Removed readings.csv.");
   await expect(sources.locator("tbody tr")).toHaveCount(1);
   const readings = join(owner, "Examples", "home-climate", "readings.csv");
-  const back = await api("add_source", { kind: "csv", path: readings });
+  const back = await api("add_source", { kind: "csv", path: readings, space: "home-climate" });
   expect(back.name).toBe("home-climate");
 
   // Its page: what it did lately, how often it reads, paused with a switch,
@@ -350,7 +357,54 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await page.getByRole("dialog", { name: "Remove readings.csv?" }).getByRole("button", { name: "Remove" }).click();
   await expect(page).toHaveURL(`${base}/sources`);
   await expect(sources.locator("tbody tr")).toHaveCount(1);
-  await api("add_source", { kind: "csv", path: readings });
+  await api("add_source", { kind: "csv", path: readings, space: "home-climate" });
+});
+
+test("sources write into chosen collections, and folders join an empty file collection", async () => {
+  const dir = mkdtempSync(join(homedir(), "oikome-source-target-"));
+  const csvDir = join(dir, "csv");
+  const vault = join(dir, "vault");
+  mkdirSync(csvDir);
+  mkdirSync(vault);
+  try {
+    await api("create_space", { name: "finance", kind: "transactional" });
+    await api("create_space", { name: "file-library", kind: "analytical" });
+    writeFileSync(join(csvDir, "ledger.csv"), "id,day,amount\n1,2026-01-01,12.50\n2,2026-01-02,18.25\n");
+    writeFileSync(join(vault, "trip.md"), "# Lisbon, slowly\n\nTake the tram to Graça.\n");
+    await page.goto(`${base}/sources`);
+    await page.getByRole("button", { name: "Add Source" }).click();
+    const add = page.getByRole("dialog", { name: "Add Source" });
+    await add.getByRole("radio", { name: /CSV file/ }).check();
+    await add.getByLabel("Target collection").selectOption("finance");
+    await add.getByLabel("Target table").fill("entries");
+    await add.getByRole("button", { name: "Choose File…" }).click();
+    await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
+    await page.locator(".screen-browser__folder", { hasText: "csv" }).click();
+    await page.getByRole("button", { name: "ledger.csv", exact: true }).click();
+    await add.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(add).toHaveCount(0);
+    const added = (await api("list_sources")).find((source) => source.space === "finance");
+    expect(added.table).toBe("entries");
+    expect(added.name).toBe("ledger");
+    expect((await api("list_spaces")).some((space) => space.name === "ledger")).toBe(false);
+    expect((await api("list_tables", { space: "finance" })).find((table) => table.name === "entries").rows).toBe(2);
+    await api("drop_space", { space: "finance" });
+
+    await page.getByRole("button", { name: "Add Source" }).click();
+    const folderAdd = page.getByRole("dialog", { name: "Add Source" });
+    await folderAdd.getByRole("radio", { name: /Notes folder/ }).check();
+    await folderAdd.getByLabel("Target collection").selectOption("file-library");
+    await folderAdd.getByRole("button", { name: "Choose Folder…" }).click();
+    await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
+    await page.getByRole("button", { name: "vault", exact: true }).click();
+    await page.getByRole("button", { name: "Choose This Folder", exact: true }).click();
+    await folderAdd.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page).toHaveURL(/\/collections\/file-library$/);
+    await expect(page.locator("a.screen-ftile", { hasText: "trip.md" })).toBeVisible();
+    await api("drop_space", { space: "file-library" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("collections are shown as in a file manager: as covers or a list, in the order picked, kept", async () => {

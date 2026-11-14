@@ -3545,23 +3545,47 @@ tr.screen-source {
   min-width: 0;
 }
 .screen-facts__from a {
+  justify-self: start;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   color: inherit;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .screen-facts__source {
+  justify-self: start;
   min-width: 0;
+  max-width: 100%;
   padding: 0;
   overflow: hidden;
   border: 0;
+  border-bottom: 1px solid var(--line);
   background: none;
   font: inherit;
   text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+.screen-path-value {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.screen-path-value__root {
+  flex: none;
+}
+.screen-path-value__middle {
+  flex: 0 1 auto;
+  min-width: 1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-path-value__tail {
+  flex: none;
+  white-space: nowrap;
 }
 .screen-facts__source:disabled {
   cursor: default;

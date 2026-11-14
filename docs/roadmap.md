@@ -1,6 +1,6 @@
 # Product Delivery Plan
 
-> **Status**: consolidated 2026-11-13. This is the single implementation queue for the current app work. It preserves the agreed content-viewing stages and adds the data-source, plugin and network work identified during the PR 19 review. Code, the PRD and the prototype must be updated together as each stage lands.
+> **Status**: consolidated 2026-11-14. This is the single implementation queue for the current app work. It preserves the agreed content-viewing stages and adds the data-source, analysis, dataset interoperability, plugin and network work identified through the PR 20 review. Code, the PRD and the prototype must be updated together as each stage lands.
 
 ## Rules
 
@@ -13,7 +13,7 @@
 
 ## Current behavior, verified in code
 
-- `add_source` currently derives one new collection name from the source and calls `session.add_source` with that same name. `SourceDef.name` is also documented as the Space name. This is the one-to-one model that needs migration.
+- PR 21 separates `SourceDef.name` from `SourceDef.space`. `add_source` requires an existing transactional collection and table and does not create one implicitly; legacy records without `space` retain their original destination. `add_in_place_folder` merges whole folders into file collections and converts only empty analytical collections with no source.
 - Built-in connectors are CSV, flomo export/MCP and the legacy photo/note folder connectors. There is no Home Assistant connector or Smart Home source plugin in the node. Smart Home appears in the PRD and prototype only.
 - Dashboard plugins already have a manifest, a data-shape contract, per-collection grants and a sandboxed Home card. Source and Content/Preview capabilities are not yet parts of that plugin manifest.
 - Home has Arrange and Add a Card. With no saved arrangement it computes a default from real collections and installed plugins. The arrangement is persisted in `.oikome/node.json` through `set_home_cards`; it is not fake state.
@@ -37,23 +37,24 @@ Keep the agreed scope in `docs/content-viewing.md`: lazy-loaded PhotoSwipe navig
 
 ## Complete acceptance environment (PR 20)
 
-- Keep ordinary first-run examples unchanged. One `tests/scenarios/acceptance` workspace covers content, local files, mounted NAS and drive-sync-folder test doubles, real RustFS, and a real second node with an accepted share; do not split these into separate demos that people must switch between.
+- Keep ordinary first-run examples unchanged. One `tests/scenarios/acceptance` workspace has seven purposeful collections: NAS photos shared to the peer, local media, one Markdown note, structured/edge files, CSV readings, drive-sync reading and encrypted RustFS archive. Do not split capabilities into separate demos or duplicate examples to inflate the count.
 - `npm run acceptance` opens the fully seeded workspace and its peer. `npm run acceptance -- --first-run` starts empty and completes setup through the real UI. Every launch uses fresh isolated state, never `~/Oikome`, a mock `NodeClient`, committed node snapshots or committed generated media.
 - Mounted/sync folders, OAuth stand-ins and real cloud accounts remain distinctly named levels of verification; no fake connected cloud state is shown.
 - The launcher prints and opens the main and peer URLs. Generated roots are marked and ignored; only those roots may be reset, and running the same command again opens the existing workspace rather than resetting it.
 
-## PR 21: safe editing
+## PR 21: collection and data-source targets
 
-Keep the agreed scope: Markdown and plain text first, explicit source versus copy behavior, read-only detection, exclusive creation, overwrite confirmation, per-identity/directory confirmation preferences, source-version conflicts and atomic replacement where supported. The editing interaction is reviewed again before implementation.
-
-## PR 22: data-source targets and semantic contracts
-
-- Add a clear Add Data Source flow beside Add Files, with the same existing-collection-first target rule. Do not hide connector configuration inside file import.
+- A collection is a content container with folders, files and structured tables, not a file or a side effect of configuring a source. In-place/imported folders and database-backed tables keep their different physical implementations; the UI does not pretend every collection is a plain directory.
+- Add a clear Add Data Source flow beside Add Files. It defaults to the current/existing collection and its current folder or a chosen table. Creating a collection is always an explicit separate choice.
 - Separate source identity from destination. Introduce destination collection/table fields in the API and source registry rather than deriving the Space from `SourceDef.name`. Migrate existing sources with their current name as the destination so behavior and grants survive.
-- CSV configuration names a target collection and table, validates schema compatibility and reports conflicts before sync. It must not create a same-named collection implicitly. Upsert keys and cursor commits retain their current transactional guarantees.
-- Let a connector declare table semantics and a recommended view (photos, notes, table or series), with the existing schema inference only as a fallback. No rendering branch may depend on a source or collection name.
-- Define whether a connector may write several tables before implementing it; do not imply that capability in the UI until the backend supports it.
-- Validation: existing-source migration, CSV into an existing collection, destination/schema conflicts, grant preservation, scheduled and manual sync, and no implicit collection creation.
+- CSV configuration names a target collection and table, validates schema compatibility and reports conflicts before sync. It must not create a same-named collection implicitly. Upsert keys and cursor commits retain their current transactional guarantees. Multiple sources targeting one destination are refused clearly until supported safely.
+- Let a connector declare table semantics and a recommended view (photos, notes, table or series), with schema inference only as a fallback. No rendering branch may depend on a source or collection name.
+- Keep ordinary content use separate from later advanced Iceberg/Lance/S3 dataset connection and migration. Internal analysis and storage layouts are not ordinary-user choices; see `docs/data-analysis.md`.
+- Validation: existing-source migration, CSV into an existing collection, destination/schema conflicts, grant preservation, scheduled and manual sync, no implicit collection creation, and a purposeful acceptance example shared to the peer.
+
+## PR 22: safe editing
+
+Keep the agreed scope: Markdown and plain text first, explicit source versus copy behavior, read-only detection, exclusive creation, overwrite confirmation, per-identity/directory confirmation preferences, source-version conflicts and atomic replacement where supported. The editing interaction is reviewed again before implementation. Original files, connector working tables and derived analysis data must not be confused.
 
 ## PR 23: plugin capabilities and Home composition
 
@@ -74,7 +75,9 @@ Keep the agreed scope: Markdown and plain text first, explicit source versus cop
 
 ## Later phases
 
-The existing architecture order remains after these app stages: 3.8 public shares, 3.7 security, 3.10 Save To, M6 desktop, M7 phone/devices, M9 family and 3.13 WebDAV. M5 payments and M10 third-party plugin distribution remain last. RAW and other complex content capabilities are distributed as optional plugins through the independent plugin library, not added to the light core.
+After safe editing, land internal analysis profiles and direct-query versus derived-analysis actions, then read-only Iceberg/Lance/S3 dataset interoperability and deliberately evaluated migrations, then media metadata and optional semantic indexes. These stages follow `docs/data-analysis.md` and never expose storage formats as ordinary-user choices.
+
+The existing architecture order then continues: 3.8 public shares, 3.7 security, 3.10 Save To, M6 desktop, M7 phone/devices, M9 family and 3.13 WebDAV. M5 payments and M10 third-party plugin distribution remain last. RAW and other complex content capabilities are distributed as optional plugins through the independent plugin library, not added to the light core.
 
 ## Review gates
 

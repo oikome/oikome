@@ -803,6 +803,10 @@
   'as.file': '檔案',
   'as.readsInPlace': 'Oikome 會在原處讀取，不會上傳任何內容。',
   'as.intoNew': '存入新資料庫',
+  'as.intoExisting': '寫入已有資料庫',
+  'as.intoHint': '資料來源與寫入目標彼此獨立，不會自行建立資料庫。',
+  'as.table': '目標表',
+  'as.tableHint': 'CSV 中的資料同步到此資料表。',
   'as.placeHint': '來源匯入的資料最好儲存在「本機」。選其他儲存位置時會先問你。',
   'as.go': '連結',
 

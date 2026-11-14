@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Sources (architecture v3 §11): a connector bringing one app's data into
-//! a transactional Space of the same name.
+//! Sources (architecture v3 §11): connectors bringing app data into
+//! transactional Spaces. Legacy sources use a Space of the same name; newer
+//! sources keep their identity separate from the owner's chosen destination.
 //!
 //! A pull is applied in one SQLite transaction on a private connection:
 //! changed rows are upserted by their source key (rows that did not change
@@ -470,10 +471,7 @@ impl OikomeSession {
         Ok(())
     }
 
-    /// Add the source `name`: register it, keep its token in the node's
-    /// secret store, create its transactional Space (or use the one of that
-    /// name) and its tables, and pull it once. If anything fails nothing is
-    /// kept, except the Space's file if it already existed.
+    /// Add a source with the legacy destination of the same name.
     pub async fn add_source(
         &self,
         name: &str,
@@ -481,11 +479,46 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
+        self.add_source_inner(name, name, config, every, token, true)
+            .await
+    }
+
+    /// Add a source into an existing transactional Space chosen by the owner.
+    pub async fn add_source_to(
+        &self,
+        name: &str,
+        space: &str,
+        config: SourceConfig,
+        every: Option<Duration>,
+        token: Option<Zeroizing<String>>,
+    ) -> Result<PullReport, SessionError> {
+        self.add_source_inner(name, space, config, every, token, false)
+            .await
+    }
+
+    async fn add_source_inner(
+        &self,
+        name: &str,
+        space: &str,
+        config: SourceConfig,
+        every: Option<Duration>,
+        token: Option<Zeroizing<String>>,
+        create_space: bool,
+    ) -> Result<PullReport, SessionError> {
         self.deny_principal("adding a source")?;
         let settings = serde_json::to_value(&config)
             .map_err(|e| CatalogError::Registry(format!("source settings: {e}")))?;
-        self.catalog
-            .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
+        if create_space {
+            self.catalog
+                .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
+        } else {
+            self.catalog.add_source_to(
+                name,
+                space,
+                settings,
+                every.map(|e| e.as_secs().max(60)),
+            )?;
+        }
         let mut created_space = false;
         let added = async {
             if let Some(token) = &token {
@@ -493,23 +526,28 @@ impl OikomeSession {
                     .secret_backend()?
                     .set(&token_account(name), token)?;
             }
-            match self.catalog.get_space(name) {
+            match self.catalog.get_space(space) {
                 Ok(space) if space.kind == SpaceKind::Transactional => {}
                 Ok(_) => {
                     return Err(SessionError::Unsupported(format!(
-                        "space '{name}' exists and is not transactional; choose another source name"
+                        "space '{space}' exists and is not transactional"
                     )))
                 }
-                Err(_) => {
-                    let mut request = CreateSpaceRequest::new(name);
+                Err(_) if create_space => {
+                    let mut request = CreateSpaceRequest::new(space);
                     request.kind = Some(SpaceKind::Transactional);
                     self.catalog.create_space(request).await?;
                     created_space = true;
                 }
+                Err(_) => {
+                    return Err(SessionError::Unsupported(format!(
+                        "space '{space}' does not exist; choose an existing collection"
+                    )))
+                }
             }
             let connector = self.connector(name, &config)?;
-            self.ensure_tables(name, &connector.tables()).await?;
-            self.pull_with(name, connector.as_ref()).await
+            self.ensure_tables(space, &connector.tables()).await?;
+            self.pull_with(name, space, connector.as_ref()).await
         }
         .await;
         if added.is_err() {
@@ -518,7 +556,7 @@ impl OikomeSession {
                 let _ = backend.delete(&token_account(name));
             }
             if created_space {
-                let _ = self.catalog.drop_space(name);
+                let _ = self.catalog.drop_space(space);
             }
         }
         added
@@ -529,9 +567,9 @@ impl OikomeSession {
     pub async fn pull_source(&self, name: &str) -> Result<PullReport, SessionError> {
         self.deny_principal("pulling a source")?;
         let pulled = async {
-            let (_, config) = self.source_config(name)?;
+            let (def, config) = self.source_config(name)?;
             let connector = self.connector(name, &config)?;
-            self.pull_with(name, connector.as_ref()).await
+            self.pull_with(name, def.space(), connector.as_ref()).await
         }
         .await;
         let failure = pulled.as_ref().err().map(|e| SourceFailure {
@@ -556,20 +594,24 @@ impl OikomeSession {
     }
 
     async fn record_failed_run(&self, name: &str, message: &str) -> Result<(), SessionError> {
-        let space = self.space(name)?;
+        let destination = self.catalog.get_source(name)?;
+        let space = self.space(destination.space())?;
         let engine = self.engines().sqlite_private_for(&space)?;
-        record_run(&engine, name, name, 0, 0, Some(message)).await
+        record_run(&engine, destination.space(), name, 0, 0, Some(message)).await
     }
 
     /// The source `name`'s recent syncs, newest first.
     pub async fn source_runs(&self, name: &str) -> Result<Vec<SourceRun>, SessionError> {
-        let engine = self.engines().sqlite_for(&self.space(name)?)?;
+        let destination = self.catalog.get_source(name)?;
+        let engine = self
+            .engines()
+            .sqlite_for(&self.space(destination.space())?)?;
         // Kept since this data center keeps them: none before.
         let (_, stream) = engine
             .query(
                 &format!(
                     "SELECT count(*) FROM {}.sqlite_master WHERE type = 'table' AND name = ?1",
-                    quote_ident(name)
+                    quote_ident(destination.space())
                 ),
                 &[Value::Text(RUNS_TABLE.to_string())],
             )
@@ -593,7 +635,7 @@ impl OikomeSession {
                 &format!(
                     "SELECT first_ms, at_ms, failure, upserted, deleted, count FROM {} \
                      WHERE source = ?1 ORDER BY id DESC LIMIT {MAX_RUNS}",
-                    qualified(name, RUNS_TABLE)
+                    qualified(destination.space(), RUNS_TABLE)
                 ),
                 &[Value::Text(name.to_string())],
             )
@@ -633,19 +675,20 @@ impl OikomeSession {
         connector: &dyn Connector,
     ) -> Result<PullReport, SessionError> {
         self.deny_principal("pulling a source")?;
-        self.catalog.get_source(name)?;
-        self.pull_with(name, connector).await
+        let destination = self.catalog.get_source(name)?;
+        self.pull_with(name, destination.space(), connector).await
     }
 
     async fn pull_with(
         &self,
         name: &str,
+        destination: &str,
         connector: &dyn Connector,
     ) -> Result<PullReport, SessionError> {
-        let space = self.space(name)?;
+        let space = self.space(destination)?;
         if space.kind != SpaceKind::Transactional {
             return Err(SessionError::Unsupported(format!(
-                "source '{name}' writes space '{name}', which is no longer transactional"
+                "source '{name}' writes space '{destination}', which is no longer transactional"
             )));
         }
         let _lock = lock_location(&self.catalog, &format!("source-{name}")).await?;
@@ -655,7 +698,7 @@ impl OikomeSession {
                 .query(
                     &format!(
                         "SELECT cursor FROM {} WHERE source = ?1",
-                        qualified(name, CURSOR_TABLE)
+                        qualified(destination, CURSOR_TABLE)
                     ),
                     &[Value::Text(name.to_string())],
                 )
@@ -685,9 +728,9 @@ impl OikomeSession {
             // Each table's full-text index (M3a), made before this pull's
             // writes so its triggers index them in the same transaction.
             for (table, columns) in crate::search::text_columns(&tables) {
-                crate::search::ensure_index(&engine, name, &table, &columns).await?;
+                crate::search::ensure_index(&engine, destination, &table, &columns).await?;
             }
-            apply(&engine, name, name, &tables, pull).await
+            apply(&engine, name, destination, &tables, pull).await
         }
         .await;
         match applied {
@@ -709,12 +752,15 @@ impl OikomeSession {
 
     /// When the source `name` was last pulled, and what that pull did.
     pub async fn last_pull(&self, name: &str) -> Result<Option<LastPull>, SessionError> {
-        let engine = self.engines().sqlite_for(&self.space(name)?)?;
+        let destination = self.catalog.get_source(name)?;
+        let engine = self
+            .engines()
+            .sqlite_for(&self.space(destination.space())?)?;
         let (_, stream) = engine
             .query(
                 &format!(
                     "SELECT pulled_at_ms, upserted, deleted FROM {} WHERE source = ?1",
-                    qualified(name, CURSOR_TABLE)
+                    qualified(destination.space(), CURSOR_TABLE)
                 ),
                 &[Value::Text(name.to_string())],
             )

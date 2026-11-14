@@ -136,6 +136,7 @@ fn bindings() -> String {
         InPlace,
         ViewInPlace,
         AddInPlaceFiles,
+        AddInPlaceFolder,
         ImportFile,
         ImportFiles,
         ListFiles,

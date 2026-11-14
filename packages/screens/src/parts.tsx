@@ -44,6 +44,22 @@ export function ScreenHeader({
   );
 }
 
+/** A path on one line: its root and last two parts stay visible while the middle gives way. */
+export function PathText({ path }: { path: string }) {
+  const root = /^(?:~[\\/]|[\\/]|[A-Za-z]:[\\/])/.exec(path)?.[0] ?? "";
+  const separator = path.includes("\\") ? "\\" : "/";
+  const parts = path.slice(root.length).split(/[\\/]/).filter(Boolean);
+  const middle = parts.slice(0, -2).join(separator);
+  const tail = parts.slice(-2).join(separator);
+  return (
+    <span className="screen-path-value">
+      <span className="screen-path-value__root">{root}</span>
+      {middle && <span className="screen-path-value__middle">{middle}{separator}</span>}
+      <span className="screen-path-value__tail">{tail}</span>
+    </span>
+  );
+}
+
 /** What a page is called in a Back link. */
 function pageTitle(url: string): string | undefined {
   const path = new URL(url, window.location.origin).pathname;

@@ -803,6 +803,10 @@
   'as.file': '文件',
   'as.readsInPlace': 'Oikome 会在原处读取，不会上传任何内容。',
   'as.intoNew': '存入新资料库',
+  'as.intoExisting': '写入已有资料库',
+  'as.intoHint': '数据源与写入目标彼此独立，不会自行创建资料库。',
+  'as.table': '目标表',
+  'as.tableHint': 'CSV 中的数据同步到此表。',
   'as.placeHint': '数据源带来的数据最好保存在“本地”。选其他存储位置时会先问你。',
   'as.go': '连接',
 

@@ -54,8 +54,14 @@ fn place_key(place: &str) -> String {
 
 fn summary(def: &SourceDef, config: &SourceConfig, pulled_at_ms: Option<u64>) -> SourceSummary {
     let (kind, place) = kind_and_place(config);
+    let table = match config {
+        SourceConfig::Csv { table, .. } => Some(table.name.clone()),
+        _ => None,
+    };
     SourceSummary {
         name: def.name.clone(),
+        space: def.space().to_string(),
+        table,
         kind,
         place,
         every_secs: def.every_secs,
@@ -233,9 +239,8 @@ impl Api {
         Ok(out)
     }
 
-    /// Bring in a folder of photos or notes, or a CSV file, as a new
-    /// collection named after it, read once now and again every minute
-    /// while the node runs.
+    /// Bring a CSV file into an existing collection and table chosen by the
+    /// owner, read once now and again every minute while the node runs.
     pub async fn add_source(
         &self,
         caller: &Caller,
@@ -243,6 +248,22 @@ impl Api {
     ) -> Result<SourceSummary, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        let space = req
+            .space
+            .as_deref()
+            .map(str::trim)
+            .filter(|space| !space.is_empty())
+            .ok_or_else(|| ApiError::invalid("choose an existing collection for this source"))?;
+        oikome_core::validate_space_name(space)?;
+        let destination = self
+            .catalog
+            .get_space(space)
+            .map_err(|_| ApiError::invalid(format!("{space} is not an existing collection")))?;
+        if destination.kind != oikome_core::SpaceKind::Transactional {
+            return Err(ApiError::invalid(format!(
+                "{space} is not a collection a connector can write"
+            )));
+        }
         let given = Path::new(req.path.trim());
         if !given.is_absolute() {
             return Err(ApiError::invalid(
@@ -256,8 +277,14 @@ impl Api {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
+        let table = req
+            .table
+            .as_deref()
+            .map(str::trim)
+            .filter(|table| !table.is_empty())
+            .map(table_name)
+            .unwrap_or_else(|| table_name(&stem));
         let config = match req.kind {
-            // A folder is viewed where it is, not copied (§7.7).
             SourceKind::Photos | SourceKind::Notes => {
                 return Err(ApiError::invalid(
                     "a folder of photos or notes is viewed where it is: use view_in_place",
@@ -273,45 +300,63 @@ impl Api {
                         path.display()
                     )));
                 }
-                csv_config(&path, &table_name(&stem)).await?
+                csv_config(&path, &table).await?
             }
             SourceKind::FlomoExport | SourceKind::FlomoMcp => {
                 return Err(ApiError::invalid("flomo is added with `oikome source add`"));
             }
         };
+        if self.catalog.list_sources().into_iter().any(|def| {
+            def.space() == space
+                && matches!(serde_json::from_value::<SourceConfig>(def.config.clone()),
+                    Ok(SourceConfig::Csv { table: existing, .. }) if existing.name == table)
+        }) {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!("a source already writes {space}.{table}"),
+            ));
+        }
+
         let base = match slug(&stem) {
             s if s.starts_with(|c: char| c.is_ascii_alphabetic()) => s,
-            s if s.is_empty() => "files".to_string(),
-            s => format!("files-{s}"),
+            s if s.is_empty() => "source".to_string(),
+            s => format!("source-{s}"),
         };
-        let taken = |name: &str| {
-            self.catalog.get_space(name).is_ok()
-                || self.catalog.get_location(name).is_ok()
-                || self.catalog.get_source(name).is_ok()
-        };
-        // A file or folder whose source was removed goes back into its
-        // collection, while that is still there and nothing else reads into it.
+        if let Some(name) = req
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            oikome_catalog::source::validate_source_name(name)?;
+            if self.catalog.get_source(name).is_ok() {
+                return Err(ApiError::new(
+                    ErrorCode::Conflict,
+                    format!("source '{name}' is already registered"),
+                ));
+            }
+        }
         let place = place_key(&kind_and_place(&config).1);
-        let back = self
-            .settings()?
-            .removed_sources
-            .get(&place)
-            .filter(|name| {
-                self.catalog.get_source(name).is_err()
-                    && self
-                        .catalog
-                        .get_space(name)
-                        .is_ok_and(|s| s.kind == oikome_core::SpaceKind::Transactional)
+        let back = req
+            .name
+            .is_none()
+            .then(|| {
+                self.settings()
+                    .ok()?
+                    .removed_sources
+                    .get(&place)
+                    .filter(|name| *name == space && self.catalog.get_source(name).is_err())
+                    .cloned()
             })
-            .cloned();
-        let name = back.unwrap_or_else(|| {
+            .flatten();
+        let name = back.or(req.name).unwrap_or_else(|| {
             std::iter::once(base.clone())
                 .chain((2..).map(|i| format!("{base}-{i}")))
-                .find(|n| !taken(n))
+                .find(|name| self.catalog.get_source(name).is_err())
                 .unwrap_or(base)
         });
         self.session(None)
-            .add_source(&name, config, Some(EVERY), None)
+            .add_source_to(&name, space, config, Some(EVERY), None)
             .await?;
         self.update_settings(|s| s.removed_sources.remove(&place))?;
         self.list_sources(caller, Empty {})
@@ -414,9 +459,9 @@ impl Api {
         self.refresh()?;
         let def = self.catalog.get_source(&req.source)?;
         self.session(None).remove_source(&req.source)?;
-        if let Ok(config) = serde_json::from_value::<SourceConfig>(def.config) {
+        if let Ok(config) = serde_json::from_value::<SourceConfig>(def.config.clone()) {
             let place = place_key(&kind_and_place(&config).1);
-            self.update_settings(|s| s.removed_sources.insert(place, def.name))?;
+            self.update_settings(|s| s.removed_sources.insert(place, def.space().to_string()))?;
         }
         self.list_sources(caller, Empty {}).await
     }

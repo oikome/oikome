@@ -12,6 +12,7 @@ import type {
   AccessItem,
   AddExamples,
   AddInPlaceFiles,
+  AddInPlaceFolder,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -181,6 +182,8 @@ export interface NodeClient {
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
   /** Add selected original files to a collection without copying them. */
   addInPlaceFiles(request: AddInPlaceFiles): Promise<SpaceSummary>;
+  /** Add a whole local folder to an existing file collection without copying it. */
+  addInPlaceFolder(request: AddInPlaceFolder): Promise<SpaceSummary>;
   /** Read a folder viewed in place again now. */
   refreshSpace(request: SpaceRef): Promise<SpaceSummary>;
   /** One folder of a collection viewed in place, from its index. */
@@ -526,6 +529,10 @@ export class HttpClient implements NodeClient {
 
   addInPlaceFiles(request: AddInPlaceFiles): Promise<SpaceSummary> {
     return this.#json("add_in_place_files", request);
+  }
+
+  addInPlaceFolder(request: AddInPlaceFolder): Promise<SpaceSummary> {
+    return this.#json("add_in_place_folder", request);
   }
 
   refreshSpace(request: SpaceRef): Promise<SpaceSummary> {

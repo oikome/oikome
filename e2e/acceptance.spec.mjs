@@ -1,7 +1,7 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -41,6 +41,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect.poll(() => svg.evaluate((element) => element.naturalWidth)).toBe(640);
 
     await page.goto(`${running.base}/collections/content-files`);
+    await expect(page.locator(".screen-facts__source")).toHaveCSS("border-bottom-style", "solid");
+    await expect(page.locator(".screen-facts__source")).toHaveCSS("white-space", "nowrap");
+    const fullSource = realpathSync(join(running.files, "content-files"));
+    const sourceRoot = /^\/(?:Users|home)\/[^/]+(?=\/|$)/.test(fullSource) ? "~/" : "/";
+    await expect(page.locator(".screen-facts__source .screen-path-value__root")).toHaveText(sourceRoot);
+    const sourceTail = page.locator(".screen-facts__source .screen-path-value__tail");
+    await expect(sourceTail).toHaveText("files/content-files");
+    await expect.poll(() => sourceTail.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await expect(page.locator(".screen-facts__source")).toHaveAttribute("title", realpathSync(join(running.files, "content-files")));
     const opened = page.waitForResponse((response) => response.url().endsWith("/api/show_folder"));
     await page.locator(".screen-facts__source").click();
     expect(await (await opened).json()).toEqual({});

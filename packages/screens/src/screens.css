@@ -3577,17 +3577,14 @@ tr.screen-source {
   flex: none;
 }
 .screen-path-value__middle {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 1em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .screen-path-value__tail {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   white-space: nowrap;
 }
 .screen-facts__source:disabled {

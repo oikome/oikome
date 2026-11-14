@@ -46,7 +46,9 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     const fullSource = realpathSync(join(running.files, "content-files"));
     const sourceRoot = /^\/(?:Users|home)\/[^/]+(?=\/|$)/.test(fullSource) ? "~/" : "/";
     await expect(page.locator(".screen-facts__source .screen-path-value__root")).toHaveText(sourceRoot);
-    await expect(page.locator(".screen-facts__source .screen-path-value__tail")).toHaveText("files/content-files");
+    const sourceTail = page.locator(".screen-facts__source .screen-path-value__tail");
+    await expect(sourceTail).toHaveText("files/content-files");
+    await expect.poll(() => sourceTail.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expect(page.locator(".screen-facts__source")).toHaveAttribute("title", realpathSync(join(running.files, "content-files")));
     const opened = page.waitForResponse((response) => response.url().endsWith("/api/show_folder"));
     await page.locator(".screen-facts__source").click();

@@ -30,6 +30,7 @@
 mod assistants;
 mod borrowing;
 mod dropbox;
+mod editing;
 pub mod error;
 mod examples;
 mod google;
@@ -137,6 +138,9 @@ struct NodeSettings {
     /// The owner turned off helping contacts meet here.
     #[serde(default)]
     help_contacts_off: bool,
+    /// Source-save and overwrite confirmations, with their safety fingerprints.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    save_confirmations: Vec<editing::SaveConfirmation>,
 }
 
 /// The owner's own steps in Activity: setting up this data center, adding

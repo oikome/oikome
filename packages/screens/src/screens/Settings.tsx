@@ -251,6 +251,47 @@ function Appearance() {
   );
 }
 
+function SaveConfirmations() {
+  const client = useClient();
+  const toast = useToast();
+  const saved = useLoad(() => client.listSaveConfirmations(), []);
+  const revoke = useAction();
+  return (
+    <Group title={strings.editing.confirmationsTitle} footnote={strings.editing.confirmationsBody}>
+      {saved.error && <Row title={saved.error} muted />}
+      {saved.data?.length === 0 && <Row title={strings.editing.noConfirmations} muted />}
+      {(saved.data ?? []).map((confirmation) => (
+        <Row
+          key={confirmation.id}
+          overline={confirmation.action === "source_save" ? strings.editing.sourceSave : strings.editing.overwrite}
+          title={
+            <span className="screen-ellipsis" translate="no" title={confirmation.path}>
+              {homeRelative(confirmation.path)}
+            </span>
+          }
+          meta={confirmation.scope === "identity" ? strings.editing.identity : strings.editing.directory}
+          trailing={
+            <Button
+              variant="quiet"
+              disabled={revoke.busy}
+              onClick={async () => {
+                const done = await revoke.run(() => client.revokeSaveConfirmation({ id: confirmation.id }));
+                if (done) {
+                  toast(strings.editing.revoked);
+                  saved.reload();
+                }
+              }}
+            >
+              {strings.editing.revoke}
+            </Button>
+          }
+        />
+      ))}
+      {revoke.error && <Row title={revoke.error} muted />}
+    </Group>
+  );
+}
+
 const REACH_LOOK: Record<Network["reachable"], StatusKind> = {
   direct: "ok",
   through_contact: "ok",
@@ -409,6 +450,7 @@ export function Settings({
         </div>
         <div>
           <Appearance />
+          <SaveConfirmations />
           <Group title={s.centerTitle}>
             {editing ? (
               <GroupPanel>

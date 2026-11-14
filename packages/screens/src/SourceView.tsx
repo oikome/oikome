@@ -8,7 +8,7 @@ import { languages } from "@codemirror/language-data";
 import { LanguageDescription } from "@codemirror/language";
 import type { LanguageSupport } from "@codemirror/language";
 
-export default function SourceView({ text, name }: { text: string; name: string }) {
+export default function SourceView({ text, name, onChange }: { text: string; name: string; onChange?: (text: string) => void }) {
   const [language, setLanguage] = useState<LanguageSupport>();
   useEffect(() => {
     let current = true;
@@ -26,8 +26,9 @@ export default function SourceView({ text, name }: { text: string; name: string 
     <CodeMirror
       className="screen-source"
       value={text}
-      readOnly
-      editable={false}
+      readOnly={!onChange}
+      editable={Boolean(onChange)}
+      onChange={(value) => onChange?.(value)}
       theme="none"
       extensions={[...(language ? [language] : []), EditorView.lineWrapping]}
       basicSetup={{

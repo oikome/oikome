@@ -126,7 +126,10 @@ fn new_file_sources(
     ))
 }
 
-fn add_selected_source(sources: &mut Vec<InPlaceSource>, file: &Path) -> Result<(), ApiError> {
+pub(crate) fn add_selected_source(
+    sources: &mut Vec<InPlaceSource>,
+    file: &Path,
+) -> Result<(), ApiError> {
     let root = file
         .parent()
         .ok_or_else(|| ApiError::invalid("the selected file has no parent folder"))?;
@@ -294,8 +297,10 @@ fn content_of(
             open_default: local,
             reveal: local,
             edit: false,
+            save_copy: false,
         },
         unavailable_reason,
+        edit_unavailable_reason: None,
     }
 }
 
@@ -353,7 +358,7 @@ fn original_type(name: &str) -> Option<&'static str> {
 
 impl Api {
     /// The Location of a collection that views a folder in place.
-    fn in_place_of(&self, space: &str) -> Result<Location, ApiError> {
+    pub(crate) fn in_place_of(&self, space: &str) -> Result<Location, ApiError> {
         self.session(None)
             .in_place_location(space)?
             .ok_or_else(|| ApiError::not_found(format!("{space} does not view a folder in place")))
@@ -1162,9 +1167,13 @@ impl Api {
             &location.format,
             LocationFormat::InPlace { place: None, .. }
         );
-        inplace::file(&self.catalog, &location, &req.path)?
+        let mut item = inplace::file(&self.catalog, &location, &req.path)?
             .map(|entry| item_of(entry, local))
-            .ok_or_else(|| ApiError::not_found(format!("{} has no file {}", req.space, req.path)))
+            .ok_or_else(|| {
+                ApiError::not_found(format!("{} has no file {}", req.space, req.path))
+            })?;
+        crate::editing::freshen_file(self, &location, &mut item);
+        Ok(item)
     }
 
     /// A photo's thumbnail (JPEG), from the index.

@@ -1014,6 +1014,36 @@
 .screen-source .cm-cursor {
   display: none;
 }
+.screen-text-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.screen-text-editor > .screen-source {
+  flex: 1;
+  min-height: 0;
+}
+.screen-text-editor .cm-cursor {
+  display: block;
+}
+.screen-text-editor .screen-fileview__viewbar > .oik-button {
+  margin-left: 0;
+}
+.screen-text-editor .screen-fileview__viewbar > .oik-button:last-child {
+  margin-left: auto;
+}
+.screen-text-editor > .screen-footnote {
+  margin: 10px 18px 0;
+}
+.screen-text-editor__error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 12px 18px 0;
+}
+.screen-text-editor__error .oik-error {
+  margin: 0;
+}
 .screen-fileview__table {
   display: flex;
   flex-direction: column;

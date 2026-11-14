@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -165,6 +166,9 @@ function generateFiles(root) {
   </svg>`);
   write(root, "notes/Reading.md", "# Lisbon, slowly\n\nThree days on foot, with time for coffee.\n\n> Keep Thursday open for Porto.\n\n## First morning\n\n- Take tram 28 to Graça.\n- Walk down through Alfama.\n- Save the sunset for Santa Luzia.\n\n| Place | Day |\n| --- | --- |\n| Belém | Monday |\n| Sintra | Wednesday |\n");
   write(root, "content-files/example.ts", "export const greet = (name: string): string => `Hello, ${name}`;\n");
+  write(root, "content-files/Plain.txt", "Plain text can be edited and saved as a copy.\n");
+  write(root, "content-files/Read only.txt", "The original stays untouched. Save a copy to keep changes.\n");
+  chmodSync(join(root, "content-files", "Read only.txt"), 0o444);
   write(root, "content-files/config.yaml", "preview:\n  lazy: true\n  formats: [markdown, images, audio, video]\n");
   write(root, "content-files/rows.csv", "day,category,amount\n2026-11-01,Train,18.40\n2026-11-02,Books,24.90\n");
   write(root, "content-files/rows.jsonl", '{"city":"Lisbon","temperature":21.4}\n{"city":"Porto","temperature":19.8}\n');

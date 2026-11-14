@@ -570,6 +570,7 @@ button.cover { width: 100%; padding: 0; border: 0; background: none; color: inhe
 .fview__note th, .fview__note td { padding: 9px 10px; border-bottom: 1px solid var(--line2); text-align: left; }
 .fview__note th { color: var(--ink3); font: 500 11px/16px var(--mono); text-transform: uppercase; }
 .fview__source { min-height: 320px; margin: 0; padding: 32px clamp(20px, 5vw, 64px); overflow: auto; color: var(--ink2); font: 400 13px/23px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+textarea.fview__source { display: block; box-sizing: border-box; width: 100%; min-height: 46vh; border: 0; background: var(--bg); resize: none; outline: none; }
 .fview__table { max-height: calc(100vh - 220px); padding: 0 20px 20px; overflow: auto; }
 .fview__table .minitable { width: 100%; font-size: 13px; }
 .fview__table th { position: sticky; top: 0; z-index: 1; padding: 18px 12px 10px; background: var(--raised); color: var(--ink3); font: 500 11px/16px var(--mono); text-align: left; }
@@ -974,7 +975,7 @@ const UNTIL = [['1w', '2025-11-09'], ['1m', '2025-12-02'], ['1y', '2026-11-02'],
 const untilText = (iso) => (iso ? md(iso) : t('noEnd'));
 const LEND = { to: ['Sam'], cores: 4, hours: 2, on: true };
 
-const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false };
+const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false, confirmations: [] };
 (() => {
   const qs = new URLSearchParams(location.search);
   try { S.mode = localStorage.getItem('oikome-proto-mode') || S.mode; S.lang = localStorage.getItem('oikome-proto-lang') || S.lang; } catch {}
@@ -1464,6 +1465,9 @@ screens.settings = () => `
       <div class="row row--between"><span>${t('language')}</span><button class="btn" data-act="langmenu">${Is('globe', 15)}<span lang="${S.lang}">${LANGS[li()][1]}</span></button></div>
       <div class="row row--between"><span>${t('reduceMotion')}</span><span class="toggle" data-act="toggle" role="switch"></span></div>
     </div></div>
+    <div class="card w5"><div class="card__head"><span class="label">${t('fv.confirmations')}</span></div><div class="list">
+      ${S.confirmations.length ? S.confirmations.map((c, i) => `<div class="li"><div class="li__main"><span class="li__meta">${t(c.action === 'original' ? 'fv.saveOriginal' : 'fv.overwrite')}</span><span class="li__title mono">${esc(c.path)}</span><span class="li__meta">${t(c.scope === 'identity' ? 'fv.scopeIdentity' : 'fv.scopeFolder')}</span></div><button class="btn btn--ghost" data-act="frevoke" data-i="${i}">${t('fv.askAgain')}</button></div>`).join('') : `<div class="li"><span class="muted">${t('fv.noConfirmations')}</span></div>`}
+    </div><p class="faint" style="font-size:12px;margin:10px 16px 14px">${t('fv.confirmationsBody')}</p></div>
     <div class="card w7"><div class="card__head"><span class="label">${t('recoveryKey')}</span>${S.keySkipped ? glyph('bad', t('key.notSaved')) : glyph('ok', t('key.savedOn', { date: md(S.keyDate) }))}</div><div class="card__body" style="display:flex;gap:16px;align-items:center"><span class="ico">${I('key')}</span><div style="flex:1" class="muted">${t('key.what')}</div><button class="btn" data-act="key">${t(S.keySkipped ? 'key.saveNow' : 'showAgain')}</button></div></div>
     <div class="card w5"><div class="card__head"><span class="label">${t('thisDC')}</span></div><div class="list">
       <div class="li"><div class="li__main"><span class="li__meta">${t('name')}</span><span class="li__title">${esc(S.dcName)}</span></div><button class="btn btn--ghost" data-act="rename">${t('rename')}</button></div>
@@ -1768,11 +1772,13 @@ DLG.fview = (D) => {
         : k === 'svg'
           ? `<div class="fview__photo ${D.zoom ? 'fview__photo--zoom' : ''}" data-act="fzoom" title="${t('fv.zoom')}"><img src="${SVG_SAMPLE}" alt="${esc(n)}"></div>`
           : k === 'note'
-      ? D.mode === 'source'
-        ? `<pre class="fview__source">${esc(n === 'itinerary.md' ? ITINERARY_SOURCE : x || '')}</pre>`
-        : richNote
-          ? `<article class="fview__note"><h1>Lisbon, slowly</h1><p>Three days on foot, with time for coffee.</p><blockquote>The best way to see the city is to leave an afternoon unplanned.</blockquote><h2>First morning</h2><ul><li>Take tram 28 to Graça.</li><li>Walk down through Alfama.</li><li>Save the sunset for Santa Luzia.</li></ul><h2>Practical notes</h2><table><thead><tr><th>Place</th><th>Time</th></tr></thead><tbody><tr><td>Belém</td><td>Monday morning</td></tr><tr><td>Sintra</td><td>Wednesday, early</td></tr></tbody></table><p><strong>Keep Thursday open for Porto.</strong></p></article>`
-          : `<div class="fview__note"><p>${esc(x || '')}</p></div>`
+      ? D.editing
+        ? `<textarea class="fview__source" data-bind="draft" aria-label="${t('fv.editSource')}">${esc(D.draft ?? (n === 'itinerary.md' ? ITINERARY_SOURCE : x || ''))}</textarea>`
+        : D.mode === 'source'
+          ? `<pre class="fview__source">${esc(n === 'itinerary.md' ? ITINERARY_SOURCE : x || '')}</pre>`
+          : richNote
+            ? `<article class="fview__note"><h1>Lisbon, slowly</h1><p>Three days on foot, with time for coffee.</p><blockquote>The best way to see the city is to leave an afternoon unplanned.</blockquote><h2>First morning</h2><ul><li>Take tram 28 to Graça.</li><li>Walk down through Alfama.</li><li>Save the sunset for Santa Luzia.</li></ul><h2>Practical notes</h2><table><thead><tr><th>Place</th><th>Time</th></tr></thead><tbody><tr><td>Belém</td><td>Monday morning</td></tr><tr><td>Sintra</td><td>Wednesday, early</td></tr></tbody></table><p><strong>Keep Thursday open for Porto.</strong></p></article>`
+            : `<div class="fview__note"><p>${esc(x || '')}</p></div>`
       : k === 'csv'
         ? `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><thead><tr><th scope="col">Item</th><th scope="col" class="num">EUR</th></tr></thead><tbody>${(x || []).map((r) => `<tr>${r.map((v, i) => `<td class="${i === 1 ? 'num' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
         : k === 'raw' && S.rawPlugin
@@ -1780,14 +1786,16 @@ DLG.fview = (D) => {
           : `<div class="fview__external"><div class="empty"><span class="ico">${I(k === 'raw' ? 'photo' : 'file')}</span><b>${k === 'raw' ? t('kind.raw') : k === 'psd' ? t('kind.psd') : esc(n)}</b><span class="muted">${sz(size)}</span><p class="muted">${t(k === 'raw' ? 'fv.rawBody' : 'fv.professionalBody', { format: k === 'psd' ? t('kind.psd') : t('kind.other') })}</p>${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"')}</div></div>`;
   const details = D.info ? `<div class="fview__facts"><div class="kv"><span class="label">${t('sort.kind')}</span><span>${t(`kind.${k}`)}</span></div><div class="kv"><span class="label">${t('sort.size')}</span><span>${sz(size)}</span></div><div class="kv"><span class="label">${t('fv.modified')}</span><span>${md(changed)}</span></div><div class="kv"><span class="label">${t('fact.storedOn')}</span><a class="link" href="#place/${c ? slug(c.stored) : ''}">${c ? esc(placeName(c.stored)) : ''}</a></div><div class="kv"><span class="label">${t('fact.whoSees')}</span><span>${whoLine(D.c)}</span></div><div class="kv"><span class="label">${t('fact.comesFrom')}</span><button class="link" data-act="ffinder" title="${fileManagerAction()}" style="padding:0;border:0;border-bottom:1px solid var(--line);background:none;font:inherit;text-align:left;cursor:pointer">${c ? esc(placeName(c.stored)) : ''} · Trips</button></div></div>` : '';
   const title = `<span class="fview__name">${esc(n)}</span><span class="fview__quiet">${md(changed)} · ${c ? esc(placeName(c.stored)) : ''} · ${whoLine(D.c)}</span>`;
-  const move = D.set.length > 1 ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
-  const modes = k === 'note' || k === 'csv' ? `<div class="fview__viewbar">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div>` : ''}<button class="btn btn--ghost" data-act="fcopy" style="margin-left:auto">${Is('copy', 15)}${t('copy')}</button></div>` : '';
+  const move = D.set.length > 1 && !D.editing ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
+  const modes = D.editing
+    ? `<div class="fview__viewbar"><button class="btn btn--primary" data-act="fsaveoriginal">${t('fv.saveOriginal')}</button><button class="btn btn--ghost" data-act="fsavecopy">${t('fv.saveCopy')}</button><button class="btn btn--ghost" data-act="fcanceledit" style="margin-left:auto">${t('cancel')}</button></div>`
+    : k === 'note' || k === 'csv' ? `<div class="fview__viewbar">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div><button class="btn btn--ghost" data-act="fedit">${t('fv.editSource')}</button>` : ''}<button class="btn btn--ghost" data-act="fcopy" style="margin-left:auto">${Is('copy', 15)}${t('copy')}</button></div>` : '';
   const tools = `<div class="fview__tools">${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;
   return dlg(title, `${details}${modes}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.browseNote'), move), 'fview', tools);
 };
 
 DLG.fsave = (D) => dlg(t('fv.saveTitle', { name: D.file }),
-  `<p class="fview__save-note">${t('fv.conflictNote')}</p><div class="opts">${opt('saveTarget', 'original', D.saveTarget, twoLine(t('fv.saveOriginal'), t('fv.saveOriginalSub')))}${opt('saveTarget', 'copy', D.saveTarget, twoLine(t('fv.saveCopy'), t('fv.saveCopySub')))}</div><div class="opts">${flagOpt('dontAsk', D.dontAsk, `<b style="flex:1">${t('fv.dontAsk')}</b>`)}</div><div class="field"><span class="label">${t('fv.rememberFor')}</span><div class="input"><select aria-label="${t('fv.rememberFor')}" data-change="drivepick" data-bind="scope" ${D.dontAsk ? '' : 'disabled'} style="width:100%;border:0;background:transparent;font:inherit;outline:0"><option value="folder" ${D.scope === 'folder' ? 'selected' : ''}>${t('fv.scopeFolder')}</option><option value="identity" ${D.scope === 'identity' ? 'selected' : ''}>${t('fv.scopeIdentity')}</option></select></div></div>`,
+  `<p class="fview__save-note">${t(D.saveTarget === 'copy' ? 'fv.saveCopySub' : 'fv.saveOriginalSub')}</p>${D.saveTarget === 'copy' ? `<div class="field"><span class="label">${t('fv.copyName')}</span><div class="input"><input data-bind="copyName" value="${esc(D.copyName)}" autocomplete="off" data-autofocus></div></div>` : ''}<p class="fview__save-note">${t('fv.conflictNote')}</p><div class="opts">${flagOpt('dontAsk', D.dontAsk, `<b style="flex:1">${t('fv.dontAsk')}</b>`)}</div><div class="field"><span class="label">${t('fv.rememberFor')}</span><div class="input"><select aria-label="${t('fv.rememberFor')}" data-change="drivepick" data-bind="scope" ${D.dontAsk ? '' : 'disabled'} style="width:100%;border:0;background:transparent;font:inherit;outline:0"><option value="folder" ${D.scope === 'folder' ? 'selected' : ''}>${t('fv.scopeFolder')}</option><option value="identity" ${D.scope === 'identity' ? 'selected' : ''}>${t('fv.scopeIdentity')}</option></select></div></div>`,
   foot('', `${cancel()}<button class="btn btn--primary" data-act="fsaveok">${t('fv.saveNow')}</button>`), 'dialog--s');
 
 DLG.rawinstall = () => dlg(t('fv.rawPluginName'),
@@ -2065,8 +2073,12 @@ const ACT = {
     void navigator.clipboard.writeText(text);
     toast(t('toast.copied', { what: name }));
   },
-  fedit: () => open('fsave', { file: D.set[D.i][0], saveTarget: 'original', dontAsk: false, scope: 'folder' }),
-  fsaveok: () => { const target = D.saveTarget; close(); toast(t(target === 'copy' ? 'fv.copySaved' : 'fv.originalSaved')); },
+  fedit: () => { const [name, kind, , , , content] = D.set[D.i]; upd({ editing: true, draft: name === 'itinerary.md' ? ITINERARY_SOURCE : content || '' }); },
+  fsaveoriginal: () => open('fsave', { file: D.set[D.i][0], saveTarget: 'original', dontAsk: false, scope: 'folder' }),
+  fsavecopy: () => { const name = D.set[D.i][0]; open('fsave', { file: name, copyName: name.replace(/(\.[^.]+)?$/, ' copy$1'), saveTarget: 'copy', dontAsk: false, scope: 'folder' }); },
+  fcanceledit: () => upd({ editing: false, draft: undefined }),
+  fsaveok: () => { const target = D.saveTarget; if (D.dontAsk) S.confirmations.push({ action: target, path: target === 'copy' ? D.copyName : D.file, scope: D.scope }); close(); toast(t(target === 'copy' ? 'fv.copySaved' : 'fv.originalSaved')); },
+  frevoke: (el) => { S.confirmations.splice(+el.dataset.i, 1); render(true); },
   fopenwith: () => toast(t('fv.openOnThisComputer')),
   rawinstall: () => open('rawinstall', { back: D?.name === 'fview' ? D : null }),
   rawinstallok: () => { const back = D.back; S.rawPlugin = true; close(); if (back) open('fview', back); else render(true); toast(t('fv.installed')); },

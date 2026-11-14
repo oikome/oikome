@@ -1198,7 +1198,15 @@ export type ContentView = "read" | "source" | "table" | "image" | "audio" | "vid
 /**
  * Operations available for a file on the node that answered.
  */
-export type ContentCapabilities = { openDefault: boolean, reveal: boolean, edit: boolean, };
+export type ContentCapabilities = { openDefault: boolean, reveal: boolean,
+/**
+ * Replace this source file, checked against its real bytes when opened.
+ */
+edit: boolean,
+/**
+ * Create or replace a copy in the source file's folder.
+ */
+saveCopy: boolean, };
 
 /**
  * How one file can be presented, and which source version that describes.
@@ -1213,13 +1221,17 @@ format: string, mediaType: string | null, views: Array<ContentView>,
  */
 source: string,
 /**
- * The indexed source size and modification time, not a content hash.
+ * The indexed size and time in listings; a BLAKE3 content hash when read for editing.
  */
 version: string, capabilities: ContentCapabilities,
 /**
  * Why no built-in view is available, if there is none.
  */
-unavailableReason: string | null, };
+unavailableReason: string | null,
+/**
+ * Why the original cannot be replaced, or why no copy can be saved.
+ */
+editUnavailableReason: string | null, };
 
 /**
  * A file of a collection viewed in place, as its index knows it.
@@ -1291,6 +1303,57 @@ export type ShowFolder = { space: string,
  * The file to show; the folder itself when left out.
  */
 path?: string, };
+
+/**
+ * Whether saving text changes the source or writes a copy beside it.
+ */
+export type TextSaveTarget = "original" | "copy";
+
+/**
+ * How broadly the owner remembers a confirmation. Safety fingerprints are
+ * still checked for every save.
+ */
+export type ConfirmationScope = "identity" | "directory";
+
+/**
+ * Which destructive confirmation the owner remembered.
+ */
+export type SaveConfirmationAction = "source_save" | "overwrite";
+
+/**
+ * `save_text_file`: save Markdown or plain text with optimistic concurrency.
+ */
+export type SaveTextFile = { space: string, path: string, text: string,
+/**
+ * The content hash returned by `read_file`, not its indexed timestamp.
+ */
+version: string, target: TextSaveTarget,
+/**
+ * For a copy: a new file name in the source file's folder, no directories.
+ */
+copyName?: string,
+/**
+ * Confirm changing the source or replacing an existing copy, when asked.
+ */
+confirm: boolean,
+/**
+ * For an existing copy, the target hash returned by the overwrite prompt.
+ */
+targetVersion?: string,
+/**
+ * Remember this confirmation on the node, if the owner chose a scope.
+ */
+remember?: ConfirmationScope, };
+
+/**
+ * A remembered confirmation as shown in Settings; no secret or identity key.
+ */
+export type SavedConfirmation = { id: string, action: SaveConfirmationAction, scope: ConfirmationScope, directory: string, path: string, };
+
+/**
+ * Revoke one remembered confirmation in Settings.
+ */
+export type RevokeSaveConfirmation = { id: string, };
 
 /**
  * What a plugin reads, as its manifest says: one kind of collection.

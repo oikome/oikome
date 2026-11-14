@@ -64,6 +64,9 @@ import type {
   ShareRef,
   ShareSpace,
   ShowFolder,
+  SaveTextFile,
+  SavedConfirmation,
+  RevokeSaveConfirmation,
   SetLending,
   SetNetwork,
   UseBorrowed,
@@ -190,6 +193,11 @@ export interface NodeClient {
   listFiles(request: ListFiles): Promise<FileListing>;
   /** One file of a collection viewed in place, with all of a note's text. */
   readFile(request: FileRef): Promise<FileItem>;
+  /** Save local Markdown or plain text to its source or a copy, with version checks. */
+  saveTextFile(request: SaveTextFile): Promise<FileItem>;
+  /** The owner's remembered save confirmations, which can be revoked in Settings. */
+  listSaveConfirmations(): Promise<SavedConfirmation[]>;
+  revokeSaveConfirmation(request: RevokeSaveConfirmation): Promise<SavedConfirmation[]>;
   /** A page of one CSV, TSV, Parquet or JSON file, read where it is. */
   readFileRows(request: ReadFileRows): Promise<RowsResult>;
   /** Open a folder viewed in place, or reveal one of its files, on this computer. */
@@ -545,6 +553,18 @@ export class HttpClient implements NodeClient {
 
   readFile(request: FileRef): Promise<FileItem> {
     return this.#json("read_file", request);
+  }
+
+  saveTextFile(request: SaveTextFile): Promise<FileItem> {
+    return this.#json("save_text_file", request);
+  }
+
+  listSaveConfirmations(): Promise<SavedConfirmation[]> {
+    return this.#json("list_save_confirmations", {});
+  }
+
+  revokeSaveConfirmation(request: RevokeSaveConfirmation): Promise<SavedConfirmation[]> {
+    return this.#json("revoke_save_confirmation", request);
   }
 
   async readFileRows(request: ReadFileRows): Promise<RowsResult> {

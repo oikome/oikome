@@ -14,6 +14,7 @@
 ## Current behavior, verified in code
 
 - PR 21 separates `SourceDef.name` from `SourceDef.space`. `add_source` requires an existing transactional collection and table and does not create one implicitly; legacy records without `space` retain their original destination. `add_in_place_folder` merges whole folders into file collections and converts only empty analytical collections with no source.
+- PR 22 adds owner-only local Markdown/plain-text saves with real content hashes, source/copy choices, exclusive creation, confirmed atomic replacement, preserved text encoding and revocable confirmation records. It does not edit connector tables or remote/read-only bindings.
 - Built-in connectors are CSV, flomo export/MCP and the legacy photo/note folder connectors. There is no Home Assistant connector or Smart Home source plugin in the node. Smart Home appears in the PRD and prototype only.
 - Dashboard plugins already have a manifest, a data-shape contract, per-collection grants and a sandboxed Home card. Source and Content/Preview capabilities are not yet parts of that plugin manifest.
 - Home has Arrange and Add a Card. With no saved arrangement it computes a default from real collections and installed plugins. The arrangement is persisted in `.oikome/node.json` through `set_home_cards`; it is not fake state.
@@ -54,7 +55,9 @@ Keep the agreed scope in `docs/content-viewing.md`: lazy-loaded PhotoSwipe navig
 
 ## PR 22: safe editing
 
-Keep the agreed scope: Markdown and plain text first, explicit source versus copy behavior, read-only detection, exclusive creation, overwrite confirmation, per-identity/directory confirmation preferences, source-version conflicts and atomic replacement where supported. The editing interaction is reviewed again before implementation. Original files, connector working tables and derived analysis data must not be confused.
+Local Markdown and plain text use the existing CodeMirror viewer with no new editor dependency. Opening recomputes the real BLAKE3 content hash and capabilities; saving repeats path, format, UTF-8, size, permission and version checks. The owner explicitly chooses the original or a copy beside it. New copies use exclusive creation; replacing a source or existing copy needs confirmation, and replacement uses a same-directory temporary file plus rename while preserving BOM, line endings and permissions. Editing is limited to 512 KiB so requests remain within the ordinary HTTP limit. Remote/read-only bindings and connector working tables are not represented as editable sources.
+
+Remembered source-save and overwrite confirmations live in `.oikome/node.json`, separately for identity and normalized-directory scopes. Identity, action, scope, canonical file, directory, content version and permissions form the safety fingerprint; a mismatch asks again. Settings lists and revokes these records. Browser coverage includes repeated saves, outside-edit conflicts, exclusive copy creation, overwrite confirmation and revocation.
 
 ## PR 23: plugin capabilities and Home composition
 

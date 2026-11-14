@@ -298,8 +298,9 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await expect(page.locator(".screen-facts")).toContainText("Examples/spending/spending.csv");
   const sourcePath = page.locator(".screen-facts__from a");
   await expect(sourcePath).toHaveCSS("border-bottom-style", "solid");
-  await expect(sourcePath).toHaveCSS("white-space", "normal");
-  await expect(sourcePath.locator("span")).toHaveAttribute("title", realpathSync(spendingCsv));
+  await expect(sourcePath).toHaveCSS("white-space", "nowrap");
+  await expect(sourcePath.locator(".screen-path-value__tail")).toHaveText("spending/spending.csv");
+  await expect(sourcePath.locator("span[title]")).toHaveAttribute("title", realpathSync(spendingCsv));
   await expect(
     page.getByRole("table", { name: "spending" }).getByRole("cell", { name: "Coffee at the airport" }),
   ).toBeVisible();

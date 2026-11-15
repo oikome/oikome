@@ -463,6 +463,12 @@ export const zhHans: Strings = {
     zoomImage: "放大图片",
     imageUnavailable: "无法显示这张图片。",
     mediaUnavailable: "浏览器无法播放此文件，请尝试在默认应用中打开。",
+    pdfUnavailable: "无法预览此 PDF，请尝试在默认应用中打开。",
+    previousPage: "上一页",
+    nextPage: "下一页",
+    pagePosition: (page: number, pages: number) => `第 ${num(page)} 页，共 ${num(pages)} 页`,
+    zoomOut: "缩小",
+    zoomIn: "放大",
     svgUnavailable: "无法安全显示此 SVG。",
     info: "信息",
     showInFinder: (platform: string) =>

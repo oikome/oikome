@@ -486,6 +486,12 @@ export const fr: Strings = {
     zoomImage: "Agrandir l’image",
     imageUnavailable: "Impossible d’afficher cette image.",
     mediaUnavailable: "Ce navigateur ne peut pas lire ce fichier. Essayez de l’ouvrir dans l’app par défaut.",
+    pdfUnavailable: "Impossible de prévisualiser ce PDF. Essayez de l’ouvrir dans l’app par défaut.",
+    previousPage: "Page précédente",
+    nextPage: "Page suivante",
+    pagePosition: (page: number, pages: number) => `Page ${num(page)} sur ${num(pages)}`,
+    zoomOut: "Zoom arrière",
+    zoomIn: "Zoom avant",
     svgUnavailable: "Impossible d’afficher ce SVG en toute sécurité.",
     info: "Infos",
     showInFinder: (platform: string) =>

@@ -902,6 +902,76 @@
   max-width: 100%;
   max-height: calc(100dvh - 220px);
 }
+.screen-pdf {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.screen-pdf__toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 45px;
+  padding: 6px 18px;
+  border-bottom: var(--bw) solid var(--line2);
+}
+.screen-pdf__zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+.screen-pdf__position {
+  min-width: 52px;
+  color: var(--ink3);
+  font: 400 12px/16px var(--mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.screen-pdf__pages {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--sunk);
+}
+.screen-pdf__page {
+  position: relative;
+  flex: none;
+  margin: 0 auto;
+  background: #fff;
+  box-shadow: var(--sh-m);
+}
+.screen-pdf__canvas {
+  display: block;
+}
+.screen-pdf__text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+}
+.screen-pdf__text span,
+.screen-pdf__text br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.screen-pdf__text ::selection {
+  color: transparent;
+  background: var(--active);
+}
+.screen-pdf > .oik-error,
+.screen-pdf > .screen-item__skeleton {
+  margin: 16px;
+}
 .screen-fileview__note {
   box-sizing: border-box;
   max-width: 76ch;

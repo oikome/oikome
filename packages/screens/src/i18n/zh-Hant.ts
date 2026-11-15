@@ -458,6 +458,12 @@ export const zhHant: Strings = {
     zoomImage: "放大圖片",
     imageUnavailable: "無法顯示這張圖片。",
     mediaUnavailable: "瀏覽器無法播放此檔案，請嘗試在預設應用程式中開啟。",
+    pdfUnavailable: "無法預覽此 PDF，請嘗試在預設應用程式中開啟。",
+    previousPage: "上一頁",
+    nextPage: "下一頁",
+    pagePosition: (page: number, pages: number) => `第 ${num(page)} 頁，共 ${num(pages)} 頁`,
+    zoomOut: "縮小",
+    zoomIn: "放大",
     svgUnavailable: "無法安全顯示此 SVG。",
     info: "資訊",
     showInFinder: (platform: string) =>

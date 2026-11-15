@@ -3988,6 +3988,7 @@ async fn media_files_have_native_views_and_ranged_originals() {
         ("voice.wav", "audio/wav", ContentView::Audio),
         ("clip.webm", "video/webm", ContentView::Video),
         ("vector.svg", "image/svg+xml", ContentView::Image),
+        ("document.pdf", "application/pdf", ContentView::Pdf),
     ] {
         let reference = FileRef {
             space: "media-originals".into(),
@@ -4006,7 +4007,7 @@ async fn media_files_have_native_views_and_ranged_originals() {
         assert_eq!((part.start, part.total), (4, 256));
         assert_eq!(part.bytes, bytes[4..10]);
     }
-    for path in ["notes.txt", "document.pdf"] {
+    for path in ["notes.txt"] {
         assert!(n
             .api
             .file_original(

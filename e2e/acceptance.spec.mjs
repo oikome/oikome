@@ -24,6 +24,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     root: join(parent, "workspace"),
     env: { PATH: `${openerBin}:${process.env.PATH ?? ""}` },
   });
+  const pdfRequests = [];
+  page.on("request", (request) => {
+    if (/PdfView|pdf\.worker|\/pdf\//.test(request.url())) pdfRequests.push(request.url());
+  });
   try {
     await page.goto(running.loginLink);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -82,6 +86,32 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(readOnly.getByRole("button", { name: "Save a Copy", exact: true })).toBeVisible();
     await expect(readOnly.getByRole("button", { name: "Save Original", exact: true })).toHaveCount(0);
     await expect(readOnly.getByText("The original is read-only. Save a copy to keep your changes.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    expect(pdfRequests).toHaveLength(0);
+    await page.locator("a.screen-ftile", { hasText: "External.pdf" }).click();
+    const pdfViewer = page.getByRole("dialog", { name: "External.pdf" });
+    await expect(pdfViewer.locator(".screen-pdf__canvas")).toBeVisible();
+    await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("Oikome acceptance document");
+    await expect(pdfViewer.locator(".screen-pdf__position").first()).toHaveText("Page 1 of 3");
+    await expect(pdfViewer.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await pdfViewer.getByRole("button", { name: "Next page", exact: true }).click();
+    await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("A second page");
+    await pdfViewer.getByRole("button", { name: "Next page", exact: true }).click();
+    await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("中文预览");
+    expect(pdfRequests.some((url) => url.includes("/pdf/cmaps/"))).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => pdfViewer.locator(".screen-pdf__canvas").evaluate((canvas) => canvas.getBoundingClientRect().width <= canvas.parentElement.parentElement.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await pdfViewer.getByRole("button", { name: "Zoom in", exact: true }).click();
+    await expect(pdfViewer.locator(".screen-pdf__zoom")).toContainText("125%");
+    expect(pdfRequests.length).toBeGreaterThan(0);
+    await page.keyboard.press("Escape");
+    const originalResponse = await page.request.get(`${running.base}/files/original/content-files/External.pdf`, { headers: { Range: "bytes=0-3" } });
+    expect(originalResponse.status()).toBe(206);
+    expect(originalResponse.headers()["content-security-policy"]).toBe("default-src 'none'");
+    expect(await originalResponse.text()).toBe("%PDF");
+    await page.locator("a.screen-ftile", { hasText: "Broken.pdf" }).click();
+    await expect(page.getByRole("dialog", { name: "Broken.pdf" })).toContainText("This PDF can’t be previewed. Try opening it in its default app.");
     await page.keyboard.press("Escape");
     const pdf = readFileSync(join(running.files, "content-files", "External.pdf"), "utf8");
     expect(pdf).toContain("/Type /Page");

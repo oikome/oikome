@@ -254,6 +254,12 @@ DOMPurify (SVG sanitization, loaded on demand; distributed under Apache-2.0 or M
   https://github.com/cure53/DOMPurify  -  Apache License 2.0
   Copyright 2015-2026 Cure53 and contributors
 
+PDF.js (pdfjs-dist; read-only PDF previews, display layer and worker loaded on demand)
+  https://github.com/mozilla/pdf.js  -  Apache License 2.0
+  Copyright Mozilla Corporation and PDF.js contributors
+  The optional character maps, standard fonts and image decoders retain their
+  own license files in their distributed directories.
+
 Vite and Rollup (building the web app; development only)
   https://vite.dev/  -  MIT License
   https://rollupjs.org/  -  MIT License

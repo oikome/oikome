@@ -491,6 +491,12 @@ export const ko: Strings = {
     zoomImage: "이미지 확대",
     imageUnavailable: "이 이미지를 표시할 수 없습니다.",
     mediaUnavailable: "이 브라우저에서 파일을 재생할 수 없습니다. 기본 앱에서 열어 보세요.",
+    pdfUnavailable: "이 PDF는 미리 볼 수 없습니다. 기본 앱에서 열어 보세요.",
+    previousPage: "이전 페이지",
+    nextPage: "다음 페이지",
+    pagePosition: (page: number, pages: number) => `${num(page)} / ${num(pages)}페이지`,
+    zoomOut: "축소",
+    zoomIn: "확대",
     svgUnavailable: "이 SVG를 안전하게 표시할 수 없습니다.",
     info: "정보",
     showInFinder: (platform: string) =>

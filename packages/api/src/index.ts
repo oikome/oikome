@@ -1193,7 +1193,7 @@ export type FileKind = "image" | "note" | "table" | "other";
 /**
  * A presentation Oikome can offer for one file.
  */
-export type ContentView = "read" | "source" | "table" | "image" | "audio" | "video";
+export type ContentView = "read" | "source" | "table" | "image" | "audio" | "video" | "pdf";
 
 /**
  * Operations available for a file on the node that answered.

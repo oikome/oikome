@@ -468,6 +468,12 @@ export const ja: Strings = {
     zoomImage: "画像を拡大",
     imageUnavailable: "この画像を表示できません。",
     mediaUnavailable: "このブラウザではこのファイルを再生できません。デフォルトのアプリで開いてください。",
+    pdfUnavailable: "この PDF はプレビューできません。デフォルトのアプリで開いてください。",
+    previousPage: "前のページ",
+    nextPage: "次のページ",
+    pagePosition: (page: number, pages: number) => `${num(page)} / ${num(pages)} ページ`,
+    zoomOut: "縮小",
+    zoomIn: "拡大",
     svgUnavailable: "この SVG を安全に表示できません。",
     info: "情報",
     showInFinder: (platform: string) =>

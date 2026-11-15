@@ -310,6 +310,7 @@ pub enum ContentView {
     Image,
     Audio,
     Video,
+    Pdf,
 }
 
 /// Operations available for a file on the node that answered.

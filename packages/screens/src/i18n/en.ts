@@ -482,6 +482,12 @@ export const en = {
     imageUnavailable: "This image can’t be displayed.",
     mediaUnavailable: "This browser can’t play this file. Try opening it in its default app.",
     svgUnavailable: "This SVG can’t be displayed safely.",
+    pdfUnavailable: "This PDF can’t be previewed. Try opening it in its default app.",
+    previousPage: "Previous page",
+    nextPage: "Next page",
+    pagePosition: (page: number, pages: number) => `Page ${page.toLocaleString("en")} of ${pages.toLocaleString("en")}`,
+    zoomOut: "Zoom out",
+    zoomIn: "Zoom in",
     info: "Info",
     showInFinder: (platform: string) =>
       platform === "macos" ? "Show in Finder" : platform === "windows" ? "Show in File Explorer" : "Show in File Manager",

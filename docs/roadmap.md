@@ -15,6 +15,7 @@
 
 - PR 21 separates `SourceDef.name` from `SourceDef.space`. `add_source` requires an existing transactional collection and table and does not create one implicitly; legacy records without `space` retain their original destination. `add_in_place_folder` merges whole folders into file collections and converts only empty analytical collections with no source.
 - PR 22 adds owner-only local UTF-8 text saves with real content hashes, source/copy choices, exclusive creation, confirmed atomic replacement, preserved text encoding and revocable confirmation records. Known non-text formats are excluded before actual UTF-8 bytes determine editability, including code, configuration, extensionless text and CSV/TSV/JSON text tables. It does not edit connector tables or remote/read-only bindings.
+- PR 23 adds a read-only PDF view with a lazy PDF.js display chunk and Worker, current-page rendering, pagination, zoom, text selection and on-demand resources. No engine request occurs before a PDF opens.
 - Built-in connectors are CSV, flomo export/MCP and the legacy photo/note folder connectors. There is no Home Assistant connector or Smart Home source plugin in the node. Smart Home appears in the PRD and prototype only.
 - Dashboard plugins already have a manifest, a data-shape contract, per-collection grants and a sandboxed Home card. Source and Content/Preview capabilities are not yet parts of that plugin manifest.
 - Home has Arrange and Add a Card. With no saved arrangement it computes a default from real collections and installed plugins. The arrangement is persisted in `.oikome/node.json` through `set_home_cards`; it is not fake state.
@@ -59,7 +60,15 @@ Local UTF-8 text uses the existing CodeMirror viewer with no new editor dependen
 
 Remembered source-save and overwrite confirmations live in `.oikome/node.json`, separately for identity and normalized-directory scopes. Identity, action, scope, canonical file, directory, content version and permissions form the safety fingerprint; a mismatch asks again. Settings lists and revokes these records. Browser coverage includes repeated saves, outside-edit conflicts, exclusive copy creation, overwrite confirmation and revocation.
 
-## PR 23: plugin capabilities and Home composition
+## PR 23: lazy PDF preview
+
+- Add a read-only PDF view using PDF.js's display layer and a dedicated Worker, loaded only when a PDF opens. Do not embed the full PDF.js Viewer or preload all pages.
+- Render only the current page, fit narrow containers, support page navigation, zoom and text selection, and cap canvas pixel density. Cancel rendering on page changes and destroy the loading task and Worker on close or navigation.
+- Serve indexed PDFs through the existing original-file endpoint with range reads and a restrictive CSP. Character maps, standard fonts, WASM and image decoders are on-demand resources, never first-paint requests.
+- PSD, RAW, Office and extra media codecs remain optional Content/Preview plugins. The Dashboard sandbox remains separate and does not gain Worker or file privileges.
+- Validation: real multi-page and damaged PDFs, text selection, page/zoom controls, desktop and phone layout, no engine request before opening, worker cleanup, production bundle and resource-size measurements.
+
+## PR 24: plugin capabilities and Home composition
 
 - Extend the plugin manifest with independent optional capabilities such as `sources`, `cards` and `preview`. A plugin may provide several, each with its own configuration, grants and lifecycle. Installation alone changes no data and adds no Home card.
 - Keep Dashboard cards in the browser sandbox. Source plugins run on the node under the connector permission model; Content/Preview plugins use their separate host sandbox. Do not give one plugin kind another kind's runtime privileges.
@@ -68,7 +77,7 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Smart Home is a later composite example, only after a real Home Assistant source exists. Its source declares sensor semantics; a separate card renders rooms and readings. There is no built-in Smart Home rendering exception and no device control.
 - Validation: capability isolation, no install-time side effects, card add/remove/restore, deleted-collection behavior, grant boundaries, sandbox tests and composite-plugin examples.
 
-## PR 24: persistent network access
+## PR 25: persistent network access
 
 - Add a network-status icon near the top-left node identity, using Anytype only as an interaction reference. It is an entry to the existing network model, not a second network stack.
 - The icon and its popover show real state from `network()`: local-only, preparing/open for sharing, reachable, router-refused or error; what the port is open for; and the current peer-to-peer address when available.

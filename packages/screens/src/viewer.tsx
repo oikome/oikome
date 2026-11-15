@@ -26,6 +26,7 @@ const TextEditor = lazy(() => import("./TextEditor"));
 const DataGrid = lazy(() => import("./DataGrid"));
 const ImageView = lazy(() => import("./ImageView"));
 const SafeSvgImage = lazy(() => import("./SafeSvgImage"));
+const PdfView = lazy(() => import("./PdfView"));
 
 const s = strings.collections;
 const PAGE_ROWS = 100;
@@ -39,6 +40,7 @@ export function fileKindLabel(name: string, kind: string, mediaType?: string | n
   if (mediaType?.startsWith("audio/")) return s.fileKinds.audio!;
   if (mediaType?.startsWith("video/")) return s.fileKinds.video!;
   if (mediaType === "image/svg+xml") return s.fileKinds.vector!;
+  if (mediaType === "application/pdf") return "PDF";
   return s.fileKinds[kind] ?? s.fileKinds.other!;
 }
 
@@ -346,6 +348,11 @@ export function FileView({
                 )}
               </Suspense>
             </div>
+          )}
+          {file?.content.views.includes("pdf") && (
+            <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
+              <PdfView src={client.fileUrl("original", { space, path: file.path })} label={file.name} />
+            </Suspense>
           )}
           {file?.content.views.includes("audio") && (
             <div className="screen-fileview__media">

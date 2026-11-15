@@ -487,6 +487,12 @@ export const ru: Strings = {
     zoomImage: "Увеличить изображение",
     imageUnavailable: "Не удалось показать это изображение.",
     mediaUnavailable: "Браузер не может воспроизвести этот файл. Попробуйте открыть его в приложении по умолчанию.",
+    pdfUnavailable: "Не удалось показать этот PDF. Попробуйте открыть его в приложении по умолчанию.",
+    previousPage: "Предыдущая страница",
+    nextPage: "Следующая страница",
+    pagePosition: (page: number, pages: number) => `Страница ${page.toLocaleString("ru")} из ${pages.toLocaleString("ru")}`,
+    zoomOut: "Уменьшить",
+    zoomIn: "Увеличить",
     svgUnavailable: "Не удалось безопасно показать этот SVG.",
     info: "Сведения",
     showInFinder: (platform: string) =>

@@ -481,6 +481,12 @@ export const de: Strings = {
     zoomImage: "Bild vergrößern",
     imageUnavailable: "Dieses Bild kann nicht angezeigt werden.",
     mediaUnavailable: "Dieser Browser kann diese Datei nicht wiedergeben. Öffne sie stattdessen in der Standard-App.",
+    pdfUnavailable: "Diese PDF kann nicht in der Vorschau angezeigt werden. Öffne sie stattdessen in der Standard-App.",
+    previousPage: "Vorherige Seite",
+    nextPage: "Nächste Seite",
+    pagePosition: (page: number, pages: number) => `Seite ${num(page)} von ${num(pages)}`,
+    zoomOut: "Verkleinern",
+    zoomIn: "Vergrößern",
     svgUnavailable: "Dieses SVG kann nicht sicher angezeigt werden.",
     info: "Info",
     showInFinder: (platform: string) =>

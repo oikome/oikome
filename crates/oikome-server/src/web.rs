@@ -66,8 +66,8 @@ use oikome_api::{
     ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
-    FileRef, FinishDropbox, GoogleCallback, ListFiles, SetNetwork, ShowFolder, StartDropbox,
-    StartGoogleDrive, ViewInPlace,
+    FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
+    SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -435,6 +435,11 @@ impl WebState {
             "refresh_space" => json_op!(refresh_space, SpaceRef),
             "list_files" => json_op!(list_files, ListFiles),
             "read_file" => json_op!(read_file, FileRef),
+            "save_text_file" => json_op!(save_text_file, SaveTextFile),
+            "list_save_confirmations" => json_op!(list_save_confirmations, Empty),
+            "revoke_save_confirmation" => {
+                json_op!(revoke_save_confirmation, RevokeSaveConfirmation)
+            }
             "read_file_rows" => match parse::<ReadFileRows>(&body) {
                 Ok(request) => match api.read_file_rows(&caller, request).await {
                     Ok(rows) => arrow(rows),

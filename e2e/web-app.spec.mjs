@@ -642,6 +642,82 @@ test("Markdown has a safe reading view and source loads only when asked", async 
   }
 });
 
+test("Markdown saves originals and copies with confirmations and version conflicts", async () => {
+  const note = join(owner, "Examples", "oikome-guide", "1 Welcome.md");
+  const copy = join(owner, "Examples", "oikome-guide", "1 Welcome copy.md");
+  const open = async (name) => {
+    await page.goto(`${base}/collections/oikome-guide`);
+    await page.locator("a.screen-ftile", { hasText: name }).click();
+    return page.getByRole("dialog", { name });
+  };
+  const edit = async (viewer, text) => {
+    await viewer.getByRole("button", { name: "Edit", exact: true }).click();
+    await viewer.locator(".cm-content").click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+    await page.keyboard.insertText(text);
+  };
+  try {
+    let viewer = await open("1 Welcome.md");
+    await edit(viewer, "# Welcome\n\nFirst safe edit.");
+    await viewer.getByRole("button", { name: "Save Original", exact: true }).click();
+    let confirm = page.getByRole("dialog", { name: "Change the original file?" });
+    await expect(confirm).toBeVisible();
+    expect(readFileSync(note, "utf8")).not.toContain("First safe edit");
+    await confirm.getByRole("checkbox", { name: "Don't ask again for this save" }).check();
+    await confirm.getByRole("button", { name: "Change Original", exact: true }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Saved 1 Welcome.md.");
+    expect(readFileSync(note, "utf8")).toContain("First safe edit");
+
+    await edit(viewer, "# Welcome\n\nSecond safe edit.");
+    await viewer.getByRole("button", { name: "Save Original", exact: true }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Saved 1 Welcome.md.");
+    await expect(page.getByRole("dialog", { name: "Change the original file?" })).toHaveCount(0);
+    await expect.poll(() => readFileSync(note, "utf8")).toContain("Second safe edit");
+
+    await edit(viewer, "# Welcome\n\nThis must not replace an outside edit.");
+    writeFileSync(note, "Changed in another application.\n");
+    await viewer.getByRole("button", { name: "Save Original", exact: true }).click();
+    await expect(viewer.getByText("This file changed in another application. Your edits have not been saved.")).toBeVisible();
+    expect(readFileSync(note, "utf8")).toBe("Changed in another application.\n");
+    await viewer.getByRole("button", { name: "Reload File", exact: true }).click();
+    await expect(viewer.getByText("Changed in another application.")).toBeVisible();
+
+    await edit(viewer, "# Welcome\n\nA copy of the outside version.");
+    await viewer.getByRole("button", { name: "Save a Copy", exact: true }).click();
+    let copyDialog = page.getByRole("dialog", { name: "Save a Copy", exact: true });
+    await expect(copyDialog.getByLabel("File name")).toHaveValue("1 Welcome copy.md");
+    await copyDialog.getByRole("button", { name: "Save Copy", exact: true }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Saved a copy as 1 Welcome copy.md.");
+    expect(readFileSync(copy, "utf8")).toContain("A copy of the outside version");
+    expect(readFileSync(note, "utf8")).toBe("Changed in another application.\n");
+
+    viewer = await open("1 Welcome.md");
+    await edit(viewer, "# Welcome\n\nReplacement copy.");
+    await viewer.getByRole("button", { name: "Save a Copy", exact: true }).click();
+    copyDialog = page.getByRole("dialog", { name: "Save a Copy", exact: true });
+    await copyDialog.getByRole("button", { name: "Save Copy", exact: true }).click();
+    confirm = page.getByRole("dialog", { name: "Replace 1 Welcome copy.md?" });
+    await expect(confirm).toBeVisible();
+    expect(readFileSync(copy, "utf8")).toContain("A copy of the outside version");
+    await confirm.getByRole("checkbox", { name: "Don't ask again for this save" }).check();
+    await confirm.getByLabel("Remember for").selectOption("identity");
+    await confirm.getByRole("button", { name: "Replace Existing File", exact: true }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Saved a copy as 1 Welcome copy.md.");
+    expect(readFileSync(copy, "utf8")).toContain("Replacement copy");
+
+    await page.goto(`${base}/settings`);
+    const confirmations = page.getByRole("region", { name: "Saved Confirmations" });
+    await expect(confirmations.getByText("Change original", { exact: true })).toBeVisible();
+    await expect(confirmations.getByText("Replace existing file", { exact: true })).toBeVisible();
+    await confirmations.getByRole("button", { name: "Ask Again", exact: true }).first().click();
+    await expect(confirmations.getByRole("button", { name: "Ask Again", exact: true })).toHaveCount(1);
+  } finally {
+    writeFileSync(note, "Welcome to Oikome. It keeps your photos, notes and tables on your own computer, in collections, and nowhere else unless you share them.\n");
+    rmSync(copy, { force: true });
+    await api("refresh_space", { space: "oikome-guide" });
+  }
+});
+
 test("files copied from this computer become a browsable collection", async () => {
   await page.goto(`${base}/collections`);
   await page.getByRole("button", { name: "Add Files", exact: true }).click();

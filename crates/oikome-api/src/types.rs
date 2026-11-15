@@ -318,7 +318,10 @@ pub enum ContentView {
 pub struct ContentCapabilities {
     pub open_default: bool,
     pub reveal: bool,
+    /// Replace this source file, checked against its real bytes when opened.
     pub edit: bool,
+    /// Create or replace a copy in the source file's folder.
+    pub save_copy: bool,
 }
 
 /// How one file can be presented, and which source version that describes.
@@ -331,11 +334,13 @@ pub struct FileContent {
     pub views: Vec<ContentView>,
     /// The source contract that produced this descriptor.
     pub source: String,
-    /// The indexed source size and modification time, not a content hash.
+    /// The indexed size and time in listings; a BLAKE3 content hash when read for editing.
     pub version: String,
     pub capabilities: ContentCapabilities,
     /// Why no built-in view is available, if there is none.
     pub unavailable_reason: Option<String>,
+    /// Why the original cannot be replaced, or why no copy can be saved.
+    pub edit_unavailable_reason: Option<String>,
 }
 
 /// A file of a collection viewed in place, as its index knows it.
@@ -402,6 +407,74 @@ pub struct ShowFolder {
     /// The file to show; the folder itself when left out.
     #[serde(default)]
     pub path: Option<String>,
+}
+
+/// Whether saving text changes the source or writes a copy beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum TextSaveTarget {
+    Original,
+    Copy,
+}
+
+/// How broadly the owner remembers a confirmation. Safety fingerprints are
+/// still checked for every save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfirmationScope {
+    Identity,
+    Directory,
+}
+
+/// Which destructive confirmation the owner remembered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SaveConfirmationAction {
+    SourceSave,
+    Overwrite,
+}
+
+/// `save_text_file`: save local UTF-8 text with optimistic concurrency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct SaveTextFile {
+    pub space: String,
+    pub path: String,
+    pub text: String,
+    /// The content hash returned by `read_file`, not its indexed timestamp.
+    pub version: String,
+    pub target: TextSaveTarget,
+    /// For a copy: a new file name in the source file's folder, no directories.
+    #[serde(default)]
+    pub copy_name: Option<String>,
+    /// Confirm changing the source or replacing an existing copy, when asked.
+    #[serde(default)]
+    pub confirm: bool,
+    /// For an existing copy, the target hash returned by the overwrite prompt.
+    #[serde(default)]
+    pub target_version: Option<String>,
+    /// Remember this confirmation on the node, if the owner chose a scope.
+    #[serde(default)]
+    pub remember: Option<ConfirmationScope>,
+}
+
+/// A remembered confirmation as shown in Settings; no secret or identity key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedConfirmation {
+    pub id: String,
+    pub action: SaveConfirmationAction,
+    pub scope: ConfirmationScope,
+    pub directory: String,
+    pub path: String,
+}
+
+/// Revoke one remembered confirmation in Settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeSaveConfirmation {
+    pub id: String,
 }
 
 /// `create_space`: a new local Space.

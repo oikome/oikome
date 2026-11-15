@@ -1069,6 +1069,7 @@ function FolderContents({
           placeLabel={placeLabel}
           local={!space.inPlace?.place}
           nav={nav}
+          onChanged={listing.reload}
           onClose={() => {
             // Back to the folder it was opened from.
             const page = `/collections/${encodeURIComponent(space.name)}`;

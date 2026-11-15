@@ -3279,12 +3279,9 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         vec![ContentView::Read, ContentView::Source]
     );
     assert_eq!(note.content.source, "in_place");
-    assert_eq!(
-        note.content.version,
-        format!("{}:{}", note.modified_ms, note.size)
-    );
+    assert!(note.content.version.starts_with("blake3:"));
     assert!(note.content.capabilities.open_default && note.content.capabilities.reveal);
-    assert!(!note.content.capabilities.edit);
+    assert!(note.content.capabilities.edit && note.content.capabilities.save_copy);
     assert_eq!(first.files[0].content.views, vec![ContentView::Image]);
     assert!(n
         .api
@@ -3578,6 +3575,388 @@ async fn an_empty_analytical_collection_accepts_a_folder() {
         .await
         .unwrap();
     assert_eq!(file.text.as_deref(), Some("Lisbon, slowly"));
+}
+
+#[tokio::test]
+async fn safe_text_editing_preserves_sources_copies_and_confirmation_boundaries() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let vault = root.join("vault");
+    std::fs::create_dir_all(&vault).unwrap();
+    let original = vault.join("note.md");
+    std::fs::write(&original, b"\xef\xbb\xbf# First\r\nline\r\n").unwrap();
+    std::fs::write(vault.join("rows.csv"), "id\n1\n").unwrap();
+    std::fs::write(vault.join("settings"), "theme: dark\n").unwrap();
+    std::fs::write(vault.join("binary.dat"), [0, 159, 146, 150]).unwrap();
+    std::fs::write(
+        vault.join("ascii.pdf"),
+        "%PDF-1.4\n% plain ASCII is still not text\n",
+    )
+    .unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: vault.to_string_lossy().into_owned(),
+                name: Some("notes".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let reference = |path: &str| FileRef {
+        space: "notes".into(),
+        path: path.into(),
+    };
+    let opened = n.api.read_file(&OWNER, reference("note.md")).await.unwrap();
+    assert!(opened.content.capabilities.edit);
+    assert!(opened.content.capabilities.save_copy);
+    assert!(opened.content.version.starts_with("blake3:"));
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "notes".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    let listed_csv = listed
+        .files
+        .iter()
+        .find(|file| file.path == "rows.csv")
+        .unwrap();
+    assert!(!listed_csv.content.views.contains(&ContentView::Source));
+    let csv = n
+        .api
+        .read_file(&OWNER, reference("rows.csv"))
+        .await
+        .unwrap();
+    assert!(csv.content.capabilities.edit && csv.content.capabilities.save_copy);
+    assert!(csv.content.views.contains(&ContentView::Table));
+    assert!(csv.content.views.contains(&ContentView::Source));
+    assert_eq!(csv.text.as_deref(), Some("id\n1\n"));
+    let extensionless = n
+        .api
+        .read_file(&OWNER, reference("settings"))
+        .await
+        .unwrap();
+    assert!(extensionless.content.capabilities.edit);
+    assert!(extensionless.content.views.contains(&ContentView::Source));
+    let binary = n
+        .api
+        .read_file(&OWNER, reference("binary.dat"))
+        .await
+        .unwrap();
+    assert!(!binary.content.capabilities.edit && !binary.content.capabilities.save_copy);
+    assert_eq!(binary.text, None);
+    let pdf = n
+        .api
+        .read_file(&OWNER, reference("ascii.pdf"))
+        .await
+        .unwrap();
+    assert!(!pdf.content.capabilities.edit && !pdf.content.capabilities.save_copy);
+    assert_eq!(pdf.text, None);
+    let csv_copy = n
+        .api
+        .save_text_file(
+            &OWNER,
+            SaveTextFile {
+                space: "notes".into(),
+                path: "rows.csv".into(),
+                text: "id,name\n1,Lisbon\n".into(),
+                version: csv.content.version,
+                target: TextSaveTarget::Copy,
+                copy_name: Some("rows copy.csv".into()),
+                confirm: false,
+                target_version: None,
+                remember: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(csv_copy.path, "rows copy.csv");
+    assert_eq!(
+        std::fs::read_to_string(vault.join("rows copy.csv")).unwrap(),
+        "id,name\n1,Lisbon\n"
+    );
+
+    let request = |version: String, target, copy_name: &str, confirm, target_version, remember| {
+        SaveTextFile {
+            space: "notes".into(),
+            path: "note.md".into(),
+            text: "# Changed\nnext\n".into(),
+            version,
+            target,
+            copy_name: Some(copy_name.into()),
+            confirm,
+            target_version,
+            remember,
+        }
+    };
+    let denied = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                opened.content.version.clone(),
+                TextSaveTarget::Original,
+                "unused.md",
+                false,
+                None,
+                None,
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        denied.reason.as_deref(),
+        Some("source_confirmation_required")
+    );
+    assert_eq!(
+        std::fs::read(&original).unwrap(),
+        b"\xef\xbb\xbf# First\r\nline\r\n"
+    );
+
+    let saved = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                opened.content.version.clone(),
+                TextSaveTarget::Original,
+                "unused.md",
+                true,
+                None,
+                Some(ConfirmationScope::Directory),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(&original).unwrap(),
+        b"\xef\xbb\xbf# Changed\r\nnext\r\n"
+    );
+    assert!(saved.content.version.starts_with("blake3:"));
+    let remembered = n
+        .api
+        .list_save_confirmations(&OWNER, Empty {})
+        .await
+        .unwrap();
+    assert_eq!(remembered.len(), 1);
+    assert_eq!(remembered[0].scope, ConfirmationScope::Directory);
+
+    // The node's own save advances the remembered version, so a repeated save
+    // needs no second prompt. An outside change still conflicts.
+    let saved_again = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                saved.content.version.clone(),
+                TextSaveTarget::Original,
+                "unused.md",
+                false,
+                None,
+                None,
+            ),
+        )
+        .await
+        .unwrap();
+    std::fs::write(&original, "changed elsewhere\n").unwrap();
+    let stale = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                saved_again.content.version.clone(),
+                TextSaveTarget::Original,
+                "unused.md",
+                true,
+                None,
+                None,
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(stale.reason.as_deref(), Some("version_conflict"));
+    assert_eq!(
+        std::fs::read_to_string(&original).unwrap(),
+        "changed elsewhere\n"
+    );
+
+    let current = n.api.read_file(&OWNER, reference("note.md")).await.unwrap();
+    let copied = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                current.content.version.clone(),
+                TextSaveTarget::Copy,
+                "note copy.md",
+                false,
+                None,
+                None,
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(copied.path, "note copy.md");
+    assert_eq!(
+        std::fs::read_to_string(vault.join("note copy.md")).unwrap(),
+        "# Changed\nnext\n"
+    );
+    let overwrite = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                current.content.version.clone(),
+                TextSaveTarget::Copy,
+                "note copy.md",
+                false,
+                None,
+                None,
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        overwrite.reason.as_deref(),
+        Some("overwrite_confirmation_required")
+    );
+    let target_version = overwrite.params.get("targetVersion").unwrap().clone();
+    assert!(!target_version.is_empty());
+    let wrong_target = n
+        .api
+        .save_text_file(
+            &OWNER,
+            request(
+                current.content.version.clone(),
+                TextSaveTarget::Copy,
+                "note copy.md",
+                true,
+                Some("stale".into()),
+                None,
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(wrong_target.reason.as_deref(), Some("version_conflict"));
+    assert_eq!(
+        std::fs::read_to_string(vault.join("note copy.md")).unwrap(),
+        "# Changed\nnext\n"
+    );
+    n.api
+        .save_text_file(
+            &OWNER,
+            request(
+                current.content.version.clone(),
+                TextSaveTarget::Copy,
+                "note copy.md",
+                true,
+                Some(target_version),
+                Some(ConfirmationScope::Identity),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        n.api
+            .list_save_confirmations(&OWNER, Empty {})
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let read_only = n.api.read_file(&OWNER, reference("note.md")).await.unwrap();
+        assert!(!read_only.content.capabilities.edit);
+        assert!(read_only.content.capabilities.save_copy);
+        let refused = n
+            .api
+            .save_text_file(
+                &OWNER,
+                request(
+                    read_only.content.version.clone(),
+                    TextSaveTarget::Original,
+                    "unused.md",
+                    true,
+                    None,
+                    None,
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(refused.code, ErrorCode::PermissionDenied);
+        n.api
+            .save_text_file(
+                &OWNER,
+                request(
+                    read_only.content.version.clone(),
+                    TextSaveTarget::Copy,
+                    "read-only copy.md",
+                    false,
+                    None,
+                    None,
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&original).unwrap(),
+            "changed elsewhere\n"
+        );
+        std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    let source_preference = n
+        .api
+        .list_save_confirmations(&OWNER, Empty {})
+        .await
+        .unwrap()[0]
+        .id
+        .clone();
+    let left = n
+        .api
+        .revoke_save_confirmation(
+            &OWNER,
+            RevokeSaveConfirmation {
+                id: source_preference,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(left.len(), 1);
+    let principal = Caller::Principal { did: did(9) };
+    assert!(n
+        .api
+        .save_text_file(
+            &principal,
+            request(
+                current.content.version.clone(),
+                TextSaveTarget::Copy,
+                "principal.md",
+                false,
+                None,
+                None,
+            ),
+        )
+        .await
+        .is_err());
 }
 
 #[tokio::test]

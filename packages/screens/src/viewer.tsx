@@ -8,18 +8,21 @@
 
 import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Button, ErrorText, Icon, IconButton, Segmented, Tag } from "@oikome/ui";
+import { Button, ConfirmDialog, ErrorText, Icon, IconButton, Segmented, Tag, useToast } from "@oikome/ui";
 import type { FileItem } from "@oikome/client";
-import { fileItems, tagsOf, withoutTagLines } from "./content";
+import { fileItems, forgetPreviews, tagsOf, withoutTagLines } from "./content";
 import { tableText, writeClipboard } from "./clipboard";
 import { itemDate } from "./covers";
 import { rawMessage, useAction, useClient, useLoad } from "./data";
 import { bytes, dayAndTime } from "./format";
+import { itemPath } from "./item";
 import type { ItemNav } from "./item";
+import { navigate } from "./router";
 import { strings } from "./strings";
 
 const MarkdownView = lazy(() => import("./MarkdownView"));
 const SourceView = lazy(() => import("./SourceView"));
+const TextEditor = lazy(() => import("./TextEditor"));
 const DataGrid = lazy(() => import("./DataGrid"));
 const ImageView = lazy(() => import("./ImageView"));
 const SafeSvgImage = lazy(() => import("./SafeSvgImage"));
@@ -48,6 +51,7 @@ export function FileView({
   local,
   nav,
   onClose,
+  onChanged,
 }: {
   space: string;
   path: string;
@@ -59,8 +63,10 @@ export function FileView({
   local: boolean;
   nav?: ItemNav;
   onClose: () => void;
+  onChanged?: () => void;
 }) {
   const client = useClient();
+  const toast = useToast();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const infoId = useId();
@@ -69,6 +75,11 @@ export function FileView({
   const [view, setView] = useState("read");
   const [copied, setCopied] = useState(false);
   const [mediaError, setMediaError] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [discard, setDiscard] = useState<"edit" | "close">();
+  const dirty = useRef(false);
+  const editingNow = useRef(false);
+  editingNow.current = editing;
   const reveal = useAction();
   const copy = useAction();
   const detail = useLoad(
@@ -95,6 +106,9 @@ export function FileView({
   useEffect(() => {
     setOffset(0);
     setMediaError(false);
+    setEditing(false);
+    setDiscard(undefined);
+    dirty.current = false;
   }, [path]);
   useEffect(() => setCopied(false), [path, view, offset]);
   useEffect(() => {
@@ -113,6 +127,7 @@ export function FileView({
   moving.current = nav;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (editingNow.current && (e.metaKey || e.ctrlKey) && ["a", "c"].includes(e.key.toLowerCase())) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && selectAll.current) {
         e.preventDefault();
         e.stopPropagation();
@@ -139,7 +154,7 @@ export function FileView({
         }
         return;
       }
-      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented || document.querySelector(".pswp--open")) return;
+      if (editingNow.current || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented || document.querySelector(".pswp--open")) return;
       if (e.target instanceof HTMLElement && e.target.closest("audio, video, input, textarea, [contenteditable='true']")) return;
       const go = e.key === "ArrowLeft" ? moving.current?.previous : e.key === "ArrowRight" ? moving.current?.next : undefined;
       if (!go) return;
@@ -208,6 +223,26 @@ export function FileView({
         ],
       ]
     : [];
+  const canEdit = Boolean(
+    file?.text != null && (file.content.capabilities.edit || file.content.capabilities.saveCopy),
+  );
+  const saved = (next: FileItem, copy: boolean) => {
+    dirty.current = false;
+    setEditing(false);
+    forgetPreviews(space);
+    onChanged?.();
+    toast(copy ? strings.editing.copied(next.name) : strings.editing.saved(next.name));
+    if (copy) navigate(itemPath({ collection: space, table: "files", key: [next.path] }));
+    else detail.reload();
+  };
+  const cancelEditing = () => {
+    if (dirty.current) setDiscard("edit");
+    else setEditing(false);
+  };
+  const requestClose = () => {
+    if (editing && dirty.current) setDiscard("close");
+    else onClose();
+  };
 
   return (
     <dialog
@@ -219,10 +254,10 @@ export function FileView({
       }}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        requestClose();
       }}
       onClick={(e) => {
-        if (e.target === ref.current) onClose();
+        if (e.target === ref.current) requestClose();
       }}
     >
       <header className="screen-fileview__head">
@@ -245,7 +280,7 @@ export function FileView({
             aria-controls={infoId}
             onClick={() => setInfo((shown) => !shown)}
           />
-          <IconButton icon="close" label={strings.common.close} filled onClick={onClose} />
+          <IconButton icon="close" label={strings.common.close} filled onClick={requestClose} />
         </div>
       </header>
 
@@ -261,7 +296,7 @@ export function FileView({
       )}
 
       <div className="screen-fileview__content">
-        {file && (viewOptions.length > 1 || canCopy) && (
+        {file && !editing && (viewOptions.length > 1 || canCopy || canEdit) && (
           <div className="screen-fileview__viewbar">
             {viewOptions.length > 1 && (
               <Segmented
@@ -278,12 +313,19 @@ export function FileView({
                 options={viewOptions}
               />
             )}
-            {canCopy && (
-              <Button icon="copy" variant="quiet" disabled={copy.busy} onClick={() => void copyCurrent()}>
-                {copied ? strings.common.copied : strings.common.copy}
-              </Button>
-            )}
-            {copy.error && <ErrorText>{copy.error}</ErrorText>}
+            <div className="screen-fileview__actions">
+              {canCopy && (
+                <Button icon="copy" variant="quiet" disabled={copy.busy} onClick={() => void copyCurrent()}>
+                  {copied ? strings.common.copied : strings.common.copy}
+                </Button>
+              )}
+              {canEdit && (
+                <Button variant="quiet" onClick={() => setEditing(true)}>
+                  {strings.editing.edit}
+                </Button>
+              )}
+              {copy.error && <ErrorText>{copy.error}</ErrorText>}
+            </div>
           </div>
         )}
         <div className="screen-fileview__body">
@@ -332,13 +374,28 @@ export function FileView({
               {mediaError && <ErrorText>{s.mediaUnavailable}</ErrorText>}
             </div>
           )}
-          {file && (shownView === "read" || shownView === "source") && (
-            <div className={`screen-fileview__note ${shownView === "source" ? "screen-fileview__note--source" : ""}`}>
+          {file && (shownView === "read" || shownView === "source" || editing) && (
+            <div className={`screen-fileview__note ${shownView === "source" || editing ? "screen-fileview__note--source" : ""}`}>
               {file.text == null ? (
                 <ErrorText>{s.sourceUnavailable}</ErrorText>
               ) : (
                 <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
-                  {shownView === "read" ? (
+                  {editing ? (
+                    <TextEditor
+                      space={space}
+                      file={file}
+                      onSaved={saved}
+                      onCancel={cancelEditing}
+                      onReload={() => {
+                        dirty.current = false;
+                        setEditing(false);
+                        detail.reload();
+                      }}
+                      onDirtyChange={(value) => {
+                        dirty.current = value;
+                      }}
+                    />
+                  ) : shownView === "read" ? (
                     <>
                       <MarkdownView text={withoutTagLines(file.text) ?? ""} />
                       {tags.length > 0 && (
@@ -398,11 +455,28 @@ export function FileView({
         </div>
       </div>
 
+      {discard && (
+        <ConfirmDialog
+          title={strings.editing.discardTitle}
+          body={strings.editing.discardBody}
+          confirmLabel={strings.editing.discard}
+          cancelLabel={strings.common.cancel}
+          onCancel={() => setDiscard(undefined)}
+          onConfirm={() => {
+            const close = discard === "close";
+            dirty.current = false;
+            setEditing(false);
+            setDiscard(undefined);
+            if (close) onClose();
+          }}
+        />
+      )}
+
       {nav && (
         <div className="screen-item__nav">
-          <IconButton icon="back" label={s.previousItem} disabled={!nav.previous} onClick={() => nav.previous?.()} />
+          <IconButton icon="back" label={s.previousItem} disabled={editing || !nav.previous} onClick={() => nav.previous?.()} />
           <span className="screen-item__position">{s.position(nav.position, nav.total)}</span>
-          <IconButton icon="chevron" label={s.nextItem} disabled={!nav.next} onClick={() => nav.next?.()} />
+          <IconButton icon="chevron" label={s.nextItem} disabled={editing || !nav.next} onClick={() => nav.next?.()} />
         </div>
       )}
     </dialog>

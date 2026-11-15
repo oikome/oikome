@@ -56,7 +56,25 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(page.locator("a.screen-ftile", { hasText: "damaged.json" })).toBeVisible();
     await expect(page.locator("a.screen-ftile", { hasText: "unsafe.svg" })).toBeVisible();
     await page.locator("a.screen-ftile", { hasText: "Plain.txt" }).click();
-    await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+    const plain = page.getByRole("dialog", { name: "Plain.txt" });
+    const copyButton = plain.getByRole("button", { name: "Copy", exact: true });
+    const editButton = plain.getByRole("button", { name: "Edit", exact: true });
+    await expect(editButton).toBeVisible();
+    expect((await copyButton.boundingBox()).x).toBeLessThan((await editButton.boundingBox()).x);
+    await expect.poll(() => plain.locator(".screen-fileview__actions").evaluate((element) => element.getBoundingClientRect().left > element.parentElement.getBoundingClientRect().width / 2)).toBe(true);
+    await page.keyboard.press("Escape");
+    for (const name of ["example.ts", "config.yaml"]) {
+      await page.locator("a.screen-ftile", { hasText: name }).click();
+      const source = page.getByRole("dialog", { name });
+      await expect(source.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      await expect(source.locator(".cm-content")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
+    await page.locator("a.screen-ftile", { hasText: "rows.csv" }).click();
+    const csv = page.getByRole("dialog", { name: "rows.csv" });
+    await csv.getByRole("radio", { name: "Source", exact: true }).click();
+    await expect(csv.locator(".cm-content")).toContainText("day,category,amount");
+    await expect(csv.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.locator("a.screen-ftile", { hasText: "Read only.txt" }).click();
     const readOnly = page.getByRole("dialog", { name: "Read only.txt" });

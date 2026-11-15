@@ -58,7 +58,7 @@ Safe additive changes can be accepted automatically. Type widening is allowed wh
 ## Delivery order
 
 1. **PR 21:** collection and data-source targets, source identity migration, built-in CSV/file flows, semantic declarations and source/destination validation.
-2. **PR 22:** safe Markdown and plain-text editing with original-versus-derived behavior clear.
+2. **PR 22:** safe local UTF-8 text editing, including code, configuration and text tables, with original-versus-derived behavior clear.
 3. **Analysis profiles:** the internal dataset profile, direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
 4. **Dataset interoperability:** read-only Iceberg/Lance/S3 connections, followed by deliberately evaluated migrations.
 5. **Media analysis:** image metadata, optional model-based semantic indexes and optional archive workflows. Model and RAW capabilities belong in plugins with independent grants and no hidden downloads.

@@ -313,17 +313,19 @@ export function FileView({
                 options={viewOptions}
               />
             )}
-            {canCopy && (
-              <Button icon="copy" variant="quiet" disabled={copy.busy} onClick={() => void copyCurrent()}>
-                {copied ? strings.common.copied : strings.common.copy}
-              </Button>
-            )}
-            {canEdit && (
-              <Button variant="quiet" onClick={() => setEditing(true)}>
-                {strings.editing.edit}
-              </Button>
-            )}
-            {copy.error && <ErrorText>{copy.error}</ErrorText>}
+            <div className="screen-fileview__actions">
+              {canCopy && (
+                <Button icon="copy" variant="quiet" disabled={copy.busy} onClick={() => void copyCurrent()}>
+                  {copied ? strings.common.copied : strings.common.copy}
+                </Button>
+              )}
+              {canEdit && (
+                <Button variant="quiet" onClick={() => setEditing(true)}>
+                  {strings.editing.edit}
+                </Button>
+              )}
+              {copy.error && <ErrorText>{copy.error}</ErrorText>}
+            </div>
           </div>
         )}
         <div className="screen-fileview__body">
@@ -372,7 +374,7 @@ export function FileView({
               {mediaError && <ErrorText>{s.mediaUnavailable}</ErrorText>}
             </div>
           )}
-          {file && (shownView === "read" || shownView === "source") && (
+          {file && (shownView === "read" || shownView === "source" || editing) && (
             <div className={`screen-fileview__note ${shownView === "source" || editing ? "screen-fileview__note--source" : ""}`}>
               {file.text == null ? (
                 <ErrorText>{s.sourceUnavailable}</ErrorText>

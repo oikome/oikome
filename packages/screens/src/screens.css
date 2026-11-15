@@ -782,16 +782,22 @@
 .screen-fileview__viewbar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   min-height: 45px;
   padding: 6px 18px;
   border-bottom: var(--bw) solid var(--line2);
 }
-.screen-fileview__viewbar > .oik-button {
-  margin-left: auto;
+.screen-fileview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-inline-start: auto;
 }
-.screen-fileview__viewbar > .oik-error {
+.screen-fileview__actions .oik-error {
   margin: 0;
 }
 .screen-fileview__viewbar .oik-seg__option {

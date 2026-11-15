@@ -1763,6 +1763,7 @@ DLG.fview = (D) => {
   const [n, k, size, changed, ph, x] = D.set[D.i];
   const c = C.find((x) => x.name === D.c);
   const richNote = n === 'itinerary.md' && D.mode !== 'source';
+  const sourceText = n === 'itinerary.md' ? ITINERARY_SOURCE : k === 'csv' ? (x || []).map((r) => r.join(',')).join('\n') : x || '';
   const body = k === 'photo'
     ? `<div class="fview__photo ${D.zoom ? 'fview__photo--zoom' : ''}" data-act="fzoom" title="${t('fv.zoom')}"><img src="${PH[ph]}" alt="${esc(n)}"></div>`
     : k === 'audio'
@@ -1773,14 +1774,18 @@ DLG.fview = (D) => {
           ? `<div class="fview__photo ${D.zoom ? 'fview__photo--zoom' : ''}" data-act="fzoom" title="${t('fv.zoom')}"><img src="${SVG_SAMPLE}" alt="${esc(n)}"></div>`
           : k === 'note'
       ? D.editing
-        ? `<textarea class="fview__source" data-bind="draft" aria-label="${t('fv.editSource')}">${esc(D.draft ?? (n === 'itinerary.md' ? ITINERARY_SOURCE : x || ''))}</textarea>`
+        ? `<textarea class="fview__source" data-bind="draft" aria-label="${t('fv.editSource')}">${esc(D.draft ?? sourceText)}</textarea>`
         : D.mode === 'source'
-          ? `<pre class="fview__source">${esc(n === 'itinerary.md' ? ITINERARY_SOURCE : x || '')}</pre>`
+          ? `<pre class="fview__source">${esc(sourceText)}</pre>`
           : richNote
             ? `<article class="fview__note"><h1>Lisbon, slowly</h1><p>Three days on foot, with time for coffee.</p><blockquote>The best way to see the city is to leave an afternoon unplanned.</blockquote><h2>First morning</h2><ul><li>Take tram 28 to Graça.</li><li>Walk down through Alfama.</li><li>Save the sunset for Santa Luzia.</li></ul><h2>Practical notes</h2><table><thead><tr><th>Place</th><th>Time</th></tr></thead><tbody><tr><td>Belém</td><td>Monday morning</td></tr><tr><td>Sintra</td><td>Wednesday, early</td></tr></tbody></table><p><strong>Keep Thursday open for Porto.</strong></p></article>`
             : `<div class="fview__note"><p>${esc(x || '')}</p></div>`
       : k === 'csv'
-        ? `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><thead><tr><th scope="col">Item</th><th scope="col" class="num">EUR</th></tr></thead><tbody>${(x || []).map((r) => `<tr>${r.map((v, i) => `<td class="${i === 1 ? 'num' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+        ? D.editing
+          ? `<textarea class="fview__source" data-bind="draft" aria-label="${t('fv.editSource')}">${esc(D.draft ?? sourceText)}</textarea>`
+          : D.mode === 'source'
+            ? `<pre class="fview__source">${esc(sourceText)}</pre>`
+            : `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><thead><tr><th scope="col">Item</th><th scope="col" class="num">EUR</th></tr></thead><tbody>${(x || []).map((r) => `<tr>${r.map((v, i) => `<td class="${i === 1 ? 'num' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
         : k === 'raw' && S.rawPlugin
           ? `<div class="fview__photo"><img src="${PH.sunset}" alt="${esc(n)}"><span class="fview__badge">${t('fv.developedPreview')}</span></div>`
           : `<div class="fview__external"><div class="empty"><span class="ico">${I(k === 'raw' ? 'photo' : 'file')}</span><b>${k === 'raw' ? t('kind.raw') : k === 'psd' ? t('kind.psd') : esc(n)}</b><span class="muted">${sz(size)}</span><p class="muted">${t(k === 'raw' ? 'fv.rawBody' : 'fv.professionalBody', { format: k === 'psd' ? t('kind.psd') : t('kind.other') })}</p>${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"')}</div></div>`;
@@ -1789,7 +1794,7 @@ DLG.fview = (D) => {
   const move = D.set.length > 1 && !D.editing ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
   const modes = D.editing
     ? `<div class="fview__viewbar"><button class="btn btn--primary" data-act="fsaveoriginal">${t('fv.saveOriginal')}</button><button class="btn btn--ghost" data-act="fsavecopy">${t('fv.saveCopy')}</button><button class="btn btn--ghost" data-act="fcanceledit" style="margin-left:auto">${t('cancel')}</button></div>`
-    : k === 'note' || k === 'csv' ? `<div class="fview__viewbar">${k === 'note' ? `<div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t('fv.read')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div><button class="btn btn--ghost" data-act="fedit">${t('fv.editSource')}</button>` : ''}<button class="btn btn--ghost" data-act="fcopy" style="margin-left:auto">${Is('copy', 15)}${t('copy')}</button></div>` : '';
+    : k === 'note' || k === 'csv' ? `<div class="fview__viewbar"><div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t(k === 'note' ? 'fv.read' : 'kind.table')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div><div class="row" style="margin-left:auto"><button class="btn btn--ghost" data-act="fcopy">${Is('copy', 15)}${t('copy')}</button><button class="btn btn--ghost" data-act="fedit">${t('fv.editSource')}</button></div></div>` : '';
   const tools = `<div class="fview__tools">${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;
   return dlg(title, `${details}${modes}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.browseNote'), move), 'fview', tools);
 };
@@ -2073,7 +2078,7 @@ const ACT = {
     void navigator.clipboard.writeText(text);
     toast(t('toast.copied', { what: name }));
   },
-  fedit: () => { const [name, kind, , , , content] = D.set[D.i]; upd({ editing: true, draft: name === 'itinerary.md' ? ITINERARY_SOURCE : content || '' }); },
+  fedit: () => { const [name, kind, , , , content] = D.set[D.i]; upd({ editing: true, draft: name === 'itinerary.md' ? ITINERARY_SOURCE : kind === 'csv' ? (content || []).map((row) => row.join(',')).join('\n') : content || '' }); },
   fsaveoriginal: () => open('fsave', { file: D.set[D.i][0], saveTarget: 'original', dontAsk: false, scope: 'folder' }),
   fsavecopy: () => { const name = D.set[D.i][0]; open('fsave', { file: name, copyName: name.replace(/(\.[^.]+)?$/, ' copy$1'), saveTarget: 'copy', dontAsk: false, scope: 'folder' }); },
   fcanceledit: () => upd({ editing: false, draft: undefined }),

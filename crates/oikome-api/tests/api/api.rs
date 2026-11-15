@@ -3586,6 +3586,13 @@ async fn safe_text_editing_preserves_sources_copies_and_confirmation_boundaries(
     let original = vault.join("note.md");
     std::fs::write(&original, b"\xef\xbb\xbf# First\r\nline\r\n").unwrap();
     std::fs::write(vault.join("rows.csv"), "id\n1\n").unwrap();
+    std::fs::write(vault.join("settings"), "theme: dark\n").unwrap();
+    std::fs::write(vault.join("binary.dat"), [0, 159, 146, 150]).unwrap();
+    std::fs::write(
+        vault.join("ascii.pdf"),
+        "%PDF-1.4\n% plain ASCII is still not text\n",
+    )
+    .unwrap();
     n.api
         .view_in_place(
             &OWNER,
@@ -3606,12 +3613,82 @@ async fn safe_text_editing_preserves_sources_copies_and_confirmation_boundaries(
     assert!(opened.content.capabilities.edit);
     assert!(opened.content.capabilities.save_copy);
     assert!(opened.content.version.starts_with("blake3:"));
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "notes".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    let listed_csv = listed
+        .files
+        .iter()
+        .find(|file| file.path == "rows.csv")
+        .unwrap();
+    assert!(!listed_csv.content.views.contains(&ContentView::Source));
     let csv = n
         .api
         .read_file(&OWNER, reference("rows.csv"))
         .await
         .unwrap();
-    assert!(!csv.content.capabilities.edit && !csv.content.capabilities.save_copy);
+    assert!(csv.content.capabilities.edit && csv.content.capabilities.save_copy);
+    assert!(csv.content.views.contains(&ContentView::Table));
+    assert!(csv.content.views.contains(&ContentView::Source));
+    assert_eq!(csv.text.as_deref(), Some("id\n1\n"));
+    let extensionless = n
+        .api
+        .read_file(&OWNER, reference("settings"))
+        .await
+        .unwrap();
+    assert!(extensionless.content.capabilities.edit);
+    assert!(extensionless.content.views.contains(&ContentView::Source));
+    let binary = n
+        .api
+        .read_file(&OWNER, reference("binary.dat"))
+        .await
+        .unwrap();
+    assert!(!binary.content.capabilities.edit && !binary.content.capabilities.save_copy);
+    assert_eq!(binary.text, None);
+    let pdf = n
+        .api
+        .read_file(&OWNER, reference("ascii.pdf"))
+        .await
+        .unwrap();
+    assert!(!pdf.content.capabilities.edit && !pdf.content.capabilities.save_copy);
+    assert_eq!(pdf.text, None);
+    let csv_copy = n
+        .api
+        .save_text_file(
+            &OWNER,
+            SaveTextFile {
+                space: "notes".into(),
+                path: "rows.csv".into(),
+                text: "id,name\n1,Lisbon\n".into(),
+                version: csv.content.version,
+                target: TextSaveTarget::Copy,
+                copy_name: Some("rows copy.csv".into()),
+                confirm: false,
+                target_version: None,
+                remember: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(csv_copy.path, "rows copy.csv");
+    assert_eq!(
+        std::fs::read_to_string(vault.join("rows copy.csv")).unwrap(),
+        "id,name\n1,Lisbon\n"
+    );
 
     let request = |version: String, target, copy_name: &str, confirm, target_version, remember| {
         SaveTextFile {

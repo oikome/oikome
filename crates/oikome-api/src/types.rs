@@ -434,7 +434,7 @@ pub enum SaveConfirmationAction {
     Overwrite,
 }
 
-/// `save_text_file`: save Markdown or plain text with optimistic concurrency.
+/// `save_text_file`: save local UTF-8 text with optimistic concurrency.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(optional_fields)]

@@ -1321,7 +1321,7 @@ export type ConfirmationScope = "identity" | "directory";
 export type SaveConfirmationAction = "source_save" | "overwrite";
 
 /**
- * `save_text_file`: save Markdown or plain text with optimistic concurrency.
+ * `save_text_file`: save local UTF-8 text with optimistic concurrency.
  */
 export type SaveTextFile = { space: string, path: string, text: string,
 /**

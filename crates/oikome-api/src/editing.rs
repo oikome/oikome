@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Safe editing of local Markdown and plain text. The index supplies a
-//! preview, but saving always resolves the indexed path again and compares
-//! the real content hash. A remembered confirmation is valid only for the
-//! same identity, action, scope, file, version and permissions.
+//! Safe editing of local UTF-8 text. Known non-text formats are excluded;
+//! the actual bytes decide whether anything else is editable. Saving always
+//! resolves the indexed path again and compares the real content hash. A
+//! remembered confirmation is valid only for the same identity, action,
+//! scope, file, version and permissions.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use oikome_catalog::{Location, LocationFormat};
@@ -105,15 +106,55 @@ fn content_hash(bytes: &[u8]) -> String {
     format!("blake3:{}", blake3::hash(bytes).to_hex())
 }
 
-fn editable_name(name: &str) -> bool {
+fn utf8_text(source: &[u8]) -> Result<&str, ApiError> {
+    let bom = source.starts_with(&[0xef, 0xbb, 0xbf]);
+    std::str::from_utf8(if bom { &source[3..] } else { source })
+        .map_err(|_| ApiError::invalid("only UTF-8 text can be edited"))
+}
+
+fn known_non_text_name(name: &str) -> bool {
+    let extension = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     matches!(
-        Path::new(name)
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase()
-            .as_str(),
-        "md" | "markdown" | "txt"
+        extension.as_str(),
+        "jpg"
+            | "jpeg"
+            | "png"
+            | "gif"
+            | "webp"
+            | "mp3"
+            | "wav"
+            | "ogg"
+            | "oga"
+            | "m4a"
+            | "aac"
+            | "flac"
+            | "mp4"
+            | "m4v"
+            | "mov"
+            | "webm"
+            | "ogv"
+            | "pdf"
+            | "parquet"
+            | "doc"
+            | "docx"
+            | "xls"
+            | "xlsx"
+            | "ppt"
+            | "pptx"
+            | "psd"
+            | "raw"
+            | "dng"
+            | "nef"
+            | "cr2"
+            | "cr3"
+            | "arw"
+            | "orf"
+            | "rw2"
+            | "raf"
     )
 }
 
@@ -165,13 +206,26 @@ fn read_source(api: &Api, location: &Location, relative: &str) -> Result<SourceF
             "this collection has no file {relative}"
         )));
     }
+    if known_non_text_name(relative) {
+        return Err(ApiError::invalid(
+            "this is not a text format; open it in an application that supports it",
+        ));
+    }
     let root = local_root(location)?;
     let path = existing_file(&root, relative)?;
-    let bytes = std::fs::read(&path)
+    let metadata = std::fs::metadata(&path).map_err(ApiError::internal)?;
+    if metadata.len() > MAX_TEXT_BYTES as u64 {
+        return Err(ApiError::invalid(
+            "editing is limited to 512 KiB of UTF-8 text",
+        ));
+    }
+    let file = std::fs::File::open(&path)
         .map_err(|e| ApiError::invalid(format!("{} cannot be read: {e}", path.display())))?;
-    let permissions = std::fs::metadata(&path)
-        .map_err(ApiError::internal)?
-        .permissions();
+    let mut bytes = Vec::new();
+    file.take(MAX_TEXT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| ApiError::invalid(format!("{} cannot be read: {e}", path.display())))?;
+    let permissions = metadata.permissions();
     let version = content_hash(&bytes);
     Ok(SourceFile {
         root,
@@ -229,8 +283,7 @@ fn confirmation_matches(
 
 fn encode_text(source: &[u8], edited: &str) -> Result<Vec<u8>, ApiError> {
     let bom = source.starts_with(&[0xef, 0xbb, 0xbf]);
-    let original = std::str::from_utf8(if bom { &source[3..] } else { source })
-        .map_err(|_| ApiError::invalid("only UTF-8 text can be edited"))?;
+    let original = utf8_text(source)?;
     let ending = if original.contains("\r\n") {
         "\r\n"
     } else if original.contains('\r') {
@@ -330,10 +383,9 @@ fn copy_name(request: &SaveTextFile) -> Result<String, ApiError> {
         || name.starts_with('.')
         || name.contains(['/', '\\'])
         || name.chars().any(char::is_control)
-        || !editable_name(name)
     {
         return Err(ApiError::invalid(
-            "choose a Markdown or plain-text file name without a directory",
+            "choose a text file name without a directory",
         ));
     }
     Ok(name.to_string())
@@ -344,11 +396,6 @@ pub(crate) fn freshen_file(api: &Api, location: &Location, item: &mut FileItem) 
     item.content.capabilities.edit = false;
     item.content.capabilities.save_copy = false;
     item.content.edit_unavailable_reason = None;
-    if !editable_name(&item.name) {
-        item.content.edit_unavailable_reason =
-            Some("Only Markdown and plain text can be edited".into());
-        return;
-    }
     if !matches!(location.format, LocationFormat::InPlace { place: None, .. }) {
         item.content.edit_unavailable_reason =
             Some("This place is read-only in Oikome; open the file there to edit it".into());
@@ -367,11 +414,18 @@ pub(crate) fn freshen_file(api: &Api, location: &Location, item: &mut FileItem) 
             Some("Editing is limited to 512 KiB of UTF-8 text".into());
         return;
     }
-    let Ok(text) = std::str::from_utf8(&source.bytes) else {
+    let Ok(text) = utf8_text(&source.bytes) else {
         item.content.edit_unavailable_reason = Some("Only UTF-8 text can be edited".into());
         return;
     };
     item.text = Some(text.to_string());
+    let text_table = matches!(item.content.format.as_str(), "csv" | "tsv");
+    if (item.content.views.is_empty() || text_table)
+        && !item.content.views.contains(&crate::ContentView::Source)
+    {
+        item.content.views.push(crate::ContentView::Source);
+        item.content.unavailable_reason = None;
+    }
     item.content.capabilities.edit = !source.permissions.readonly();
     let copy_possible = source
         .path
@@ -389,8 +443,8 @@ pub(crate) fn freshen_file(api: &Api, location: &Location, item: &mut FileItem) 
 }
 
 impl Api {
-    /// Save local Markdown or plain text, either to its source or to a copy
-    /// beside it. Every call checks the source hash and current permissions.
+    /// Save local UTF-8 text, either to its source or to a copy beside it.
+    /// Every call checks the source bytes, hash and current permissions.
     pub async fn save_text_file(
         &self,
         caller: &Caller,
@@ -399,13 +453,8 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let location = self.in_place_of(&req.space)?;
-        if !editable_name(&req.path) {
-            return Err(ApiError::invalid(
-                "only Markdown and plain text can be edited",
-            ));
-        }
         let source = read_source(self, &location, &req.path)?;
-        if source.bytes.len() > MAX_TEXT_BYTES || std::str::from_utf8(&source.bytes).is_err() {
+        if source.bytes.len() > MAX_TEXT_BYTES || utf8_text(&source.bytes).is_err() {
             return Err(ApiError::invalid(
                 "editing requires at most 512 KiB of UTF-8 text",
             ));
@@ -467,16 +516,13 @@ impl Api {
                                 "the target is not indexed; refresh the collection before replacing it",
                             ));
                         }
-                        let target_bytes =
-                            std::fs::read(&relative_file).map_err(ApiError::internal)?;
-                        let permissions = std::fs::metadata(&relative_file)
-                            .map_err(ApiError::internal)?
-                            .permissions();
+                        let target_source = read_source(self, &location, &relative)?;
+                        utf8_text(&target_source.bytes)?;
                         (
                             relative_file,
                             relative,
-                            content_hash(&target_bytes),
-                            permissions,
+                            target_source.version,
+                            target_source.permissions,
                             SaveConfirmationAction::Overwrite,
                             true,
                         )

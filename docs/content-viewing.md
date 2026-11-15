@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: PR 18 through PR 21 are merged. PR 22 implements safe local Markdown and plain-text editing with source/copy choices, content-hash conflicts and revocable confirmations.
+> **Status**: PR 18 through PR 21 are merged. PR 22 implements safe local UTF-8 text editing with source/copy choices, content-hash conflicts and revocable confirmations.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 
@@ -17,8 +17,8 @@ Physical format and presentation are separate decisions. Extension, media type, 
 | Content | Core presentation | External or optional path |
 | --- | --- | --- |
 | Markdown and plain text | Proper Markdown reading, source view and safe local editing | An editor of the owner's choice |
-| Code, JSON and configuration | Lazy-loaded syntax display, line numbers, folding and wrapping | An editor of the owner's choice |
-| CSV, TSV, Parquet and JSON Lines | A typed data grid where the source has types, faithful text cells for CSV/TSV, column choice or a record view on phones | A spreadsheet or data tool |
+| Code, JSON and configuration | Lazy-loaded syntax display, line numbers, folding, wrapping and safe local editing | An editor of the owner's choice |
+| CSV, TSV, Parquet and JSON Lines | A typed data grid where the source has types, faithful text cells for CSV/TSV, source editing for local UTF-8 CSV/TSV/JSON text, column choice or a record view on phones | A spreadsheet or data tool |
 | Collections and rows | A table by default; photos, notes and readings recommended from schema and connector contracts; the owner can override | — |
 | JPEG, PNG, GIF and WebP | Thumbnails, full view, zoom, pan, keyboard and touch navigation, metadata | An image editor |
 | SVG | A sanitized view with scripts and external references blocked | A vector editor |
@@ -67,7 +67,7 @@ Two existing exceptions must stay visible to people: in-place file previews use 
 
 ### PR 22: safe editing
 
-Local Markdown and plain text are editable up to 512 KiB of UTF-8, using the existing CodeMirror chunk with no new editor dependency.
+Local UTF-8 text is editable up to 512 KiB, using the existing CodeMirror chunk with no new editor dependency. Known media, professional-document and binary-table formats are excluded, then real UTF-8 bytes determine editability without an editable-extension allowlist; filenames recommend syntax highlighting and table parsing. This covers Markdown, code, configuration, extensionless text and CSV/TSV/JSON text tables. Copy and Edit form one right-aligned action group.
 
 - Distinguish editing a source file, editing a collection and editing a new copy. A connector's SQLite working copy is not its CSV source; remote and read-only bindings are not presented as writable.
 - Return capabilities when opening and check them again when saving. Unsupported formats, offline files, filesystem denial and read-only originals have different outcomes; a writable folder still permits Save a Copy.
@@ -76,7 +76,7 @@ Local Markdown and plain text are editable up to 512 KiB of UTF-8, using the exi
 - Write replacements through a same-directory temporary file and atomic rename. Preserve UTF-8 BOM, CRLF/CR line endings and existing permissions.
 - Remember source-save and overwrite confirmations separately for the current identity and normalized directory in `.oikome/node.json`. Records include the action, scope, identity, canonical file, directory, version and permissions; Settings lists and revokes them.
 - Never suppress warnings for a version conflict, changed permission, different directory, different identity or a different file than the one confirmed. A successful save advances only its own remembered version.
-- The PR 22 first-paint baseline is 673.94 kB of JS and 101.47 kB of CSS; the separate TextEditor chunk is 3.62 kB. No editor, parser or other runtime dependency was added.
+- The PR 22 first-paint baseline is 674.01 kB of JS and 101.57 kB of CSS; the separate TextEditor chunk is 3.62 kB. No editor, parser or other runtime dependency was added.
 
 ### Separate track: content plugins and RAW Preview
 

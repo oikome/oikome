@@ -8,6 +8,7 @@ import type { ReactElement } from "react";
 export type IconName =
   | "activity"
   | "ai"
+  | "audio"
   | "back"
   | "check"
   | "chevron"
@@ -47,11 +48,25 @@ export type IconName =
   | "sync"
   | "up"
   | "upload"
+  | "video"
   | "warning";
 
 const PATHS: Record<IconName, ReactElement> = {
   activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
   ai: <path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 10.9 10.1 9z" />,
+  audio: (
+    <>
+      <path d="M9 18V6l10-2v12" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="16" cy="16" r="3" />
+    </>
+  ),
+  video: (
+    <>
+      <rect x="3.5" y="5" width="17" height="14" rx="2" />
+      <path d="m10 9 5 3-5 3z" />
+    </>
+  ),
   grid: (
     <>
       <rect x="4" y="4" width="7" height="7" rx="1.5" />

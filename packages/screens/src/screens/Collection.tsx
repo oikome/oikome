@@ -6,7 +6,7 @@
 // shared with you says whom it is from, what you get and until when, and
 // can be left.
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import {
   Avatar,
@@ -25,7 +25,6 @@ import {
   collectionTones,
   useToast,
 } from "@oikome/ui";
-import type { IconName } from "@oikome/ui";
 import type { FileFolder, FileItem, FileSort, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import {
@@ -50,6 +49,7 @@ import { PathText, RowsTable, ScreenHeader } from "../parts";
 import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
+import { FileArt, fileIcon } from "../FileArt";
 import { FileView, fileKindLabel } from "../viewer";
 import { AddFiles } from "../import";
 import { Link, navigate, plainClick, previousPage } from "../router";
@@ -59,7 +59,6 @@ import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
 const s = strings.collections;
-const PdfThumbnail = lazy(async () => ({ default: (await import("../PdfView")).PdfThumbnail }));
 /** Rows a page reads: fewer of photos, which are large. */
 const PAGE_ROWS = 100;
 const PAGE_PHOTOS = 24;
@@ -736,39 +735,6 @@ type Entry =
   | { file: FileItem; item?: Item };
 
 /**
- * The first rows of a CSV or TSV file, from the lines its index keeps: as
- * many as a tile shows, three columns each.
- */
-function headRows(name: string, text: string): string[][] {
-  const separator = name.toLowerCase().endsWith(".tsv") ? "\t" : ",";
-  return text
-    .split("\n")
-    .filter((line) => line.trim())
-    .slice(0, 3)
-    .map((line) => {
-      const cells: string[] = [];
-      let cell = "";
-      let quoted = false;
-      for (let i = 0; i < line.length; i++) {
-        const c = line[i]!;
-        if (quoted) {
-          if (c === '"' && line[i + 1] === '"') {
-            cell += '"';
-            i++;
-          } else if (c === '"') quoted = false;
-          else cell += c;
-        } else if (c === '"') quoted = true;
-        else if (c === separator) {
-          cells.push(cell);
-          cell = "";
-        } else cell += c;
-      }
-      cells.push(cell);
-      return cells.slice(0, 3);
-    });
-}
-
-/**
  * A folder viewed in place, browsed as in a file manager: its folders
  * first, as covers like the collections outside, then its files, each
  * showing some of itself, in the order picked, as covers or a list. Each
@@ -861,16 +827,7 @@ function FolderContents({
     open(it, false);
   };
   const nameOf = (entry: Entry) => ("folder" in entry ? entry.folder.name : entry.file.name);
-  const iconOf = (entry: Entry): IconName =>
-    "folder" in entry
-      ? "folder"
-      : entry.file.kind === "image"
-        ? "photo"
-        : entry.file.kind === "note"
-          ? "note"
-          : entry.file.kind === "table"
-            ? "table"
-            : "collection";
+  const iconOf = (entry: Entry) => ("folder" in entry ? "folder" : fileIcon(entry.file));
   const metaOf = (entry: Entry) =>
     "folder" in entry ? s.folderFiles(Number(entry.folder.files)) : bytes(Number(entry.file.size));
   const changedOf = (entry: Entry) => {
@@ -927,44 +884,12 @@ function FolderContents({
               {entries.flatMap((entry) => {
                 if (!("file" in entry)) return [];
                 const name = entry.file.name;
-                const rows = entry.file.kind === "table" && entry.file.text ? headRows(name, entry.file.text) : [];
-                // A photo shows itself, a PDF its first page, a note its first
-                // lines and a CSV its first rows, as a file manager previews them.
-                const fallback = (
-                  <span className="screen-ftile__art screen-ftile__art--icon">
-                    <Icon name={iconOf(entry)} />
-                  </span>
-                );
-                const art = entry.item?.image ? (
-                  <span className="screen-ftile__art">
-                    <img src={entry.item.image} alt="" decoding="async" loading="lazy" />
-                  </span>
-                ) : entry.file.content.views.includes("pdf") ? (
-                  <Suspense fallback={fallback}>
-                    <PdfThumbnail src={client.fileUrl("original", { space: space.name, path: entry.file.path })} />
-                  </Suspense>
-                ) : entry.file.kind === "note" && entry.item?.text ? (
-                  <span className="screen-ftile__art screen-ftile__art--paper">
-                    <span className="screen-ftile__text">{withoutTagLines(entry.item.text)}</span>
-                  </span>
-                ) : rows.length > 0 ? (
-                  <span className="screen-ftile__art screen-ftile__art--rows">
-                    <table className="screen-cover__table" aria-hidden="true">
-                      <tbody>
-                        {rows.map((row, r) => (
-                          <tr key={r}>
-                            {row.map((value, c) => (
-                              <td key={c}>{value || "—"}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </span>
-                ) : (
-                  <span className="screen-ftile__art screen-ftile__art--icon">
-                    <Icon name={iconOf(entry)} />
-                  </span>
+                const art = (
+                  <FileArt
+                    file={entry.file}
+                    image={entry.item?.image}
+                    source={client.fileUrl("original", { space: space.name, path: entry.file.path })}
+                  />
                 );
                 const body = (
                   <>

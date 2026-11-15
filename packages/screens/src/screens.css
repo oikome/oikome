@@ -2198,6 +2198,23 @@ a.screen-list__row:hover .screen-list__thumb {
   min-height: 0;
   object-fit: cover;
 }
+.screen-file-collage > .screen-ftile__art {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  aspect-ratio: auto;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.screen-file-collage.screen-collage--3 > :first-child {
+  grid-row: span 2;
+}
+.screen-file-collage .screen-pdf-thumbnail__canvas {
+  box-shadow: none;
+}
 [data-theme="bold"] .screen-collage {
   gap: 0;
 }
@@ -2722,6 +2739,15 @@ a.screen-list__row:hover .screen-list__thumb {
   max-height: 100%;
   background: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+.screen-ftile__art--icon.screen-video-thumbnail {
+  padding: 0;
+}
+.screen-video-thumbnail video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .screen-ftile__art--paper {
   padding: 10px 12px;

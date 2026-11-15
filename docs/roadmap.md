@@ -65,8 +65,9 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Add read-only PDF grid thumbnails and a full view using PDF.js's display layer and a dedicated Worker, loaded only when a PDF tile approaches the viewport. Do not embed the full PDF.js Viewer or preload all pages.
 - Render a tile's first page without a text layer. In the open viewer render only the current page, fit narrow containers, support page navigation, zoom and text selection, and cap canvas pixel density. Cancel rendering on page changes and destroy the loading task and Worker on close or navigation.
 - Serve indexed PDFs through the existing original-file endpoint with range reads and a restrictive CSP. Character maps, standard fonts, WASM and image decoders are on-demand resources, never first-paint requests.
+- Share file artwork between grids and folder covers: sanitized SVG thumbnails, paused native video frames near the viewport, and a distinct audio icon. A folder without photos or notes shows real files and its file count rather than “no data”.
 - PSD, RAW, Office and extra media codecs remain optional Content/Preview plugins. The Dashboard sandbox remains separate and does not gain Worker or file privileges.
-- Validation: real multi-page and damaged PDFs, nonblank thumbnail pixels and damage fallback, text selection, page/zoom controls, desktop and phone layout, no engine request before PDF tiles, worker cleanup, production bundle and resource-size measurements.
+- Validation: real multi-page and damaged PDFs, nonblank thumbnail pixels and damage fallback, decoded SVGs, paused video frames, audio icons and mixed-media covers, text selection, page/zoom controls, desktop and phone layout, no engine request before PDF tiles, worker cleanup, production bundle and resource-size measurements.
 
 ## PR 24: plugin capabilities and Home composition
 

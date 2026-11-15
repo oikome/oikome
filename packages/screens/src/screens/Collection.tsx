@@ -6,7 +6,7 @@
 // shared with you says whom it is from, what you get and until when, and
 // can be left.
 
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import {
   Avatar,
@@ -59,6 +59,7 @@ import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
 const s = strings.collections;
+const PdfThumbnail = lazy(async () => ({ default: (await import("../PdfView")).PdfThumbnail }));
 /** Rows a page reads: fewer of photos, which are large. */
 const PAGE_ROWS = 100;
 const PAGE_PHOTOS = 24;
@@ -927,12 +928,21 @@ function FolderContents({
                 if (!("file" in entry)) return [];
                 const name = entry.file.name;
                 const rows = entry.file.kind === "table" && entry.file.text ? headRows(name, entry.file.text) : [];
-                // A photo shows itself, a note its first lines and a CSV its
-                // first rows, as a file manager previews them.
+                // A photo shows itself, a PDF its first page, a note its first
+                // lines and a CSV its first rows, as a file manager previews them.
+                const fallback = (
+                  <span className="screen-ftile__art screen-ftile__art--icon">
+                    <Icon name={iconOf(entry)} />
+                  </span>
+                );
                 const art = entry.item?.image ? (
                   <span className="screen-ftile__art">
                     <img src={entry.item.image} alt="" decoding="async" loading="lazy" />
                   </span>
+                ) : entry.file.content.views.includes("pdf") ? (
+                  <Suspense fallback={fallback}>
+                    <PdfThumbnail src={client.fileUrl("original", { space: space.name, path: entry.file.path })} />
+                  </Suspense>
                 ) : entry.file.kind === "note" && entry.item?.text ? (
                   <span className="screen-ftile__art screen-ftile__art--paper">
                     <span className="screen-ftile__text">{withoutTagLines(entry.item.text)}</span>

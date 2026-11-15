@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useRef, useState } from "react";
-import { ErrorText, IconButton } from "@oikome/ui";
+import { ErrorText, Icon, IconButton } from "@oikome/ui";
 import { GlobalWorkerOptions, TextLayer, getDocument } from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { strings } from "./strings";
@@ -10,6 +10,18 @@ import { strings } from "./strings";
 GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
 const s = strings.collections;
+
+function loadPdf(src: string) {
+  return getDocument({
+    url: src,
+    disableAutoFetch: true,
+    cMapUrl: "/pdf/cmaps/",
+    cMapPacked: true,
+    standardFontDataUrl: "/pdf/standard_fonts/",
+    wasmUrl: "/pdf/wasm/",
+    useWorkerFetch: true,
+  });
+}
 
 export default function PdfView({ src, label }: { src: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -27,15 +39,7 @@ export default function PdfView({ src, label }: { src: string; label: string }) 
     setPageNumber(1);
     setZoom(1);
     setError(false);
-    const task = getDocument({
-      url: src,
-      disableAutoFetch: true,
-      cMapUrl: "/pdf/cmaps/",
-      cMapPacked: true,
-      standardFontDataUrl: "/pdf/standard_fonts/",
-      wasmUrl: "/pdf/wasm/",
-      useWorkerFetch: true,
-    });
+    const task = loadPdf(src);
     void task.promise.then(
       (loaded) => {
         if (current) setPdf(loaded);
@@ -128,5 +132,78 @@ export default function PdfView({ src, label }: { src: string; label: string }) 
       {error ? <ErrorText>{s.pdfUnavailable}</ErrorText> : <div ref={pageHost} className="screen-pdf__pages" />}
       {!pdf && !error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
     </section>
+  );
+}
+
+export function PdfThumbnail({ src }: { src: string }) {
+  const host = useRef<HTMLSpanElement>(null);
+  const [near, setNear] = useState(false);
+
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNear(true);
+        observer.disconnect();
+      },
+      { rootMargin: "240px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [src]);
+
+  useEffect(() => {
+    if (!near) return;
+    let current = true;
+    let rendering: RenderTask | undefined;
+    const task = loadPdf(src);
+    const render = async () => {
+      try {
+        const pdf = await task.promise;
+        const page = await pdf.getPage(1);
+        const element = host.current;
+        if (!element) return;
+        const base = page.getViewport({ scale: 1 });
+        const fitted = Math.max(
+          0.01,
+          Math.min(Math.max(1, element.clientWidth - 16) / base.width, Math.max(1, element.clientHeight - 16) / base.height),
+        );
+        const viewport = page.getViewport({ scale: fitted });
+        const pixels = Math.min(globalThis.devicePixelRatio || 1, 1.5);
+        const canvasViewport = page.getViewport({ scale: fitted * pixels });
+        const canvas = document.createElement("canvas");
+        canvas.className = "screen-pdf-thumbnail__canvas";
+        canvas.width = Math.floor(canvasViewport.width);
+        canvas.height = Math.floor(canvasViewport.height);
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Canvas is unavailable");
+        rendering = page.render({ canvas, canvasContext: context, viewport: canvasViewport });
+        await rendering.promise;
+        page.cleanup();
+        if (current) element.replaceChildren(canvas);
+      } catch {
+        // A damaged or unsupported document keeps its file-kind icon.
+      }
+    };
+    void render();
+    return () => {
+      current = false;
+      rendering?.cancel();
+      void task.destroy();
+    };
+  }, [src, near]);
+
+  return (
+    <span ref={host} className="screen-ftile__art screen-pdf-thumbnail" aria-hidden="true">
+      <Icon name="collection" />
+    </span>
   );
 }

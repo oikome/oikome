@@ -15,7 +15,7 @@
 
 - PR 21 separates `SourceDef.name` from `SourceDef.space`. `add_source` requires an existing transactional collection and table and does not create one implicitly; legacy records without `space` retain their original destination. `add_in_place_folder` merges whole folders into file collections and converts only empty analytical collections with no source.
 - PR 22 adds owner-only local UTF-8 text saves with real content hashes, source/copy choices, exclusive creation, confirmed atomic replacement, preserved text encoding and revocable confirmation records. Known non-text formats are excluded before actual UTF-8 bytes determine editability, including code, configuration, extensionless text and CSV/TSV/JSON text tables. It does not edit connector tables or remote/read-only bindings.
-- PR 23 adds a read-only PDF view with a lazy PDF.js display chunk and Worker, current-page rendering, pagination, zoom, text selection and on-demand resources. No engine request occurs before a PDF opens.
+- PR 23 adds read-only PDF first-page grid thumbnails and a full view with a lazy PDF.js display chunk and Worker, current-page rendering, pagination, zoom, text selection and on-demand resources. No engine request occurs before a PDF tile approaches the viewport.
 - Built-in connectors are CSV, flomo export/MCP and the legacy photo/note folder connectors. There is no Home Assistant connector or Smart Home source plugin in the node. Smart Home appears in the PRD and prototype only.
 - Dashboard plugins already have a manifest, a data-shape contract, per-collection grants and a sandboxed Home card. Source and Content/Preview capabilities are not yet parts of that plugin manifest.
 - Home has Arrange and Add a Card. With no saved arrangement it computes a default from real collections and installed plugins. The arrangement is persisted in `.oikome/node.json` through `set_home_cards`; it is not fake state.
@@ -62,11 +62,11 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 
 ## PR 23: lazy PDF preview
 
-- Add a read-only PDF view using PDF.js's display layer and a dedicated Worker, loaded only when a PDF opens. Do not embed the full PDF.js Viewer or preload all pages.
-- Render only the current page, fit narrow containers, support page navigation, zoom and text selection, and cap canvas pixel density. Cancel rendering on page changes and destroy the loading task and Worker on close or navigation.
+- Add read-only PDF grid thumbnails and a full view using PDF.js's display layer and a dedicated Worker, loaded only when a PDF tile approaches the viewport. Do not embed the full PDF.js Viewer or preload all pages.
+- Render a tile's first page without a text layer. In the open viewer render only the current page, fit narrow containers, support page navigation, zoom and text selection, and cap canvas pixel density. Cancel rendering on page changes and destroy the loading task and Worker on close or navigation.
 - Serve indexed PDFs through the existing original-file endpoint with range reads and a restrictive CSP. Character maps, standard fonts, WASM and image decoders are on-demand resources, never first-paint requests.
 - PSD, RAW, Office and extra media codecs remain optional Content/Preview plugins. The Dashboard sandbox remains separate and does not gain Worker or file privileges.
-- Validation: real multi-page and damaged PDFs, text selection, page/zoom controls, desktop and phone layout, no engine request before opening, worker cleanup, production bundle and resource-size measurements.
+- Validation: real multi-page and damaged PDFs, nonblank thumbnail pixels and damage fallback, text selection, page/zoom controls, desktop and phone layout, no engine request before PDF tiles, worker cleanup, production bundle and resource-size measurements.
 
 ## PR 24: plugin capabilities and Home composition
 

@@ -33,6 +33,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await page.goto(`${running.base}/collections`);
     await expect(page.locator(".screen-cover")).toHaveCount(7);
+    expect(pdfRequests).toHaveLength(0);
 
     await page.goto(`${running.base}/collections/media`);
     await page.locator("a.screen-ftile", { hasText: "tram.webm" }).click();
@@ -59,6 +60,25 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     expect(await (await opened).json()).toEqual({});
     await expect(page.locator("a.screen-ftile", { hasText: "damaged.json" })).toBeVisible();
     await expect(page.locator("a.screen-ftile", { hasText: "unsafe.svg" })).toBeVisible();
+    const externalTile = page.locator("a.screen-ftile", { hasText: "External.pdf" });
+    const thumbnail = externalTile.locator(".screen-pdf-thumbnail__canvas");
+    await expect(thumbnail).toBeVisible();
+    await expect
+      .poll(() =>
+        thumbnail.evaluate((canvas) => {
+          const context = canvas.getContext("2d");
+          if (!context || !canvas.width || !canvas.height) return false;
+          const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+          for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 100 && pixels[i + 3] > 0) return true;
+          return false;
+        }),
+      )
+      .toBe(true);
+    await expect(externalTile.locator(".screen-pdf__toolbar")).toHaveCount(0);
+    const brokenTile = page.locator("a.screen-ftile", { hasText: "Broken.pdf" });
+    await expect(brokenTile.locator(".screen-pdf-thumbnail__canvas")).toHaveCount(0);
+    await expect(brokenTile.locator(".screen-pdf-thumbnail .oik-icon")).toBeVisible();
+    expect(pdfRequests.length).toBeGreaterThan(0);
     await page.locator("a.screen-ftile", { hasText: "Plain.txt" }).click();
     const plain = page.getByRole("dialog", { name: "Plain.txt" });
     const copyButton = plain.getByRole("button", { name: "Copy", exact: true });
@@ -87,7 +107,6 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(readOnly.getByRole("button", { name: "Save Original", exact: true })).toHaveCount(0);
     await expect(readOnly.getByText("The original is read-only. Save a copy to keep your changes.")).toBeVisible();
     await page.keyboard.press("Escape");
-    expect(pdfRequests).toHaveLength(0);
     await page.locator("a.screen-ftile", { hasText: "External.pdf" }).click();
     const pdfViewer = page.getByRole("dialog", { name: "External.pdf" });
     await expect(pdfViewer.locator(".screen-pdf__canvas")).toBeVisible();

@@ -271,6 +271,11 @@ button.cover { width: 100%; padding: 0; border: 0; background: none; color: inhe
 .ftile__art--paper { place-items: start; padding: 10px 12px; text-align: left; }
 .ftile__art--paper span { font-size: 12px; line-height: 17px; color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .ftile__art--rows { place-items: start stretch; padding: 8px 10px; }
+.ftile__art--pdf { padding: 8px; background: var(--sunk); }
+.ftile__pdf-page { display: grid; align-content: start; gap: 5px; width: 76%; height: 76%; padding: 8px; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 12%); text-align: left; }
+.ftile__pdf-page b { font-size: 8px; }
+.ftile__pdf-page i { display: block; height: 2px; background: var(--line); }
+.ftile__pdf-page i:last-child { width: 65%; }
 [data-theme="bold"] .collage { gap: 0; } [data-theme="bold"] .collage img + img { border-left: 2px solid var(--edge); } [data-theme="bold"] .collage img:last-child { border-top: 2px solid var(--edge); }
 .paper { height: 100%; padding: 16px 18px 44px; display: flex; flex-direction: column; gap: 8px; }
 [data-theme="ink"] .paper { background-image: radial-gradient(var(--dot) .6px, transparent .6px); background-size: 4px 4px; }
@@ -1214,7 +1219,7 @@ function folderView(c) {
   const all = [...dirs, ...files];
   // Folders first, as covers like the collections outside; then the files, each showing some of itself.
   const subCover = (e) => `<button class="cover cover--sub" ${open(e)}><div class="cover__art">${subArt(e.node)}</div><div class="cover__cap"><div class="cover__line"><span class="cover__name cover__name--folder">${Is('folder', 14)}${esc(e.n)}</span></div><div class="cover__meta">${subHolds(e.node)} · ${md(e.ch)}</div></div></button>`;
-  const fileArt = (e) => (e.ph ? `<span class="ftile__art"><img src="${PH[e.ph]}" alt=""></span>` : e.k === 'note' && e.x ? `<span class="ftile__art ftile__art--paper"><span>${esc(e.x)}</span></span>` : e.k === 'csv' && e.x ? `<span class="ftile__art ftile__art--rows"><table class="minitable">${e.x.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></span>` : `<span class="ftile__art ftile__art--ico">${I(FILE_ICON[e.k])}</span>`);
+  const fileArt = (e) => (e.ph ? `<span class="ftile__art"><img src="${PH[e.ph]}" alt=""></span>` : e.k === 'pdf' ? `<span class="ftile__art ftile__art--pdf"><span class="ftile__pdf-page"><b>Oikome acceptance document</b><i></i><i></i><i></i></span></span>` : e.k === 'note' && e.x ? `<span class="ftile__art ftile__art--paper"><span>${esc(e.x)}</span></span>` : e.k === 'csv' && e.x ? `<span class="ftile__art ftile__art--rows"><table class="minitable">${e.x.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></span>` : `<span class="ftile__art ftile__art--ico">${I(FILE_ICON[e.k])}</span>`);
   const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
   const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
     <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;

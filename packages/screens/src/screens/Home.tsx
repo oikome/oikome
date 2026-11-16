@@ -7,18 +7,26 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Avatar, Button, Status, Tile, collectionTones, useToast } from "@oikome/ui";
+import { Avatar, Button, Checkbox, Dialog, ErrorText, Status, Tile, collectionTones, useToast } from "@oikome/ui";
 import type { IconName, TileTone } from "@oikome/ui";
-import type { AccessItem, HomeCard, NodeInfo, SpaceSummary, StorageSummary } from "@oikome/client";
+import type {
+  AccessItem,
+  HomeCard,
+  NodeInfo,
+  Plugin,
+  PluginCardCapability,
+  SpaceSummary,
+  StorageSummary,
+} from "@oikome/client";
 import { latest, loadPreview } from "../content";
 import type { Item, Preview } from "../content";
 import { itemDate } from "../covers";
 import { AddCardDialog, CardGrid, settle } from "../arrange";
 import type { CardChoice } from "../arrange";
 import { LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
-import { useAction, useClient, useLoad } from "../data";
+import { asSentence, useAction, useClient, useLoad } from "../data";
 import { useCountUp } from "../motion";
-import { inLanguage, PluginCard } from "../plugins";
+import { inLanguage, PluginCard, pluginCardKey, previewColumnTypes } from "../plugins";
 import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -63,6 +71,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   const [previews, setPreviews] = useState<Map<string, Preview>>();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [granting, setGranting] = useState<{ plugin: Plugin; card: PluginCardCapability; choice: CardChoice }>();
   // The arrangement as last changed here, until the node has it.
   const [placed, setPlaced] = useState<HomeCard[]>();
   const saves = useRef<{ sending: boolean; next?: HomeCard[] }>({ sending: false });
@@ -122,6 +131,18 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
   // Home's cards: the owner's arrangement, or a first one made from what is
   // kept. Widths are columns of twelve; each row of the first one fills.
   const installed = (plugins.data ?? []).filter((plugin) => plugin.installed);
+  const pluginCards = installed.flatMap((plugin) =>
+    plugin.capabilities.cards.map((card) => ({
+      plugin,
+      card,
+      choice: {
+        id: pluginCardKey(plugin, card),
+        label: card.name,
+        icon: "plugin",
+        width: card.width,
+      } satisfies CardChoice,
+    })),
+  );
   const totals = mine.filter((space) => hasTotals(previews?.get(space.name)));
   const readings = mine.filter((space) => hasLatest(previews?.get(space.name)));
   const available: CardChoice[] = [
@@ -141,12 +162,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     })),
     { id: "activity", label: s.cardActivity, icon: "person-plus", width: 7 },
     { id: "places", label: s.cardPlaces, icon: "nas", width: 5 },
-    ...installed.map((plugin): CardChoice => ({
-      id: `plugin:${plugin.id}`,
-      label: plugin.name,
-      icon: "plugin",
-      width: plugin.width,
-    })),
+    ...pluginCards.map(({ choice }) => choice),
   ];
   const choiceOf = (id: string) => available.find((card) => card.id === id);
   const first = [
@@ -156,14 +172,11 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
     ...(readings[0] ? [`latest:${readings[0].name}`] : []),
     "activity",
     "places",
-    ...installed.map((plugin) => `plugin:${plugin.id}`),
+    ...pluginCards.filter(({ plugin }) => plugin.homeByDefault).map(({ choice }) => choice.id),
   ].map((id): HomeCard => ({ id, width: null }));
   const order: HomeCard[] = placed ?? info.homeCards ?? first;
   const shown = settle(
-    order.flatMap((card) => {
-      const choice = choiceOf(card.id);
-      return choice ? [{ id: card.id, width: card.width, own: choice.width }] : [];
-    }),
+    order.map((card) => ({ id: card.id, width: card.width, own: choiceOf(card.id)?.width ?? 6 })),
   );
   const spaceOf = (id: string) => mine.find((space) => space.name === id.slice(id.indexOf(":") + 1));
 
@@ -278,14 +291,18 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
       );
     }
     if (id.startsWith("plugin:")) {
-      const plugin = installed.find((p) => `plugin:${p.id}` === id);
-      return plugin ? <PluginCard plugin={plugin} /> : null;
+      const found = pluginCards.find(({ choice }) => choice.id === id);
+      if (found) return <PluginCard plugin={found.plugin} card={found.card} />;
+    } else {
+      const space = spaceOf(id);
+      if (space && id.startsWith("totals:")) return <TotalsCard space={space} />;
+      if (space && id.startsWith("latest:")) return <LatestCard space={space} preview={previews?.get(space.name)} />;
     }
-    const space = spaceOf(id);
-    if (!space) return null;
-    if (id.startsWith("totals:")) return <TotalsCard space={space} />;
-    if (id.startsWith("latest:")) return <LatestCard space={space} preview={previews?.get(space.name)} />;
-    return null;
+    return (
+      <Panel title={choiceOf(id)?.label ?? s.unavailableCard}>
+        <p className="screen-panel__empty">{s.unavailableCardBody}</p>
+      </Panel>
+    );
   };
 
   return (
@@ -413,12 +430,111 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
           shown={shown.map((card) => card.id)}
           onClose={() => setAdding(false)}
           onAdd={(choice) => {
+            const pluginCard = pluginCards.find(({ choice: candidate }) => candidate.id === choice.id);
+            if (pluginCard) {
+              setAdding(false);
+              setGranting({ ...pluginCard, choice });
+              return;
+            }
             void save([...shown, { id: choice.id, width: choice.width }]);
             toast(s.addedCard(choice.label));
           }}
         />
       )}
+      {granting && (
+        <GrantCardDialog
+          plugin={granting.plugin}
+          card={granting.card}
+          mine={mine}
+          previews={previews}
+          onClose={() => setGranting(undefined)}
+          onAdded={() => {
+            setGranting(undefined);
+            plugins.reload();
+            void save([...shown, { id: granting.choice.id, width: granting.choice.width }]);
+            toast(s.addedCard(granting.choice.label));
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function GrantCardDialog({
+  plugin,
+  card,
+  mine,
+  previews,
+  onClose,
+  onAdded,
+}: {
+  plugin: Plugin;
+  card: PluginCardCapability;
+  mine: SpaceSummary[];
+  previews?: Map<string, Preview>;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const client = useClient();
+  const grant = useAction();
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set(plugin.collections));
+  const fits = (space: SpaceSummary) => {
+    const preview = previews?.get(space.name);
+    if (!preview) return false;
+    const columns = previewColumnTypes(preview);
+    return (card.shape === "any" || card.shape === preview.shape.view) && card.columns.every((column) => columns.includes(column));
+  };
+  const offered = mine.filter((space) => fits(space) || chosen.has(space.name));
+  return (
+    <Dialog
+      title={card.name}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button
+            variant="primary"
+            disabled={grant.busy || chosen.size === 0}
+            onClick={async () => {
+              const saved = await grant.run(
+                () => client.setPluginCollections({ id: plugin.id, collections: [...chosen] }),
+                asSentence,
+              );
+              if (saved) onAdded();
+            }}
+          >
+            {s.add}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{strings.plugins.wants(card.reads)}</p>
+      <fieldset className="screen-plugin-reads">
+        <legend className="oik-field__label">{strings.plugins.readsLabel}</legend>
+        {offered.length === 0 ? (
+          <p className="screen-help">{strings.plugins.noMatch}</p>
+        ) : (
+          <ul className="screen-lend-people">
+            {offered.map((space) => (
+              <li key={space.name}>
+                <Checkbox
+                  label={<span className="screen-cell-mono">{space.name}</span>}
+                  checked={chosen.has(space.name)}
+                  onChange={(on) => {
+                    const next = new Set(chosen);
+                    if (on) next.add(space.name);
+                    else next.delete(space.name);
+                    setChosen(next);
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </fieldset>
+      {grant.error && <ErrorText>{grant.error}</ErrorText>}
+    </Dialog>
   );
 }
 

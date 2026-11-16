@@ -1548,7 +1548,96 @@ pub enum PluginColumn {
     Bool,
 }
 
-/// A dashboard plugin: installed, or one of Oikome's own not added yet.
+/// Independent capabilities a plugin package declares. Installing the package
+/// registers these only; each one is configured and granted separately.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCapabilities {
+    #[serde(default)]
+    pub cards: Vec<PluginCardCapability>,
+    #[serde(default)]
+    pub sources: Vec<PluginSourceCapability>,
+    /// Preview declarations only. Running third-party preview code requires
+    /// the separate host sandbox and is not enabled by this registration.
+    #[serde(default)]
+    pub preview: Vec<PluginPreviewCapability>,
+    #[serde(default)]
+    pub mcp_clients: Vec<McpClientCapability>,
+}
+
+/// One dashboard card in a plugin package.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCardCapability {
+    pub id: String,
+    pub name: String,
+    pub reads: String,
+    pub shape: PluginShape,
+    #[serde(default)]
+    pub columns: Vec<PluginColumn>,
+    pub width: u8,
+    pub height: u32,
+    pub entry: String,
+}
+
+/// A source configuration a plugin offers through an existing connector.
+/// This does not load native or node-side code from the package.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginSourceCapability {
+    pub id: String,
+    pub name: String,
+    pub kind: SourceKind,
+}
+
+/// A content preview declaration, without host execution privileges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginPreviewCapability {
+    pub id: String,
+    pub name: String,
+    pub formats: Vec<String>,
+}
+
+/// JSON or TOML configuration supported by the generic MCP setup writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum McpConfigFormat {
+    Json,
+    Toml,
+}
+
+/// A declarative, home-directory-scoped MCP client configuration location.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct McpClientConfig {
+    pub format: McpConfigFormat,
+    /// A client-specific environment variable ending in `_HOME`.
+    pub home_env: String,
+    /// One directory below the client's home, such as `.kimi-code`.
+    pub directory: String,
+    pub file: String,
+    /// `mcpServers` for JSON or `mcp_servers` for TOML.
+    pub root: String,
+    /// `headers` for JSON or `http_headers` for TOML.
+    pub headers: String,
+}
+
+/// One MCP client adapter declared by a plugin. A command is displayed for
+/// manual setup; a config enables the generic one-click writer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct McpClientCapability {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<McpClientConfig>,
+}
+
+/// A plugin package: installed, or an official package available in this build.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Plugin {
@@ -1576,6 +1665,12 @@ pub struct Plugin {
     pub installed: bool,
     /// The collections it may read (installed plugins only).
     pub collections: Vec<String>,
+    /// All capabilities in the package. The legacy card fields above mirror
+    /// its first card, or hold empty/default values when it has no card.
+    pub capabilities: PluginCapabilities,
+    /// Existing unarranged Home layouts keep cards installed before PR 24;
+    /// newly installed packages never add a card implicitly.
+    pub home_by_default: bool,
     /// Its name and descriptions in other languages, by language tag
     /// (`de`, `zh-Hans`); an app falls back to the fields above.
     pub translations: std::collections::BTreeMap<String, PluginText>,
@@ -1592,10 +1687,27 @@ pub struct PluginText {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reads: Option<String>,
+    #[serde(default)]
+    pub cards: std::collections::BTreeMap<String, PluginCapabilityText>,
+    #[serde(default)]
+    pub sources: std::collections::BTreeMap<String, PluginCapabilityText>,
+    #[serde(default)]
+    pub mcp_clients: std::collections::BTreeMap<String, PluginCapabilityText>,
 }
 
-/// `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on
-/// this computer (`path`), and the collections it may read.
+/// A capability's translated display name and, for a card, read description.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct PluginCapabilityText {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reads: Option<String>,
+}
+
+/// `install_plugin`: register an official package (`built_in`, by id) or a
+/// folder on this computer (`path`). It grants no data and adds no Home card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(optional_fields)]
@@ -1604,7 +1716,25 @@ pub struct InstallPlugin {
     pub built_in: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
-    pub collections: Vec<String>,
+}
+
+/// One official package in the independent plugin repository's release index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryPlugin {
+    pub plugin: Plugin,
+    pub download: String,
+    pub sha256: String,
+    pub bytes: u64,
+}
+
+/// `install_registry_plugin`: an exact official catalog version to download,
+/// verify and install through the ordinary package lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryPluginRef {
+    pub id: String,
+    pub version: String,
 }
 
 /// `inspect_plugin`: a folder on this computer that may hold a plugin.
@@ -1640,12 +1770,19 @@ pub enum AssistantApp {
 /// collections given, as itself, and every read shows up in Activity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct Assistant {
     pub id: String,
     /// The identity it reads as: its lines in Activity are by this DID.
     pub did: String,
     pub name: String,
+    /// Legacy built-in choice, or `other` for plugin-driven/custom clients.
     pub app: AssistantApp,
+    /// The plugin and capability that configured this assistant, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
     /// The collections it may read; none once its access ended.
     pub collections: Vec<String>,
     pub connected_at_ms: u64,
@@ -1655,12 +1792,18 @@ pub struct Assistant {
     pub ended_at_ms: Option<u64>,
 }
 
-/// `connect_assistant`: a new assistant, by name, and what it may read.
+/// `connect_assistant`: a plugin-driven client (`plugin` + `client`) or a
+/// legacy/custom `app`, and the collections it may read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct ConnectAssistant {
     pub name: String,
     pub app: AssistantApp,
+    #[serde(default)]
+    pub plugin: Option<String>,
+    #[serde(default)]
+    pub client: Option<String>,
     pub collections: Vec<String>,
 }
 

@@ -460,7 +460,7 @@
   'ai.chatNote': '对话在客户端里进行，使用你的语言。Oikome 只提供它被允许读取的内容。',
 
   // Plugins
-  'plugins.sub': '首页上的卡片。每个插件都在沙盒中运行，只读取你允许的内容，未经你同意不能联网。',
+  'plugins.sub': '卡片、来源、预览和 MCP 客户端。添加插件不会授予访问权限，每项能力都需要分别配置。',
   installFile: '从文件安装',
   browse: '浏览',
   'plugins.col.plugin': '插件',
@@ -913,6 +913,7 @@
   'in.size.large': '大',
   'in.turnOn': '开启',
   'in.add': '添加到首页',
+  'in.registerOnly': '添加软件包只会注册其能力。数据访问、来源和首页卡片需要分别配置。',
   'ps.units': '单位',
   'ps.rooms': '卡片上的房间 · 点一下即可包含',
   'ps.allowed': '你在添加时已允许。',

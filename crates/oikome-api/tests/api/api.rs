@@ -1425,11 +1425,14 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
         limit: None,
     };
 
-    // Oikome's own are offered; one is added, to read notes only.
+    // A new node installs official packages by default, with no grants.
     let offered = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
     assert!(offered
         .iter()
-        .any(|p| p.id == "spending-by-category" && p.built_in && !p.installed));
+        .any(|p| p.id == "spending-by-category" && p.built_in && p.installed));
+    for id in ["kimi-code", "codex", "claude-code", "flomo"] {
+        assert!(offered.iter().any(|p| p.id == id), "{id}");
+    }
     // Oikome's own come with their words in the app's languages.
     let spending = offered
         .iter()
@@ -1449,13 +1452,29 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
             InstallPlugin {
                 built_in: Some("spending-by-category".into()),
                 path: None,
-                collections: vec!["notes".into()],
             },
         )
         .await
         .unwrap();
     assert!(spending.installed);
-    assert_eq!(spending.collections, vec!["notes".to_string()]);
+    assert!(spending.collections.is_empty());
+    assert!(!spending.home_by_default);
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&spending.id, "notes"))
+        .await
+        .is_err());
+    // Adding a card configures its read grant separately from installation.
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: spending.id.clone(),
+                collections: vec!["notes".into()],
+            },
+        )
+        .await
+        .unwrap();
     let rows = n
         .api
         .plugin_read(&OWNER, read(&spending.id, "notes"))
@@ -1480,8 +1499,14 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
         .plugin_read(&OWNER, read(&spending.id, "diary"))
         .await
         .unwrap_err();
-    // Without a grant there, the collection doesn't exist for the plugin.
-    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+    // The grant does not exist and no rows come back, whether the semantic
+    // layer hides the relation or refuses the read.
+    let plugin_did = kept[0]["did"].as_str().unwrap().to_string();
+    assert!(!n.catalog.has_space_grant(&plugin_did, "diary"));
+    assert!(
+        matches!(e.code, ErrorCode::NotFound | ErrorCode::PermissionDenied),
+        "{e}"
+    );
     kept[0]["collections"] = serde_json::json!(["notes"]);
     std::fs::write(&record, serde_json::to_vec(&kept).unwrap()).unwrap();
 
@@ -1490,7 +1515,8 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     assert!(page.find("/plugins/sdk.js").unwrap() < page.find("main.js").unwrap());
     assert!(n.api.plugin_file(&spending.id, "../plugins.json").is_none());
     assert!(n.api.plugin_file(&spending.id, "main.js").is_some());
-    assert!(n.api.plugin_file("photo-memories", "index.html").is_none());
+    assert!(n.api.plugin_file("photo-memories", "index.html").is_some());
+    assert!(n.api.plugin_file("not-installed", "index.html").is_none());
 
     // One from a folder: looked at, then added.
     let folder = tempfile::tempdir().unwrap();
@@ -1521,6 +1547,15 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
             InstallPlugin {
                 built_in: None,
                 path: Some(path.clone()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: mine.id.clone(),
                 collections: vec!["diary".into()],
             },
         )
@@ -1536,6 +1571,46 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
         1
     );
     assert!(n.api.plugin_file("my-card", "img/a.png").is_some());
+
+    // An update that removes the last card also revokes its old grants.
+    std::fs::write(
+        folder.path().join("oikome-plugin.json"),
+        r#"{"id":"my-card","name":"My card","by":"Sam","version":"0.2.0",
+            "capabilities":{"mcpClients":[{"id":"example","name":"Example","command":"example {url} {token}"}]}}"#,
+    )
+    .unwrap();
+    let updated = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(path.clone()),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(updated.collections.is_empty());
+    assert!(n
+        .api
+        .plugin_read(&OWNER, read(&mine.id, "diary"))
+        .await
+        .is_err());
+    assert_eq!(
+        n.api
+            .set_plugin_collections(
+                &OWNER,
+                PluginCollections {
+                    id: mine.id.clone(),
+                    collections: vec!["diary".into()],
+                },
+            )
+            .await
+            .unwrap_err()
+            .reason
+            .as_deref(),
+        Some("plugin_has_no_card")
+    );
 
     // Folders that aren't plugins, or hold what a plugin may not, are refused.
     let bad = tempfile::tempdir().unwrap();
@@ -1633,6 +1708,63 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     assert_eq!(e.code, ErrorCode::PermissionDenied);
 }
 
+#[tokio::test]
+async fn a_saved_plugin_card_recovers_its_collection_grant() {
+    let n = node();
+    notes(&n).await;
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("spending-by-category".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: "spending-by-category".into(),
+                collections: vec!["notes".into()],
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .drop_space(
+            &OWNER,
+            SpaceRef {
+                space: "notes".into(),
+            },
+        )
+        .await
+        .unwrap();
+    // The owner also removes the files the removed collection left behind.
+    let location = n.catalog.get_location("notes").unwrap();
+    if let oikome_catalog::LocationFormat::IcebergParquet { namespace } = &location.format {
+        std::fs::remove_dir_all(std::path::Path::new(n.catalog.root_path()).join(namespace))
+            .unwrap();
+    }
+    n.catalog.forget_location(&location.id).unwrap();
+    notes(&n).await;
+    n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    let rows = n
+        .api
+        .plugin_read(
+            &OWNER,
+            PluginRead {
+                plugin: "spending-by-category".into(),
+                space: "notes".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 3);
+}
+
 /// Activity names who each line was: you, a person, a plugin (by the name
 /// it had, once removed), or a computer it has no name for.
 #[tokio::test]
@@ -1686,6 +1818,15 @@ async fn activity_names_who_it_was() {
             InstallPlugin {
                 built_in: Some("spending-by-category".into()),
                 path: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: plugin.id.clone(),
                 collections: vec!["notes".into()],
             },
         )
@@ -2284,6 +2425,8 @@ async fn an_assistant_reads_only_the_collections_it_is_given() {
             ConnectAssistant {
                 name: "Claude Code".into(),
                 app: AssistantApp::ClaudeCode,
+                plugin: None,
+                client: None,
                 collections: vec!["oikome-guide".into()],
             },
         )
@@ -2449,6 +2592,8 @@ async fn an_assistant_reads_only_the_collections_it_is_given() {
     let connect = |name: &str, collections: Vec<String>| ConnectAssistant {
         name: name.into(),
         app: AssistantApp::Other,
+        plugin: None,
+        client: None,
         collections,
     };
     assert!(n
@@ -3395,6 +3540,15 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
             InstallPlugin {
                 built_in: Some("photo-memories".into()),
                 path: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .set_plugin_collections(
+            &OWNER,
+            PluginCollections {
+                id: "photo-memories".into(),
                 collections: vec!["old-photos".into()],
             },
         )
@@ -4490,4 +4644,288 @@ async fn reaching_from_outside_is_allowed_one_share_at_a_time() {
         .unwrap();
     let network = n.api.network(&OWNER, Empty {}).await.unwrap();
     assert!(network.open_for.is_empty());
+}
+
+#[tokio::test]
+async fn an_external_mcp_client_uses_the_same_manifest_driven_setup() {
+    let n = node();
+    let package = tempfile::tempdir().unwrap();
+    let client_home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        package.path().join("oikome-plugin.json"),
+        r#"{
+          "id":"external-mcp", "name":"External MCP", "by":"Sam", "version":"1.0.0",
+          "capabilities":{"mcpClients":[{
+            "id":"external-cli", "name":"External CLI",
+            "config":{"format":"json", "homeEnv":"OIKOME_TEST_EXTERNAL_MCP_HOME",
+              "directory":".external-mcp", "file":"client.json",
+              "root":"customServers", "headers":"authHeaders"}
+          }]}
+        }"#,
+    )
+    .unwrap();
+    let installed = n
+        .api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(package.path().to_string_lossy().into_owned()),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(installed.capabilities.cards.is_empty());
+    assert!(installed.collections.is_empty());
+    assert!(!installed.home_by_default);
+
+    let variable = "OIKOME_TEST_EXTERNAL_MCP_HOME";
+    let previous = std::env::var_os(variable);
+    unsafe { std::env::set_var(variable, client_home.path()) };
+    let connected = n
+        .api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: String::new(),
+                app: AssistantApp::Other,
+                plugin: Some("external-mcp".into()),
+                client: Some("external-cli".into()),
+                collections: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(connected.assistant.name, "External CLI");
+    assert_eq!(connected.assistant.plugin.as_deref(), Some("external-mcp"));
+    n.api
+        .install_assistant(
+            &OWNER,
+            InstallAssistant {
+                id: connected.assistant.id.clone(),
+                token: connected.token.clone(),
+                url: "http://127.0.0.1:7342/mcp".into(),
+                replace: false,
+            },
+        )
+        .await
+        .unwrap();
+    match previous {
+        Some(value) => unsafe { std::env::set_var(variable, value) },
+        None => unsafe { std::env::remove_var(variable) },
+    }
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(client_home.path().join("client.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        saved["customServers"]["oikome"]["authHeaders"]["Authorization"],
+        format!("Bearer {}", connected.token)
+    );
+    let records = std::fs::read_to_string(n.catalog.oikome_dir().join("assistants.json")).unwrap();
+    assert!(!records.contains(&connected.token));
+}
+
+#[tokio::test]
+async fn official_registry_packages_are_verified_before_installation() {
+    use sha2::Digest as _;
+    use std::io::Write as _;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../plugins/spending-by-category/oikome-plugin.json"
+    ))
+    .unwrap();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    zip.start_file("oikome-plugin.json", options).unwrap();
+    zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+        .unwrap();
+    for (name, bytes) in [
+        (
+            "index.html",
+            &include_bytes!("../../../../plugins/spending-by-category/index.html")[..],
+        ),
+        (
+            "main.js",
+            &include_bytes!("../../../../plugins/spending-by-category/main.js")[..],
+        ),
+        (
+            "style.css",
+            &include_bytes!("../../../../plugins/spending-by-category/style.css")[..],
+        ),
+    ] {
+        zip.start_file(name, options).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    let package = zip.finish().unwrap().into_inner();
+    let bad_manifest: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../plugins/photo-memories/oikome-plugin.json"
+    ))
+    .unwrap();
+    let index = serde_json::to_vec(&serde_json::json!({
+        "schemaVersion": 1,
+        "plugins": [
+            {
+                "manifest": manifest,
+                "download": format!("http://{address}/spending-by-category.zip"),
+                "sha256": format!("{:x}", sha2::Sha256::digest(&package)),
+                "bytes": package.len()
+            },
+            {
+                "manifest": bad_manifest,
+                "download": format!("http://{address}/spending-by-category.zip"),
+                "sha256": "0".repeat(64),
+                "bytes": package.len()
+            }
+        ]
+    }))
+    .unwrap();
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let index = index.clone();
+            let package = package.clone();
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 1024];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let Ok(n) = socket.read(&mut buffer).await else {
+                        return;
+                    };
+                    if n == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                let body = if request.starts_with(b"GET /index.json ") {
+                    index
+                } else if request.starts_with(b"GET /spending-by-category.zip ") {
+                    package
+                } else {
+                    let response =
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    let _ = socket.write_all(response).await;
+                    return;
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = socket.write_all(head.as_bytes()).await;
+                let _ = socket.write_all(&body).await;
+            });
+        }
+    });
+
+    let mut n = node();
+    n.api = n.api.clone().with_registry_endpoints(
+        format!("http://{address}/index.json"),
+        format!("http://{address}/"),
+    );
+    let offered = n.api.list_registry_plugins(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(offered.len(), 2);
+    assert!(offered[0].plugin.installed);
+    let installed = n
+        .api
+        .install_registry_plugin(
+            &OWNER,
+            RegistryPluginRef {
+                id: "spending-by-category".into(),
+                version: "1.0.0".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(installed.installed && installed.collections.is_empty());
+    let page = String::from_utf8(
+        n.api
+            .plugin_file("spending-by-category", "index.html")
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(page.contains("/plugins/sdk.js"));
+    let photo_before = n.api.plugin_file("photo-memories", "index.html").unwrap();
+    let error = n
+        .api
+        .install_registry_plugin(
+            &OWNER,
+            RegistryPluginRef {
+                id: "photo-memories".into(),
+                version: "1.0.0".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("plugin_registry_checksum"));
+    assert_eq!(
+        n.api.plugin_file("photo-memories", "index.html").unwrap(),
+        photo_before
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn removed_official_plugins_stay_removed_and_hide_mcp_clients() {
+    let n = node();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(plugins
+        .iter()
+        .all(|plugin| !plugin.built_in || plugin.installed));
+    n.api
+        .remove_plugin(
+            &OWNER,
+            PluginRef {
+                id: "kimi-code".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let error = n
+        .api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: String::new(),
+                app: AssistantApp::Other,
+                plugin: Some("kimi-code".into()),
+                client: Some("kimi-code-cli".into()),
+                collections: Vec::new(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::NotFound);
+    let reopened = Api::new(n.catalog.clone(), n.engines.clone());
+    let plugins = reopened.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(plugins
+        .iter()
+        .any(|plugin| plugin.id == "kimi-code" && !plugin.installed));
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("kimi-code".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: String::new(),
+                app: AssistantApp::Other,
+                plugin: Some("kimi-code".into()),
+                client: Some("kimi-code-cli".into()),
+                collections: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
 }

@@ -478,7 +478,7 @@
   'ai.chatNote': 'Das Gespräch findet im Assistenten statt, in deiner Sprache. Oikome gibt nur heraus, was er lesen darf.',
 
   // Plugins
-  'plugins.sub': 'Karten für die Startseite. Jede läuft isoliert, liest nur, was du erlaubst, und geht nur ins Internet, wenn du es sagst.',
+  'plugins.sub': 'Karten, Quellen, Vorschauen und MCP-Clients. Das Hinzufügen erteilt keinen Zugriff; jede Fähigkeit wird separat konfiguriert.',
   installFile: 'Aus Datei installieren',
   browse: 'Durchsuchen',
   'plugins.col.plugin': 'Plugin',
@@ -939,6 +939,7 @@
   'in.size.large': 'Groß',
   'in.turnOn': 'Einschalten',
   'in.add': 'Zur Startseite hinzufügen',
+  'in.registerOnly': 'Durch das Hinzufügen werden nur die Fähigkeiten registriert. Datenzugriff, Quellen und Home-Karten konfigurierst du separat.',
   'ps.units': 'Einheiten',
   'ps.rooms': 'Räume auf der Karte · tippen zum Einbeziehen',
   'ps.allowed': 'Du hast es beim Hinzufügen erlaubt.',

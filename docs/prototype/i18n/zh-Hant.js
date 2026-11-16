@@ -460,7 +460,7 @@
   'ai.chatNote': '對話在用戶端中進行，使用你的語言。Oikome 只會提供它獲准讀取的內容。',
 
   // Plugins
-  'plugins.sub': '首頁上的卡片。每個外掛程式都在沙箱中執行，只讀取你允許的內容，未經你同意無法連上網路。',
+  'plugins.sub': '卡片、來源、預覽和 MCP 用戶端。新增外掛程式不會授予存取權限，每項功能都需要分別設定。',
   installFile: '從檔案安裝',
   browse: '瀏覽',
   'plugins.col.plugin': '外掛程式',
@@ -913,6 +913,7 @@
   'in.size.large': '大',
   'in.turnOn': '開啟',
   'in.add': '加入首頁',
+  'in.registerOnly': '新增套件只會註冊其功能。資料存取、來源和首頁卡片需要分別設定。',
   'ps.units': '單位',
   'ps.rooms': '卡片上的房間 · 點一下即可納入',
   'ps.allowed': '你在新增時已允許。',

@@ -3,55 +3,55 @@
   "name": "Spending by category",
   "by": "Oikome",
   "version": "1.0.0",
-  "description": "Where the money went in the last 30 days of a spending table, by category, the biggest first.",
-  "reads": {
-    "what": "A table of spending: a day, an amount and a category",
-    "shape": "table",
-    "columns": [
-      "date",
-      "number",
-      "text"
+  "description": "Add this card on Home and choose a table with a date, amount and category. It totals the 30 days up to the latest entry, largest category first.",
+  "capabilities": {
+    "cards": [
+      {
+        "id": "card",
+        "name": "Spending by category",
+        "reads": "A table of spending: a day, an amount and a category",
+        "shape": "table",
+        "columns": ["date", "number", "text"],
+        "width": 5,
+        "height": 280,
+        "entry": "index.html"
+      }
     ]
   },
-  "card": {
-    "width": 5,
-    "height": 280
-  },
-  "entry": "index.html",
   "translations": {
     "de": {
       "name": "Ausgaben nach Kategorie",
-      "description": "Wofür das Geld in den letzten 30 Tagen einer Ausgabentabelle ausgegeben wurde, nach Kategorie, die größte zuerst.",
+      "description": "Füge diese Karte auf Home hinzu und wähle eine Tabelle mit Datum, Betrag und Kategorie. Sie summiert die 30 Tage bis zum neuesten Eintrag, die größte Kategorie zuerst.",
       "reads": "Eine Ausgabentabelle: ein Tag, ein Betrag und eine Kategorie"
     },
     "fr": {
       "name": "Dépenses par catégorie",
-      "description": "Où est passé l’argent sur les 30 derniers jours d’une table de dépenses, par catégorie, la plus grosse en premier.",
+      "description": "Ajoutez cette carte sur l’Accueil et choisissez une table avec une date, un montant et une catégorie. Elle totalise les 30 jours jusqu’à la dernière entrée, la plus grande catégorie d’abord.",
       "reads": "Une table de dépenses : un jour, un montant et une catégorie"
     },
     "ja": {
       "name": "カテゴリ別の支出",
-      "description": "支出の表の直近 30 日に、お金を何に使ったかをカテゴリ別に、多い順に示します。",
+      "description": "ホームにこのカードを追加し、日付・金額・カテゴリのある表を選びます。最新の記録までの 30 日を集計し、大きいカテゴリ順に表示します。",
       "reads": "支出の表：日付、金額、カテゴリ"
     },
     "ko": {
       "name": "카테고리별 지출",
-      "description": "지출 표의 최근 30일 동안 돈을 어디에 썼는지 카테고리별로, 큰 것부터 보여 줍니다.",
+      "description": "홈에 이 카드를 추가하고 날짜, 금액, 카테고리가 있는 표를 고르세요. 최근 기록까지 30일을 합산해 가장 큰 카테고리부터 보여 줍니다.",
       "reads": "지출 표: 날짜, 금액, 카테고리"
     },
     "ru": {
       "name": "Расходы по категориям",
-      "description": "На что ушли деньги за последние 30 дней таблицы расходов, по категориям, от самой крупной.",
+      "description": "Добавьте эту карточку на главную и выберите таблицу с датой, суммой и категорией. Она суммирует 30 дней до последней записи, начиная с самой крупной категории.",
       "reads": "Таблица расходов: день, сумма и категория"
     },
     "zh-Hans": {
       "name": "按类别看消费",
-      "description": "一张消费表最近 30 天的钱花在了哪里，按类别列出，金额大的在前。",
+      "description": "在首页添加这张卡片，选择包含日期、金额和类别的消费表。它会汇总截至最新记录的 30 天，金额大的类别排在前面。",
       "reads": "一张消费表：日期、金额和类别"
     },
     "zh-Hant": {
       "name": "依類別看消費",
-      "description": "一張消費表最近 30 天的錢花在了哪裡，依類別列出，金額大的在前。",
+      "description": "在首頁新增這張卡片，選擇包含日期、金額和類別的消費表。它會彙整截至最新記錄的 30 天，金額大的類別排在前面。",
       "reads": "一張消費表：日期、金額和類別"
     }
   }

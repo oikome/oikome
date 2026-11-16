@@ -719,8 +719,8 @@ export function AddStorage({
 /**
  * Browse this computer's folders, as the node lists them (a web page can't
  * open the system's folder picker), and choose one; with `csv`, choose one
- * of the CSV files in a folder instead. `onChooseFiles` selects any number
- * of ordinary files in the same folder instead.
+ * of the CSV files in a folder instead. `extensions` chooses one matching
+ * ordinary file. `onChooseFiles` selects any number in the same folder.
  */
 export function FolderBrowser({
   onClose,
@@ -729,6 +729,7 @@ export function FolderBrowser({
   title = s.browseTitle,
   hint,
   csv = false,
+  extensions,
 }: {
   onClose: () => void;
   onChoose?: (path: string) => void;
@@ -737,6 +738,7 @@ export function FolderBrowser({
   /** Under the list: what choosing this folder would do. */
   hint?: (here: FolderListing) => ReactNode;
   csv?: boolean;
+  extensions?: string[];
 }) {
   const client = useClient();
   const [path, setPath] = useState<string>();
@@ -748,6 +750,14 @@ export function FolderBrowser({
     setPath(next);
   };
   const choosingFiles = onChooseFiles !== undefined;
+  const singleFile = csv || extensions !== undefined;
+  const matchingFiles = !here
+    ? []
+    : csv
+      ? here.csvFiles
+      : here.files.filter((file) =>
+          extensions?.some((extension) => file.name.toLowerCase().endsWith(`.${extension.toLowerCase()}`)),
+        );
   return (
     <Dialog
       title={title}
@@ -756,7 +766,7 @@ export function FolderBrowser({
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          {!csv && !choosingFiles && (
+          {!singleFile && !choosingFiles && (
             <Button variant="primary" disabled={!here} onClick={() => here && onChoose?.(here.path)}>
               {s.choose}
             </Button>
@@ -786,14 +796,14 @@ export function FolderBrowser({
           {!here && !listing.error && <li className="screen-browser__empty oik-skel" aria-hidden="true" />}
           {here &&
             here.folders.length === 0 &&
-            (choosingFiles ? here.files.length === 0 : !csv || here.csvFiles.length === 0) && (
-              <li className="screen-browser__empty">{csv ? s.noCsv : choosingFiles ? strings.collections.emptyFolder : s.noFolders}</li>
+            (choosingFiles ? here.files.length === 0 : !singleFile || matchingFiles.length === 0) && (
+              <li className="screen-browser__empty">{singleFile ? strings.sources.noFile : choosingFiles ? strings.collections.emptyFolder : s.noFolders}</li>
             )}
-          {csv &&
-            here?.csvFiles.map((file) => (
+          {singleFile &&
+            matchingFiles.map((file) => (
               <li key={file.path}>
                 <button type="button" className="screen-browser__folder" onClick={() => onChoose?.(file.path)}>
-                  <Icon name="table" />
+                  <Icon name={csv ? "table" : "note"} />
                   <span translate="no">{file.name}</span>
                 </button>
               </li>

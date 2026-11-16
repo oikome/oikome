@@ -34,9 +34,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::invites::read_private;
 use crate::{
-    encode_rows, now_ms, Api, ApiError, Caller, Empty, ErrorCode, InstallPlugin, Plugin,
-    PluginCollections, PluginColumn, PluginFolder, PluginRead, PluginRef, PluginShape, PluginText,
-    Rows,
+    encode_rows, now_ms, Api, ApiError, Caller, Empty, ErrorCode, InstallPlugin,
+    McpClientCapability, McpClientConfig, McpConfigFormat, Plugin, PluginCapabilities,
+    PluginCapabilityText, PluginCardCapability, PluginCollections, PluginColumn, PluginFolder,
+    PluginRead, PluginRef, PluginShape, PluginText, Rows,
 };
 
 /// The bridge every plugin page loads first (`/plugins/sdk.js`).
@@ -44,6 +45,7 @@ pub const PLUGIN_SDK: &str = include_str!("../../../packages/plugin-sdk/sdk.js")
 
 const MANIFEST: &str = "oikome-plugin.json";
 const PLUGINS_FILE: &str = "plugins.json";
+const REMOVED_BUILT_INS_FILE: &str = "removed-built-in-plugins.json";
 const PLUGINS_DIR: &str = "plugins";
 /// A plugin's files: how many, how large in all, how deep.
 const MAX_FILES: usize = 200;
@@ -62,8 +64,9 @@ pub(crate) const READ_METHOD: &str = "plugin_read";
 /// refusals, always.
 const READ_LOG_EVERY_MS: u64 = 10 * 60 * 1000;
 
-/// Oikome's own plugins, in this repository's `plugins/`.
-const BUILT_IN: [&[(&str, &[u8])]; 2] = [
+/// Official plugin packages, embedded as files and installed through exactly
+/// the same manifest parser and lifecycle as packages from a folder.
+const BUILT_IN: [&[(&str, &[u8])]; 6] = [
     &[
         (
             MANIFEST,
@@ -100,6 +103,33 @@ const BUILT_IN: [&[(&str, &[u8])]; 2] = [
             include_bytes!("../../../plugins/photo-memories/style.css"),
         ),
     ],
+    &[
+        (
+            MANIFEST,
+            include_bytes!("../../../plugins/flomo/oikome-plugin.json"),
+        ),
+        (
+            "index.html",
+            include_bytes!("../../../plugins/flomo/index.html"),
+        ),
+        ("main.js", include_bytes!("../../../plugins/flomo/main.js")),
+        (
+            "style.css",
+            include_bytes!("../../../plugins/flomo/style.css"),
+        ),
+    ],
+    &[(
+        MANIFEST,
+        include_bytes!("../../../plugins/claude-code/oikome-plugin.json"),
+    )],
+    &[(
+        MANIFEST,
+        include_bytes!("../../../plugins/kimi-code/oikome-plugin.json"),
+    )],
+    &[(
+        MANIFEST,
+        include_bytes!("../../../plugins/codex/oikome-plugin.json"),
+    )],
 ];
 
 #[derive(Deserialize)]
@@ -111,11 +141,15 @@ struct Manifest {
     version: String,
     #[serde(default)]
     description: String,
-    reads: ManifestReads,
+    /// PR 23 and earlier: one card at the top level.
+    #[serde(default)]
+    reads: Option<ManifestReads>,
     #[serde(default)]
     card: ManifestCard,
     #[serde(default = "index_html")]
     entry: String,
+    #[serde(default)]
+    capabilities: PluginCapabilities,
     /// Its name and descriptions in other languages (M8).
     #[serde(default)]
     translations: BTreeMap<String, ManifestText>,
@@ -127,6 +161,12 @@ struct ManifestText {
     name: Option<String>,
     description: Option<String>,
     reads: Option<String>,
+    #[serde(default)]
+    cards: BTreeMap<String, ManifestText>,
+    #[serde(default)]
+    sources: BTreeMap<String, ManifestText>,
+    #[serde(default)]
+    mcp_clients: BTreeMap<String, ManifestText>,
 }
 
 /// Languages a manifest may name: about as many as the apps have.
@@ -162,7 +202,7 @@ fn index_html() -> String {
 }
 
 /// A plugin's files: each one's path in its folder, and its bytes.
-type Files = Vec<(String, Vec<u8>)>;
+pub(crate) type Files = Vec<(String, Vec<u8>)>;
 
 /// An installed plugin, as kept in `.oikome/plugins.json`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -183,14 +223,47 @@ pub(crate) struct Installed {
     entry: String,
     built_in: bool,
     collections: Vec<String>,
+    /// Collections removed while this plugin actually held a grant. Only
+    /// these can be restored if the owner later brings back that name.
+    #[serde(default)]
+    restore_collections: Vec<String>,
     installed_at_ms: u64,
+    #[serde(default)]
+    capabilities: Option<PluginCapabilities>,
+    /// Records from before independent card placement default to their old
+    /// behavior only when Home has never been arranged.
+    #[serde(default = "legacy_home_by_default")]
+    home_by_default: bool,
     /// Its words in other languages (M8); none for one added before.
     #[serde(default)]
     translations: BTreeMap<String, PluginText>,
 }
 
+fn legacy_home_by_default() -> bool {
+    true
+}
+
 impl Installed {
-    fn plugin(&self) -> Plugin {
+    fn capabilities(&self) -> PluginCapabilities {
+        self.capabilities
+            .clone()
+            .unwrap_or_else(|| PluginCapabilities {
+                cards: vec![PluginCardCapability {
+                    id: "card".into(),
+                    name: self.name.clone(),
+                    reads: self.reads.clone(),
+                    shape: self.shape,
+                    columns: self.columns.clone(),
+                    width: self.width,
+                    height: self.height,
+                    entry: self.entry.clone(),
+                }],
+                ..PluginCapabilities::default()
+            })
+    }
+
+    pub(crate) fn plugin(&self) -> Plugin {
+        let capabilities = self.capabilities();
         Plugin {
             id: self.id.clone(),
             name: self.name.clone(),
@@ -206,8 +279,9 @@ impl Installed {
             built_in: self.built_in,
             installed: true,
             collections: self.collections.clone(),
-            // Oikome's own speak the languages of the app they came with,
-            // also when added before it did.
+            capabilities,
+            home_by_default: self.home_by_default,
+            // Official packages take updated translations from their manifest.
             translations: self
                 .built_in
                 .then(|| Api::built_in_manifest(&self.id))
@@ -263,8 +337,63 @@ pub(crate) fn safe_path(path: &str) -> bool {
         && kind
 }
 
+fn config_name(value: &str, what: &str) -> Result<(), ApiError> {
+    if value.len() <= 40
+        && value.starts_with(|c: char| c.is_ascii_alphabetic())
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        Ok(())
+    } else {
+        Err(unfit(format!(
+            "an MCP client's {what} must be a short ASCII configuration name"
+        )))
+    }
+}
+
+fn config_file_part(value: &str, what: &str) -> Result<(), ApiError> {
+    if !value.is_empty()
+        && value.len() <= 80
+        && value != "."
+        && value != ".."
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        Ok(())
+    } else {
+        Err(unfit(format!(
+            "an MCP client's {what} must be one plain file or directory name"
+        )))
+    }
+}
+
+fn validate_client_config(config: &McpClientConfig) -> Result<(), ApiError> {
+    if config.home_env.len() > 80
+        || !config.home_env.ends_with("_HOME")
+        || !config
+            .home_env
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
+        return Err(unfit(
+            "an MCP client's homeEnv must be a client-specific variable ending in _HOME",
+        ));
+    }
+    config_file_part(&config.directory, "directory")?;
+    config_file_part(&config.file, "file")?;
+    config_name(&config.root, "root")?;
+    config_name(&config.headers, "headers")?;
+    match config.format {
+        McpConfigFormat::Json if config.file.ends_with(".json") => {}
+        McpConfigFormat::Toml if config.file.ends_with(".toml") => {}
+        McpConfigFormat::Json => return Err(unfit("a JSON MCP config must name a .json file")),
+        McpConfigFormat::Toml => return Err(unfit("a TOML MCP config must name a .toml file")),
+    }
+    Ok(())
+}
+
 /// A manifest's contents, checked, as a plugin not yet installed.
-fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
+pub(crate) fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
     let m: Manifest = serde_json::from_slice(bytes)
         .map_err(|e| unfit(format!("{MANIFEST} can't be read: {e}")))?;
     if !valid_id(&m.id) {
@@ -272,17 +401,112 @@ fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
             "the plugin's id must be lowercase letters, digits and -, starting with a letter, up to 40",
         ));
     }
-    let width = m.card.width.unwrap_or(4);
-    let height = m.card.height.unwrap_or(240);
-    if !(4..=12).contains(&width) || !(120..=600).contains(&height) {
-        return Err(unfit(
-            "a plugin's card is 4 to 12 columns wide and 120 to 600 pixels high",
-        ));
+    let name = field(&m.name, "name", 60, true)?;
+    let mut capabilities = m.capabilities;
+    if capabilities.cards.is_empty() {
+        if let Some(reads) = m.reads {
+            capabilities.cards.push(PluginCardCapability {
+                id: "card".into(),
+                name: name.clone(),
+                reads: reads.what,
+                shape: reads.shape,
+                columns: reads.columns,
+                width: m.card.width.unwrap_or(4),
+                height: m.card.height.unwrap_or(240),
+                entry: m.entry,
+            });
+        }
     }
-    if !safe_path(&m.entry) || !m.entry.ends_with(".html") {
-        return Err(unfit(
-            "the plugin's entry must be an .html file in its folder",
-        ));
+    if capabilities.cards.len()
+        + capabilities.sources.len()
+        + capabilities.preview.len()
+        + capabilities.mcp_clients.len()
+        == 0
+    {
+        return Err(unfit("a plugin must declare at least one capability"));
+    }
+    for (kind, count) in [
+        ("cards", capabilities.cards.len()),
+        ("sources", capabilities.sources.len()),
+        ("preview", capabilities.preview.len()),
+        ("mcpClients", capabilities.mcp_clients.len()),
+    ] {
+        if count > 16 {
+            return Err(unfit(format!("a plugin declares up to 16 {kind}")));
+        }
+    }
+    let mut card_ids = std::collections::BTreeSet::new();
+    for card in &mut capabilities.cards {
+        if !valid_id(&card.id) || !card_ids.insert(card.id.clone()) {
+            return Err(unfit(
+                "a card's id must be unique lowercase letters, digits and -",
+            ));
+        }
+        card.name = field(&card.name, "card name", 60, true)?;
+        card.reads = field(&card.reads, "description of what it reads", 200, true)?;
+        card.columns = card.columns.iter().copied().take(8).collect();
+        if !(4..=12).contains(&card.width) || !(120..=600).contains(&card.height) {
+            return Err(unfit(
+                "a plugin's card is 4 to 12 columns wide and 120 to 600 pixels high",
+            ));
+        }
+        if !safe_path(&card.entry) || !card.entry.ends_with(".html") {
+            return Err(unfit(
+                "the plugin's entry must be an .html file in its folder",
+            ));
+        }
+    }
+    let mut source_ids = std::collections::BTreeSet::new();
+    for source in &mut capabilities.sources {
+        if !valid_id(&source.id) || !source_ids.insert(source.id.clone()) {
+            return Err(unfit(
+                "a source's id must be unique lowercase letters, digits and -",
+            ));
+        }
+        source.name = field(&source.name, "source name", 60, true)?;
+    }
+    let mut preview_ids = std::collections::BTreeSet::new();
+    for preview in &mut capabilities.preview {
+        if !valid_id(&preview.id)
+            || !preview_ids.insert(preview.id.clone())
+            || preview.formats.is_empty()
+            || preview.formats.len() > 32
+        {
+            return Err(unfit("a preview needs a unique id and 1 to 32 formats"));
+        }
+        preview.name = field(&preview.name, "preview name", 60, true)?;
+        if preview.formats.iter().any(|format| {
+            format.is_empty()
+                || format.len() > 32
+                || !format
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        }) {
+            return Err(unfit(
+                "preview formats must be lowercase extensions without a dot",
+            ));
+        }
+    }
+    let mut client_ids = std::collections::BTreeSet::new();
+    for client in &mut capabilities.mcp_clients {
+        if !valid_id(&client.id) || !client_ids.insert(client.id.clone()) {
+            return Err(unfit(
+                "an MCP client's id must be unique lowercase letters, digits and -",
+            ));
+        }
+        client.name = field(&client.name, "MCP client name", 60, true)?;
+        match (&mut client.command, &client.config) {
+            (Some(command), _) => {
+                *command = field(command, "MCP command", 500, true)?;
+                if !command.contains("{url}") || !command.contains("{token}") {
+                    return Err(unfit("an MCP command needs {url} and {token} placeholders"));
+                }
+            }
+            (None, Some(config)) => validate_client_config(config)?,
+            (None, None) => {
+                return Err(unfit("an MCP client needs a command or a configuration"));
+            }
+        }
     }
     if m.translations.len() > MAX_LANGUAGES {
         return Err(unfit(format!(
@@ -299,12 +523,29 @@ fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
         let optional = |value: Option<String>, what: &str, max: usize| {
             value.map(|v| field(&v, what, max, true)).transpose()
         };
+        let capabilities = |values: BTreeMap<String, ManifestText>| {
+            values
+                .into_iter()
+                .map(|(id, text)| {
+                    Ok((
+                        id,
+                        PluginCapabilityText {
+                            name: optional(text.name, "capability name", 60)?,
+                            reads: optional(text.reads, "description of what it reads", 200)?,
+                        },
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>, ApiError>>()
+        };
         translations.insert(
             tag,
             PluginText {
                 name: optional(text.name, "name", 60)?,
                 description: optional(text.description, "description", 300)?,
                 reads: optional(text.reads, "description of what it reads", 200)?,
+                cards: capabilities(text.cards)?,
+                sources: capabilities(text.sources)?,
+                mcp_clients: capabilities(text.mcp_clients)?,
             },
         );
     }
@@ -315,20 +556,26 @@ fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiError> {
     {
         return Err(unfit("the plugin's version must be like 1.2.0"));
     }
+    let first = capabilities.cards.first().cloned();
     Ok(Plugin {
-        name: field(&m.name, "name", 60, true)?,
+        name,
         by: field(&m.by, "maker", 60, true)?,
         version,
         description: field(&m.description, "description", 300, false)?,
-        reads: field(&m.reads.what, "description of what it reads", 200, true)?,
-        shape: m.reads.shape,
-        columns: m.reads.columns.into_iter().take(8).collect(),
-        width,
-        height,
-        entry: m.entry,
+        reads: first.as_ref().map(|c| c.reads.clone()).unwrap_or_default(),
+        shape: first.as_ref().map(|c| c.shape).unwrap_or(PluginShape::Any),
+        columns: first
+            .as_ref()
+            .map(|c| c.columns.clone())
+            .unwrap_or_default(),
+        width: first.as_ref().map(|c| c.width).unwrap_or(4),
+        height: first.as_ref().map(|c| c.height).unwrap_or(240),
+        entry: first.map(|c| c.entry).unwrap_or_default(),
         built_in,
         installed: false,
         collections: Vec::new(),
+        capabilities,
+        home_by_default: false,
         translations,
         id: m.id,
     })
@@ -431,11 +678,15 @@ impl Api {
         self.catalog.oikome_dir().join(PLUGINS_DIR)
     }
 
+    fn removed_built_ins_path(&self) -> PathBuf {
+        self.catalog.oikome_dir().join(REMOVED_BUILT_INS_FILE)
+    }
+
     fn installed(&self) -> Result<Vec<Installed>, ApiError> {
         read_private(&self.plugins_path())
     }
 
-    fn installed_plugin(&self, id: &str) -> Result<Installed, ApiError> {
+    pub(crate) fn installed_plugin(&self, id: &str) -> Result<Installed, ApiError> {
         self.installed()?
             .into_iter()
             .find(|p| p.id == id)
@@ -464,10 +715,90 @@ impl Api {
             .and_then(|(_, bytes)| read_manifest(bytes, true).ok())
     }
 
-    /// Plugins installed here, then Oikome's own not added yet.
+    /// Resolve an MCP adapter only from an installed package. No client has
+    /// a Rust implementation or an uninstalled official fallback.
+    pub(crate) fn mcp_client(
+        &self,
+        plugin: &str,
+        client: &str,
+    ) -> Result<McpClientCapability, ApiError> {
+        self.ensure_built_ins()?;
+        let package = self.installed_plugin(plugin)?.plugin();
+        package
+            .capabilities
+            .mcp_clients
+            .into_iter()
+            .find(|capability| capability.id == client)
+            .ok_or_else(|| {
+                ApiError::not_found(format!("plugin {plugin} has no MCP client {client}"))
+                    .because("mcp_client_unknown")
+                    .with("id", client)
+            })
+    }
+
+    /// Install this build's official packages on a new node. A legacy node
+    /// with no removal record keeps its old choices; a deliberate removal
+    /// stays removed, including after a restart.
+    pub(crate) fn ensure_built_ins(&self) -> Result<(), ApiError> {
+        let new_node = !self.plugins_path().exists();
+        let has_removal_record = self.removed_built_ins_path().exists();
+        if !new_node && !has_removal_record {
+            return Ok(());
+        }
+        if new_node {
+            self.change_private(&self.removed_built_ins_path(), |_: &mut Vec<String>| {})?;
+        }
+        let removed: Vec<String> = read_private(&self.removed_built_ins_path())?;
+        for files in BUILT_IN {
+            let Some((_, bytes)) = files.iter().find(|(name, _)| *name == MANIFEST) else {
+                continue;
+            };
+            let plugin = read_manifest(bytes, true)?;
+            if removed.contains(&plugin.id) || self.installed_plugin(&plugin.id).is_ok() {
+                continue;
+            }
+            let files = files
+                .iter()
+                .map(|(name, bytes)| (name.to_string(), bytes.to_vec()))
+                .collect();
+            self.install_package(plugin, files)?;
+        }
+        Ok(())
+    }
+
+    /// Installed plugins, then official packages the owner removed.
     pub async fn list_plugins(&self, caller: &Caller, _: Empty) -> Result<Vec<Plugin>, ApiError> {
         caller.require_owner()?;
+        self.ensure_built_ins()?;
         let installed = self.installed()?;
+        // Only a collection removed while its grant existed is restorable.
+        // The editable list of collections alone is never proof of a grant.
+        let session = self.session(None);
+        let mut restored = BTreeMap::new();
+        for plugin in &installed {
+            for collection in &plugin.restore_collections {
+                if self.catalog.get_space(collection).is_ok()
+                    && !self.catalog.has_space_grant(&plugin.did, collection)
+                {
+                    session.grant_space(collection, std::slice::from_ref(&plugin.did))?;
+                    restored
+                        .entry(plugin.id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(collection.clone());
+                }
+            }
+        }
+        if !restored.is_empty() {
+            self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
+                for plugin in all {
+                    if let Some(names) = restored.get(&plugin.id) {
+                        plugin
+                            .restore_collections
+                            .retain(|name| !names.contains(name));
+                    }
+                }
+            })?;
+        }
         let mut out: Vec<Plugin> = installed.iter().map(Installed::plugin).collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
         for files in BUILT_IN {
@@ -480,6 +811,27 @@ impl Api {
             }
         }
         Ok(out)
+    }
+
+    /// Remember a grant lost because its collection was removed. This is
+    /// recorded before the collection is dropped, not inferred from card data.
+    pub(crate) fn note_removed_collection(&self, space: &str) -> Result<(), ApiError> {
+        let affected = self.installed()?.iter().any(|plugin| {
+            plugin.collections.iter().any(|name| name == space)
+                && self.catalog.has_space_grant(&plugin.did, space)
+        });
+        if affected {
+            self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
+                for plugin in all {
+                    if plugin.collections.iter().any(|name| name == space)
+                        && !plugin.restore_collections.iter().any(|name| name == space)
+                    {
+                        plugin.restore_collections.push(space.to_string());
+                    }
+                }
+            })?;
+        }
+        Ok(())
     }
 
     /// What a folder on this computer holds as a plugin, before adding it.
@@ -532,18 +884,20 @@ impl Api {
             .map(|(_, bytes)| bytes.as_slice())
             .unwrap_or_default();
         let plugin = read_manifest(manifest, false)?;
-        if !files.iter().any(|(name, _)| *name == plugin.entry) {
-            return Err(unfit(format!(
-                "the plugin's entry, {}, isn't in its folder",
-                plugin.entry
-            )));
+        for card in &plugin.capabilities.cards {
+            if !files.iter().any(|(name, _)| *name == card.entry) {
+                return Err(unfit(format!(
+                    "the plugin's entry, {}, isn't in its folder",
+                    card.entry
+                )));
+            }
         }
         Ok((plugin, files))
     }
 
-    /// Add one of Oikome's plugins, or one from a folder, letting it read
-    /// these collections. Adding a plugin already here updates its files and
-    /// what it may read.
+    /// Register an official or external package. Installation has no data,
+    /// source or Home side effects. Updating preserves existing card grants
+    /// and the layout behavior the installed record already had.
     pub async fn install_plugin(
         &self,
         caller: &Caller,
@@ -577,7 +931,11 @@ impl Api {
                 )
             }
         };
-        let collections = self.readable_by_plugins(&req.collections)?;
+        self.install_package(plugin, files)
+    }
+
+    /// Install already validated package files through the common lifecycle.
+    pub(crate) fn install_package(&self, plugin: Plugin, files: Files) -> Result<Plugin, ApiError> {
         let existing = self.installed_plugin(&plugin.id).ok();
         if existing.is_none() && self.installed()?.len() >= MAX_INSTALLED {
             return Err(ApiError::invalid(format!(
@@ -594,6 +952,14 @@ impl Api {
                 .did()
                 .to_string(),
         };
+        let collections = if plugin.capabilities.cards.is_empty() {
+            Vec::new()
+        } else {
+            existing
+                .as_ref()
+                .map(|p| p.collections.clone())
+                .unwrap_or_default()
+        };
         let installed = Installed {
             id: plugin.id.clone(),
             did,
@@ -608,11 +974,34 @@ impl Api {
             height: plugin.height,
             entry: plugin.entry,
             built_in: plugin.built_in,
-            collections: existing.map(|p| p.collections).unwrap_or_default(),
+            // Keep the old grants as the starting set so an update that
+            // removes every card also revokes them.
+            collections: existing
+                .as_ref()
+                .map(|p| p.collections.clone())
+                .unwrap_or_default(),
+            restore_collections: if plugin.capabilities.cards.is_empty() {
+                Vec::new()
+            } else {
+                existing
+                    .as_ref()
+                    .map(|p| p.restore_collections.clone())
+                    .unwrap_or_default()
+            },
             installed_at_ms: now_ms(),
+            capabilities: Some(plugin.capabilities),
+            home_by_default: existing.map(|p| p.home_by_default).unwrap_or(false),
             translations: plugin.translations,
         };
         let installed = self.grant_plugin(installed, collections)?;
+        if Self::built_in(&installed.id).is_some() {
+            self.change_private(
+                &self.removed_built_ins_path(),
+                |removed: &mut Vec<String>| {
+                    removed.retain(|id| id != &installed.id);
+                },
+            )?;
+        }
         Ok(installed.plugin())
     }
 
@@ -625,6 +1014,12 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let installed = self.installed_plugin(&req.id)?;
+        if installed.capabilities().cards.is_empty() {
+            return Err(
+                ApiError::invalid("this plugin has no card that reads collections")
+                    .because("plugin_has_no_card"),
+            );
+        }
         let collections = self.readable_by_plugins(&req.collections)?;
         Ok(self.grant_plugin(installed, collections)?.plugin())
     }
@@ -647,6 +1042,16 @@ impl Api {
         self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
             all.retain(|p| p.id != req.id)
         })?;
+        if Self::built_in(&installed.id).is_some() {
+            self.change_private(
+                &self.removed_built_ins_path(),
+                |removed: &mut Vec<String>| {
+                    if !removed.contains(&req.id) {
+                        removed.push(req.id.clone());
+                    }
+                },
+            )?;
+        }
         self.remember_name(&installed.did, &installed.name);
         let dir = self.plugins_dir().join(&req.id);
         if dir.exists() {
@@ -780,7 +1185,12 @@ impl Api {
             return None;
         }
         let bytes = std::fs::read(&file).ok()?;
-        if path == plugin.entry {
+        if plugin
+            .capabilities()
+            .cards
+            .iter()
+            .any(|card| card.entry == path)
+        {
             return Some(with_sdk(&String::from_utf8_lossy(&bytes)).into_bytes());
         }
         Some(bytes)
@@ -1000,11 +1410,24 @@ mod tests {
         for files in BUILT_IN {
             let (_, manifest) = files.iter().find(|(n, _)| *n == MANIFEST).unwrap();
             let plugin = read_manifest(manifest, true).unwrap();
-            assert!(
-                files.iter().any(|(n, _)| *n == plugin.entry),
-                "{}",
-                plugin.id
-            );
+            assert_eq!(plugin.translations.len(), 7, "{} translations", plugin.id);
+            for text in plugin.translations.values() {
+                assert!(text.description.is_some(), "{} description", plugin.id);
+                for card in &plugin.capabilities.cards {
+                    assert!(text.cards.contains_key(&card.id) || card.name == plugin.name);
+                }
+                for source in &plugin.capabilities.sources {
+                    assert!(text.sources.contains_key(&source.id) || source.name == plugin.name);
+                }
+            }
+            for card in plugin.capabilities.cards {
+                assert!(
+                    files.iter().any(|(n, _)| *n == card.entry),
+                    "{}: {}",
+                    plugin.id,
+                    card.id
+                );
+            }
         }
     }
 }

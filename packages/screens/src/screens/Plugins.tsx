@@ -1,12 +1,11 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Plugins: the cards others (and Oikome) made for Home, what each may read,
-// and that none reaches the internet. Adding one shows what it wants to
-// read and which collections fit; the owner chooses, and the node grants
-// exactly those to the plugin.
+// Plugins register cards, sources, preview declarations and MCP clients.
+// Installation grants no data and places no card; each capability is
+// configured separately by the owner.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Checkbox,
@@ -18,21 +17,21 @@ import {
   Tile,
   useToast,
 } from "@oikome/ui";
-import type { NodeInfo, Plugin, SpaceSummary } from "@oikome/client";
+import type { Plugin, SpaceSummary } from "@oikome/client";
 import { loadPreview } from "../content";
 import type { View } from "../content";
-import { inLanguage, pluginCollection } from "../plugins";
+import { inLanguage, previewColumnTypes } from "../plugins";
 import { asSentence, useAction, useClient, useLoad } from "../data";
 import type { Describe } from "../data";
 import { ScreenHeader } from "../parts";
 import { FolderBrowser } from "../storage";
 import { strings } from "../strings";
-import { listNames } from "../format";
+import { bytes, listNames } from "../format";
 
 const s = strings.plugins;
 
 /** Where a plugin to add comes from. */
-type Source = { builtIn: string } | { path: string };
+type Source = { builtIn: string } | { path: string } | { registry: { id: string; version: string } };
 
 /** What a collection holds, as a plugin would see it: its view and its kinds of column. */
 interface Holds {
@@ -54,7 +53,7 @@ function useCollectionViews() {
       const map = new Map<string, Holds>();
       loaded.forEach((preview, i) => {
         const name = mine[i]!.name;
-        const columns = preview?.rows ? pluginCollection(name, preview.rows).columns.map((c) => c.type) : [];
+        const columns = preview ? previewColumnTypes(preview) : [];
         map.set(name, { view: preview?.shape.view ?? "table", columns: new Set(columns) });
       });
       setViews(map);
@@ -67,27 +66,19 @@ function useCollectionViews() {
   return { mine, views };
 }
 
-/** Whether a collection is the kind a plugin reads, with the columns it needs. */
+/** Whether a collection is the kind a plugin's first card reads. */
 function fits(plugin: Plugin, holds: Holds | undefined): boolean {
   if (!holds) return false;
   return (plugin.shape === "any" || plugin.shape === holds.view) && plugin.columns.every((c) => holds.columns.has(c));
 }
 
-/** Home's cards with this plugin's added, when the owner arranged Home. */
-function withCard(info: NodeInfo, plugin: Plugin) {
-  const id = `plugin:${plugin.id}`;
-  if (!info.homeCards || info.homeCards.some((card) => card.id === id)) return undefined;
-  return [...info.homeCards, { id, width: plugin.width }];
-}
-
-function onHome(info: NodeInfo, plugin: Plugin): boolean {
-  // Before Home is arranged, every plugin's card is on it.
-  return !info.homeCards || info.homeCards.some((card) => card.id === `plugin:${plugin.id}`);
-}
-
-export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo) => void }) {
+export function Plugins() {
   const client = useClient();
   const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
+  const registry = useLoad(
+    async () => (await client.listRegistryPlugins()).map((entry) => ({ ...entry, plugin: inLanguage(entry.plugin) })),
+    [],
+  );
   const { mine, views } = useCollectionViews();
   const [adding, setAdding] = useState<{ plugin: Plugin; source: Source }>();
   const [browsing, setBrowsing] = useState(false);
@@ -96,6 +87,9 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
 
   const installed = (plugins.data ?? []).filter((p) => p.installed);
   const offered = (plugins.data ?? []).filter((p) => !p.installed && p.builtIn);
+  const registryOffered = (registry.data ?? []).filter(
+    (entry) => !(plugins.data ?? []).some((plugin) => plugin.builtIn && plugin.id === entry.plugin.id),
+  );
 
   return (
     <>
@@ -143,9 +137,7 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
                     </span>
                   </td>
                   <td>
-                    <Status kind={onHome(info, plugin) ? "ok" : "idle"}>
-                      {onHome(info, plugin) ? s.onHome : s.notOnHome}
-                    </Status>
+                    <Status kind="ok">{s.installed}</Status>
                   </td>
                   <td className="screen-cell-action">
                     <Button variant="quiet" aria-label={s.settingsFor(plugin.name)} onClick={() => setEditing(plugin)}>
@@ -175,7 +167,9 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
                   </span>
                 </span>
                 <p className="screen-plugin-offer__what">{plugin.description}</p>
-                <p className="screen-plugin-offer__reads">{s.wants(plugin.reads)}</p>
+                {plugin.capabilities.cards.length > 0 && (
+                  <p className="screen-plugin-offer__reads">{s.wants(plugin.reads)}</p>
+                )}
                 <span className="screen-plugin-offer__foot">
                   <span className="screen-plugin-net">
                     <Icon name="lock" />
@@ -189,6 +183,58 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
             ))}
           </div>
         </section>
+      )}
+
+      {(!registry.data || registry.error || registryOffered.length > 0) && (
+      <section className="screen-section" aria-labelledby="official-repository">
+        <h2 id="official-repository" className="oik-label screen-section-label">
+          {s.repository}
+        </h2>
+        <p className="screen-help">{s.repositoryHint}</p>
+        {registry.error ? (
+          <p className="screen-help screen-help--error">
+            {registry.error}{" "}
+            <Button variant="quiet" onClick={registry.reload}>
+              {strings.common.retry}
+            </Button>
+          </p>
+        ) : registry.data ? (
+          <div className="screen-plugin-offers">
+            {registryOffered.map((entry) => (
+              <article key={`${entry.plugin.id}:${entry.plugin.version}`} className="oik-card screen-plugin-offer">
+                <span className="screen-plugin-name">
+                  <Tile icon="plugin" tone="sage" />
+                  <span className="screen-plugin-name__text">
+                    <span className="screen-plugin-name__name">{entry.plugin.name}</span>
+                    <span className="screen-plugin-name__by">{s.by(entry.plugin.by)}</span>
+                  </span>
+                </span>
+                <p className="screen-plugin-offer__what">{entry.plugin.description}</p>
+                <span className="screen-plugin-offer__foot">
+                  <span className="screen-plugin-net">{bytes(entry.bytes)}</span>
+                  {entry.plugin.installed ? (
+                    <Status kind="ok">{s.installed}</Status>
+                  ) : (
+                    <Button
+                      aria-label={s.addFromRepository(entry.plugin.name)}
+                      onClick={() =>
+                        setAdding({
+                          plugin: entry.plugin,
+                          source: { registry: { id: entry.plugin.id, version: entry.plugin.version } },
+                        })
+                      }
+                    >
+                      {s.add}
+                    </Button>
+                  )}
+                </span>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <span className="oik-skel oik-skel--line" aria-hidden="true" />
+        )}
+      </section>
       )}
 
       {browsing && (
@@ -207,17 +253,11 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
         <AddPlugin
           plugin={adding.plugin}
           source={adding.source}
-          mine={mine}
-          views={views}
           onClose={() => setAdding(undefined)}
-          onAdded={async (plugin) => {
+          onAdded={() => {
             setAdding(undefined);
             plugins.reload();
-            const cards = withCard(info, plugin);
-            if (cards) {
-              const updated = await client.setHomeCards({ cards }).catch(() => undefined);
-              if (updated) onInfo(updated);
-            }
+            registry.reload();
           }}
         />
       )}
@@ -237,7 +277,7 @@ export function Plugins({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeI
   );
 }
 
-/** Its name and maker, what it reads, and which collections fit: the owner chooses. */
+/** What a card reads, and which collections fit: the owner chooses. */
 function Collections({
   plugin,
   mine,
@@ -251,7 +291,6 @@ function Collections({
   chosen: Set<string>;
   onChange: (chosen: Set<string>) => void;
 }) {
-  // The ones that fit, and any it may read already.
   const offered = mine.filter((space) => fits(plugin, views?.get(space.name)) || chosen.has(space.name));
   return (
     <fieldset className="screen-plugin-reads">
@@ -315,32 +354,17 @@ const describe: Describe = (e) => (e.code === "invalid" || e.code === "not_found
 function AddPlugin({
   plugin,
   source,
-  mine,
-  views,
   onClose,
   onAdded,
 }: {
   plugin: Plugin;
   source: Source;
-  mine: SpaceSummary[];
-  views?: Map<string, Holds>;
   onClose: () => void;
   onAdded: (plugin: Plugin) => void;
 }) {
   const client = useClient();
   const toast = useToast();
   const add = useAction();
-  const [chosen, setChosen] = useState<Set<string>>(() => new Set(plugin.collections));
-  // Once the collections are known, the ones that fit are chosen to start.
-  const fitting = useMemo(
-    () => (views ? mine.filter((space) => fits(plugin, views.get(space.name))).map((space) => space.name) : []),
-    [views, mine, plugin],
-  );
-  // Only what it needs: one fitting collection is chosen for the owner; of
-  // several, the owner chooses.
-  useEffect(() => {
-    if (views && plugin.collections.length === 0 && fitting.length === 1) setChosen(new Set(fitting));
-  }, [views, fitting, plugin.collections.length]);
   return (
     <Dialog
       title={s.addTitle(plugin.name)}
@@ -351,14 +375,15 @@ function AddPlugin({
           <Button onClick={onClose}>{strings.common.cancel}</Button>
           <Button
             variant="primary"
-            disabled={add.busy || chosen.size === 0}
+            disabled={add.busy}
             onClick={async () => {
               const added = await add.run(
                 () =>
-                  client.installPlugin({
-                    ...("builtIn" in source ? { builtIn: source.builtIn } : { path: source.path }),
-                    collections: [...chosen],
-                  }),
+                  "builtIn" in source
+                    ? client.installPlugin({ builtIn: source.builtIn })
+                    : "path" in source
+                      ? client.installPlugin({ path: source.path })
+                      : client.installRegistryPlugin(source.registry),
                 describe,
               );
               if (added) {
@@ -367,13 +392,13 @@ function AddPlugin({
               }
             }}
           >
-            {s.addToHome}
+            {s.add}
           </Button>
         </>
       }
     >
       <Heading plugin={plugin} />
-      <Collections plugin={plugin} mine={mine} views={views} chosen={chosen} onChange={setChosen} />
+      <p className="screen-help">{s.installHint}</p>
       <NoInternet />
       {add.error && <ErrorText>{add.error}</ErrorText>}
     </Dialog>
@@ -399,6 +424,7 @@ function PluginSettings({
   const remove = useAction();
   const [chosen, setChosen] = useState(() => new Set(plugin.collections));
   const [removing, setRemoving] = useState(false);
+  const hasCards = plugin.capabilities.cards.length > 0;
   if (removing) {
     return (
       <ConfirmDialog
@@ -432,28 +458,30 @@ function PluginSettings({
           <Button variant="destructive" className="screen-dialog-start" onClick={() => setRemoving(true)}>
             {s.remove}
           </Button>
-          <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button
-            variant="primary"
-            disabled={save.busy}
-            onClick={async () => {
-              const saved = await save.run(
-                () => client.setPluginCollections({ id: plugin.id, collections: [...chosen] }),
-                describe,
-              );
-              if (saved) {
-                toast(s.saved(plugin.name));
-                onChanged();
-              }
-            }}
-          >
-            {strings.common.save}
-          </Button>
+          <Button onClick={onClose}>{hasCards ? strings.common.cancel : strings.common.close}</Button>
+          {hasCards && (
+            <Button
+              variant="primary"
+              disabled={save.busy}
+              onClick={async () => {
+                const saved = await save.run(
+                  () => client.setPluginCollections({ id: plugin.id, collections: [...chosen] }),
+                  describe,
+                );
+                if (saved) {
+                  toast(s.saved(plugin.name));
+                  onChanged();
+                }
+              }}
+            >
+              {strings.common.save}
+            </Button>
+          )}
         </>
       }
     >
       <Heading plugin={plugin} />
-      <Collections plugin={plugin} mine={mine} views={views} chosen={chosen} onChange={setChosen} />
+      {hasCards && <Collections plugin={plugin} mine={mine} views={views} chosen={chosen} onChange={setChosen} />}
       <NoInternet />
       {save.error && <ErrorText>{save.error}</ErrorText>}
     </Dialog>

@@ -24,6 +24,7 @@
 // AA). No fake data: everything goes through the node.
 
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import dgram from "node:dgram";
 import {
   appendFileSync,
@@ -56,6 +57,8 @@ let owner;
 let contact;
 let server;
 let contactServer;
+let registryServer;
+let registryRoot;
 let base;
 let context;
 let page;
@@ -129,6 +132,46 @@ const api = (op, body = {}) =>
     [op, body],
   );
 
+/** A real local HTTP release of an official package, with no mocks in the app. */
+async function serveRegistry() {
+  registryRoot = mkdtempSync(join(tmpdir(), "oikome-registry-"));
+  const packageDir = join(registryRoot, "package");
+  mkdirSync(packageDir);
+  const source = fileURLToPath(new URL("../plugins/spending-by-category", import.meta.url));
+  for (const name of readdirSync(source)) copyFileSync(join(source, name), join(packageDir, name));
+  const manifest = JSON.parse(readFileSync(join(packageDir, "oikome-plugin.json"), "utf8"));
+  const archive = join(registryRoot, "spending-by-category-1.0.0.zip");
+  execFileSync("python3", [
+    "-c",
+    "import pathlib,sys,zipfile\nwith zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_DEFLATED) as z:\n  for p in pathlib.Path(sys.argv[1]).iterdir(): z.write(p, p.name)",
+    packageDir,
+    archive,
+  ]);
+  const bytes = readFileSync(archive);
+  const server = http.createServer((request, response) => {
+    if (request.url === "/index.json") {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [{
+          manifest,
+          download: `${registryBase}/spending-by-category-1.0.0.zip`,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          bytes: bytes.length,
+        }],
+      }));
+    } else if (request.url === "/spending-by-category-1.0.0.zip") {
+      response.end(bytes);
+    } else {
+      response.statusCode = 404;
+      response.end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const registryBase = `http://127.0.0.1:${server.address().port}`;
+  return server;
+}
+
 test.beforeAll(async ({ browser }) => {
   expect(existsSync(BIN), `${BIN} (cargo build -p oikome-server)`).toBe(true);
   expect(existsSync(join(WEB_ROOT, "index.html")), "build apps/web first (npm run build)").toBe(true);
@@ -142,6 +185,13 @@ test.beforeAll(async ({ browser }) => {
     writeFileSync(opener, `#!/bin/sh\nprintf '%s|%s\\n' "$#" "$*" > "${join(owner, "open-with.log")}"\n`, { mode: 0o755 });
     openerEnv = { ...ENV, PATH: `${openerBin}:${ENV.PATH ?? ""}` };
   }
+  registryServer = await serveRegistry();
+  const registryBase = `http://127.0.0.1:${registryServer.address().port}`;
+  openerEnv = {
+    ...openerEnv,
+    OIKOME_PLUGIN_REGISTRY_INDEX: `${registryBase}/index.json`,
+    OIKOME_PLUGIN_DOWNLOAD_PREFIX: `${registryBase}/`,
+  };
   server = await serveWeb(owner, openerEnv);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -155,7 +205,8 @@ test.afterAll(async () => {
   await contactContext?.close();
   server?.kill();
   contactServer?.kill();
-  for (const dir of [owner, contact]) if (dir) rmSync(dir, { recursive: true, force: true });
+  registryServer?.close();
+  for (const dir of [owner, contact, registryRoot]) if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
 test("first run: name the data center and save its recovery key", async () => {
@@ -403,6 +454,50 @@ test("sources write into chosen collections, and folders join an empty file coll
     await expect(page).toHaveURL(/\/collections\/file-library$/);
     await expect(page.locator("a.screen-ftile", { hasText: "trip.md" })).toBeVisible();
     await api("drop_space", { space: "file-library" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the flomo package configures its source and Home card separately", async () => {
+  const dir = mkdtempSync(join(homedir(), "oikome-flomo-"));
+  const file = join(dir, "memos.html");
+  writeFileSync(
+    file,
+    '<html><body><div class="memo"><div class="time">2026-11-16 09:30:00</div><div class="content"><p>A note from flomo, kept long enough to read as a note in the collection.</p></div></div></body></html>',
+  );
+  try {
+    await api("create_space", { name: "imported-memos", kind: "transactional" });
+    await api("install_plugin", { builtIn: "flomo" });
+    await page.goto(`${base}/sources`);
+    await expect(page.locator(".screen-source-kind", { hasText: "flomo HTML export" })).toBeVisible();
+    await page.getByRole("button", { name: "Add Source" }).click();
+    const add = page.getByRole("dialog", { name: "Add Source" });
+    await add.getByRole("radio", { name: /flomo HTML export/ }).check();
+    await add.getByLabel("Target collection").selectOption("imported-memos");
+    await add.getByRole("button", { name: "Choose File…" }).click();
+    await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
+    await page.getByRole("button", { name: "memos.html", exact: true }).click();
+    await add.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(add).toHaveCount(0);
+    expect((await api("list_tables", { space: "imported-memos" })).find((table) => table.name === "memos").rows).toBe(1);
+
+    await page.goto(`${base}/`);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    const choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Recent flomo notes" }).getByRole("button", { name: "Add" }).click();
+    const grant = page.getByRole("dialog", { name: "Recent flomo notes" });
+    await grant.getByRole("checkbox", { name: "imported-memos" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+    await page.getByRole("region", { name: "Recent flomo notes" }).scrollIntoViewIfNeeded();
+    const card = page.frameLocator('iframe[title="Recent flomo notes"]');
+    await expect(card.getByText("A note from flomo", { exact: false })).toBeVisible();
+    const { homeCards } = await api("node_info");
+    await api("set_home_cards", { cards: homeCards.filter((card) => card.id !== "plugin:flomo:recent-notes") });
+    await api("drop_space", { space: "imported-memos" });
+    await api("remove_plugin", { id: "flomo" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1139,6 +1234,32 @@ test("one-click MCP setup configures isolated Kimi Code and Codex homes safely",
     isolated.kill();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("removing an MCP plugin hides its client until the owner restores it", async () => {
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  let dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await expect(dialog.getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /Another app/ })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.goto(`${base}/plugins`);
+  await page.getByRole("button", { name: "Settings: Kimi Code" }).click();
+  await page.getByRole("dialog", { name: "Kimi Code" }).getByRole("button", { name: "Remove Plugin" }).click();
+  await page.getByRole("dialog", { name: "Remove Kimi Code?" }).getByRole("button", { name: "Remove" }).click();
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await expect(dialog.getByRole("radio", { name: "Kimi Code", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.goto(`${base}/plugins`);
+  await page.getByRole("button", { name: "Add Kimi Code", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add Kimi Code" }).getByRole("button", { name: "Add", exact: true }).click();
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  await expect(page.getByRole("dialog", { name: "Connect MCP Client" }).getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
 });
 
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
@@ -2254,20 +2375,24 @@ test("plugins go on Home, read only what they may, and reach nothing", async () 
   const said = [];
   const listen = (m) => m.text().startsWith("PROBE ") && said.push(m.text().slice(6));
   try {
-    // Oikome's own, added from Plugins: the collection that fits is chosen to start.
+    // Built-in packages start installed but grant nothing until a card is added.
     await page.goto(`${base}/plugins`);
-    await page.getByRole("button", { name: "Add Spending by category" }).click();
-    const adding = page.getByRole("dialog", { name: "Add Spending by category" });
-    await expect(adding.getByRole("checkbox", { name: "spending" })).toBeChecked();
-    await adding.getByRole("button", { name: "Add to Home" }).click();
-    await expect(page.locator(".oik-toasts")).toContainText("Spending by category is on Home.");
     const row = page.locator("tbody tr", { hasText: "Spending by category" });
-    await expect(row).toContainText("spending");
+    await expect(row).toContainText("Nothing yet");
     await expect(row).toContainText("None");
-    await expect(row).toContainText("On Home");
+    await expect(row).toContainText("Installed");
+    expect((await api("plugin_read", { plugin: "spending-by-category", space: "spending" })).code).toBe("permission_denied");
 
-    // On Home, it shows where the money went (its frame loads when near the view).
+    // On Home, the owner picks the card and separately chooses what it reads.
     await page.goto(`${base}/`);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    const choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Spending by category" }).getByRole("button", { name: "Add" }).click();
+    const grant = page.getByRole("dialog", { name: "Spending by category" });
+    await grant.getByRole("checkbox", { name: "spending" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
     await page.getByRole("region", { name: "Spending by category" }).scrollIntoViewIfNeeded();
     const card = page.frameLocator('iframe[title="Spending by category"]');
     await expect(card.getByText("in 30 days")).toBeVisible();
@@ -2299,7 +2424,8 @@ try { say("parent", parent.document.title); } catch { say("parent", "blocked"); 
 oikome.onData(({ collections }) => { say("data", collections.map((c) => c.name).join(",")); oikome.open("lisbon-photos"); });
 setTimeout(() => { location.href = "${OUT}/navigate"; }, 1000);`,
     );
-    await api("install_plugin", { path: probe, collections: ["spending"] });
+    await api("install_plugin", { path: probe });
+    await api("set_plugin_collections", { id: "probe", collections: ["spending"] });
     const { homeCards } = await api("node_info");
     await api("set_home_cards", { cards: [...homeCards, { id: "plugin:probe", width: 4 }] });
     page.on("console", listen);
@@ -2338,11 +2464,92 @@ setTimeout(() => { location.href = "${OUT}/navigate"; }, 1000);`,
     await page.getByRole("dialog", { name: "Remove Probe?" }).getByRole("button", { name: "Remove" }).click();
     await expect(page.locator(".oik-toasts")).toContainText("Removed Probe.");
     expect((await api("plugin_read", { plugin: "probe", space: "spending" })).code).toBe("not_found");
+    expect((await api("node_info")).homeCards.some((card) => card.id === "plugin:probe")).toBe(true);
+    await page.goto(`${base}/`);
+    await expect(page.getByRole("region", { name: "Unavailable card" }).first()).toContainText("This place is kept");
   } finally {
     page.off("console", listen);
     outside.close();
     udp.close();
     rmSync(probe, { recursive: true, force: true });
+  }
+});
+
+test("official cards calculate spending and pick a real photo memory", async () => {
+  const photos = mkdtempSync(join(tmpdir(), "oikome-memory-photos-"));
+  try {
+    expect((await api("create_space", { name: "plugin-spending", kind: "transactional" })).name).toBe("plugin-spending");
+    expect((await api("run_sql", {
+      sql: `CREATE TABLE "plugin-spending".entries (day VARCHAR, amount DOUBLE, category VARCHAR);
+        INSERT INTO "plugin-spending".entries VALUES
+        ('2026-11-15', 10, 'Food'), ('2026-11-16', 20, 'Food'),
+        ('2026-11-16', 5, 'Transport'), ('2026-11-14', 40, 'Books');`,
+    })).code).toBeUndefined();
+
+    const example = join(owner, "Examples", "lisbon-photos");
+    const image = readdirSync(example).find((name) => /\.(jpe?g|png|webp)$/i.test(name));
+    for (const name of ["nearest.jpg", "older.jpg", "current.jpg"]) copyFileSync(join(example, image), join(photos, name));
+    const now = new Date();
+    const date = (yearOffset, dayOffset) => {
+      const value = new Date(Date.UTC(now.getUTCFullYear() + yearOffset, now.getUTCMonth(), now.getUTCDate() + dayOffset, 12));
+      return `${value.toISOString().slice(0, 10)} 12:00:00`;
+    };
+    writeFileSync(join(photos, "captions.csv"), [
+      "file,title,place,taken,credit",
+      `nearest.jpg,Nearest memory,Lisbon,${date(-1, 0)},Oikome`,
+      `older.jpg,Older memory,Porto,${date(-1, -20)},Oikome`,
+      `current.jpg,Current photo,Lisbon,${date(0, 0)},Oikome`,
+    ].join("\n"));
+    expect((await api("view_in_place", { path: photos, name: "memory-photos" })).name).toBe("memory-photos");
+    const existing = await api("node_info");
+    if (existing.homeCards) {
+      await api("set_home_cards", {
+        cards: existing.homeCards.filter((card) => !["plugin:spending-by-category", "plugin:photo-memories"].includes(card.id)),
+      });
+    }
+    await api("set_plugin_collections", { id: "spending-by-category", collections: [] });
+
+    await page.goto(`${base}/`);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    let choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Spending by category" }).getByRole("button", { name: "Add" }).click();
+    let grant = page.getByRole("dialog", { name: "Spending by category" });
+    await grant.getByRole("checkbox", { name: "plugin-spending" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Photo memories" }).getByRole("button", { name: "Add" }).click();
+    grant = page.getByRole("dialog", { name: "Photo memories" });
+    await grant.getByRole("checkbox", { name: "memory-photos" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+
+    await page.getByRole("region", { name: "Spending by category" }).scrollIntoViewIfNeeded();
+    const spending = page.frameLocator('iframe[title="Spending by category"]');
+    await expect(spending.locator(".total")).toContainText("75.00");
+    expect(await spending.locator("ol li .name").allTextContents()).toEqual(["Books", "Food", "Transport"]);
+    await spending.getByRole("button", { name: "Open plugin-spending" }).click();
+    await expect(page).toHaveURL(/\/collections\/plugin-spending$/);
+
+    await page.goto(`${base}/`);
+    await page.getByRole("region", { name: "Photo memories" }).scrollIntoViewIfNeeded();
+    const memory = page.frameLocator('iframe[title="Photo memories"]');
+    await expect(memory.locator(".title")).toHaveText("Nearest memory");
+    await expect(memory.locator(".label")).toHaveText("One year ago");
+    await expect(memory.locator(".meta")).toContainText("Lisbon");
+    await expect.poll(() => memory.locator("img").evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+    await memory.getByRole("button", { name: /Nearest memory/ }).click();
+    await expect(page).toHaveURL(/\/collections\/memory-photos$/);
+
+    const { homeCards } = await api("node_info");
+    await api("set_home_cards", {
+      cards: homeCards.filter((card) => !["plugin:spending-by-category", "plugin:photo-memories"].includes(card.id)),
+    });
+    await api("drop_space", { space: "plugin-spending" });
+    await api("drop_space", { space: "memory-photos" });
+  } finally {
+    rmSync(photos, { recursive: true, force: true });
   }
 });
 

@@ -1,0 +1,25 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code",
+  "by": "Oikome",
+  "version": "1.0.0",
+  "description": "Connect Claude Code with a standard MCP command and only the collections you choose.",
+  "capabilities": {
+    "mcpClients": [
+      {
+        "id": "claude-code-cli",
+        "name": "Claude Code",
+        "command": "claude mcp add --transport http oikome {url} --header \"Authorization: Bearer {token}\""
+      }
+    ]
+  },
+  "translations": {
+    "de": { "description": "Verbinde Claude Code mit einem Standard-MCP-Befehl und nur den von dir gewählten Sammlungen." },
+    "fr": { "description": "Connectez Claude Code avec une commande MCP standard et uniquement les collections que vous choisissez." },
+    "ja": { "description": "標準の MCP コマンドで Claude Code を接続し、選択したコレクションだけを利用できます。" },
+    "ko": { "description": "표준 MCP 명령으로 Claude Code를 연결하고 선택한 컬렉션만 사용할 수 있게 해요." },
+    "ru": { "description": "Подключите Claude Code стандартной командой MCP, предоставив только выбранные коллекции." },
+    "zh-Hans": { "description": "通过标准 MCP 命令接入 Claude Code，仅开放你选择的资料库。" },
+    "zh-Hant": { "description": "透過標準 MCP 指令接入 Claude Code，僅開放你選擇的資料庫。" }
+  }
+}

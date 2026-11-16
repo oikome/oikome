@@ -8,10 +8,11 @@
 // The frame can ask for one thing back: to open one of its collections.
 
 import { useEffect, useRef, useState } from "react";
-import type { Plugin } from "@oikome/client";
+import type { Plugin, PluginCardCapability } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import { DataType } from "apache-arrow";
 import { imageSrc } from "./content";
+import type { Preview } from "./content";
 import { useClient } from "./data";
 import { isoTime } from "./format";
 import { language } from "./i18n/languages";
@@ -65,6 +66,20 @@ export function pluginCollection(name: string, table: Table): PluginCollection {
       Object.fromEntries(columns.map(({ field, values }) => [field.name, values[r]!])),
     ),
   };
+}
+
+/** Column kinds available to a card, including in-place file previews. */
+export function previewColumnTypes(preview: Preview): PluginColumnType[] {
+  const types = new Set<PluginColumnType>();
+  if (preview.rows) {
+    for (const column of pluginCollection("", preview.rows).columns) types.add(column.type);
+  }
+  for (const item of preview.items) {
+    if (item.image) types.add("image");
+    if (item.when !== undefined) types.add("date");
+    if (item.text !== undefined || item.detail !== undefined) types.add("text");
+  }
+  return [...types];
 }
 
 /** The page's style for a plugin: its theme, its colors and type, and the app's fonts. */
@@ -135,16 +150,38 @@ export function inLanguage(plugin: Plugin): Plugin {
   const base = code.split("-")[0]!;
   const text = plugin.translations?.[code] ?? (base !== code ? plugin.translations?.[base] : undefined);
   if (!text) return plugin;
+  const name = text.name ?? plugin.name;
   return {
     ...plugin,
-    name: text.name ?? plugin.name,
+    name,
     description: text.description ?? plugin.description,
     reads: text.reads ?? plugin.reads,
+    capabilities: {
+      ...plugin.capabilities,
+      cards: plugin.capabilities.cards.map((card) => ({
+        ...card,
+        name: text.cards[card.id]?.name ?? (card.name === plugin.name ? name : card.name),
+        reads: text.cards[card.id]?.reads ?? (card.name === plugin.name ? (text.reads ?? card.reads) : card.reads),
+      })),
+      sources: plugin.capabilities.sources.map((source) => ({
+        ...source,
+        name: text.sources[source.id]?.name ?? (source.name === plugin.name ? name : source.name),
+      })),
+      mcpClients: plugin.capabilities.mcpClients.map((client) => ({
+        ...client,
+        name: text.mcpClients[client.id]?.name ?? (client.name === plugin.name ? name : client.name),
+      })),
+    },
   };
 }
 
+/** The stable Home id of one card in a package; legacy cards keep their id. */
+export function pluginCardKey(plugin: Plugin, card: PluginCardCapability): string {
+  return card.id === "card" ? `plugin:${plugin.id}` : `plugin:${plugin.id}:${card.id}`;
+}
+
 /** A plugin's card: its name and maker, and its page in a sandboxed frame. */
-export function PluginCard({ plugin }: { plugin: Plugin }) {
+export function PluginCard({ plugin, card }: { plugin: Plugin; card: PluginCardCapability }) {
   const client = useClient();
   const frame = useRef<HTMLIFrameElement>(null);
   const [problem, setProblem] = useState<string>();
@@ -177,6 +214,7 @@ export function PluginCard({ plugin }: { plugin: Plugin }) {
       }
     };
     window.addEventListener("message", onMessage);
+    void send();
     // A change of style reaches the card at once.
     const watch = new MutationObserver(() => post({ type: "theme", theme: pluginTheme() }));
     watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -185,12 +223,12 @@ export function PluginCard({ plugin }: { plugin: Plugin }) {
       window.removeEventListener("message", onMessage);
       watch.disconnect();
     };
-  }, [client, plugin.id, plugin.collections.join("\n")]);
+  }, [client, plugin.id, plugin.collections.join("\n"), card.entry]);
 
   return (
-    <section className="oik-card screen-panel screen-plugin" aria-label={plugin.name}>
+    <section className="oik-card screen-panel screen-plugin" aria-label={card.name}>
       <header className="screen-panel__head">
-        <h2 className="oik-label">{plugin.name}</h2>
+        <h2 className="oik-label">{card.name}</h2>
         <span className="screen-plugin__by">{s.byPlugin(plugin.by)}</span>
       </header>
       {problem ? (
@@ -199,13 +237,13 @@ export function PluginCard({ plugin }: { plugin: Plugin }) {
         <iframe
           ref={frame}
           className="screen-plugin__frame"
-          title={plugin.name}
-          src={`/plugins/${encodeURIComponent(plugin.id)}/${plugin.entry}`}
+          title={card.name}
+          src={`/plugins/${encodeURIComponent(plugin.id)}/${card.entry}`}
           sandbox="allow-scripts"
           allow=""
           referrerPolicy="no-referrer"
           loading="lazy"
-          style={{ height: plugin.height }}
+          style={{ height: card.height }}
         />
       )}
     </section>

@@ -1,0 +1,65 @@
+{
+  "id": "flomo",
+  "name": "flomo",
+  "by": "Oikome",
+  "version": "1.0.0",
+  "description": "Import a flomo HTML export into a collection you choose, and optionally show recent notes on Home.",
+  "capabilities": {
+    "sources": [
+      {
+        "id": "flomo-export",
+        "name": "flomo HTML export",
+        "kind": "flomo-export"
+      }
+    ],
+    "cards": [
+      {
+        "id": "recent-notes",
+        "name": "Recent flomo notes",
+        "reads": "Notes imported from flomo, with their text and creation dates",
+        "shape": "any",
+        "columns": ["date", "text"],
+        "width": 5,
+        "height": 280,
+        "entry": "index.html"
+      }
+    ]
+  },
+  "translations": {
+    "de": {
+      "description": "Importiere einen flomo-HTML-Export in eine gewählte Sammlung und zeige optional aktuelle Notizen auf Home.",
+      "sources": { "flomo-export": { "name": "flomo-HTML-Export" } },
+      "cards": { "recent-notes": { "name": "Aktuelle flomo-Notizen", "reads": "Aus flomo importierte Notizen mit Text und Erstellungsdatum" } }
+    },
+    "fr": {
+      "description": "Importez un export HTML flomo dans la collection de votre choix et affichez éventuellement les notes récentes sur l’Accueil.",
+      "sources": { "flomo-export": { "name": "Export HTML flomo" } },
+      "cards": { "recent-notes": { "name": "Notes flomo récentes", "reads": "Notes importées de flomo, avec leur texte et leur date de création" } }
+    },
+    "ja": {
+      "description": "flomo の HTML エクスポートを選択したコレクションに取り込み、最近のノートをホームに表示できます。",
+      "sources": { "flomo-export": { "name": "flomo HTML エクスポート" } },
+      "cards": { "recent-notes": { "name": "最近の flomo ノート", "reads": "flomo から取り込んだノートの本文と作成日" } }
+    },
+    "ko": {
+      "description": "flomo HTML보내기를 선택한 컬렉션으로 가져오고 최근 노트를 홈에 표시할 수 있어요.",
+      "sources": { "flomo-export": { "name": "flomo HTML보내기" } },
+      "cards": { "recent-notes": { "name": "최근 flomo 노트", "reads": "flomo에서 가져온 노트의 텍스트와 작성 날짜" } }
+    },
+    "ru": {
+      "description": "Импортируйте HTML-экспорт flomo в выбранную коллекцию и при желании показывайте недавние заметки на главной.",
+      "sources": { "flomo-export": { "name": "HTML-экспорт flomo" } },
+      "cards": { "recent-notes": { "name": "Недавние заметки flomo", "reads": "Импортированные из flomo заметки, их текст и даты создания" } }
+    },
+    "zh-Hans": {
+      "description": "将 flomo HTML 导出导入你选择的资料库，也可在首页展示最近笔记。",
+      "sources": { "flomo-export": { "name": "flomo HTML 导出" } },
+      "cards": { "recent-notes": { "name": "最近的 flomo 笔记", "reads": "从 flomo 导入的笔记正文和创建日期" } }
+    },
+    "zh-Hant": {
+      "description": "將 flomo HTML 匯出匯入你選擇的資料庫，也可在首頁顯示最近筆記。",
+      "sources": { "flomo-export": { "name": "flomo HTML 匯出" } },
+      "cards": { "recent-notes": { "name": "最近的 flomo 筆記", "reads": "從 flomo 匯入的筆記正文和建立日期" } }
+    }
+  }
+}

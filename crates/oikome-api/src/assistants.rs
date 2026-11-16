@@ -61,6 +61,10 @@ struct Stored {
     did: String,
     name: String,
     app: AssistantApp,
+    #[serde(default)]
+    plugin: Option<String>,
+    #[serde(default)]
+    client: Option<String>,
     collections: Vec<String>,
     /// BLAKE3 of its token, in hex; empty once its access ended.
     token_hash: String,
@@ -78,6 +82,8 @@ impl Stored {
             did: self.did.clone(),
             name: self.name.clone(),
             app: self.app,
+            plugin: self.plugin.clone(),
+            client: self.client.clone(),
             // A collection removed since is gone from what it reads.
             collections: self
                 .collections
@@ -172,7 +178,23 @@ impl Api {
     ) -> Result<AssistantConnected, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let name = name_of(&req.name)?;
+        let (name, app, plugin, client) = match (req.plugin.as_deref(), req.client.as_deref()) {
+            (Some(plugin), Some(client)) => {
+                let capability = self.mcp_client(plugin, client)?;
+                (
+                    name_of(&capability.name)?,
+                    AssistantApp::Other,
+                    Some(plugin.to_string()),
+                    Some(client.to_string()),
+                )
+            }
+            (None, None) => (name_of(&req.name)?, req.app, None, None),
+            _ => {
+                return Err(ApiError::invalid(
+                    "a plugin-driven MCP client names both its plugin and client capability",
+                ))
+            }
+        };
         let collections = self.readable_by_assistants(&req.collections)?;
         if self
             .stored_assistants()?
@@ -195,7 +217,9 @@ impl Api {
             id,
             did,
             name,
-            app: req.app,
+            app,
+            plugin,
+            client,
             collections: Vec::new(),
             token_hash: blake3::hash(token.as_bytes()).to_hex().to_string(),
             connected_at_ms: now_ms(),
@@ -225,7 +249,30 @@ impl Api {
                 "the assistant's one-time token does not match",
             ));
         }
-        crate::assistant_config::install(stored.app, &req.url, &req.token, req.replace)?;
+        let capability = match (stored.plugin.as_deref(), stored.client.as_deref()) {
+            (Some(plugin), Some(client)) => self.mcp_client(plugin, client)?,
+            (None, None) => {
+                let (plugin, client) = match stored.app {
+                    AssistantApp::KimiCode => ("kimi-code", "kimi-code-cli"),
+                    AssistantApp::Codex => ("codex", "codex-cli"),
+                    _ => {
+                        return Err(ApiError::invalid(
+                            "this client has no declarative one-click setup",
+                        ))
+                    }
+                };
+                self.mcp_client(plugin, client)?
+            }
+            _ => {
+                return Err(ApiError::internal(
+                    "an assistant's client record is incomplete",
+                ))
+            }
+        };
+        let config = capability.config.ok_or_else(|| {
+            ApiError::invalid("this client offers manual setup rather than one-click setup")
+        })?;
+        crate::assistant_config::install(&config, &req.url, &req.token, req.replace)?;
         Ok(Empty {})
     }
 

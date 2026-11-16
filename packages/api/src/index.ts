@@ -1366,7 +1366,66 @@ export type PluginShape = "table" | "photos" | "notes" | "series" | "any";
 export type PluginColumn = "date" | "number" | "text" | "image" | "bool";
 
 /**
- * A dashboard plugin: installed, or one of Oikome's own not added yet.
+ * Independent capabilities a plugin package declares. Installing the package
+ * registers these only; each one is configured and granted separately.
+ */
+export type PluginCapabilities = { cards: Array<PluginCardCapability>, sources: Array<PluginSourceCapability>,
+/**
+ * Preview declarations only. Running third-party preview code requires
+ * the separate host sandbox and is not enabled by this registration.
+ */
+preview: Array<PluginPreviewCapability>, mcpClients: Array<McpClientCapability>, };
+
+/**
+ * One dashboard card in a plugin package.
+ */
+export type PluginCardCapability = { id: string, name: string, reads: string, shape: PluginShape, columns: Array<PluginColumn>, width: number, height: number, entry: string, };
+
+/**
+ * A source configuration a plugin offers through an existing connector.
+ * This does not load native or node-side code from the package.
+ */
+export type PluginSourceCapability = { id: string, name: string, kind: SourceKind, };
+
+/**
+ * A content preview declaration, without host execution privileges.
+ */
+export type PluginPreviewCapability = { id: string, name: string, formats: Array<string>, };
+
+/**
+ * JSON or TOML configuration supported by the generic MCP setup writer.
+ */
+export type McpConfigFormat = "json" | "toml";
+
+/**
+ * A declarative, home-directory-scoped MCP client configuration location.
+ */
+export type McpClientConfig = { format: McpConfigFormat,
+/**
+ * A client-specific environment variable ending in `_HOME`.
+ */
+homeEnv: string,
+/**
+ * One directory below the client's home, such as `.kimi-code`.
+ */
+directory: string, file: string,
+/**
+ * `mcpServers` for JSON or `mcp_servers` for TOML.
+ */
+root: string,
+/**
+ * `headers` for JSON or `http_headers` for TOML.
+ */
+headers: string, };
+
+/**
+ * One MCP client adapter declared by a plugin. A command is displayed for
+ * manual setup; a config enables the generic one-click writer.
+ */
+export type McpClientCapability = { id: string, name: string, command?: string, config?: McpClientConfig, };
+
+/**
+ * A plugin package: installed, or an official package available in this build.
  */
 export type Plugin = {
 /**
@@ -1404,6 +1463,16 @@ builtIn: boolean, installed: boolean,
  */
 collections: Array<string>,
 /**
+ * All capabilities in the package. The legacy card fields above mirror
+ * its first card, or hold empty/default values when it has no card.
+ */
+capabilities: PluginCapabilities,
+/**
+ * Existing unarranged Home layouts keep cards installed before PR 24;
+ * newly installed packages never add a card implicitly.
+ */
+homeByDefault: boolean,
+/**
  * Its name and descriptions in other languages, by language tag
  * (`de`, `zh-Hans`); an app falls back to the fields above.
  */
@@ -1412,13 +1481,29 @@ translations: { [key in string]: PluginText }, };
 /**
  * A plugin's words in one language; a missing one falls back to English.
  */
-export type PluginText = { name?: string, description?: string, reads?: string, };
+export type PluginText = { name?: string, description?: string, reads?: string, cards: { [key in string]: PluginCapabilityText }, sources: { [key in string]: PluginCapabilityText }, mcpClients: { [key in string]: PluginCapabilityText }, };
 
 /**
- * `install_plugin`: one of Oikome's own (`built_in`, by id) or a folder on
- * this computer (`path`), and the collections it may read.
+ * A capability's translated display name and, for a card, read description.
  */
-export type InstallPlugin = { builtIn?: string, path?: string, collections: Array<string>, };
+export type PluginCapabilityText = { name?: string, reads?: string, };
+
+/**
+ * `install_plugin`: register an official package (`built_in`, by id) or a
+ * folder on this computer (`path`). It grants no data and adds no Home card.
+ */
+export type InstallPlugin = { builtIn?: string, path?: string, };
+
+/**
+ * One official package in the independent plugin repository's release index.
+ */
+export type RegistryPlugin = { plugin: Plugin, download: string, sha256: string, bytes: number, };
+
+/**
+ * `install_registry_plugin`: an exact official catalog version to download,
+ * verify and install through the ordinary package lifecycle.
+ */
+export type RegistryPluginRef = { id: string, version: string, };
 
 /**
  * `inspect_plugin`: a folder on this computer that may hold a plugin.
@@ -1458,7 +1543,15 @@ export type Assistant = { id: string,
 /**
  * The identity it reads as: its lines in Activity are by this DID.
  */
-did: string, name: string, app: AssistantApp,
+did: string, name: string,
+/**
+ * Legacy built-in choice, or `other` for plugin-driven/custom clients.
+ */
+app: AssistantApp,
+/**
+ * The plugin and capability that configured this assistant, if any.
+ */
+plugin?: string, client?: string,
 /**
  * The collections it may read; none once its access ended.
  */
@@ -1466,16 +1559,17 @@ collections: Array<string>, connectedAtMs: number,
 /**
  * When it last reached this data center; `null` until it first does.
  */
-lastUsedMs: number | null,
+lastUsedMs?: number,
 /**
  * When its access ended; it can't reach this data center again.
  */
-endedAtMs: number | null, };
+endedAtMs?: number, };
 
 /**
- * `connect_assistant`: a new assistant, by name, and what it may read.
+ * `connect_assistant`: a plugin-driven client (`plugin` + `client`) or a
+ * legacy/custom `app`, and the collections it may read.
  */
-export type ConnectAssistant = { name: string, app: AssistantApp, collections: Array<string>, };
+export type ConnectAssistant = { name: string, app: AssistantApp, plugin?: string, client?: string, collections: Array<string>, };
 
 /**
  * What `connect_assistant` returns: the assistant, and the token it

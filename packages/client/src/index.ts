@@ -19,6 +19,7 @@ import type {
   AssistantConnected,
   AssistantRef,
   ConnectAssistant,
+  InstallAssistant,
   Borrowed,
   BorrowedJobs,
   FileItem,
@@ -217,6 +218,7 @@ export interface NodeClient {
   listAssistants(): Promise<Assistant[]>;
   /** Connect an assistant; the answer holds its token, shown this once. */
   connectAssistant(request: ConnectAssistant): Promise<AssistantConnected>;
+  installAssistant(request: InstallAssistant): Promise<Empty>;
   setAssistantCollections(request: AssistantCollections): Promise<Assistant>;
   endAssistantAccess(request: AssistantRef): Promise<Assistant>;
   removeAssistant(request: AssistantRef): Promise<Assistant[]>;
@@ -614,6 +616,10 @@ export class HttpClient implements NodeClient {
 
   connectAssistant(request: ConnectAssistant): Promise<AssistantConnected> {
     return this.#json("connect_assistant", request);
+  }
+
+  installAssistant(request: InstallAssistant): Promise<Empty> {
+    return this.#json("install_assistant", request);
   }
 
   setAssistantCollections(request: AssistantCollections): Promise<Assistant> {

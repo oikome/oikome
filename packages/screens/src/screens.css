@@ -1653,6 +1653,26 @@
 .screen-assistant-wait {
   margin: 0;
 }
+.screen-assistant-config .oik-copy {
+  align-items: flex-start;
+}
+.screen-assistant-config .oik-copy__value {
+  padding: var(--space-3);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--sunk);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.screen-assistant-config .oik-copy__done {
+  flex: none;
+}
+.screen-assistant-install {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
 
 /* ----- Home ----- */
 

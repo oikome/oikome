@@ -60,10 +60,11 @@ use oikome_api::{
     AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, Api, ApiError,
     AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant,
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
-    ImportFiles, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares, NewSource, NewSpace,
-    NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder, PluginRead, PluginRef,
-    ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery, ShareRef,
-    ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
+    ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
+    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
+    PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search, SetLending,
+    SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
+    PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
@@ -520,6 +521,7 @@ impl WebState {
             "list_assistants" => json_op!(list_assistants, Empty),
             // Its answer holds the assistant's token, shown this once.
             "connect_assistant" => json_op!(connect_assistant, ConnectAssistant),
+            "install_assistant" => json_op!(install_assistant, InstallAssistant),
             "set_assistant_collections" => {
                 json_op!(set_assistant_collections, AssistantCollections)
             }

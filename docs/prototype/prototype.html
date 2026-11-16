@@ -1701,7 +1701,7 @@ DLG.borrow = (D) => dlg(t('borrow.title', { who: 'Sam' }), `
   <div class="row row--between"><span>${t('borrow.use', { who: 'Sam' })}</span><span class="toggle ${D.on ? 'on' : ''}" data-act="flag" data-bind="on" role="switch" aria-checked="${D.on}"></span></div>`,
 foot(D.on ? '' : t('borrow.off'), `<button class="btn btn--primary" data-close>${t('done')}</button>`));
 
-const AIAPPS = [['Claude Code', 'aia.terminal'], ['other', 'aia.any']];
+const AIAPPS = [['Claude Code', 'aia.terminal'], ['Kimi Code', 'aia.terminal'], ['Codex', 'aia.terminal'], ['other', 'aia.any']];
 const aiAppName = (n) => (n === 'other' ? t('aia.other') : n);
 DLG.connect = (D) => {
   let body = steps(['step.app', 'step.reads', 'step.connect'], D.step), nav;
@@ -1714,10 +1714,16 @@ DLG.connect = (D) => {
   } else {
     const connection = D.app === 'Claude Code'
       ? 'claude mcp add --transport http oikome http://127.0.0.1:7340/mcp --header "Authorization: Bearer oik_…"'
-      : 'http://127.0.0.1:7340/mcp\nAuthorization: Bearer oik_…';
-    body += `<p class="muted" style="margin:0">${t('cn.paste', { app: aiAppName(D.app) })}</p>
-    <div class="code">${esc(connection)}</div><div class="row row--between">${D.connected ? glyph('ok', t('cn.connected', { app: aiAppName(D.app) })) : glyph('run', t('cn.waiting', { app: aiAppName(D.app) }))}${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="settings"')}</div>
-    <p class="hint" style="margin:0">${(D.reads.length ? t('cn.canRead', { list: H(lst(D.reads)) }) : t('cn.canReadNone'))}</p>`;
+      : D.app === 'Kimi Code'
+        ? '{\n  "mcpServers": {\n    "oikome": {\n      "url": "http://127.0.0.1:7340/mcp",\n      "headers": { "Authorization": "Bearer oik_…" }\n    }\n  }\n}'
+        : D.app === 'Codex'
+          ? '[mcp_servers.oikome]\nurl = "http://127.0.0.1:7340/mcp"\nhttp_headers = { Authorization = "Bearer oik_…" }'
+          : 'http://127.0.0.1:7340/mcp\nAuthorization: Bearer oik_…';
+    const cli = D.app === 'Kimi Code' || D.app === 'Codex';
+    body += cli ? `<p class="muted" style="margin:0">${t('cn.oneClick', { app: aiAppName(D.app) })}</p><div class="row">${D.configured ? glyph('ok', t(D.app === 'Kimi Code' ? 'cn.afterKimi' : 'cn.afterCodex')) : btn(t('cn.connectNow', { app: aiAppName(D.app) }), 'data-act="connectcli"', 'btn--primary')}${btn(t(D.manual ? 'cn.manualHide' : 'cn.manual'), 'data-act="climanual"', 'btn--ghost')}</div>` : `<p class="muted" style="margin:0">${t('cn.paste', { app: aiAppName(D.app) })}</p>`;
+    if (!cli || D.manual) body += `<div class="code">${esc(connection)}</div>${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="settings"')}`;
+    if (!cli || D.configured || D.manual) body += `<div class="row row--between">${D.connected ? glyph('ok', t('cn.connected', { app: aiAppName(D.app) })) : glyph('run', t('cn.waiting', { app: aiAppName(D.app) }))}</div>`;
+    body += `<p class="hint" style="margin:0">${(D.reads.length ? t('cn.canRead', { list: H(lst(D.reads)) }) : t('cn.canReadNone'))}</p>`;
     nav = D.connected ? `<button class="btn btn--primary" data-close>${t('done')}</button>` : btn(t('close'), 'data-close');
   }
   return dlg(t('cn.title'), body, foot(D.step === 3 ? t('cn.takeBack') : '', nav));
@@ -2029,6 +2035,14 @@ function removeCollection(n) {
   toast(t('toast.removedCol', { c: n }));
 }
 let pairSeq = 0, connectSeq = 0;
+function connectEventually(id) {
+  setTimeout(() => {
+    if (!D || D.name !== 'connect' || D.id !== id) return;
+    const name = aiAppName(D.app);
+    if (!AI.some((a) => a.name === name)) AI.splice(AI.length - 1, 0, { name, c: 'c2', reads: D.reads.slice(), st: 'ok' });
+    upd({ connected: true }); render(true);
+  }, 3000);
+}
 const ACT = {
   cmdk: (el) => open('cmdk', { q: el.dataset.scope ? '' : 'pessoa train', scope: el.dataset.scope || '', sel: 0 }),
   hit: (el) => { const h = HITS[+el.dataset.i]; close(); if (h.go) go(h.go); else h.run(); },
@@ -2222,14 +2236,11 @@ const ACT = {
   connect: () => open('connect', { step: 1, app: 'Claude Code', reads: [] }),
   connectgo: () => {
     const id = ++connectSeq;
-    upd({ step: 3, connected: false, id });
-    setTimeout(() => {
-      if (!D || D.name !== 'connect' || D.id !== id) return;
-      const name = aiAppName(D.app);
-      if (!AI.some((a) => a.name === name)) AI.splice(AI.length - 1, 0, { name, c: 'c2', reads: D.reads.slice(), st: 'ok' });
-      upd({ connected: true }); render(true);
-    }, 3000);
+    upd({ step: 3, connected: false, configured: false, manual: false, id });
+    if (D.app !== 'Kimi Code' && D.app !== 'Codex') connectEventually(id);
   },
+  connectcli: () => { upd({ configured: true }); connectEventually(D.id); },
+  climanual: () => upd({ manual: !D.manual }),
   aiedit: (el) => { const a = AI[+el.dataset.i]; if (a.ended) return; open('aiedit', { i: +el.dataset.i, reads: a.reads.slice() }); },
   aieditok: () => { AI[D.i].reads = D.reads.slice(); const n = AI[D.i].name; close(); render(true); toast(t('toast.aiSaved', { who: n })); },
   aiend: () => {

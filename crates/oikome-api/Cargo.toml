@@ -28,6 +28,8 @@ base64 = { workspace = true }
 blake3 = { workspace = true }
 getrandom = { workspace = true }
 thiserror = { workspace = true }
+# Preserve owners' existing Codex settings when configuring its MCP client.
+toml_edit = "0.25.18"
 tokio = { workspace = true, features = ["rt", "time"] }
 tracing = { workspace = true }
 ts-rs = { workspace = true }

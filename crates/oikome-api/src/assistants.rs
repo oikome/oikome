@@ -36,8 +36,8 @@ use crate::invites::read_private;
 use crate::search::{hits_wanted, terms_of, MAX_KEY_COLUMNS};
 use crate::{
     encode_rows, first_count, now_ms, Api, ApiError, Assistant, AssistantApp, AssistantCollections,
-    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, ReadRow,
-    ReadableCollection, ReadableTable, Rows, Search, SearchResults,
+    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, InstallAssistant,
+    ReadRow, ReadableCollection, ReadableTable, Rows, Search, SearchResults,
 };
 
 const ASSISTANTS_FILE: &str = "assistants.json";
@@ -207,6 +207,26 @@ impl Api {
             assistant: stored.assistant(self),
             token,
         })
+    }
+
+    /// Configure the selected code CLI on this computer, without showing its
+    /// token or making the owner edit its configuration file.
+    pub async fn install_assistant(
+        &self,
+        caller: &Caller,
+        req: InstallAssistant,
+    ) -> Result<Empty, ApiError> {
+        caller.require_owner()?;
+        let stored = self.stored_assistant(&req.id)?;
+        if !stored.active()
+            || !token_matches(&blake3::hash(req.token.as_bytes()), &stored.token_hash)
+        {
+            return Err(ApiError::permission_denied(
+                "the assistant's one-time token does not match",
+            ));
+        }
+        crate::assistant_config::install(stored.app, &req.url, &req.token, req.replace)?;
+        Ok(Empty {})
     }
 
     /// Change what a connected assistant may read.

@@ -1448,7 +1448,7 @@ limit?: number, };
 /**
  * The app an AI assistant connects from (M3d).
  */
-export type AssistantApp = "claude_code" | "other";
+export type AssistantApp = "claude_code" | "kimi_code" | "codex" | "other";
 
 /**
  * An AI assistant the owner connected (M3d): it reads only the
@@ -1482,6 +1482,12 @@ export type ConnectAssistant = { name: string, app: AssistantApp, collections: A
  * reaches this data center with, shown this once (only its hash is kept).
  */
 export type AssistantConnected = { assistant: Assistant, token: string, };
+
+/**
+ * `install_assistant`: configure a supported CLI on this computer. The
+ * one-time answer's token must match; an existing entry needs `replace`.
+ */
+export type InstallAssistant = { id: string, token: string, url: string, replace: boolean, };
 
 /**
  * `set_assistant_collections`: what a connected assistant may read now.

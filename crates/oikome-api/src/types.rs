@@ -1628,6 +1628,10 @@ pub struct PluginCollections {
 pub enum AssistantApp {
     /// Claude Code, in the terminal.
     ClaudeCode,
+    /// Kimi Code, configured through mcp.json.
+    KimiCode,
+    /// Codex, configured through config.toml.
+    Codex,
     /// Anything else that speaks MCP over HTTP.
     Other,
 }
@@ -1667,6 +1671,17 @@ pub struct ConnectAssistant {
 pub struct AssistantConnected {
     pub assistant: Assistant,
     pub token: String,
+}
+
+/// `install_assistant`: configure a supported CLI on this computer. The
+/// one-time answer's token must match; an existing entry needs `replace`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallAssistant {
+    pub id: String,
+    pub token: String,
+    pub url: String,
+    pub replace: bool,
 }
 
 /// `set_assistant_collections`: what a connected assistant may read now.

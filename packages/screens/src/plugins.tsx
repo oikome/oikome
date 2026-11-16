@@ -199,6 +199,7 @@ export function PluginCard({ plugin, card }: { plugin: Plugin; card: PluginCardC
       }
     };
     window.addEventListener("message", onMessage);
+    void send();
     // A change of style reaches the card at once.
     const watch = new MutationObserver(() => post({ type: "theme", theme: pluginTheme() }));
     watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });

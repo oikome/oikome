@@ -1425,11 +1425,11 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
         limit: None,
     };
 
-    // Official packages use the same capability manifest as external ones.
+    // A new node installs official packages by default, with no grants.
     let offered = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
     assert!(offered
         .iter()
-        .any(|p| p.id == "spending-by-category" && p.built_in && !p.installed));
+        .any(|p| p.id == "spending-by-category" && p.built_in && p.installed));
     for id in ["kimi-code", "codex", "claude-code", "flomo"] {
         assert!(offered.iter().any(|p| p.id == id), "{id}");
     }
@@ -1499,8 +1499,14 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
         .plugin_read(&OWNER, read(&spending.id, "diary"))
         .await
         .unwrap_err();
-    // Without a grant there, the collection doesn't exist for the plugin.
-    assert_eq!(e.code, ErrorCode::NotFound, "{e}");
+    // The grant does not exist and no rows come back, whether the semantic
+    // layer hides the relation or refuses the read.
+    let plugin_did = kept[0]["did"].as_str().unwrap().to_string();
+    assert!(!n.catalog.has_space_grant(&plugin_did, "diary"));
+    assert!(
+        matches!(e.code, ErrorCode::NotFound | ErrorCode::PermissionDenied),
+        "{e}"
+    );
     kept[0]["collections"] = serde_json::json!(["notes"]);
     std::fs::write(&record, serde_json::to_vec(&kept).unwrap()).unwrap();
 
@@ -1509,7 +1515,8 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     assert!(page.find("/plugins/sdk.js").unwrap() < page.find("main.js").unwrap());
     assert!(n.api.plugin_file(&spending.id, "../plugins.json").is_none());
     assert!(n.api.plugin_file(&spending.id, "main.js").is_some());
-    assert!(n.api.plugin_file("photo-memories", "index.html").is_none());
+    assert!(n.api.plugin_file("photo-memories", "index.html").is_some());
+    assert!(n.api.plugin_file("not-installed", "index.html").is_none());
 
     // One from a folder: looked at, then added.
     let folder = tempfile::tempdir().unwrap();
@@ -4841,4 +4848,65 @@ async fn official_registry_packages_are_verified_before_installation() {
     assert_eq!(error.reason.as_deref(), Some("plugin_registry_checksum"));
     assert!(n.api.plugin_file("bad-count", "index.html").is_none());
     server.abort();
+}
+
+#[tokio::test]
+async fn removed_official_plugins_stay_removed_and_hide_mcp_clients() {
+    let n = node();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(plugins
+        .iter()
+        .all(|plugin| !plugin.built_in || plugin.installed));
+    n.api
+        .remove_plugin(
+            &OWNER,
+            PluginRef {
+                id: "kimi-code".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let error = n
+        .api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: String::new(),
+                app: AssistantApp::Other,
+                plugin: Some("kimi-code".into()),
+                client: Some("kimi-code-cli".into()),
+                collections: Vec::new(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::NotFound);
+    let reopened = Api::new(n.catalog.clone(), n.engines.clone());
+    let plugins = reopened.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(plugins
+        .iter()
+        .any(|plugin| plugin.id == "kimi-code" && !plugin.installed));
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("kimi-code".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: String::new(),
+                app: AssistantApp::Other,
+                plugin: Some("kimi-code".into()),
+                client: Some("kimi-code-cli".into()),
+                collections: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
 }

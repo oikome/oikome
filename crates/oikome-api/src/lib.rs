@@ -754,6 +754,7 @@ impl Api {
         if self.catalog.get_source(&req.space).is_ok() {
             session.remove_source(&req.space)?;
         }
+        self.note_removed_collection(&req.space)?;
         session.drop_space(&req.space).await?;
         if self.settings()?.examples.contains(&req.space) {
             self.update_settings(|settings| settings.examples.retain(|name| name != &req.space))?;

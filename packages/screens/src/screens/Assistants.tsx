@@ -24,12 +24,11 @@ import {
   Status,
   StepDots,
   Switch,
-  TextField,
   Tile,
   useToast,
 } from "@oikome/ui";
 import { OikomeError } from "@oikome/client";
-import type { Assistant, AssistantApp, AssistantConnected, McpClientCapability, SpaceSummary } from "@oikome/client";
+import type { Assistant, AssistantConnected, McpClientCapability, SpaceSummary } from "@oikome/client";
 import { errorMessage, useAction, useClient, useLoad } from "../data";
 import { inLanguage } from "../plugins";
 import { ago, calendarDate } from "../format";
@@ -43,12 +42,10 @@ const s = strings.assistants;
 const RECENT_MS = 15 * 60 * 1000;
 /** How often the connect dialog looks whether the assistant reached us. */
 const WAIT_EVERY_MS = 2000;
-const MAX_NAME = 64;
 
 interface ClientChoice {
   key: string;
   name: string;
-  app: AssistantApp;
   plugin: string;
   client: string;
   capability: McpClientCapability;
@@ -82,11 +79,10 @@ export function Assistants({ startConnecting = false }: { startConnecting?: bool
   const active = list.filter((a) => a.endedAtMs == null);
   const current = active.find((a) => a.id === picked) ?? active[0];
   const mine: SpaceSummary[] = (spaces.data ?? []).filter((space) => space.kind !== "remote");
-  const clients: ClientChoice[] = (plugins.data ?? []).flatMap((plugin) =>
+  const clients: ClientChoice[] = (plugins.data ?? []).filter((plugin) => plugin.installed).flatMap((plugin) =>
     plugin.capabilities.mcpClients.map((capability) => ({
       key: `${plugin.id}:${capability.id}`,
       name: capability.name,
-      app: "other",
       plugin: plugin.id,
       client: capability.id,
       capability,
@@ -101,10 +97,16 @@ export function Assistants({ startConnecting = false }: { startConnecting?: bool
   return (
     <>
       <ScreenHeader title={s.title} lede={s.lede}>
-        <Button variant="primary" icon="plus" onClick={() => setConnecting(true)}>
+        <Button
+          variant="primary"
+          icon="plus"
+          disabled={plugins.data !== undefined && clients.length === 0}
+          onClick={() => setConnecting(true)}
+        >
           {s.connect}
         </Button>
       </ScreenHeader>
+      {plugins.data && clients.length === 0 && <p className="screen-help">{s.noClients}</p>}
       {(assistants.error ?? spaces.error ?? grant.error) && (
         <ErrorText>{assistants.error ?? spaces.error ?? grant.error}</ErrorText>
       )}
@@ -324,8 +326,6 @@ function ConnectDialog({
   const toast = useToast();
   const [step, setStep] = useState(1);
   const [picked, setPicked] = useState("");
-  const [name, setName] = useState("");
-  const [nameError, setNameError] = useState<string>();
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<AssistantConnected>();
   const [reached, setReached] = useState(false);
@@ -335,10 +335,9 @@ function ConnectDialog({
   const [replacing, setReplacing] = useState(false);
   const [configError, setConfigError] = useState<string>();
   const connect = useAction();
-  const custom = picked === "other" || clients.length === 0;
-  const selected = custom ? undefined : (clients.find((choice) => choice.key === picked) ?? clients[0]);
+  const selected = clients.find((choice) => choice.key === picked) ?? clients[0];
   const capability = selected?.capability;
-  const shown = custom ? name.trim() : (selected?.name ?? "");
+  const shown = selected?.name ?? "";
 
   // Until the assistant first reaches the data center, look now and then.
   useEffect(() => {
@@ -359,7 +358,6 @@ function ConnectDialog({
   }, [client, done, reached, onConnected]);
 
   const endpoint = `${window.location.origin}/mcp`;
-  const header = done ? `Authorization: Bearer ${done.token}` : "";
   const configuration = !done
     ? ""
     : capability?.command
@@ -406,50 +404,19 @@ function ConnectDialog({
       <ChoiceList
         label={s.stepApp}
         name="assistant-app"
-        value={custom ? "other" : (selected?.key ?? "")}
+        value={selected?.key ?? ""}
         onChange={setPicked}
-        choices={[
-          ...clients.map((choice) => ({
-            value: choice.key,
-            title: choice.name,
-            leading: <Icon name="terminal" />,
-          })),
-          {
-            value: "other",
-            title: s.other,
-            meta: s.otherMeta,
-            leading: <Icon name="ai" />,
-            more: (
-              <TextField
-                label={s.nameLabel}
-                name="assistant-name"
-                hint={s.nameHint}
-                error={nameError}
-                value={name}
-                onChange={(value) => {
-                  setName(value);
-                  setNameError(undefined);
-                }}
-              />
-            ),
-          },
-        ]}
+        choices={clients.map((choice) => ({
+          value: choice.key,
+          title: choice.name,
+          leading: <Icon name="terminal" />,
+        }))}
       />
     );
     footer = (
       <>
         <Button onClick={onClose}>{strings.common.cancel}</Button>
-        <Button
-          variant="primary"
-          onClick={() => {
-            const n = name.trim();
-            if (custom && (n.length === 0 || n.length > MAX_NAME || /[\u0000-\u001f]/.test(n))) {
-              setNameError(s.nameInvalid);
-              return;
-            }
-            setStep(2);
-          }}
-        >
+        <Button variant="primary" disabled={!selected} onClick={() => setStep(2)}>
           {s.next}
         </Button>
       </>
@@ -472,7 +439,7 @@ function ConnectDialog({
             const connected = await connect.run(() =>
               client.connectAssistant({
                 name: shown,
-                app: selected?.app ?? "other",
+                app: "other",
                 ...(selected ? { plugin: selected.plugin, client: selected.client } : {}),
                 collections: [...chosen],
               }),
@@ -509,23 +476,11 @@ function ConnectDialog({
           </div>
         )}
         {configError && !replacing && <ErrorText>{configError}</ErrorText>}
-        {(!oneClick || manual) &&
-          (!custom ? (
-            <div className="screen-assistant-config">
-              <CopyField value={configuration} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-            </div>
-          ) : (
-            <>
-              <div className="screen-lend-field">
-                <span className="oik-field__label">{s.address}</span>
-                <CopyField value={endpoint} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-              </div>
-              <div className="screen-lend-field">
-                <span className="oik-field__label">{s.header}</span>
-                <CopyField value={header} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-              </div>
-            </>
-          ))}
+        {(!oneClick || manual) && (
+          <div className="screen-assistant-config">
+            <CopyField value={configuration} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+          </div>
+        )}
         {(!oneClick || manual) && <p className="screen-help">{s.shownOnce}</p>}
         {(!oneClick || configured || manual) && (
           <p className="screen-assistant-wait" role="status" aria-live="polite">

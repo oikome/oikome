@@ -1258,6 +1258,32 @@ test("one-click MCP setup configures isolated Kimi Code and Codex homes safely",
   }
 });
 
+test("removing an MCP plugin hides its client until the owner restores it", async () => {
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  let dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await expect(dialog.getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /Another app/ })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.goto(`${base}/plugins`);
+  await page.getByRole("button", { name: "Settings: Kimi Code" }).click();
+  await page.getByRole("dialog", { name: "Kimi Code" }).getByRole("button", { name: "Remove Plugin" }).click();
+  await page.getByRole("dialog", { name: "Remove Kimi Code?" }).getByRole("button", { name: "Remove" }).click();
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await expect(dialog.getByRole("radio", { name: "Kimi Code", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+
+  await page.goto(`${base}/plugins`);
+  await page.getByRole("button", { name: "Add Kimi Code", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add Kimi Code" }).getByRole("button", { name: "Add", exact: true }).click();
+  await page.goto(`${base}/assistants`);
+  await page.getByRole("button", { name: "Connect MCP Client" }).click();
+  await expect(page.getByRole("dialog", { name: "Connect MCP Client" }).getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
+});
+
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
   await page.goto(`${base}/`);
   await page.getByRole("button", { name: "Arrange" }).click();
@@ -2371,13 +2397,8 @@ test("plugins go on Home, read only what they may, and reach nothing", async () 
   const said = [];
   const listen = (m) => m.text().startsWith("PROBE ") && said.push(m.text().slice(6));
   try {
-    // Installing registers the package only; adding its card grants a collection.
+    // Built-in packages start installed but grant nothing until a card is added.
     await page.goto(`${base}/plugins`);
-    await page.getByRole("button", { name: "Add Spending by category" }).click();
-    const adding = page.getByRole("dialog", { name: "Add Spending by category" });
-    await expect(adding).toContainText("only registers its capabilities");
-    await adding.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(page.locator(".oik-toasts")).toContainText("Added Spending by category.");
     const row = page.locator("tbody tr", { hasText: "Spending by category" });
     await expect(row).toContainText("Nothing yet");
     await expect(row).toContainText("None");

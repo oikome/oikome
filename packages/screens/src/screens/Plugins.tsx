@@ -87,6 +87,9 @@ export function Plugins() {
 
   const installed = (plugins.data ?? []).filter((p) => p.installed);
   const offered = (plugins.data ?? []).filter((p) => !p.installed && p.builtIn);
+  const registryOffered = (registry.data ?? []).filter(
+    (entry) => !(plugins.data ?? []).some((plugin) => plugin.builtIn && plugin.id === entry.plugin.id),
+  );
 
   return (
     <>
@@ -196,7 +199,7 @@ export function Plugins() {
           </p>
         ) : registry.data ? (
           <div className="screen-plugin-offers">
-            {registry.data.map((entry) => (
+            {registryOffered.map((entry) => (
               <article key={`${entry.plugin.id}:${entry.plugin.version}`} className="oik-card screen-plugin-offer">
                 <span className="screen-plugin-name">
                   <Tile icon="plugin" tone="sage" />

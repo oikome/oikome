@@ -45,6 +45,7 @@ pub const PLUGIN_SDK: &str = include_str!("../../../packages/plugin-sdk/sdk.js")
 
 const MANIFEST: &str = "oikome-plugin.json";
 const PLUGINS_FILE: &str = "plugins.json";
+const REMOVED_BUILT_INS_FILE: &str = "removed-built-in-plugins.json";
 const PLUGINS_DIR: &str = "plugins";
 /// A plugin's files: how many, how large in all, how deep.
 const MAX_FILES: usize = 200;
@@ -222,6 +223,10 @@ pub(crate) struct Installed {
     entry: String,
     built_in: bool,
     collections: Vec<String>,
+    /// Collections removed while this plugin actually held a grant. Only
+    /// these can be restored if the owner later brings back that name.
+    #[serde(default)]
+    restore_collections: Vec<String>,
     installed_at_ms: u64,
     #[serde(default)]
     capabilities: Option<PluginCapabilities>,
@@ -673,6 +678,10 @@ impl Api {
         self.catalog.oikome_dir().join(PLUGINS_DIR)
     }
 
+    fn removed_built_ins_path(&self) -> PathBuf {
+        self.catalog.oikome_dir().join(REMOVED_BUILT_INS_FILE)
+    }
+
     fn installed(&self) -> Result<Vec<Installed>, ApiError> {
         read_private(&self.plugins_path())
     }
@@ -706,21 +715,15 @@ impl Api {
             .and_then(|(_, bytes)| read_manifest(bytes, true).ok())
     }
 
-    /// Resolve an MCP adapter from an installed external package or an
-    /// official package in this build. No client has a Rust implementation.
+    /// Resolve an MCP adapter only from an installed package. No client has
+    /// a Rust implementation or an uninstalled official fallback.
     pub(crate) fn mcp_client(
         &self,
         plugin: &str,
         client: &str,
     ) -> Result<McpClientCapability, ApiError> {
-        let package = match self.installed_plugin(plugin) {
-            Ok(installed) => installed.plugin(),
-            Err(_) => Self::built_in_manifest(plugin).ok_or_else(|| {
-                ApiError::not_found(format!("there is no MCP client plugin {plugin}"))
-                    .because("plugin_unknown")
-                    .with("id", plugin)
-            })?,
-        };
+        self.ensure_built_ins()?;
+        let package = self.installed_plugin(plugin)?.plugin();
         package
             .capabilities
             .mcp_clients
@@ -733,21 +736,68 @@ impl Api {
             })
     }
 
-    /// Plugins installed here, then Oikome's own not added yet.
+    /// Install this build's official packages on a new node. A legacy node
+    /// with no removal record keeps its old choices; a deliberate removal
+    /// stays removed, including after a restart.
+    fn ensure_built_ins(&self) -> Result<(), ApiError> {
+        let new_node = !self.plugins_path().exists();
+        let has_removal_record = self.removed_built_ins_path().exists();
+        if !new_node && !has_removal_record {
+            return Ok(());
+        }
+        if new_node {
+            self.change_private(&self.removed_built_ins_path(), |_: &mut Vec<String>| {})?;
+        }
+        let removed: Vec<String> = read_private(&self.removed_built_ins_path())?;
+        for files in BUILT_IN {
+            let Some((_, bytes)) = files.iter().find(|(name, _)| *name == MANIFEST) else {
+                continue;
+            };
+            let plugin = read_manifest(bytes, true)?;
+            if removed.contains(&plugin.id) || self.installed_plugin(&plugin.id).is_ok() {
+                continue;
+            }
+            let files = files
+                .iter()
+                .map(|(name, bytes)| (name.to_string(), bytes.to_vec()))
+                .collect();
+            self.install_package(plugin, files)?;
+        }
+        Ok(())
+    }
+
+    /// Installed plugins, then official packages the owner removed.
     pub async fn list_plugins(&self, caller: &Caller, _: Empty) -> Result<Vec<Plugin>, ApiError> {
         caller.require_owner()?;
+        self.ensure_built_ins()?;
         let installed = self.installed()?;
-        // A saved card's collection may have been removed and later created
-        // under the same name. Restore the grant the saved card still names.
+        // Only a collection removed while its grant existed is restorable.
+        // The editable list of collections alone is never proof of a grant.
         let session = self.session(None);
+        let mut restored = BTreeMap::new();
         for plugin in &installed {
-            for collection in &plugin.collections {
+            for collection in &plugin.restore_collections {
                 if self.catalog.get_space(collection).is_ok()
                     && !self.catalog.has_space_grant(&plugin.did, collection)
                 {
                     session.grant_space(collection, std::slice::from_ref(&plugin.did))?;
+                    restored
+                        .entry(plugin.id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(collection.clone());
                 }
             }
+        }
+        if !restored.is_empty() {
+            self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
+                for plugin in all {
+                    if let Some(names) = restored.get(&plugin.id) {
+                        plugin
+                            .restore_collections
+                            .retain(|name| !names.contains(name));
+                    }
+                }
+            })?;
         }
         let mut out: Vec<Plugin> = installed.iter().map(Installed::plugin).collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -761,6 +811,27 @@ impl Api {
             }
         }
         Ok(out)
+    }
+
+    /// Remember a grant lost because its collection was removed. This is
+    /// recorded before the collection is dropped, not inferred from card data.
+    pub(crate) fn note_removed_collection(&self, space: &str) -> Result<(), ApiError> {
+        let affected = self.installed()?.iter().any(|plugin| {
+            plugin.collections.iter().any(|name| name == space)
+                && self.catalog.has_space_grant(&plugin.did, space)
+        });
+        if affected {
+            self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
+                for plugin in all {
+                    if plugin.collections.iter().any(|name| name == space)
+                        && !plugin.restore_collections.iter().any(|name| name == space)
+                    {
+                        plugin.restore_collections.push(space.to_string());
+                    }
+                }
+            })?;
+        }
+        Ok(())
     }
 
     /// What a folder on this computer holds as a plugin, before adding it.
@@ -909,12 +980,28 @@ impl Api {
                 .as_ref()
                 .map(|p| p.collections.clone())
                 .unwrap_or_default(),
+            restore_collections: if plugin.capabilities.cards.is_empty() {
+                Vec::new()
+            } else {
+                existing
+                    .as_ref()
+                    .map(|p| p.restore_collections.clone())
+                    .unwrap_or_default()
+            },
             installed_at_ms: now_ms(),
             capabilities: Some(plugin.capabilities),
             home_by_default: existing.map(|p| p.home_by_default).unwrap_or(false),
             translations: plugin.translations,
         };
         let installed = self.grant_plugin(installed, collections)?;
+        if Self::built_in(&installed.id).is_some() {
+            self.change_private(
+                &self.removed_built_ins_path(),
+                |removed: &mut Vec<String>| {
+                    removed.retain(|id| id != &installed.id);
+                },
+            )?;
+        }
         Ok(installed.plugin())
     }
 
@@ -955,6 +1042,16 @@ impl Api {
         self.change_private(&self.plugins_path(), |all: &mut Vec<Installed>| {
             all.retain(|p| p.id != req.id)
         })?;
+        if Self::built_in(&installed.id).is_some() {
+            self.change_private(
+                &self.removed_built_ins_path(),
+                |removed: &mut Vec<String>| {
+                    if !removed.contains(&req.id) {
+                        removed.push(req.id.clone());
+                    }
+                },
+            )?;
+        }
         self.remember_name(&installed.did, &installed.name);
         let dir = self.plugins_dir().join(&req.id);
         if dir.exists() {

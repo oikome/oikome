@@ -1702,7 +1702,7 @@ DLG.borrow = (D) => dlg(t('borrow.title', { who: 'Sam' }), `
   <div class="row row--between"><span>${t('borrow.use', { who: 'Sam' })}</span><span class="toggle ${D.on ? 'on' : ''}" data-act="flag" data-bind="on" role="switch" aria-checked="${D.on}"></span></div>`,
 foot(D.on ? '' : t('borrow.off'), `<button class="btn btn--primary" data-close>${t('done')}</button>`));
 
-const AIAPPS = [['Claude Code', 'aia.terminal'], ['Kimi Code', 'aia.terminal'], ['Codex', 'aia.terminal'], ['other', 'aia.any']];
+const AIAPPS = [['Claude Code', 'aia.terminal'], ['Kimi Code', 'aia.terminal'], ['Codex', 'aia.terminal']];
 const aiAppName = (n) => (n === 'other' ? t('aia.other') : n);
 DLG.connect = (D) => {
   let body = steps(['step.app', 'step.reads', 'step.connect'], D.step), nav;

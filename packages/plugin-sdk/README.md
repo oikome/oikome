@@ -20,8 +20,9 @@ each capability from the corresponding screen.
   required before third-party preview code can run; declaring `preview` does
   not enable execution.
 - `mcpClients`: describes manual or one-click setup for an MCP client. Official
-  adapters bundled with Oikome can be selected directly; an external package
-  must be installed first. No model or provider profile is selected.
+  adapters bundled with Oikome are installed by default and can be removed
+  persistently; an external package must be installed first. Only installed
+  adapters appear in MCP Access. No model or provider profile is selected.
 
 A package may contain several capabilities. Current collection grants are
 package-wide and shared by its cards; adding the first card is when the owner

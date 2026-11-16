@@ -122,7 +122,7 @@ A plugin package can offer independent Dashboard cards, source configuration, pr
 
 **Configuration flow**
 
-1. Add an official package or inspect a local package folder, then install it without side effects.
+1. Official bundled packages start installed on a new node, with no grants or Home cards. The owner can remove them persistently, restore them, or install an external official/local package without side effects.
 2. Configure a source on Sources, choose an MCP client on MCP Access, or add a card through Home → Arrange → Add a Card.
 3. For a card, choose its collections at that point. Access can be changed later in Plugins.
 4. Removing a package revokes its grants. Saved Home positions remain visible as unavailable and recover if the package or data becomes available again.

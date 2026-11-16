@@ -95,7 +95,7 @@ PSD, RAW, Office and extra media codecs are not bundled into this stage. Approxi
 
 Content/Preview is a plugin capability beside Dashboard cards, Sources and MCP clients. PR 24 adds `capabilities.preview` as registration metadata only: it does not execute third-party preview code. Actual execution still requires a separate host process or controlled WASM sandbox, not the dashboard iframe, with only a single file read grant and its own temporary directory, no network by default, and CPU, memory, time and output limits. A parser failure cannot crash the node. Official and external packages use the same manifest; RAW Preview remains an external official package rather than a bundled core dependency.
 
-PR 24's production first-paint bundle is 685.20 kB JS, compared with 679.81 kB after PR 23, including the official repository interface. The PDF display and Worker chunks remain unchanged and lazy; no preview parser or host runtime is added.
+PR 24's production first-paint bundle is 684.59 kB JS, compared with 679.81 kB after PR 23, including the official repository interface. The PDF display and Worker chunks remain unchanged and lazy; no preview parser or host runtime is added.
 
 RAW Preview returns embedded JPEG and EXIF where available, or a developed JPEG derivative and whether the result is an embedded or developed preview. It never modifies RAW or XMP. The cache key includes source hash, plugin version and preview parameters; disabling or removing the plugin leaves original photos untouched. Unsupported cameras and absent plugins always retain local opening.
 

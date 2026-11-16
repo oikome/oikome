@@ -37,6 +37,7 @@ export const en = {
     connected: "Connected",
     overMcp: "over MCP \u00b7 on this computer",
     none: "No MCP client is connected yet. Connect one to let it search the collections you choose.",
+    noClients: "No MCP client adapter is installed. Add or restore one in Plugins first.",
     reads: (list: string[]) => (list.length > 0 ? `Reads ${list.join(", ")}` : "Reads nothing yet"),
     lastUsed: (when: string) => `last used ${when}`,
     notYet: "not used yet",

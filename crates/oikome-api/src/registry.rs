@@ -156,6 +156,7 @@ impl Api {
         _: Empty,
     ) -> Result<Vec<RegistryPlugin>, ApiError> {
         caller.require_owner()?;
+        self.ensure_built_ins()?;
         let mut out = Vec::new();
         for entry in self.registry_entries().await? {
             let mut plugin = entry.plugin;

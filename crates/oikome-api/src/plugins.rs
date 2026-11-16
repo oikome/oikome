@@ -739,7 +739,7 @@ impl Api {
     /// Install this build's official packages on a new node. A legacy node
     /// with no removal record keeps its old choices; a deliberate removal
     /// stays removed, including after a restart.
-    fn ensure_built_ins(&self) -> Result<(), ApiError> {
+    pub(crate) fn ensure_built_ins(&self) -> Result<(), ApiError> {
         let new_node = !self.plugins_path().exists();
         let has_removal_record = self.removed_built_ins_path().exists();
         if !new_node && !has_removal_record {

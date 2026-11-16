@@ -4733,40 +4733,50 @@ async fn official_registry_packages_are_verified_before_installation() {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let manifest = serde_json::json!({
-        "id": "note-count", "name": "Note count", "by": "Oikome", "version": "1.0.0",
-        "capabilities": {"cards": [{
-            "id": "count", "name": "Note count", "reads": "Notes", "shape": "any",
-            "width": 4, "height": 200, "entry": "index.html"
-        }]}
-    });
+    let manifest: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../plugins/spending-by-category/oikome-plugin.json"
+    ))
+    .unwrap();
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
     zip.start_file("oikome-plugin.json", options).unwrap();
     zip.write_all(&serde_json::to_vec(&manifest).unwrap())
         .unwrap();
-    zip.start_file("index.html", options).unwrap();
-    zip.write_all(b"<html><body>Notes</body></html>").unwrap();
+    for (name, bytes) in [
+        (
+            "index.html",
+            &include_bytes!("../../../../plugins/spending-by-category/index.html")[..],
+        ),
+        (
+            "main.js",
+            &include_bytes!("../../../../plugins/spending-by-category/main.js")[..],
+        ),
+        (
+            "style.css",
+            &include_bytes!("../../../../plugins/spending-by-category/style.css")[..],
+        ),
+    ] {
+        zip.start_file(name, options).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
     let package = zip.finish().unwrap().into_inner();
-    let bad_manifest = serde_json::json!({
-        "id": "bad-count", "name": "Bad count", "by": "Oikome", "version": "1.0.0",
-        "capabilities": {"mcpClients": [{
-            "id": "bad", "name": "Bad", "command": "bad {url} {token}"
-        }]}
-    });
+    let bad_manifest: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../plugins/photo-memories/oikome-plugin.json"
+    ))
+    .unwrap();
     let index = serde_json::to_vec(&serde_json::json!({
         "schemaVersion": 1,
         "plugins": [
             {
                 "manifest": manifest,
-                "download": format!("http://{address}/note-count.zip"),
+                "download": format!("http://{address}/spending-by-category.zip"),
                 "sha256": format!("{:x}", sha2::Sha256::digest(&package)),
                 "bytes": package.len()
             },
             {
                 "manifest": bad_manifest,
-                "download": format!("http://{address}/note-count.zip"),
+                "download": format!("http://{address}/spending-by-category.zip"),
                 "sha256": "0".repeat(64),
                 "bytes": package.len()
             }
@@ -4794,7 +4804,7 @@ async fn official_registry_packages_are_verified_before_installation() {
                 }
                 let body = if request.starts_with(b"GET /index.json ") {
                     index
-                } else if request.starts_with(b"GET /note-count.zip ") {
+                } else if request.starts_with(b"GET /spending-by-category.zip ") {
                     package
                 } else {
                     let response =
@@ -4819,34 +4829,43 @@ async fn official_registry_packages_are_verified_before_installation() {
     );
     let offered = n.api.list_registry_plugins(&OWNER, Empty {}).await.unwrap();
     assert_eq!(offered.len(), 2);
-    assert!(!offered[0].plugin.installed);
+    assert!(offered[0].plugin.installed);
     let installed = n
         .api
         .install_registry_plugin(
             &OWNER,
             RegistryPluginRef {
-                id: "note-count".into(),
+                id: "spending-by-category".into(),
                 version: "1.0.0".into(),
             },
         )
         .await
         .unwrap();
     assert!(installed.installed && installed.collections.is_empty());
-    let page = String::from_utf8(n.api.plugin_file("note-count", "index.html").unwrap()).unwrap();
+    let page = String::from_utf8(
+        n.api
+            .plugin_file("spending-by-category", "index.html")
+            .unwrap(),
+    )
+    .unwrap();
     assert!(page.contains("/plugins/sdk.js"));
+    let photo_before = n.api.plugin_file("photo-memories", "index.html").unwrap();
     let error = n
         .api
         .install_registry_plugin(
             &OWNER,
             RegistryPluginRef {
-                id: "bad-count".into(),
+                id: "photo-memories".into(),
                 version: "1.0.0".into(),
             },
         )
         .await
         .unwrap_err();
     assert_eq!(error.reason.as_deref(), Some("plugin_registry_checksum"));
-    assert!(n.api.plugin_file("bad-count", "index.html").is_none());
+    assert_eq!(
+        n.api.plugin_file("photo-memories", "index.html").unwrap(),
+        photo_before
+    );
     server.abort();
 }
 

@@ -12,6 +12,7 @@ import type { Plugin, PluginCardCapability } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import { DataType } from "apache-arrow";
 import { imageSrc } from "./content";
+import type { Preview } from "./content";
 import { useClient } from "./data";
 import { isoTime } from "./format";
 import { language } from "./i18n/languages";
@@ -65,6 +66,20 @@ export function pluginCollection(name: string, table: Table): PluginCollection {
       Object.fromEntries(columns.map(({ field, values }) => [field.name, values[r]!])),
     ),
   };
+}
+
+/** Column kinds available to a card, including in-place file previews. */
+export function previewColumnTypes(preview: Preview): PluginColumnType[] {
+  const types = new Set<PluginColumnType>();
+  if (preview.rows) {
+    for (const column of pluginCollection("", preview.rows).columns) types.add(column.type);
+  }
+  for (const item of preview.items) {
+    if (item.image) types.add("image");
+    if (item.when !== undefined) types.add("date");
+    if (item.text !== undefined || item.detail !== undefined) types.add("text");
+  }
+  return [...types];
 }
 
 /** The page's style for a plugin: its theme, its colors and type, and the app's fonts. */

@@ -132,37 +132,15 @@ const api = (op, body = {}) =>
     [op, body],
   );
 
-/** A real local HTTP release of an external official package, with no mocks in the app. */
+/** A real local HTTP release of an official package, with no mocks in the app. */
 async function serveRegistry() {
   registryRoot = mkdtempSync(join(tmpdir(), "oikome-registry-"));
   const packageDir = join(registryRoot, "package");
   mkdirSync(packageDir);
-  const manifest = {
-    id: "note-count",
-    name: "Note count",
-    by: "Oikome",
-    version: "1.0.0",
-    description: "How many notes your chosen collections hold.",
-    capabilities: {
-      cards: [
-        {
-          id: "count",
-          name: "Note count",
-          reads: "Notes with their text and creation dates",
-          shape: "any",
-          columns: ["date", "text"],
-          width: 4,
-          height: 200,
-          entry: "index.html",
-        },
-      ],
-    },
-    translations: {},
-  };
-  writeFileSync(join(packageDir, "oikome-plugin.json"), JSON.stringify(manifest));
-  writeFileSync(join(packageDir, "index.html"), '<!doctype html><html><head></head><body><main id="count">0 notes</main><script src="main.js"></script></body></html>');
-  writeFileSync(join(packageDir, "main.js"), 'oikome.onData(({ collections }) => { document.getElementById("count").textContent = `${collections.flatMap((c) => c.rows).length} notes`; });');
-  const archive = join(registryRoot, "note-count-1.0.0.zip");
+  const source = fileURLToPath(new URL("../plugins/spending-by-category", import.meta.url));
+  for (const name of readdirSync(source)) copyFileSync(join(source, name), join(packageDir, name));
+  const manifest = JSON.parse(readFileSync(join(packageDir, "oikome-plugin.json"), "utf8"));
+  const archive = join(registryRoot, "spending-by-category-1.0.0.zip");
   execFileSync("python3", [
     "-c",
     "import pathlib,sys,zipfile\nwith zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_DEFLATED) as z:\n  for p in pathlib.Path(sys.argv[1]).iterdir(): z.write(p, p.name)",
@@ -177,12 +155,12 @@ async function serveRegistry() {
         schemaVersion: 1,
         plugins: [{
           manifest,
-          download: `${registryBase}/note-count-1.0.0.zip`,
+          download: `${registryBase}/spending-by-category-1.0.0.zip`,
           sha256: createHash("sha256").update(bytes).digest("hex"),
           bytes: bytes.length,
         }],
       }));
-    } else if (request.url === "/note-count-1.0.0.zip") {
+    } else if (request.url === "/spending-by-category-1.0.0.zip") {
       response.end(bytes);
     } else {
       response.statusCode = 404;
@@ -2497,39 +2475,82 @@ setTimeout(() => { location.href = "${OUT}/navigate"; }, 1000);`,
   }
 });
 
-test("an external official package downloads, installs and is granted separately", async () => {
-  await page.goto(base);
-  expect((await api("create_space", { name: "note-repository", kind: "transactional" })).name).toBe("note-repository");
-  expect((await api("run_sql", {
-    sql: "CREATE TABLE \"note-repository\".notes (id BIGINT NOT NULL, created_at VARCHAR, content VARCHAR); INSERT INTO \"note-repository\".notes VALUES (1, '2026-11-16 09:30:00', 'A note');",
-  })).code).toBeUndefined();
-  expect((await api("list_tables", { space: "note-repository" })).find((table) => table.name === "notes").rows).toBe(1);
-  await page.goto(`${base}/plugins`);
-  const offered = page.locator(".screen-plugin-offer", { hasText: "Note count" });
-  await expect(offered).toContainText("Oikome");
-  await offered.getByRole("button", { name: "Add Note count from the official repository" }).click();
-  const add = page.getByRole("dialog", { name: "Add Note count" });
-  await add.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(page.locator(".oik-toasts")).toContainText("Added Note count.");
-  expect((await api("plugin_read", { plugin: "note-count", space: "oikome-guide" })).code).toBe("permission_denied");
+test("official cards calculate spending and pick a real photo memory", async () => {
+  const photos = mkdtempSync(join(tmpdir(), "oikome-memory-photos-"));
+  try {
+    expect((await api("create_space", { name: "plugin-spending", kind: "transactional" })).name).toBe("plugin-spending");
+    expect((await api("run_sql", {
+      sql: `CREATE TABLE "plugin-spending".entries (day VARCHAR, amount DOUBLE, category VARCHAR);
+        INSERT INTO "plugin-spending".entries VALUES
+        ('2026-11-15', 10, 'Food'), ('2026-11-16', 20, 'Food'),
+        ('2026-11-16', 5, 'Transport'), ('2026-11-14', 40, 'Books');`,
+    })).code).toBeUndefined();
 
-  await page.goto(`${base}/`);
-  await page.getByRole("button", { name: "Arrange" }).click();
-  await page.getByRole("button", { name: "Add a Card" }).click();
-  const choices = page.getByRole("dialog", { name: "Add a Card" });
-  await choices.locator("li", { hasText: "Note count" }).getByRole("button", { name: "Add" }).click();
-  const grant = page.getByRole("dialog", { name: "Note count" });
-  await grant.getByRole("checkbox", { name: "note-repository" }).check();
-  await grant.getByRole("button", { name: "Add", exact: true }).click();
-  await page.getByRole("button", { name: "Done" }).click();
-  await page.getByRole("region", { name: "Note count" }).scrollIntoViewIfNeeded();
-  const card = page.frameLocator('iframe[title="Note count"]');
-  await expect(card.locator("#count")).toContainText(/[1-9]\d* notes/);
+    const example = join(owner, "Examples", "lisbon-photos");
+    const image = readdirSync(example).find((name) => /\.(jpe?g|png|webp)$/i.test(name));
+    for (const name of ["nearest.jpg", "older.jpg", "current.jpg"]) copyFileSync(join(example, image), join(photos, name));
+    const now = new Date();
+    const date = (yearOffset, dayOffset) => {
+      const value = new Date(Date.UTC(now.getUTCFullYear() + yearOffset, now.getUTCMonth(), now.getUTCDate() + dayOffset, 12));
+      return `${value.toISOString().slice(0, 10)} 12:00:00`;
+    };
+    writeFileSync(join(photos, "captions.csv"), [
+      "file,title,place,taken,credit",
+      `nearest.jpg,Nearest memory,Lisbon,${date(-1, 0)},Oikome`,
+      `older.jpg,Older memory,Porto,${date(-1, -20)},Oikome`,
+      `current.jpg,Current photo,Lisbon,${date(0, 0)},Oikome`,
+    ].join("\n"));
+    expect((await api("view_in_place", { path: photos, name: "memory-photos" })).name).toBe("memory-photos");
+    const existing = await api("node_info");
+    if (existing.homeCards) {
+      await api("set_home_cards", {
+        cards: existing.homeCards.filter((card) => !["plugin:spending-by-category", "plugin:photo-memories"].includes(card.id)),
+      });
+    }
+    await api("set_plugin_collections", { id: "spending-by-category", collections: [] });
 
-  const { homeCards } = await api("node_info");
-  await api("set_home_cards", { cards: homeCards.filter((card) => card.id !== "plugin:note-count:count") });
-  await api("remove_plugin", { id: "note-count" });
-  await api("drop_space", { space: "note-repository" });
+    await page.goto(`${base}/`);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    let choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Spending by category" }).getByRole("button", { name: "Add" }).click();
+    let grant = page.getByRole("dialog", { name: "Spending by category" });
+    await grant.getByRole("checkbox", { name: "plugin-spending" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Photo memories" }).getByRole("button", { name: "Add" }).click();
+    grant = page.getByRole("dialog", { name: "Photo memories" });
+    await grant.getByRole("checkbox", { name: "memory-photos" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+
+    await page.getByRole("region", { name: "Spending by category" }).scrollIntoViewIfNeeded();
+    const spending = page.frameLocator('iframe[title="Spending by category"]');
+    await expect(spending.locator(".total")).toContainText("75.00");
+    expect(await spending.locator("ol li .name").allTextContents()).toEqual(["Books", "Food", "Transport"]);
+    await spending.getByRole("button", { name: "Open plugin-spending" }).click();
+    await expect(page).toHaveURL(/\/collections\/plugin-spending$/);
+
+    await page.goto(`${base}/`);
+    await page.getByRole("region", { name: "Photo memories" }).scrollIntoViewIfNeeded();
+    const memory = page.frameLocator('iframe[title="Photo memories"]');
+    await expect(memory.locator(".title")).toHaveText("Nearest memory");
+    await expect(memory.locator(".label")).toHaveText("One year ago");
+    await expect(memory.locator(".meta")).toContainText("Lisbon");
+    await expect.poll(() => memory.locator("img").evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+    await memory.getByRole("button", { name: /Nearest memory/ }).click();
+    await expect(page).toHaveURL(/\/collections\/memory-photos$/);
+
+    const { homeCards } = await api("node_info");
+    await api("set_home_cards", {
+      cards: homeCards.filter((card) => !["plugin:spending-by-category", "plugin:photo-memories"].includes(card.id)),
+    });
+    await api("drop_space", { space: "plugin-spending" });
+    await api("drop_space", { space: "memory-photos" });
+  } finally {
+    rmSync(photos, { recursive: true, force: true });
+  }
 });
 
 test("screens use words for people, also when something fails", async () => {

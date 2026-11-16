@@ -26,7 +26,7 @@ import type { CardChoice } from "../arrange";
 import { LatestCard, TotalsCard, hasLatest, hasTotals } from "../cards";
 import { asSentence, useAction, useClient, useLoad } from "../data";
 import { useCountUp } from "../motion";
-import { inLanguage, PluginCard, pluginCardKey, pluginCollection } from "../plugins";
+import { inLanguage, PluginCard, pluginCardKey, previewColumnTypes } from "../plugins";
 import { ago, bytes, shortId } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -481,7 +481,7 @@ function GrantCardDialog({
   const fits = (space: SpaceSummary) => {
     const preview = previews?.get(space.name);
     if (!preview) return false;
-    const columns = preview.rows ? pluginCollection(space.name, preview.rows).columns.map((column) => column.type) : [];
+    const columns = previewColumnTypes(preview);
     return (card.shape === "any" || card.shape === preview.shape.view) && card.columns.every((column) => columns.includes(column));
   };
   const offered = mine.filter((space) => fits(space) || chosen.has(space.name));

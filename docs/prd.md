@@ -118,7 +118,7 @@ A plugin package can offer independent Dashboard cards, source configuration, pr
 
 **Runtime boundaries:** Dashboard code runs in an isolated iframe without network, storage or app API access. The host reads as the plugin through the Rust authorization layer and records reads in Activity. Source declarations execute no package code and use existing connector rules. Preview declarations do not execute anything. MCP adapters can write only the declared client configuration after an explicit owner action; they never inherit Dashboard grants or choose a model/profile.
 
-**Current official packages:** Spending by Category and Photo Memories cards; flomo HTML import plus an optional Recent Notes card; Kimi Code, Codex and Claude Code CLI adapters. The independent [oikome-plugins](https://github.com/oikome/oikome-plugins) repository publishes these and the external-only Note Count card. Plugins browses its release index, and the node verifies the selected ZIP's size, SHA-256 and manifest before ordinary installation. RAW Preview and other complex format renderers remain external official packages, not bundled by default.
+**Current official packages:** Spending by Category and Photo Memories cards; flomo HTML import plus an optional Recent Notes card; Kimi Code, Codex and Claude Code CLI adapters. The independent [oikome-plugins](https://github.com/oikome/oikome-plugins) repository publishes these official packages. Plugins browses its release index, and the node verifies the selected ZIP's size, SHA-256 and manifest before ordinary installation. RAW Preview and other complex format renderers remain external official packages, not bundled by default.
 
 **Configuration flow**
 

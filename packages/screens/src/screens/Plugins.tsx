@@ -20,7 +20,7 @@ import {
 import type { Plugin, SpaceSummary } from "@oikome/client";
 import { loadPreview } from "../content";
 import type { View } from "../content";
-import { inLanguage, pluginCollection } from "../plugins";
+import { inLanguage, previewColumnTypes } from "../plugins";
 import { asSentence, useAction, useClient, useLoad } from "../data";
 import type { Describe } from "../data";
 import { ScreenHeader } from "../parts";
@@ -53,7 +53,7 @@ function useCollectionViews() {
       const map = new Map<string, Holds>();
       loaded.forEach((preview, i) => {
         const name = mine[i]!.name;
-        const columns = preview?.rows ? pluginCollection(name, preview.rows).columns.map((c) => c.type) : [];
+        const columns = preview ? previewColumnTypes(preview) : [];
         map.set(name, { view: preview?.shape.view ?? "table", columns: new Set(columns) });
       });
       setViews(map);
@@ -185,6 +185,7 @@ export function Plugins() {
         </section>
       )}
 
+      {(!registry.data || registry.error || registryOffered.length > 0) && (
       <section className="screen-section" aria-labelledby="official-repository">
         <h2 id="official-repository" className="oik-label screen-section-label">
           {s.repository}
@@ -234,6 +235,7 @@ export function Plugins() {
           <span className="oik-skel oik-skel--line" aria-hidden="true" />
         )}
       </section>
+      )}
 
       {browsing && (
         <FolderBrowser

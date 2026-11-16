@@ -154,7 +154,8 @@ per package version and an index containing each complete manifest, download
 URL, byte size and SHA-256. Oikome's Plugins screen lists the release index,
 verifies the downloaded size, digest and manifest, and installs the package
 through the same lifecycle as a local folder. Installation still has no data or
-Home side effects. The external-only `note-count` package is a working example.
+Home side effects. Packages must address a concrete user need and prove their
+real data behavior; none are added merely to demonstrate the catalog.
 Publisher signing and third-party community distribution remain separate later
 trust and distribution work.
 

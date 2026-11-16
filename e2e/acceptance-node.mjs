@@ -110,13 +110,22 @@ async function writeWebm(root) {
 }
 
 function validPdf() {
-  const stream = "BT /F1 18 Tf 36 90 Td (Oikome acceptance document) Tj ET\n";
+  const first = "BT /F1 18 Tf 36 90 Td (Oikome acceptance document) Tj ET\n";
+  const second = "BT /F1 18 Tf 36 90 Td (A second page) Tj ET\n";
+  const third = "BT /F2 18 Tf 36 90 Td <4E2D6587988489C8> Tj ET\n";
   const objects = [
     "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
-    `4 0 obj\n<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream\nendobj\n`,
-    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R 5 0 R 8 0 R] /Count 3 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>\nendobj\n",
+    `4 0 obj\n<< /Length ${Buffer.byteLength(first)} >>\nstream\n${first}endstream\nendobj\n`,
+    "5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>\nendobj\n",
+    `6 0 obj\n<< /Length ${Buffer.byteLength(second)} >>\nstream\n${second}endstream\nendobj\n`,
+    "7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    "8 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 9 0 R /Resources << /Font << /F2 10 0 R >> >> >>\nendobj\n",
+    `9 0 obj\n<< /Length ${Buffer.byteLength(third)} >>\nstream\n${third}endstream\nendobj\n`,
+    "10 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [11 0 R] >>\nendobj\n",
+    "11 0 obj\n<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /FontDescriptor 12 0 R >>\nendobj\n",
+    "12 0 obj\n<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [0 -200 1000 900] /ItalicAngle 0 /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 >>\nendobj\n",
   ];
   let text = "%PDF-1.4\n";
   const offsets = [];
@@ -174,6 +183,7 @@ function generateFiles(root) {
   write(root, "content-files/rows.jsonl", '{"city":"Lisbon","temperature":21.4}\n{"city":"Porto","temperature":19.8}\n');
   write(root, "content-files/damaged.json", '{ "readableAs": "source", "complete": ');
   write(root, "content-files/External.pdf", validPdf());
+  write(root, "content-files/Broken.pdf", "%PDF-1.4\nthis is not a complete document\n");
   write(root, "content-files/Portfolio.psd", validPsd());
   const readings = ["id,recorded_at,living_room_celsius"];
   for (let hour = 0; hour < 72; hour++) {

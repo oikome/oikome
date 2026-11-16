@@ -28,8 +28,9 @@ import {
   Tile,
   useToast,
 } from "@oikome/ui";
+import { OikomeError } from "@oikome/client";
 import type { Assistant, AssistantApp, AssistantConnected, SpaceSummary } from "@oikome/client";
-import { useAction, useClient, useLoad } from "../data";
+import { errorMessage, useAction, useClient, useLoad } from "../data";
 import { ago, calendarDate } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -43,7 +44,8 @@ const RECENT_MS = 15 * 60 * 1000;
 const WAIT_EVERY_MS = 2000;
 const MAX_NAME = 64;
 
-const appName = (app: AssistantApp, name: string) => (app === "claude_code" ? s.claudeCode : name);
+const appName = (app: AssistantApp, name: string) =>
+  app === "claude_code" ? s.claudeCode : app === "kimi_code" ? s.kimiCode : app === "codex" ? s.codex : name;
 
 function metaOf(a: Assistant): string {
   if (a.endedAtMs != null) return s.ended(calendarDate(a.endedAtMs));
@@ -306,6 +308,11 @@ function ConnectDialog({
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<AssistantConnected>();
   const [reached, setReached] = useState(false);
+  const [configuring, setConfiguring] = useState(false);
+  const [configured, setConfigured] = useState(false);
+  const [manual, setManual] = useState(false);
+  const [replacing, setReplacing] = useState(false);
+  const [configError, setConfigError] = useState<string>();
   const connect = useAction();
   const shown = appName(app, name.trim());
 
@@ -330,6 +337,41 @@ function ConnectDialog({
   const endpoint = `${window.location.origin}/mcp`;
   const header = done ? `Authorization: Bearer ${done.token}` : "";
   const command = done ? `claude mcp add --transport http oikome ${endpoint} --header "${header}"` : "";
+  const configuration = !done
+    ? ""
+    : app === "claude_code"
+      ? command
+      : app === "kimi_code"
+        ? JSON.stringify(
+            { mcpServers: { oikome: { url: endpoint, headers: { Authorization: `Bearer ${done.token}` } } } },
+            null,
+            2,
+          )
+        : `[mcp_servers.oikome]\nurl = ${JSON.stringify(endpoint)}\nhttp_headers = { Authorization = ${JSON.stringify(`Bearer ${done.token}`)} }`;
+  const instruction =
+    app === "claude_code"
+      ? s.pasteClaude
+      : app === "kimi_code"
+        ? s.pasteKimi
+        : app === "codex"
+          ? s.pasteCodex
+          : s.pasteOther(shown);
+
+  const configure = async (replace: boolean) => {
+    if (!done) return;
+    setConfiguring(true);
+    setConfigError(undefined);
+    try {
+      await client.installAssistant({ id: done.assistant.id, token: done.token, url: endpoint, replace });
+      setConfigured(true);
+      setReplacing(false);
+    } catch (reason) {
+      if (reason instanceof OikomeError && reason.code === "conflict") setReplacing(true);
+      else setConfigError(errorMessage(reason));
+    } finally {
+      setConfiguring(false);
+    }
+  };
 
   let body;
   let footer;
@@ -342,6 +384,8 @@ function ConnectDialog({
         onChange={(value) => setApp(value as AssistantApp)}
         choices={[
           { value: "claude_code", title: s.claudeCode, meta: s.claudeCodeMeta, leading: <Icon name="terminal" /> },
+          { value: "kimi_code", title: s.kimiCode, meta: s.kimiCodeMeta, leading: <Icon name="terminal" /> },
+          { value: "codex", title: s.codex, meta: s.codexMeta, leading: <Icon name="terminal" /> },
           {
             value: "other",
             title: s.other,
@@ -413,27 +457,48 @@ function ConnectDialog({
       </>
     );
   } else {
+    const oneClick = app === "kimi_code" || app === "codex";
     body = (
       <>
-        <p className="oik-dialog__text">{app === "claude_code" ? s.pasteClaude : s.pasteOther(shown)}</p>
-        {app === "claude_code" ? (
-          <CopyField value={command} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-        ) : (
-          <>
-            <div className="screen-lend-field">
-              <span className="oik-field__label">{s.address}</span>
-              <CopyField value={endpoint} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-            </div>
-            <div className="screen-lend-field">
-              <span className="oik-field__label">{s.header}</span>
-              <CopyField value={header} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
-            </div>
-          </>
+        <p className="oik-dialog__text">{oneClick ? s.oneClick(shown) : instruction}</p>
+        {oneClick && (
+          <div className="screen-assistant-install">
+            {configured ? (
+              <Status kind="ok">{app === "kimi_code" ? s.afterKimi : s.afterCodex}</Status>
+            ) : (
+              <Button variant="primary" disabled={configuring} onClick={() => void configure(false)}>
+                {s.connectNow(shown)}
+              </Button>
+            )}
+            <Button variant="quiet" onClick={() => setManual((shown) => !shown)}>
+              {manual ? s.manualHide : s.manualShow}
+            </Button>
+          </div>
         )}
-        <p className="screen-help">{s.shownOnce}</p>
-        <p className="screen-assistant-wait" role="status" aria-live="polite">
-          {reached ? <Status kind="ok">{s.isConnected(shown)}</Status> : <Status kind="run">{s.waiting(shown)}</Status>}
-        </p>
+        {configError && !replacing && <ErrorText>{configError}</ErrorText>}
+        {(!oneClick || manual) &&
+          (app !== "other" ? (
+            <div className="screen-assistant-config">
+              <CopyField value={configuration} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+            </div>
+          ) : (
+            <>
+              <div className="screen-lend-field">
+                <span className="oik-field__label">{s.address}</span>
+                <CopyField value={endpoint} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+              </div>
+              <div className="screen-lend-field">
+                <span className="oik-field__label">{s.header}</span>
+                <CopyField value={header} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+              </div>
+            </>
+          ))}
+        {(!oneClick || manual) && <p className="screen-help">{s.shownOnce}</p>}
+        {(!oneClick || configured || manual) && (
+          <p className="screen-assistant-wait" role="status" aria-live="polite">
+            {reached ? <Status kind="ok">{s.isConnected(shown)}</Status> : <Status kind="run">{s.waiting(shown)}</Status>}
+          </p>
+        )}
         <p className="screen-help">
           {s.willRead([...chosen])} {s.takeBack}
         </p>
@@ -449,10 +514,27 @@ function ConnectDialog({
   }
 
   return (
-    <Dialog title={s.connectTitle} closeLabel={strings.common.close} onClose={onClose} footer={footer}>
-      <StepDots step={step} total={3} label={s.steps} />
-      {body}
-    </Dialog>
+    <>
+      <Dialog title={s.connectTitle} closeLabel={strings.common.close} onClose={onClose} footer={footer}>
+        <StepDots step={step} total={3} label={s.steps} />
+        {body}
+      </Dialog>
+      {replacing && done && (
+        <ConfirmDialog
+          title={s.replaceTitle(shown)}
+          body={s.replaceBody(shown)}
+          confirmLabel={s.replaceConfirm}
+          cancelLabel={strings.common.cancel}
+          busy={configuring}
+          error={configError}
+          onConfirm={() => void configure(true)}
+          onCancel={() => {
+            setReplacing(false);
+            setConfigError(undefined);
+          }}
+        />
+      )}
+    </>
   );
 }
 

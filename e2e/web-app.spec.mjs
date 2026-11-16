@@ -36,6 +36,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import http from "node:http";
@@ -1026,6 +1027,118 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   await page.getByRole("button", { name: "Remove Claude Code" }).click();
   await page.getByRole("dialog", { name: "Remove Claude Code?" }).getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("No MCP client is connected yet.", { exact: false })).toBeVisible();
+});
+
+test("Kimi Code and Codex get their own working MCP configuration", async () => {
+  for (const app of ["Kimi Code", "Codex"]) {
+    await page.goto(`${base}/assistants`);
+    await page.getByRole("button", { name: "Connect MCP Client" }).click();
+    const dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+    await dialog.getByRole("radio", { name: new RegExp(app) }).check();
+    await dialog.getByRole("button", { name: "Next", exact: true }).click();
+    await dialog.getByRole("checkbox", { name: "oikome-guide" }).check();
+    await dialog.getByRole("button", { name: "Next: Connect" }).click();
+    await expect(dialog.locator(".oik-copy__value")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Set up manually" }).click();
+    const configuration = (await dialog.locator(".oik-copy__value").textContent()).trim();
+    expect(configuration).not.toContain("--profile");
+    expect(configuration).not.toContain("profile kimi");
+    let endpoint, token;
+    if (app === "Kimi Code") {
+      const parsed = JSON.parse(configuration);
+      endpoint = parsed.mcpServers.oikome.url;
+      token = parsed.mcpServers.oikome.headers.Authorization.replace("Bearer ", "");
+    } else {
+      endpoint = configuration.match(/url = "([^"]+)"/)[1];
+      token = configuration.match(/Authorization = "Bearer ([^"]+)"/)[1];
+      expect(configuration).toContain("[mcp_servers.oikome]");
+    }
+    expect(endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+    expect(token).toMatch(/^oik_[A-Za-z0-9_-]+$/);
+    const hello = await mcp(endpoint, token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } }, { modern: false });
+    expect(hello.status).toBe(200);
+    const tools = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
+    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read_row"]);
+    await expect(dialog).toContainText(`${app} is connected`, { timeout: 10_000 });
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await page.getByRole("button", { name: `Edit ${app}` }).click();
+    await page.getByRole("button", { name: "End Access" }).click();
+    await page.getByRole("dialog", { name: `End ${app}'s access?` }).getByRole("button", { name: "End Access" }).click();
+    await page.getByRole("button", { name: `Remove ${app}` }).click();
+    await page.getByRole("dialog", { name: `Remove ${app}?` }).getByRole("button", { name: "Remove" }).click();
+  }
+});
+
+test("one-click MCP setup configures isolated Kimi Code and Codex homes safely", async ({ browser }) => {
+  const root = mkdtempSync(join(tmpdir(), "oikome-one-click-"));
+  const isolated = await serveWeb(root, { ...ENV, HOME: root });
+  const isolatedContext = await browser.newContext();
+  const local = await isolatedContext.newPage();
+  const localBase = new URL(readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim()).origin;
+  const connect = async (app) => {
+    await local.goto(`${localBase}/assistants`);
+    await local.getByRole("button", { name: "Connect MCP Client" }).click();
+    const dialog = local.getByRole("dialog", { name: "Connect MCP Client" });
+    await dialog.getByRole("radio", { name: new RegExp(app) }).check();
+    await dialog.getByRole("button", { name: "Next", exact: true }).click();
+    await dialog.getByRole("button", { name: "Next: Connect" }).click();
+    return dialog;
+  };
+  try {
+    await local.goto(readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim());
+    await local.evaluate(async () => {
+      for (const [op, body] of [["rename_node", { name: "One-click MCP" }], ["confirm_recovery_key", {}]]) {
+        const response = await fetch(`/api/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const result = await response.json();
+        if (result.code) throw new Error(result.message ?? result.code);
+      }
+    });
+    for (const app of ["Kimi Code", "Codex"]) {
+      const path = app === "Kimi Code" ? join(root, ".kimi-code", "mcp.json") : join(root, ".codex", "config.toml");
+      let dialog = await connect(app);
+      await expect(dialog.locator(".oik-copy__value")).toHaveCount(0);
+      await dialog.getByRole("button", { name: `Connect ${app}`, exact: true }).click();
+      await expect(dialog).toContainText(`${app} is configured`);
+      if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
+      let text = readFileSync(path, "utf8");
+      expect(text).not.toContain("--profile");
+      let token;
+      if (app === "Kimi Code") {
+        const saved = JSON.parse(text);
+        token = saved.mcpServers.oikome.headers.Authorization.replace("Bearer ", "");
+        saved.mcpServers.oikome.deferred = true;
+        saved.mcpServers.other = { url: "https://example.com/mcp" };
+        writeFileSync(path, JSON.stringify(saved, null, 2));
+      } else {
+        token = text.match(/Authorization = "Bearer ([^"]+)"/)[1];
+        writeFileSync(path, `# keep me\n${text}`.replace("http_headers =", "enabled_tools = [\"search\"]\nhttp_headers ="));
+      }
+      expect((await mcp(`${localBase}/mcp`, token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "one-click-e2e", version: "1" } }, { modern: false })).status).toBe(200);
+      await expect(dialog).toContainText(`${app} is connected`, { timeout: 10_000 });
+      await dialog.getByRole("button", { name: "Done" }).click();
+
+      dialog = await connect(app);
+      await dialog.getByRole("button", { name: `Connect ${app}`, exact: true }).click();
+      const replace = local.getByRole("dialog", { name: `Update Oikome in ${app}?` });
+      await expect(replace).toContainText("other settings");
+      await replace.getByRole("button", { name: "Update Configuration" }).click();
+      await expect(dialog).toContainText(`${app} is configured`);
+      text = readFileSync(path, "utf8");
+      if (app === "Kimi Code") {
+        const saved = JSON.parse(text);
+        expect(saved.mcpServers.oikome.deferred).toBe(true);
+        expect(saved.mcpServers.other.url).toBe("https://example.com/mcp");
+      } else {
+        expect(text).toContain("# keep me");
+        expect(text).toContain('enabled_tools = ["search"]');
+      }
+      await dialog.getByText("Close", { exact: true }).click();
+    }
+  } finally {
+    await isolatedContext.close();
+    isolated.kill();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {

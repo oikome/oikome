@@ -24,14 +24,35 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     root: join(parent, "workspace"),
     env: { PATH: `${openerBin}:${process.env.PATH ?? ""}` },
   });
+  const pdfRequests = [];
+  page.on("request", (request) => {
+    if (/PdfView|pdf\.worker|\/pdf\//.test(request.url())) pdfRequests.push(request.url());
+  });
   try {
     await page.goto(running.loginLink);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await page.goto(`${running.base}/collections`);
     await expect(page.locator(".screen-cover")).toHaveCount(7);
+    expect(pdfRequests).toHaveLength(0);
+    const mediaCover = page.locator('a.screen-cover[href="/collections/media"]');
+    await expect(mediaCover.locator(".screen-file-collage")).toBeVisible();
+    await expect(mediaCover.locator(".screen-cover__empty")).toHaveCount(0);
+    await expect(mediaCover).toContainText("3 files");
+    await expect.poll(() => mediaCover.locator(".screen-svg-thumbnail img").evaluate((image) => image.naturalWidth)).toBe(640);
+    const coverVideo = mediaCover.locator(".screen-video-thumbnail video");
+    await expect.poll(() => coverVideo.evaluate((element) => element.readyState)).toBeGreaterThan(0);
+    await expect.poll(() => coverVideo.evaluate((element) => element.videoWidth)).toBe(480);
+    await expect(coverVideo.evaluate((element) => element.paused)).resolves.toBe(true);
+    await expect(mediaCover.locator(".screen-audio-thumbnail")).toBeVisible();
 
     await page.goto(`${running.base}/collections/media`);
-    await page.locator("a.screen-ftile", { hasText: "tram.webm" }).click();
+    const routeTile = page.locator("a.screen-ftile", { hasText: "route.svg" });
+    await expect.poll(() => routeTile.locator(".screen-svg-thumbnail img").evaluate((image) => image.naturalWidth)).toBe(640);
+    const videoTile = page.locator("a.screen-ftile", { hasText: "tram.webm" });
+    await expect.poll(() => videoTile.locator("video").evaluate((element) => element.videoWidth)).toBe(480);
+    await expect(videoTile.locator("video").evaluate((element) => element.paused)).resolves.toBe(true);
+    await expect(page.locator("a.screen-ftile", { hasText: "field-recording.wav" }).locator(".screen-audio-thumbnail")).toBeVisible();
+    await videoTile.click();
     const viewer = page.getByRole("dialog", { name: "tram.webm" });
     const video = viewer.locator("video");
     await expect.poll(() => video.evaluate((element) => element.readyState)).toBeGreaterThan(1);
@@ -54,7 +75,30 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.locator(".screen-facts__source").click();
     expect(await (await opened).json()).toEqual({});
     await expect(page.locator("a.screen-ftile", { hasText: "damaged.json" })).toBeVisible();
-    await expect(page.locator("a.screen-ftile", { hasText: "unsafe.svg" })).toBeVisible();
+    const unsafeTile = page.locator("a.screen-ftile", { hasText: "unsafe.svg" });
+    await expect(unsafeTile).toBeVisible();
+    const unsafeThumbnail = unsafeTile.locator(".screen-svg-thumbnail img");
+    await expect(unsafeThumbnail).toHaveAttribute("src", /^blob:/);
+    await expect.poll(() => unsafeThumbnail.evaluate((image) => image.naturalWidth)).toBe(320);
+    const externalTile = page.locator("a.screen-ftile", { hasText: "External.pdf" });
+    const thumbnail = externalTile.locator(".screen-pdf-thumbnail__canvas");
+    await expect(thumbnail).toBeVisible();
+    await expect
+      .poll(() =>
+        thumbnail.evaluate((canvas) => {
+          const context = canvas.getContext("2d");
+          if (!context || !canvas.width || !canvas.height) return false;
+          const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+          for (let i = 0; i < pixels.length; i += 4) if (pixels[i] < 100 && pixels[i + 3] > 0) return true;
+          return false;
+        }),
+      )
+      .toBe(true);
+    await expect(externalTile.locator(".screen-pdf__toolbar")).toHaveCount(0);
+    const brokenTile = page.locator("a.screen-ftile", { hasText: "Broken.pdf" });
+    await expect(brokenTile.locator(".screen-pdf-thumbnail__canvas")).toHaveCount(0);
+    await expect(brokenTile.locator(".screen-pdf-thumbnail .oik-icon")).toBeVisible();
+    expect(pdfRequests.length).toBeGreaterThan(0);
     await page.locator("a.screen-ftile", { hasText: "Plain.txt" }).click();
     const plain = page.getByRole("dialog", { name: "Plain.txt" });
     const copyButton = plain.getByRole("button", { name: "Copy", exact: true });
@@ -82,6 +126,31 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(readOnly.getByRole("button", { name: "Save a Copy", exact: true })).toBeVisible();
     await expect(readOnly.getByRole("button", { name: "Save Original", exact: true })).toHaveCount(0);
     await expect(readOnly.getByText("The original is read-only. Save a copy to keep your changes.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.locator("a.screen-ftile", { hasText: "External.pdf" }).click();
+    const pdfViewer = page.getByRole("dialog", { name: "External.pdf" });
+    await expect(pdfViewer.locator(".screen-pdf__canvas")).toBeVisible();
+    await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("Oikome acceptance document");
+    await expect(pdfViewer.locator(".screen-pdf__position").first()).toHaveText("Page 1 of 3");
+    await expect(pdfViewer.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await pdfViewer.getByRole("button", { name: "Next page", exact: true }).click();
+    await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("A second page");
+    await pdfViewer.getByRole("button", { name: "Next page", exact: true }).click();
+    await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("中文预览");
+    expect(pdfRequests.some((url) => url.includes("/pdf/cmaps/"))).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => pdfViewer.locator(".screen-pdf__canvas").evaluate((canvas) => canvas.getBoundingClientRect().width <= canvas.parentElement.parentElement.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await pdfViewer.getByRole("button", { name: "Zoom in", exact: true }).click();
+    await expect(pdfViewer.locator(".screen-pdf__zoom")).toContainText("125%");
+    expect(pdfRequests.length).toBeGreaterThan(0);
+    await page.keyboard.press("Escape");
+    const originalResponse = await page.request.get(`${running.base}/files/original/content-files/External.pdf`, { headers: { Range: "bytes=0-3" } });
+    expect(originalResponse.status()).toBe(206);
+    expect(originalResponse.headers()["content-security-policy"]).toBe("default-src 'none'");
+    expect(await originalResponse.text()).toBe("%PDF");
+    await page.locator("a.screen-ftile", { hasText: "Broken.pdf" }).click();
+    await expect(page.getByRole("dialog", { name: "Broken.pdf" })).toContainText("This PDF can’t be previewed. Try opening it in its default app.");
     await page.keyboard.press("Escape");
     const pdf = readFileSync(join(running.files, "content-files", "External.pdf"), "utf8");
     expect(pdf).toContain("/Type /Page");

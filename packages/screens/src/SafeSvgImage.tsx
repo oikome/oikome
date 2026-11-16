@@ -3,7 +3,7 @@
 
 import { lazy, Suspense, useEffect, useState } from "react";
 import DOMPurify from "dompurify";
-import { ErrorText } from "@oikome/ui";
+import { ErrorText, Icon } from "@oikome/ui";
 import type { ImageGallery } from "./item";
 import { errorMessage } from "./data";
 import { strings } from "./strings";
@@ -40,7 +40,7 @@ function sanitizedSvg(source: string): string {
   return new XMLSerializer().serializeToString(document);
 }
 
-export default function SafeSvgImage({ src, alt, gallery }: { src: string; alt: string; gallery?: ImageGallery }) {
+function useSafeSvgUrl(src: string) {
   const [url, setUrl] = useState<string>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -65,7 +65,16 @@ export default function SafeSvgImage({ src, alt, gallery }: { src: string; alt: 
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [src]);
+  return { url, error };
+}
 
+export function SafeSvgThumbnail({ src }: { src: string }) {
+  const { url } = useSafeSvgUrl(src);
+  return url ? <img src={url} alt="" decoding="async" /> : <Icon name="photo" />;
+}
+
+export default function SafeSvgImage({ src, alt, gallery }: { src: string; alt: string; gallery?: ImageGallery }) {
+  const { url, error } = useSafeSvgUrl(src);
   return (
     <div className="screen-svg-view">
       {!url && !error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}

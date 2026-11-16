@@ -265,12 +265,21 @@ a { color: inherit; text-decoration: none; }
 .collage--1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
 .collage--2 { grid-template-rows: 1fr; grid-template-columns: 1fr 1fr; }
 .collage--2 img:first-child { grid-row: auto; }
+.collage > .media-icon { display: grid; place-items: center; min-height: 0; background: var(--raised); }
+.collage > .media-icon svg { width: 32px; height: 32px; color: var(--ink3); }
+.collage--3 > .media-icon:first-child { grid-row: span 2; }
+.ftile__art--media img { width: 100%; height: 100%; object-fit: cover; }
 /* A folder inside a folder: a cover like a collection's, as a button. */
 button.cover { width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
 .fsubs { margin-bottom: 28px; }
 .ftile__art--paper { place-items: start; padding: 10px 12px; text-align: left; }
 .ftile__art--paper span { font-size: 12px; line-height: 17px; color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .ftile__art--rows { place-items: start stretch; padding: 8px 10px; }
+.ftile__art--pdf { padding: 8px; background: var(--sunk); }
+.ftile__pdf-page { display: grid; align-content: start; gap: 5px; width: 76%; height: 76%; padding: 8px; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 12%); text-align: left; }
+.ftile__pdf-page b { font-size: 8px; }
+.ftile__pdf-page i { display: block; height: 2px; background: var(--line); }
+.ftile__pdf-page i:last-child { width: 65%; }
 [data-theme="bold"] .collage { gap: 0; } [data-theme="bold"] .collage img + img { border-left: 2px solid var(--edge); } [data-theme="bold"] .collage img:last-child { border-top: 2px solid var(--edge); }
 .paper { height: 100%; padding: 16px 18px 44px; display: flex; flex-direction: column; gap: 8px; }
 [data-theme="ink"] .paper { background-image: radial-gradient(var(--dot) .6px, transparent .6px); background-size: 4px 4px; }
@@ -732,6 +741,8 @@ const P = {
   ai: '<path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 10.9 10.1 9z"/>',
   plugin: '<path d="M9 4.5v3M15 4.5v3M6.5 7.5h11v4a5.5 5.5 0 0 1-11 0zM12 17v3"/>',
   activity: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+  audio: '<path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
+  video: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/>',
   settings: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -1161,9 +1172,9 @@ const TREES = {
     'Porto 2024': { folders: { Ribeira: { folders: {}, files: [['Ribeira at dusk.jpg', 'photo', [2.2, 'MB'], '2024-06-02T18:20', 'sunset']] } }, files: [['Azulejos.jpg', 'photo', [1.7, 'MB'], '2024-06-01T12:11', 'tiles'], ['Rooftops.jpg', 'photo', [1.8, 'MB'], '2024-06-01T16:30', 'alfama']] },
     '旅行笔记': { folders: {}, files: [['里斯本.md', 'note', [3, 'KB'], '2025-10-14T22:10', null, '坐 28 路电车上山，在 Graça 下车，再一路走回 Alfama。'], ['Porto.md', 'note', [2, 'KB'], '2024-06-03T21:40', null, 'Ribeira at dusk, the port cellars lit up across the river.']] },
     Media: { folders: {}, files: [['field-recording.wav', 'audio', [8, 'KB'], '2025-10-14T18:20'], ['tram.mp4', 'video', [1.8, 'MB'], '2025-10-14T18:25'], ['route.svg', 'svg', [2, 'KB'], '2025-10-14T18:30']] },
-  }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['Flights', '240.00'], ['Hotel', '410.00'], ['Trams', '18.00'], ['Dinner', '64.50']]], ['Portfolio.psd', 'psd', [84.2, 'MB'], '2025-10-28T20:50', null, null], ['DSC_2041.NEF', 'raw', [28.4, 'MB'], '2025-10-28T20:45', null, null], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
+  }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['Flights', '240.00'], ['Hotel', '410.00'], ['Trams', '18.00'], ['Dinner', '64.50']]], ['Oikome guide.pdf', 'pdf', [992, 'KB'], '2025-10-28T20:52', null, null], ['Portfolio.psd', 'psd', [84.2, 'MB'], '2025-10-28T20:50', null, null], ['DSC_2041.NEF', 'raw', [28.4, 'MB'], '2025-10-28T20:45', null, null], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
 };
-const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', audio: 'activity', video: 'photo', svg: 'photo', psd: 'file', raw: 'photo', other: 'file' };
+const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', audio: 'audio', video: 'video', svg: 'photo', psd: 'file', raw: 'photo', other: 'file' };
 // The top crumb goes on into a folder viewed in place: each folder a way back up.
 // On a phone it says only where one is, as on every page; Back goes up.
 function folderCrumb(route, arg, child) {
@@ -1188,6 +1199,8 @@ function subArt(node) {
   if (photos.length) return `<div class="collage collage--${photos.length}">${photos.map((f) => `<img src="${PH[f[4]]}" alt="">`).join('')}</div>`;
   const notes = all.filter((f) => f[1] === 'note');
   if (notes.length) return `<div class="paper"><span class="label">${md(notes[0][3])}</span><q>${esc(notes[0][5] || notes[0][0])}</q>${notes.length > 1 ? `<span class="more faint mono" style="font-size:12px">+ ${cnt({ n: notes.length - 1, u: 'notes' })}</span>` : ''}</div>`;
+  const files = all.slice(0, 3);
+  if (files.length) return `<div class="collage collage--${files.length}">${files.map((f) => f[1] === 'svg' ? `<img src="${SVG_SAMPLE}" alt="">` : f[1] === 'video' ? `<img src="${PH.tram}" alt="">` : `<span class="media-icon">${I(FILE_ICON[f[1]] || 'file')}</span>`).join('')}</div>`;
   return `<div class="empty-art">${t('fv.empty')}</div>`;
 }
 function subHolds(node) {
@@ -1214,7 +1227,7 @@ function folderView(c) {
   const all = [...dirs, ...files];
   // Folders first, as covers like the collections outside; then the files, each showing some of itself.
   const subCover = (e) => `<button class="cover cover--sub" ${open(e)}><div class="cover__art">${subArt(e.node)}</div><div class="cover__cap"><div class="cover__line"><span class="cover__name cover__name--folder">${Is('folder', 14)}${esc(e.n)}</span></div><div class="cover__meta">${subHolds(e.node)} · ${md(e.ch)}</div></div></button>`;
-  const fileArt = (e) => (e.ph ? `<span class="ftile__art"><img src="${PH[e.ph]}" alt=""></span>` : e.k === 'note' && e.x ? `<span class="ftile__art ftile__art--paper"><span>${esc(e.x)}</span></span>` : e.k === 'csv' && e.x ? `<span class="ftile__art ftile__art--rows"><table class="minitable">${e.x.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></span>` : `<span class="ftile__art ftile__art--ico">${I(FILE_ICON[e.k])}</span>`);
+  const fileArt = (e) => (e.ph ? `<span class="ftile__art"><img src="${PH[e.ph]}" alt=""></span>` : e.k === 'pdf' ? `<span class="ftile__art ftile__art--pdf"><span class="ftile__pdf-page"><b>Oikome acceptance document</b><i></i><i></i><i></i></span></span>` : e.k === 'svg' ? `<span class="ftile__art ftile__art--media"><img src="${SVG_SAMPLE}" alt=""></span>` : e.k === 'video' ? `<span class="ftile__art ftile__art--media"><img src="${PH.tram}" alt=""></span>` : e.k === 'note' && e.x ? `<span class="ftile__art ftile__art--paper"><span>${esc(e.x)}</span></span>` : e.k === 'csv' && e.x ? `<span class="ftile__art ftile__art--rows"><table class="minitable">${e.x.map((r) => `<tr>${r.map((v) => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></span>` : `<span class="ftile__art ftile__art--ico">${I(FILE_ICON[e.k])}</span>`);
   const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
   const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
     <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
@@ -1688,7 +1701,7 @@ DLG.borrow = (D) => dlg(t('borrow.title', { who: 'Sam' }), `
   <div class="row row--between"><span>${t('borrow.use', { who: 'Sam' })}</span><span class="toggle ${D.on ? 'on' : ''}" data-act="flag" data-bind="on" role="switch" aria-checked="${D.on}"></span></div>`,
 foot(D.on ? '' : t('borrow.off'), `<button class="btn btn--primary" data-close>${t('done')}</button>`));
 
-const AIAPPS = [['Claude Code', 'aia.terminal'], ['other', 'aia.any']];
+const AIAPPS = [['Claude Code', 'aia.terminal'], ['Kimi Code', 'aia.terminal'], ['Codex', 'aia.terminal'], ['other', 'aia.any']];
 const aiAppName = (n) => (n === 'other' ? t('aia.other') : n);
 DLG.connect = (D) => {
   let body = steps(['step.app', 'step.reads', 'step.connect'], D.step), nav;
@@ -1701,10 +1714,16 @@ DLG.connect = (D) => {
   } else {
     const connection = D.app === 'Claude Code'
       ? 'claude mcp add --transport http oikome http://127.0.0.1:7340/mcp --header "Authorization: Bearer oik_…"'
-      : 'http://127.0.0.1:7340/mcp\nAuthorization: Bearer oik_…';
-    body += `<p class="muted" style="margin:0">${t('cn.paste', { app: aiAppName(D.app) })}</p>
-    <div class="code">${esc(connection)}</div><div class="row row--between">${D.connected ? glyph('ok', t('cn.connected', { app: aiAppName(D.app) })) : glyph('run', t('cn.waiting', { app: aiAppName(D.app) }))}${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="settings"')}</div>
-    <p class="hint" style="margin:0">${(D.reads.length ? t('cn.canRead', { list: H(lst(D.reads)) }) : t('cn.canReadNone'))}</p>`;
+      : D.app === 'Kimi Code'
+        ? '{\n  "mcpServers": {\n    "oikome": {\n      "url": "http://127.0.0.1:7340/mcp",\n      "headers": { "Authorization": "Bearer oik_…" }\n    }\n  }\n}'
+        : D.app === 'Codex'
+          ? '[mcp_servers.oikome]\nurl = "http://127.0.0.1:7340/mcp"\nhttp_headers = { Authorization = "Bearer oik_…" }'
+          : 'http://127.0.0.1:7340/mcp\nAuthorization: Bearer oik_…';
+    const cli = D.app === 'Kimi Code' || D.app === 'Codex';
+    body += cli ? `<p class="muted" style="margin:0">${t('cn.oneClick', { app: aiAppName(D.app) })}</p><div class="row">${D.configured ? glyph('ok', t(D.app === 'Kimi Code' ? 'cn.afterKimi' : 'cn.afterCodex')) : btn(t('cn.connectNow', { app: aiAppName(D.app) }), 'data-act="connectcli"', 'btn--primary')}${btn(t(D.manual ? 'cn.manualHide' : 'cn.manual'), 'data-act="climanual"', 'btn--ghost')}</div>` : `<p class="muted" style="margin:0">${t('cn.paste', { app: aiAppName(D.app) })}</p>`;
+    if (!cli || D.manual) body += `<div class="code">${esc(connection)}</div>${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="settings"')}`;
+    if (!cli || D.configured || D.manual) body += `<div class="row row--between">${D.connected ? glyph('ok', t('cn.connected', { app: aiAppName(D.app) })) : glyph('run', t('cn.waiting', { app: aiAppName(D.app) }))}</div>`;
+    body += `<p class="hint" style="margin:0">${(D.reads.length ? t('cn.canRead', { list: H(lst(D.reads)) }) : t('cn.canReadNone'))}</p>`;
     nav = D.connected ? `<button class="btn btn--primary" data-close>${t('done')}</button>` : btn(t('close'), 'data-close');
   }
   return dlg(t('cn.title'), body, foot(D.step === 3 ? t('cn.takeBack') : '', nav));
@@ -1786,6 +1805,8 @@ DLG.fview = (D) => {
           : D.mode === 'source'
             ? `<pre class="fview__source">${esc(sourceText)}</pre>`
             : `<div class="fview__table wrap"><table class="minitable" aria-label="${esc(n)}"><thead><tr><th scope="col">Item</th><th scope="col" class="num">EUR</th></tr></thead><tbody>${(x || []).map((r) => `<tr>${r.map((v, i) => `<td class="${i === 1 ? 'num' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`
+        : k === 'pdf'
+          ? `<div class="fview__table"><article class="fview__note" style="font-size:${14 * (D.pdfZoom || 1)}px"><span class="label">PDF · ${D.page || 1} / 3</span><h1>${D.page === 3 ? '中文预览' : D.page === 2 ? 'A second page' : 'Oikome acceptance document'}</h1><p>${D.page === 3 ? 'Character maps load only when needed.' : D.page === 2 ? 'Only this page is rendered.' : 'A read-only preview, loaded when the document opens.'}</p></article></div>`
         : k === 'raw' && S.rawPlugin
           ? `<div class="fview__photo"><img src="${PH.sunset}" alt="${esc(n)}"><span class="fview__badge">${t('fv.developedPreview')}</span></div>`
           : `<div class="fview__external"><div class="empty"><span class="ico">${I(k === 'raw' ? 'photo' : 'file')}</span><b>${k === 'raw' ? t('kind.raw') : k === 'psd' ? t('kind.psd') : esc(n)}</b><span class="muted">${sz(size)}</span><p class="muted">${t(k === 'raw' ? 'fv.rawBody' : 'fv.professionalBody', { format: k === 'psd' ? t('kind.psd') : t('kind.other') })}</p>${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"')}</div></div>`;
@@ -1794,7 +1815,8 @@ DLG.fview = (D) => {
   const move = D.set.length > 1 && !D.editing ? `${btn(I('chevL'), 'data-act="fmove" data-d="-1" aria-label="' + t('prev') + '"', 'btn--ghost')}${btn(I('chevron'), 'data-act="fmove" data-d="1" aria-label="' + t('next') + '"', 'btn--ghost')}` : '';
   const modes = D.editing
     ? `<div class="fview__viewbar"><button class="btn btn--primary" data-act="fsaveoriginal">${t('fv.saveOriginal')}</button><button class="btn btn--ghost" data-act="fsavecopy">${t('fv.saveCopy')}</button><button class="btn btn--ghost" data-act="fcanceledit" style="margin-left:auto">${t('cancel')}</button></div>`
-    : k === 'note' || k === 'csv' ? `<div class="fview__viewbar"><div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t(k === 'note' ? 'fv.read' : 'kind.table')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div><div class="row" style="margin-left:auto"><button class="btn btn--ghost" data-act="fcopy">${Is('copy', 15)}${t('copy')}</button><button class="btn btn--ghost" data-act="fedit">${t('fv.editSource')}</button></div></div>` : '';
+    : k === 'note' || k === 'csv' ? `<div class="fview__viewbar"><div class="seg"><button class="${D.mode !== 'source' ? 'on' : ''}" data-act="fnoteview" data-v="read">${t(k === 'note' ? 'fv.read' : 'kind.table')}</button><button class="${D.mode === 'source' ? 'on' : ''}" data-act="fnoteview" data-v="source">${t('fv.source')}</button></div><div class="row" style="margin-left:auto"><button class="btn btn--ghost" data-act="fcopy">${Is('copy', 15)}${t('copy')}</button><button class="btn btn--ghost" data-act="fedit">${t('fv.editSource')}</button></div></div>`
+    : k === 'pdf' ? `<div class="fview__viewbar"><button class="btn btn--ghost" data-act="fpdfpage" data-d="-1">${t('fv.prevPage')}</button><span class="muted">${D.page || 1} / 3</span><button class="btn btn--ghost" data-act="fpdfpage" data-d="1">${t('fv.nextPage')}</button><button class="btn btn--ghost" data-act="fpdfzoom" style="margin-left:auto">${t('fv.zoom')} · ${Math.round((D.pdfZoom || 1) * 100)}%</button></div>` : '';
   const tools = `<div class="fview__tools">${k === 'raw' && !S.rawPlugin ? btn(t('fv.installPreview'), 'data-act="rawinstall"', 'btn--primary') : ''}${btn(t('fv.openWith'), 'data-act="fopenwith"', 'btn--ghost')}${btn(t('fv.info'), 'data-act="finfo" aria-expanded="' + !!D.info + '"', 'btn--ghost')}</div>`;
   return dlg(title, `${details}${modes}${body}`, foot(D.set.length > 1 ? t('nOf', { a: D.i + 1, b: D.set.length }) + ' · ← →' : t('fv.browseNote'), move), 'fview', tools);
 };
@@ -2013,6 +2035,14 @@ function removeCollection(n) {
   toast(t('toast.removedCol', { c: n }));
 }
 let pairSeq = 0, connectSeq = 0;
+function connectEventually(id) {
+  setTimeout(() => {
+    if (!D || D.name !== 'connect' || D.id !== id) return;
+    const name = aiAppName(D.app);
+    if (!AI.some((a) => a.name === name)) AI.splice(AI.length - 1, 0, { name, c: 'c2', reads: D.reads.slice(), st: 'ok' });
+    upd({ connected: true }); render(true);
+  }, 3000);
+}
 const ACT = {
   cmdk: (el) => open('cmdk', { q: el.dataset.scope ? '' : 'pessoa train', scope: el.dataset.scope || '', sel: 0 }),
   hit: (el) => { const h = HITS[+el.dataset.i]; close(); if (h.go) go(h.go); else h.run(); },
@@ -2068,8 +2098,10 @@ const ACT = {
     const c = el.dataset.c, set = orderedFolderFiles(c);
     open('fview', { c, set, i: Math.max(0, set.findIndex((f) => f[0] === el.dataset.n)), info: false, mode: 'read' });
   },
-  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length, mode: 'read', zoom: false }),
+  fmove: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length, mode: 'read', zoom: false, page: 1, pdfZoom: 1 }),
   fzoom: () => upd({ zoom: !D.zoom }),
+  fpdfpage: (el) => upd({ page: Math.min(3, Math.max(1, (D.page || 1) + +el.dataset.d)) }),
+  fpdfzoom: () => upd({ pdfZoom: (D.pdfZoom || 1) >= 2 ? 1 : (D.pdfZoom || 1) + 0.25 }),
   finfo: () => upd({ info: !D.info }),
   fnoteview: (el) => upd({ mode: el.dataset.v }),
   fcopy: () => {
@@ -2204,14 +2236,11 @@ const ACT = {
   connect: () => open('connect', { step: 1, app: 'Claude Code', reads: [] }),
   connectgo: () => {
     const id = ++connectSeq;
-    upd({ step: 3, connected: false, id });
-    setTimeout(() => {
-      if (!D || D.name !== 'connect' || D.id !== id) return;
-      const name = aiAppName(D.app);
-      if (!AI.some((a) => a.name === name)) AI.splice(AI.length - 1, 0, { name, c: 'c2', reads: D.reads.slice(), st: 'ok' });
-      upd({ connected: true }); render(true);
-    }, 3000);
+    upd({ step: 3, connected: false, configured: false, manual: false, id });
+    if (D.app !== 'Kimi Code' && D.app !== 'Codex') connectEventually(id);
   },
+  connectcli: () => { upd({ configured: true }); connectEventually(D.id); },
+  climanual: () => upd({ manual: !D.manual }),
   aiedit: (el) => { const a = AI[+el.dataset.i]; if (a.ended) return; open('aiedit', { i: +el.dataset.i, reads: a.reads.slice() }); },
   aieditok: () => { AI[D.i].reads = D.reads.slice(); const n = AI[D.i].name; close(); render(true); toast(t('toast.aiSaved', { who: n })); },
   aiend: () => {

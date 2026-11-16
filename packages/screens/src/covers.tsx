@@ -6,8 +6,9 @@
 
 import { AvatarStack, Icon, Tile } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
-import type { FileFolder, Share, SpaceSummary } from "@oikome/client";
+import type { FileFolder, FileItem, Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
+import { FileArt } from "./FileArt";
 import { PREVIEW_ROWS, loadPreview, withoutTagLines } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
@@ -47,6 +48,7 @@ export function countOf(preview: Preview | undefined): string | undefined {
   const read = preview?.rows?.numRows;
   const rows = preview?.count ?? preview?.table?.rows ?? (read !== undefined && read < PREVIEW_ROWS ? read : undefined);
   if (rows === null || rows === undefined || rows === 0) return undefined;
+  if (preview?.files) return s.folderFiles(Number(rows));
   return s.count(Number(rows), preview!.shape.view);
 }
 
@@ -70,11 +72,30 @@ function MiniTable({ table }: { table: Table }) {
   );
 }
 
+function FileCollage({ space, files }: { space: SpaceSummary; files: FileItem[] }) {
+  const client = useClient();
+  const shown = files.slice(0, 3);
+  return (
+    <div aria-hidden="true" className={`screen-cover__art screen-collage screen-file-collage screen-collage--${shown.length}`}>
+      {shown.map((file) => (
+        <FileArt
+          key={file.path}
+          file={file}
+          source={client.fileUrl("original", { space: space.name, path: file.path })}
+          image={file.kind === "image" && file.thumbnail ? client.fileUrl("thumb", { space: space.name, path: file.path }) : undefined}
+        />
+      ))}
+    </div>
+  );
+}
+
 function Art({
+  space,
   tone,
   preview,
   failed,
 }: {
+  space: SpaceSummary;
   tone: TileTone;
   preview?: Preview;
   /** It could not be read: shared from a data center that is off, or no longer shared. */
@@ -89,6 +110,7 @@ function Art({
   }
   if (!preview) return <div aria-hidden="true" className="screen-cover__art oik-skel" />;
   const { shape, items } = preview;
+  if (preview.files?.length) return <FileCollage space={space} files={preview.files} />;
   if (items.length === 0) {
     return (
       <div aria-hidden="true" className="screen-cover__art screen-cover__art--plain">
@@ -171,7 +193,7 @@ export function Cover({
   return (
     <Link to={`/collections/${encodeURIComponent(space.name)}`} className="screen-cover">
       <span className="screen-cover__frame">
-        <Art tone={tone} preview={preview.data} failed={preview.error !== undefined} />
+        <Art space={space} tone={tone} preview={preview.data} failed={preview.error !== undefined} />
         <span className="screen-cover__chip" aria-hidden="true">
           <Icon
             name={

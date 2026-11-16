@@ -157,7 +157,7 @@ pub(crate) fn add_selected_source(
     Ok(())
 }
 
-/// An original image, audio or video file, or part of one.
+/// An original image, PDF, audio or video file, or part of one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Original {
     pub bytes: Vec<u8>,
@@ -263,6 +263,7 @@ fn content_of(
         });
     let original_view = match media_type.as_deref() {
         Some("image/svg+xml") => Some(ContentView::Image),
+        Some("application/pdf") => Some(ContentView::Pdf),
         Some(media) if media.starts_with("audio/") => Some(ContentView::Audio),
         Some(media) if media.starts_with("video/") => Some(ContentView::Video),
         _ => None,
@@ -342,6 +343,7 @@ fn original_type(name: &str) -> Option<&'static str> {
         "gif" => "image/gif",
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "ogg" | "oga" => "audio/ogg",
@@ -1184,7 +1186,7 @@ impl Api {
             .ok_or_else(|| ApiError::not_found("no thumbnail"))
     }
 
-    /// An image, audio or video original, or the one `range` asked for: only
+    /// An image, PDF, audio or video original, or the one `range` asked for: only
     /// an indexed file with a built-in original view, read where it is.
     pub async fn file_original(
         &self,

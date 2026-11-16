@@ -54,6 +54,8 @@ export interface Preview {
   items: Item[];
   /** Rows to show in a table cover: column labels and a few rows of text. */
   rows?: Table;
+  /** Real files for an in-place folder without photos or notes for its cover. */
+  files?: FileItem[];
   /** How many there are of what it shows, when not a table's rows: the
    * photos or notes of a folder viewed in place. */
   count?: number;
@@ -262,7 +264,7 @@ export function fileItems(client: NodeClient, space: string, files: FileItem[]):
 }
 
 /** What a folder viewed in place shows on a cover: its latest photos, else
- * its latest notes, read from its index (also while its place is offline). */
+ * notes, else any real files, read from its index even while its place is offline. */
 async function folderPreview(client: NodeClient, space: SpaceSummary): Promise<Preview> {
   for (const kind of ["image", "note"] as const) {
     const listed = await client.listFiles({ space: space.name, deep: true, kind, limit: PREVIEW_ROWS });
@@ -274,7 +276,13 @@ async function folderPreview(client: NodeClient, space: SpaceSummary): Promise<P
       };
     }
   }
-  return { shape: { view: "table" }, items: [], count: 0 };
+  const listed = await client.listFiles({ space: space.name, deep: true, limit: PREVIEW_ROWS });
+  return {
+    shape: { view: "table" },
+    items: chronological(fileItems(client, space.name, listed.files)),
+    files: listed.files,
+    count: Number(listed.total),
+  };
 }
 
 /**

@@ -22,6 +22,8 @@ const SAME = new Set([
   "Oikome",
   "oikome-recovery.key",
   "Claude Code",
+  "Kimi Code",
+  "Codex",
   "MCP",
   "NAS",
   "Ink",

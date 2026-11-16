@@ -902,6 +902,76 @@
   max-width: 100%;
   max-height: calc(100dvh - 220px);
 }
+.screen-pdf {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.screen-pdf__toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 45px;
+  padding: 6px 18px;
+  border-bottom: var(--bw) solid var(--line2);
+}
+.screen-pdf__zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+.screen-pdf__position {
+  min-width: 52px;
+  color: var(--ink3);
+  font: 400 12px/16px var(--mono);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.screen-pdf__pages {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--sunk);
+}
+.screen-pdf__page {
+  position: relative;
+  flex: none;
+  margin: 0 auto;
+  background: #fff;
+  box-shadow: var(--sh-m);
+}
+.screen-pdf__canvas {
+  display: block;
+}
+.screen-pdf__text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+}
+.screen-pdf__text span,
+.screen-pdf__text br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.screen-pdf__text ::selection {
+  color: transparent;
+  background: var(--active);
+}
+.screen-pdf > .oik-error,
+.screen-pdf > .screen-item__skeleton {
+  margin: 16px;
+}
 .screen-fileview__note {
   box-sizing: border-box;
   max-width: 76ch;
@@ -1583,6 +1653,26 @@
 .screen-assistant-wait {
   margin: 0;
 }
+.screen-assistant-config .oik-copy {
+  align-items: flex-start;
+}
+.screen-assistant-config .oik-copy__value {
+  padding: var(--space-3);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--sunk);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.screen-assistant-config .oik-copy__done {
+  flex: none;
+}
+.screen-assistant-install {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
 
 /* ----- Home ----- */
 
@@ -2128,6 +2218,23 @@ a.screen-list__row:hover .screen-list__thumb {
   min-height: 0;
   object-fit: cover;
 }
+.screen-file-collage > .screen-ftile__art {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  aspect-ratio: auto;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.screen-file-collage.screen-collage--3 > :first-child {
+  grid-row: span 2;
+}
+.screen-file-collage .screen-pdf-thumbnail__canvas {
+  box-shadow: none;
+}
 [data-theme="bold"] .screen-collage {
   gap: 0;
 }
@@ -2632,6 +2739,35 @@ a.screen-list__row:hover .screen-list__thumb {
   width: 34px;
   height: 34px;
   color: var(--ink3);
+}
+.screen-ftile__art.screen-pdf-thumbnail {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: var(--sunk);
+}
+.screen-pdf-thumbnail > .oik-icon {
+  width: 34px;
+  height: 34px;
+  color: var(--ink3);
+}
+.screen-pdf-thumbnail__canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+.screen-ftile__art--icon.screen-video-thumbnail {
+  padding: 0;
+}
+.screen-video-thumbnail video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .screen-ftile__art--paper {
   padding: 10px 12px;

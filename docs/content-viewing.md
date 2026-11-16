@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: PR 18 through PR 21 are merged. PR 22 implements safe local UTF-8 text editing with source/copy choices, content-hash conflicts and revocable confirmations.
+> **Status**: PR 18 through PR 22 are merged. PR 23 implements lazy, read-only PDF preview; complex professional formats retain optional plugin and local-opening paths.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 
@@ -8,7 +8,7 @@
 
 The core provides the content contract, viewer routing, safe local opening, preview caching and the plugin host. It natively presents common text, structured data, images, browser-decodable audio and video, and search results. Complex formats use an application on the owner's device or an optional content plugin. No heavy format engine enters the default download or first paint.
 
-The first implementation does not include an Office suite, a PSD editor, a PDF editor, a RAW development tool, a transcoder, or a new vector-visualization system. PDF may later get a separately lazy-loaded, read-only PDF.js preview; it is not part of the core baseline. Univer is not a preview dependency. XLSX conversion and other separately distributed capabilities must not be assumed to be open-source because a core engine is.
+The first implementation does not include an Office suite, a PSD editor, a PDF editor, a RAW development tool, a transcoder, or a new vector-visualization system. PR 23 adds a separately lazy-loaded, read-only PDF.js preview outside the first-paint baseline. Univer is not a preview dependency. XLSX conversion and other separately distributed capabilities must not be assumed to be open-source because a core engine is.
 
 ## Content and presentation
 
@@ -23,7 +23,7 @@ Physical format and presentation are separate decisions. Extension, media type, 
 | JPEG, PNG, GIF and WebP | Thumbnails, full view, zoom, pan, keyboard and touch navigation, metadata | An image editor |
 | SVG | A sanitized view with scripts and external references blocked | A vector editor |
 | Audio and video | Native playback, range reads, fullscreen and clear codec failures | A player or editor; no bundled transcoder |
-| PDF | Metadata and local opening in the baseline | A separately lazy-loaded read-only preview may be evaluated later |
+| PDF | Lazy PDF.js read-only preview with current-page rendering, pagination, zoom and text selection | The default application for editing, forms and signatures |
 | PPT, DOCX, XLSX, PSD and similar professional formats | Metadata, location and Open in Default App | The native application; an optional approximate preview plugin must state its limits |
 | Camera RAW | Metadata and local opening without a plugin | An optional RAW Preview plugin extracts embedded JPEG/EXIF or develops a derivative preview |
 | Vector indexes and search | Hits, excerpts, source location and the original content | High-dimensional vectors are an AI index, not a human reading layout |
@@ -77,6 +77,19 @@ Local UTF-8 text is editable up to 512 KiB, using the existing CodeMirror chunk 
 - Remember source-save and overwrite confirmations separately for the current identity and normalized directory in `.oikome/node.json`. Records include the action, scope, identity, canonical file, directory, version and permissions; Settings lists and revokes them.
 - Never suppress warnings for a version conflict, changed permission, different directory, different identity or a different file than the one confirmed. A successful save advances only its own remembered version.
 - The PR 22 first-paint baseline is 674.01 kB of JS and 101.57 kB of CSS; the separate TextEditor chunk is 3.62 kB. No editor, parser or other runtime dependency was added.
+
+### PR 23: lazy PDF preview
+
+PDF uses PDF.js 6.5.438's display layer and a dedicated Worker, not the full viewer. A file grid shows the first page when its tile approaches the viewport, without a text layer and with pixel density capped at 1.5. The open viewer renders only the current page, at a width that fits its container, with pixel density capped at 2, pagination, zoom and a selectable text layer. Changing pages cancels the old render; closing or changing the file destroys the loading task and Worker. `disableAutoFetch` prevents eager whole-document retrieval, while character maps, standard fonts, WASM and image decoders are addressed as on-demand resources.
+
+- Evaluation measured 463.2 KiB for the minified display layer and 1242.1 KiB for the Worker (about 504 KiB gzip combined). The npm package's 37.6 MiB unpacked size is not the browser payload. CMaps, standard fonts, WASM and image decoders occupy separate on-demand resource directories.
+- A smoke run with PDF.js's 992.5 KiB, 14-page sample rendered its first page in 58–75 ms over three runs on the development machine. The real app's small three-page acceptance document opened in about 712 ms, including node and content loading. These are not low-end-device or complex-document benchmarks; memory and large-document behavior remain explicit performance gates.
+- Production keeps PDF.js out of the first paint and collections without PDF tiles. The current separate chunks are 454.91 kB for `PdfView` and 1271.92 kB for the Worker; the first-paint bundle is 679.81 kB JS and 103.83 kB CSS after unifying file artwork and MCP client setup. Browser tests assert no PDF engine request before reaching PDF tiles, then check real thumbnail pixels and the full viewer.
+- PDFs remain read-only and open through the existing indexed original-file endpoint with range support. Raw PDF responses have a restrictive CSP. Damage retains the file-kind icon in a grid and shows a useful failure with the existing Open in Default App action in the viewer.
+
+One shared file-art component routes grid and collection-cover previews. SVG uses the same sanitization and blob-image path as its full viewer. Near-viewport video uses a paused native element with metadata loading to show a real frame, never autoplay or a transcoder; audio uses a distinct audio icon rather than a fabricated waveform. In-place folder covers still prefer photos then notes, but otherwise show up to three real files and a file count instead of incorrectly reporting no data.
+
+PSD, RAW, Office and extra media codecs are not bundled into this stage. Approximate previews are acceptable in explicitly optional plugins, but their fidelity limits and resource costs must be stated.
 
 ### Separate track: content plugins and RAW Preview
 

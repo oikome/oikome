@@ -11,11 +11,40 @@
 // same-origin checks pass. Log in by opening the node's login link with
 // this server's address instead of the node's.
 
+import { createReadStream } from "node:fs";
+import { cpSync, statSync } from "node:fs";
+import { extname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 const node = process.env.OIKOME_WEB_URL ?? "http://127.0.0.1:7340";
+const pdfDist = fileURLToPath(new URL("../", import.meta.resolve("pdfjs-dist")));
+const pdfResources = fileURLToPath(new URL("./dist/pdf/", import.meta.url));
 
 export default defineConfig({
+  plugins: [
+    {
+      name: "pdf-preview-resources",
+      configureServer(server) {
+        server.middlewares.use("/pdf", (request, response, next) => {
+          const path = resolve(pdfDist, `.${(request.url ?? "/").split("?")[0]}`);
+          try {
+            if (!path.startsWith(pdfDist) || !statSync(path).isFile()) return next();
+            const types: Record<string, string> = { ".wasm": "application/wasm", ".mjs": "text/javascript", ".ttf": "font/ttf", ".pfb": "application/octet-stream" };
+            response.setHeader("Content-Type", types[extname(path)] ?? "application/octet-stream");
+            createReadStream(path).pipe(response);
+          } catch {
+            next();
+          }
+        });
+      },
+      closeBundle() {
+        for (const directory of ["cmaps", "standard_fonts", "wasm", "image_decoders"]) {
+          cpSync(`${pdfDist}/${directory}`, `${pdfResources}/${directory}`, { recursive: true });
+        }
+      },
+    },
+  ],
   // JSX through Vite's own esbuild; no React plugin (and so no hot refresh
   // of components in development).
   esbuild: { jsx: "automatic" },

@@ -170,6 +170,7 @@ fn bindings() -> String {
         Assistant,
         ConnectAssistant,
         AssistantConnected,
+        InstallAssistant,
         AssistantCollections,
         AssistantRef,
         ReadableCollection,

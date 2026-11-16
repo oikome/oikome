@@ -60,10 +60,11 @@ use oikome_api::{
     AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, Api, ApiError,
     AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant,
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
-    ImportFiles, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares, NewSource, NewSpace,
-    NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder, PluginRead, PluginRef,
-    ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search, SetLending, SetSourceEvery, ShareRef,
-    ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
+    ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
+    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
+    PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search, SetLending,
+    SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
+    PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
@@ -520,6 +521,7 @@ impl WebState {
             "list_assistants" => json_op!(list_assistants, Empty),
             // Its answer holds the assistant's token, shown this once.
             "connect_assistant" => json_op!(connect_assistant, ConnectAssistant),
+            "install_assistant" => json_op!(install_assistant, InstallAssistant),
             "set_assistant_collections" => {
                 json_op!(set_assistant_collections, AssistantCollections)
             }
@@ -601,7 +603,7 @@ fn parse<T: DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
     serde_json::from_slice(body).map_err(|e| ApiError::invalid(format!("request: {e}")))
 }
 
-/// Thumbnails and original media of folders viewed in place:
+/// Thumbnails and original content of folders viewed in place:
 /// `/files/thumb/<collection>/<path>` and `/files/original/<collection>/<path>`.
 const FILES_PREFIX: &str = "/files/";
 
@@ -691,6 +693,7 @@ impl WebState {
                         let end = original.start + original.bytes.len() as u64;
                         let partial = range.is_some();
                         let svg = original.content_type == "image/svg+xml";
+                        let pdf = original.content_type == "application/pdf";
                         let mut response = respond(
                             if partial {
                                 StatusCode::PARTIAL_CONTENT
@@ -706,12 +709,14 @@ impl WebState {
                             header::CACHE_CONTROL,
                             HeaderValue::from_static("private, max-age=60"),
                         );
-                        if svg {
+                        if svg || pdf {
                             headers.insert(
                                 header::CONTENT_SECURITY_POLICY,
-                                HeaderValue::from_static(
-                                    "default-src 'none'; style-src 'unsafe-inline'",
-                                ),
+                                HeaderValue::from_static(if svg {
+                                    "default-src 'none'; style-src 'unsafe-inline'"
+                                } else {
+                                    "default-src 'none'"
+                                }),
                             );
                         }
                         if partial {

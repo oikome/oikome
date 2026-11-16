@@ -460,7 +460,7 @@
   'ai.chatNote': '对话在客户端里进行，使用你的语言。Oikome 只提供它被允许读取的内容。',
 
   // Plugins
-  'plugins.sub': '首页上的卡片。每个插件都在沙盒中运行，只读取你允许的内容，未经你同意不能联网。',
+  'plugins.sub': '卡片、来源、预览和 MCP 客户端。添加插件不会授予访问权限，每项能力都需要分别配置。',
   installFile: '从文件安装',
   browse: '浏览',
   'plugins.col.plugin': '插件',
@@ -500,6 +500,9 @@
   'plg.booksbyyear': '年度读书',
   'plg.booksbyyear.what': '你每年读完了多少本书。',
   'plg.booksbyyear.reads': '书籍：书名、状态、阅读日期',
+  'plg.notecount': '笔记数量',
+  'plg.notecount.what': '显示所选资料库中的笔记数量，以及本周新增的数量。',
+  'plg.notecount.reads': '笔记：正文、创建日期',
   'plg.runlog': '跑步日志',
   'plg.runlog.what': '你本周和今年跑了多远。',
   'plg.runlog.reads': '跑步记录：日期、距离、用时',
@@ -913,6 +916,7 @@
   'in.size.large': '大',
   'in.turnOn': '开启',
   'in.add': '添加到首页',
+  'in.registerOnly': '添加软件包只会注册其能力。数据访问、来源和首页卡片需要分别配置。',
   'ps.units': '单位',
   'ps.rooms': '卡片上的房间 · 点一下即可包含',
   'ps.allowed': '你在添加时已允许。',

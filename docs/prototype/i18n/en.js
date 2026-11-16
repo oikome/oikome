@@ -482,7 +482,7 @@
   'ai.chatNote': 'The conversation happens in the assistant, in your language. Oikome only hands over what it may read.',
 
   // Plugins
-  'plugins.sub': 'Cards for Home. Each runs sandboxed, reads only what you allow, and can’t reach the internet unless you say so.',
+  'plugins.sub': 'Cards, sources, previews and MCP clients. Adding a package grants no access; each capability is configured separately.',
   installFile: 'Install from File',
   browse: 'Browse',
   'plugins.col.plugin': 'Plugin',
@@ -522,6 +522,9 @@
   'plg.booksbyyear': 'Books by year',
   'plg.booksbyyear.what': 'How many books you finished each year.',
   'plg.booksbyyear.reads': 'books: title, status, date read',
+  'plg.notecount': 'Note count',
+  'plg.notecount.what': 'How many notes your chosen collections hold, and how many arrived this week.',
+  'plg.notecount.reads': 'notes: text and creation date',
   'plg.runlog': 'Running log',
   'plg.runlog.what': 'How far you ran this week and this year.',
   'plg.runlog.reads': 'runs: date, distance, time',
@@ -943,6 +946,7 @@
   'in.size.large': 'Large',
   'in.turnOn': 'Turn On',
   'in.add': 'Add to Home',
+  'in.registerOnly': 'Adding this package only registers its capabilities. Configure data access, sources and Home cards separately.',
   'ps.units': 'Units',
   'ps.rooms': 'Rooms on the card · tap to include',
   'ps.allowed': 'You allowed it when you added it.',

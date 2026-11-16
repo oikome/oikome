@@ -1,6 +1,6 @@
 # Content Viewing Plan
 
-> **Status**: PR 18 through PR 22 are merged. PR 23 implements lazy, read-only PDF preview; complex professional formats retain optional plugin and local-opening paths.
+> **Status**: PR 18 through PR 23 are merged. PR 24 registers plugin preview declarations without enabling third-party execution; complex professional formats retain optional plugin and local-opening paths.
 >
 > **Product rule**: a light core, complex capabilities installed as plugins, and an independent plugin library. Oikome is the owner's content hub and quick viewer, not a replacement for Office, Photoshop, Acrobat or a RAW developer.
 
@@ -93,11 +93,13 @@ PSD, RAW, Office and extra media codecs are not bundled into this stage. Approxi
 
 ### Separate track: content plugins and RAW Preview
 
-Content/Preview is a third plugin kind beside Dashboard and Source. It runs on the host in a separate process or controlled WASM sandbox, not in the dashboard iframe. It receives only a single file read grant and its own temporary directory, has no network by default, and has CPU, memory, time and output limits. A parser failure cannot crash the node.
+Content/Preview is a plugin capability beside Dashboard cards, Sources and MCP clients. PR 24 adds `capabilities.preview` as registration metadata only: it does not execute third-party preview code. Actual execution still requires a separate host process or controlled WASM sandbox, not the dashboard iframe, with only a single file read grant and its own temporary directory, no network by default, and CPU, memory, time and output limits. A parser failure cannot crash the node. Official and external packages use the same manifest; RAW Preview remains an external official package rather than a bundled core dependency.
+
+PR 24's production first-paint bundle is 685.20 kB JS, compared with 679.81 kB after PR 23, including the official repository interface. The PDF display and Worker chunks remain unchanged and lazy; no preview parser or host runtime is added.
 
 RAW Preview returns embedded JPEG and EXIF where available, or a developed JPEG derivative and whether the result is an embedded or developed preview. It never modifies RAW or XMP. The cache key includes source hash, plugin version and preview parameters; disabling or removing the plugin leaves original photos untouched. Unsupported cameras and absent plugins always retain local opening.
 
-The independent plugin library distributes signed, versioned packages without becoming a runtime data service. A listing names publisher, signature, checksum, supported formats and platforms, plugin API version, download size, licenses, permissions and fidelity limits. Installation is explicit; official plugins use the same public protocol and have no hidden privileges.
+The independent `oikome/oikome-plugins` repository distributes versioned official packages without becoming a runtime data service. Its release index carries the complete manifest, download size and SHA-256, and installation is explicit and verified. Publisher signatures, richer compatibility metadata and third-party community listings remain future trust and distribution work. Official plugins use the same public protocol and have no hidden privileges.
 
 ## Validation
 

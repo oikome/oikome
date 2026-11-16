@@ -52,6 +52,8 @@ import type {
   PluginFolder,
   PluginRead,
   PluginRef,
+  RegistryPlugin,
+  RegistryPluginRef,
   ReadFileRows,
   ReadRow,
   ReadRows,
@@ -210,6 +212,8 @@ export interface NodeClient {
   listPlugins(): Promise<Plugin[]>;
   inspectPlugin(request: PluginFolder): Promise<Plugin>;
   installPlugin(request: InstallPlugin): Promise<Plugin>;
+  listRegistryPlugins(): Promise<RegistryPlugin[]>;
+  installRegistryPlugin(request: RegistryPluginRef): Promise<Plugin>;
   setPluginCollections(request: PluginCollections): Promise<Plugin>;
   removePlugin(request: PluginRef): Promise<Plugin[]>;
   /** A collection's rows, read as the plugin; refused unless it may read them. */
@@ -596,6 +600,14 @@ export class HttpClient implements NodeClient {
 
   installPlugin(request: InstallPlugin): Promise<Plugin> {
     return this.#json("install_plugin", request);
+  }
+
+  listRegistryPlugins(): Promise<RegistryPlugin[]> {
+    return this.#json("list_registry_plugins", {});
+  }
+
+  installRegistryPlugin(request: RegistryPluginRef): Promise<Plugin> {
+    return this.#json("install_registry_plugin", request);
   }
 
   setPluginCollections(request: PluginCollections): Promise<Plugin> {

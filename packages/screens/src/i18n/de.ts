@@ -118,6 +118,9 @@ export const de: Strings = {
     endedToast: (name: string) => `Zugriff von ${name} beendet.`,
     removedToast: (name: string) => `${name} entfernt.`,
     nameInvalid: "Gib ihm einen Namen mit höchstens 64 Zeichen in einer Zeile.",
+    pasteCommand: (name: string) => `Führe dies in einem Terminal aus, um Oikome zu ${name} hinzuzufügen. Es funktioniert nur auf diesem Computer.`,
+    pasteConfig: (name: string) => `Füge dies in die MCP-Konfiguration von ${name} ein und starte eine neue Sitzung. Es funktioniert nur auf diesem Computer.`,
+    configured: (name: string) => `${name} ist konfiguriert. Starte eine neue Sitzung, um Oikome zu verwenden.`,
   },
 
   plugins: {
@@ -135,12 +138,17 @@ export const de: Strings = {
     byPlugin: (who: string) => `${who} · Plugin`,
     nothing: "Noch nichts",
     noInternet: "Nein",
+    installed: "Installiert",
+    installHint: "Durch das Hinzufügen werden nur die Fähigkeiten registriert. Datenzugriff, Quellen und Home-Karten konfigurierst du separat.",
     onHome: "Auf der Startseite",
     notOnHome: "Nicht auf der Startseite",
     settings: "Einstellungen",
     settingsFor: (name: string) => `Einstellungen: ${name}`,
     none: "Noch keine Plugins. Füge unten eines von Oikome hinzu oder eines aus einem Ordner.",
     fromOikome: "Von Oikome",
+    repository: "Offizielles Plugin-Repository",
+    repositoryHint: "Von Oikome im unabhängigen oikome-plugins-Repository veröffentlichte Pakete. Downloads werden vor der Installation geprüft.",
+    addFromRepository: (name: string) => `${name} aus dem offiziellen Repository hinzufügen`,
     add: "Hinzufügen",
     addFor: (name: string) => `${name} hinzufügen`,
     addTitle: (name: string) => `${name} hinzufügen`,
@@ -411,6 +419,8 @@ export const de: Strings = {
     activity: "Letzte Aktivität",
     allActivity: "Alles in Aktivität ansehen",
     noActivity: "Wenn jemand öffnet, was du teilst, erscheint es hier.",
+    unavailableCard: "Nicht verfügbare Karte",
+    unavailableCardBody: "Ihr Plugin oder ihre Sammlung ist nicht verfügbar. Ihr Platz bleibt erhalten; die Karte kehrt mit ihren Daten zurück.",
   },
 
   collections: {

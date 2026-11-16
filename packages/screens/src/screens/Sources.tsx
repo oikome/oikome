@@ -21,8 +21,9 @@ import {
   useToast,
 } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
-import type { SourceKind, SourceSummary, SpaceSummary } from "@oikome/client";
+import type { PluginSourceCapability, SourceKind, SourceSummary, SpaceSummary } from "@oikome/client";
 import { countOf } from "../covers";
+import { inLanguage } from "../plugins";
 import { loadPreview, forgetPreviews } from "../content";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
@@ -225,10 +226,12 @@ function tableName(path: string | undefined): string {
 /** Bring in a folder of photos or notes, or a CSV file. */
 export function AddSource({
   start,
+  offers,
   onClose,
   onAdded,
 }: {
   start: SourceKind;
+  offers: (PluginSourceCapability & { pluginName: string })[];
   onClose: () => void;
   onAdded: (source: SourceSummary) => void;
 }) {
@@ -242,8 +245,9 @@ export function AddSource({
   const [browsing, setBrowsing] = useState(false);
   const add = useAction();
   const csv = kind === "csv";
+  const file = csv || kind === "flomo-export";
   const eligible = (spaces.data ?? []).filter((space) =>
-    csv ? space.kind === "transactional" && !space.inPlace : space.inPlace || (space.kind === "analytical" && !space.inPlace),
+    file ? space.kind === "transactional" && !space.inPlace : space.inPlace || (space.kind === "analytical" && !space.inPlace),
   );
   const destination = eligible.some((item) => item.name === space) ? space : eligible[0]?.name;
   const destinationTable = table || tableName(path);
@@ -261,7 +265,7 @@ export function AddSource({
               disabled={!path || !destination || add.busy}
               onClick={async () => {
                 if (!path || !destination) return;
-                if (!csv) {
+                if (!file) {
                   const viewed = await add.run(() => client.addInPlaceFolder({ space: destination, path }));
                   if (!viewed) return;
                   forgetPreviews(viewed.name);
@@ -291,12 +295,20 @@ export function AddSource({
             setTable("");
             add.clear();
           }}
-          choices={KINDS.map(({ kind: k, icon }) => ({
-            value: k,
-            title: s.kinds[k],
-            meta: s.kindHelp[k],
-            leading: <Icon name={icon} />,
-          }))}
+          choices={[
+            ...KINDS.map(({ kind: k, icon }) => ({
+              value: k,
+              title: s.kinds[k],
+              meta: s.kindHelp[k],
+              leading: <Icon name={icon} />,
+            })),
+            ...offers.map((offer) => ({
+              value: offer.kind,
+              title: offer.name,
+              meta: strings.plugins.by(offer.pluginName),
+              leading: <Icon name={SOURCE_ICONS[offer.kind]} />,
+            })),
+          ]}
         />
         <Select
           label={s.targetCollection}
@@ -317,9 +329,9 @@ export function AddSource({
         {spaces.data && eligible.length === 0 && <p className="screen-help">{s.noTarget}</p>}
         <div className="screen-source-pick">
           <span className="screen-path" translate="no" title={path}>
-            {path ? homeRelative(path) : csv ? s.noFile : s.noFolder}
+            {path ? homeRelative(path) : file ? s.noFile : s.noFolder}
           </span>
-          <Button onClick={() => setBrowsing(true)}>{csv ? s.chooseFile : s.chooseFolder}</Button>
+          <Button onClick={() => setBrowsing(true)}>{file ? s.chooseFile : s.chooseFolder}</Button>
         </div>
         {add.busy ? (
           <span className="screen-progress" role="progressbar" aria-label={s.reading}>
@@ -332,9 +344,12 @@ export function AddSource({
       </Dialog>
       {browsing && (
         <FolderBrowser
-          title={csv ? s.chooseFile : s.chooseFolder}
+          title={file ? s.chooseFile : s.chooseFolder}
           csv={csv}
-          hint={(here) => (csv ? s.pickCsv : kind === "photos" ? s.holdsPhotos(here.photos) : s.holdsNotes(here.notes))}
+          extensions={kind === "flomo-export" ? ["html", "zip"] : undefined}
+          hint={(here) =>
+            csv ? s.pickCsv : file ? s.addHelp : kind === "photos" ? s.holdsPhotos(here.photos) : s.holdsNotes(here.notes)
+          }
           onClose={() => setBrowsing(false)}
           onChoose={(picked) => {
             setPath(picked);
@@ -352,6 +367,7 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   const toast = useToast();
   const sources = useLoad(() => client.listSources(), []);
   const spaces = useLoad(() => client.listSpaces(), []);
+  const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
   const [adding, setAdding] = useState<SourceKind | undefined>(startAdding ? "photos" : undefined);
   useEffect(() => {
     if (startAdding) navigate("/sources", { replace: true });
@@ -368,6 +384,11 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   );
   const paused = list.filter((x) => x.paused).length;
   const failing = list.filter((x) => !x.paused && x.failedAtMs != null).length;
+  const offers = (plugins.data ?? [])
+    .filter((plugin) => plugin.installed)
+    .flatMap((plugin) =>
+      plugin.capabilities.sources.map((source) => ({ ...source, pluginName: plugin.name, pluginId: plugin.id })),
+    );
   const reload = () => {
     sources.reload();
     spaces.reload();
@@ -423,11 +444,28 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
             </span>
           </button>
         ))}
+        {offers.map((offer) => (
+          <button
+            key={`${offer.pluginId}:${offer.id}`}
+            type="button"
+            className="screen-source-kind"
+            onClick={() => setAdding(offer.kind)}
+          >
+            <span className="oik-tile">
+              <Icon name={SOURCE_ICONS[offer.kind]} />
+            </span>
+            <span className="screen-source__text">
+              <span className="screen-source__name">{offer.name}</span>
+              <span className="screen-source__meta">{strings.plugins.by(offer.pluginName)}</span>
+            </span>
+          </button>
+        ))}
       </div>
 
       {adding && (
         <AddSource
           start={adding}
+          offers={offers}
           onClose={() => setAdding(undefined)}
           onAdded={(added) => {
             setAdding(undefined);

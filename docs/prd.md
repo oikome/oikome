@@ -74,8 +74,8 @@ The sidebar has eight items, with the places below them. For now only the owner 
 | A folder viewed where it is | Browse the owner's own files on a place, as in a file manager | One navigation: the top crumb goes on into its folders (Collections / Trips / Porto 2024), each a way back up, and each folder has its own address, so Back goes up a folder; a phone names only the folder one is in. Its folders come first, as covers like the collections outside (a folder is a collection of its own): its newest photos, else its newest note, the folder sign only beside its name, with what it holds and when it last changed. Then its files, each showing some of itself: a photo itself, a note its first lines, a CSV its first rows. The same sort and the same covers or list as Collections, the list with name, kind, size and modified time. Every file opens under its file name: a photo large, Markdown as a safe reading view with GFM and a source view, code and configuration in a lazy-loaded source view with line numbers, folding and always-on wrapping, and a CSV, TSV, Parquet or JSON-lines file as a paged table read where it is. Read/Source or Table/Source switching has its own quiet toolbar above the content; the header keeps only file actions and never adds a separate wrap-lines toggle. Markdown does not render raw HTML or fetch remote images, and unsafe links become text. Data files use a lazy-loaded AG Grid Community view with resizable columns, a sticky header and record cards on phones. The same toolbar as the view switch copies a Markdown/source file whole or the current table page as TSV; clipboard failures are shown. Cmd/Ctrl+A and Cmd/Ctrl+C select and copy source content, not the whole page. JSON and JSON Lines can switch between table and source; damaged JSON opens directly as source without a table action that must fail. An unsupported file keeps its name, size and the platform's file-manager action on this computer. Every local file has Open in Default App in its viewer header, using the system default application; the file-manager action says Finder on macOS, File Explorer on Windows and File Manager on Linux. A quiet line keeps the date, place and who can see it; the rest of the details open under Info, which stays open while ← → move through all the folder's files. Kept on names the storage itself, such as Local or a drive's own name, and opens that place's page. Came from is the source path: on this computer it reveals the current file in the platform's file manager; a remote place leaves it as text. Each file has its own address. There is no separate table picker: clicking a data file opens its table, which remains available to search, sharing and AI. Read only: nothing is moved or changed there. Its name is the folder's own, whatever the script ("照片"), not a name made to fit SQL |
 | Sources | Bring in data from apps and folders | Add Data Source sits beside Add Files and defaults to an existing collection and table; a CSV never creates a same-named collection implicitly. Source identity and destination are separate: pause, schedule and removal use the source id, while reads, previews and collection links use the destination. A whole local folder can join an existing file collection, or an empty analytical collection with no source, and its common root is recomputed. A page per source: status, the last 30 days of syncs, how often it syncs, Pause; removing a source keeps its collection; credentials go to the system keychain and are never shown again |
 | Sharing | Control who sees what | What I share, invites received, contacts, my devices, lending this computer's compute; sharing uses a standard dialog: pick the collection → pick the scope → pick people or make an invite code → view live or keep a copy, and for how long; every share can be taken back |
-| MCP Access | Control what AI can see | One-click Kimi Code/Codex CLI setup on this computer, Claude Code and manual HTTP MCP setup, and the collections each can read (M3) |
-| Plugins | Install and manage dashboard plugins | Installed plugins and the collections they read, install from a file, remove |
+| MCP Access | Control what AI can see | Manifest-driven official and installed MCP client adapters, one-click declarative CLI setup where offered, manual commands or HTTP settings, and the collections each can read |
+| Plugins | Register and manage capability packages | Official and local packages, installed capabilities and the collections their cards read; installation itself grants no access and adds no card |
 | Activity | See who read what | One line per read, filtered by everyone, contacts, plugins or you; a line opens what it means and where to act on it |
 | Settings | A few one-time settings | Places, recovery key, appearance (Ink or Bold style; light, dark or system), language, network (whether this computer is reached from outside, what for, ask / always / never, helping contacts meet; 3.12), security mode (3.7) |
 | A place's page | One place's state, opened from the places in the sidebar | Space used of total (Google Drive's from Google), whether it is encrypted and whether new collections go there, which collections are on it, how Oikome reaches it (the one folder it uses, where its password or sign-in is kept, whether Oikome may view the owner's other files), what is lost if it breaks; recent uploads and browsing the files already there (3.9) come later |
@@ -105,45 +105,31 @@ First run:
 
 ## Plugins and Dashboards
 
-Like an AI assistant, a plugin is a visitor with its own identity that can read only what it is granted. v1 has dashboard plugins only; sources are built in at first, and third-party source plugins come later.
+A plugin package can offer independent Dashboard cards, source configuration, preview declarations and MCP client adapters. Official and third-party packages use the same manifest and lifecycle; bundled packages have no hidden privileges. Installation registers capabilities only: it grants no collection, starts no source and places no card.
 
-| Kind | What it does | Where it runs | Phase |
+| Capability | What it does | Where it runs | Current state |
 | --- | --- | --- | --- |
-| Dashboard plugin | Reads data only; draws a card or a full page on Home | A sandbox in the browser | M2 |
-| Source plugin | Pulls data from an outside app into a collection | Full Node | Later, one at a time (the first sources are built in) |
-| Content / Preview plugin | Extracts metadata or makes a derivative preview of a complex file, such as RAW | A separate host process or controlled WASM sandbox, with one-file read access and no default network | Later, optional downloads from the independent plugin library |
+| Dashboard card | Reads granted data and draws a card on Home | A sandboxed iframe in the browser | Available |
+| Source | Offers setup through a connector already present in the node | The existing connector in the Full Node | Declarative configuration only; third-party connector code is not loaded |
+| Content / Preview | Declares formats for metadata or derivative previews | A separate host process or controlled WASM sandbox is still required | Registration only; third-party preview execution is not available |
+| MCP client | Provides a manual command or declarative JSON/TOML setup | Oikome's generic configuration writer on the owner's computer | Available for CLI adapters |
 
-**What a plugin's manifest declares**
+**Manifest and data contract:** `oikome-plugin.json` names the package, publisher and version, with independent `cards`, `sources`, `preview` and `mcpClients` lists and translations. A card declares its entry, dimensions, data shape and required column kinds rather than hard-coded collection names. When the owner adds a card, Oikome offers matching collections and grants only the chosen ones. Current grants are whole collections shared by cards in the package; automatic contract matching and per-view grants remain future work.
 
-- Name, version, the publisher's identity (DID) and a signature.
-- Dashboard card: the entry page and the sizes it supports (small 1×1, wide 2×1, large 2×2, full page).
-- Data needs: what the data it reads looks like (the data contract), read only.
-- Network needs: none by default; a plugin that needs the network lists its domains, confirmed separately at install.
-- Settings: such as the temperature unit or which rooms to show.
+**Runtime boundaries:** Dashboard code runs in an isolated iframe without network, storage or app API access. The host reads as the plugin through the Rust authorization layer and records reads in Activity. Source declarations execute no package code and use existing connector rules. Preview declarations do not execute anything. MCP adapters can write only the declared client configuration after an explicit owner action; they never inherit Dashboard grants or choose a model/profile.
 
-**Data contract:** a plugin does not hard-code the user's collection names. It declares the shape of the data it needs, such as "sensor readings: device, time, value, unit". At install, sources producing the same contract are matched automatically; when none matches, the owner picks a collection and maps its columns. The system then makes a view with only those columns and grants only that view to the plugin.
+**Current official packages:** Spending by Category and Photo Memories cards; flomo HTML import plus an optional Recent Notes card; Kimi Code, Codex and Claude Code CLI adapters. The independent [oikome-plugins](https://github.com/oikome/oikome-plugins) repository publishes these and the external-only Note Count card. Plugins browses its release index, and the node verifies the selected ZIP's size, SHA-256 and manifest before ordinary installation. RAW Preview and other complex format renderers remain external official packages, not bundled by default.
 
-**How it runs:** a plugin runs in an isolated iframe in the browser, on another origin, with no network, and talks to the host page only through a message bridge. The host runs queries as the plugin, and permissions are checked in the Rust semantic layer rather than left to JavaScript. A plugin behaves the same on the computer's web page and on the owner's phone.
+**Configuration flow**
 
-**Where M2 got to** (architecture §13.4):
+1. Add an official package or inspect a local package folder, then install it without side effects.
+2. Configure a source on Sources, choose an MCP client on MCP Access, or add a card through Home → Arrange → Add a Card.
+3. For a card, choose its collections at that point. Access can be changed later in Plugins.
+4. Removing a package revokes its grants. Saved Home positions remain visible as unavailable and recover if the package or data becomes available again.
 
-- The manifest is `oikome-plugin.json`: id, name, maker, version, what it reads (a data shape and the kinds of column it needs), card size, entry page.
-- At install the node gives the plugin a DID of its own, with whole-collection grants on only the collections the owner chose. Reads happen as the plugin and go into Activity.
-- No plugin can reach the network: the page's CSP sets connections, child frames, workers and forms to none, and the WebRTC constructors are removed before plugin code runs.
-- Two plugins come built in: spending by category, and photos from a year ago.
-- Not done yet: signature checks, asking for network access, matching collections by contract, plugin settings.
+Publisher signing, network permissions, third-party node/host execution, automatic contract mapping, plugin-specific settings and third-party community distribution remain later work.
 
-**Install flow**
-
-1. Pick a plugin package from a file or a link.
-2. Check its signature and show the publisher.
-3. A permissions page in plain words: "Smart home dashboard wants to read: Smart home › sensor readings (device, time, value); no network".
-4. On confirmation, the plugin's identity, view and grant are made, and its card appears on Home.
-5. Removing the plugin revokes the grant and deletes the view.
-
-**Example: smart home.** The Home Assistant source pulls sensor history on a schedule into the "Smart home" collection. The smart home dashboard plugin reads it and shows each room's temperature and humidity, this week's power use and the doors and windows on Home. It shows and never controls; a card opens Home Assistant. Freshness depends on the pull interval (minutes), not real time.
-
-**Distribution:** v1 installs only from local files and links; a community directory comes later, with third-party plugins.
+**Example: smart home.** A future Home Assistant source package would pull sensor history into a chosen collection, while a separately configured Dashboard card shows rooms and readings. Oikome would show and never control devices.
 
 ## Devices
 

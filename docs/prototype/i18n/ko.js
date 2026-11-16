@@ -460,7 +460,7 @@
   'ai.chatNote': '대화는 어시스턴트 안에서 내 언어로 이루어져요. Oikome는 읽도록 허용된 항목만 넘겨줘요.',
 
   // Plugins
-  'plugins.sub': '홈에 놓는 카드예요. 각 카드는 샌드박스에서 실행되고, 허용한 항목만 읽으며, 허용하지 않으면 인터넷에 연결할 수 없어요.',
+  'plugins.sub': '카드, 소스, 미리 보기, MCP 클라이언트를 제공해요. 추가만으로는 접근 권한이 생기지 않으며 각 기능을 따로 설정해요.',
   installFile: '파일에서 설치',
   browse: '둘러보기',
   'plugins.col.plugin': '플러그인',
@@ -500,6 +500,9 @@
   'plg.booksbyyear': '연도별 독서',
   'plg.booksbyyear.what': '해마다 다 읽은 책 수를 보여 줘요.',
   'plg.booksbyyear.reads': '책: 제목, 상태, 읽은 날짜',
+  'plg.notecount': '노트 수',
+  'plg.notecount.what': '선택한 컬렉션의 노트 수와 이번 주에 추가된 수를 보여 줘요.',
+  'plg.notecount.reads': '노트: 텍스트, 작성 날짜',
   'plg.runlog': '러닝 기록',
   'plg.runlog.what': '이번 주와 올해 달린 거리를 보여 줘요.',
   'plg.runlog.reads': '러닝: 날짜, 거리, 시간',
@@ -913,6 +916,7 @@
   'in.size.large': '크게',
   'in.turnOn': '켜기',
   'in.add': '홈에 추가',
+  'in.registerOnly': '패키지를 추가하면 기능만 등록돼요. 데이터 접근 권한, 소스, 홈 카드는 각각 설정해요.',
   'ps.units': '단위',
   'ps.rooms': '카드에 표시할 방 · 탭해서 포함',
   'ps.allowed': '추가할 때 허용했어요.',

@@ -460,7 +460,7 @@
   'ai.chatNote': '会話はアシスタントの中で、あなたの言語で行われます。Oikome は読み取りを許可されたものだけを渡します。',
 
   // Plugins
-  'plugins.sub': 'ホームに置くカードです。それぞれサンドボックスで動作し、許可したものだけを読み取り、許可しない限りインターネットに接続しません。',
+  'plugins.sub': 'カード、ソース、プレビュー、MCP クライアントです。追加だけではアクセスを許可せず、各機能を個別に設定します。',
   installFile: 'ファイルからインストール',
   browse: '探す',
   'plugins.col.plugin': 'プラグイン',
@@ -500,6 +500,9 @@
   'plg.booksbyyear': '年別の読書数',
   'plg.booksbyyear.what': '毎年読み終えた本の数を表示します。',
   'plg.booksbyyear.reads': '本: タイトル、状態、読了日',
+  'plg.notecount': 'ノート数',
+  'plg.notecount.what': '選択したコレクションのノート数と今週追加された数を表示します。',
+  'plg.notecount.reads': 'ノート: 本文、作成日',
   'plg.runlog': 'ランニング記録',
   'plg.runlog.what': '今週と今年に走った距離を表示します。',
   'plg.runlog.reads': 'ランニング: 日付、距離、時間',
@@ -913,6 +916,7 @@
   'in.size.large': '大',
   'in.turnOn': 'オンにする',
   'in.add': 'ホームに追加',
+  'in.registerOnly': '追加するだけでは機能が登録されるだけです。データアクセス、ソース、ホームカードは個別に設定します。',
   'ps.units': '単位',
   'ps.rooms': 'カードに表示する部屋 · タップして含める',
   'ps.allowed': '追加したときに許可しました。',

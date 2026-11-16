@@ -62,9 +62,9 @@ use oikome_api::{
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
     ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
     NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
-    PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, Rows, RunSql, Search, SetLending,
-    SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
-    PLUGIN_SDK,
+    PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, RegistryPluginRef, Rows, RunSql,
+    Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult,
+    StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
@@ -516,6 +516,8 @@ impl WebState {
             "list_plugins" => json_op!(list_plugins, Empty),
             "inspect_plugin" => json_op!(inspect_plugin, PluginFolder),
             "install_plugin" => json_op!(install_plugin, InstallPlugin),
+            "list_registry_plugins" => json_op!(list_registry_plugins, Empty),
+            "install_registry_plugin" => json_op!(install_registry_plugin, RegistryPluginRef),
             "set_plugin_collections" => json_op!(set_plugin_collections, PluginCollections),
             "remove_plugin" => json_op!(remove_plugin, PluginRef),
             "list_assistants" => json_op!(list_assistants, Empty),

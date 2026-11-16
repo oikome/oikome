@@ -29,8 +29,9 @@ import {
   useToast,
 } from "@oikome/ui";
 import { OikomeError } from "@oikome/client";
-import type { Assistant, AssistantApp, AssistantConnected, SpaceSummary } from "@oikome/client";
+import type { Assistant, AssistantApp, AssistantConnected, McpClientCapability, SpaceSummary } from "@oikome/client";
 import { errorMessage, useAction, useClient, useLoad } from "../data";
+import { inLanguage } from "../plugins";
 import { ago, calendarDate } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
@@ -44,8 +45,14 @@ const RECENT_MS = 15 * 60 * 1000;
 const WAIT_EVERY_MS = 2000;
 const MAX_NAME = 64;
 
-const appName = (app: AssistantApp, name: string) =>
-  app === "claude_code" ? s.claudeCode : app === "kimi_code" ? s.kimiCode : app === "codex" ? s.codex : name;
+interface ClientChoice {
+  key: string;
+  name: string;
+  app: AssistantApp;
+  plugin: string;
+  client: string;
+  capability: McpClientCapability;
+}
 
 function metaOf(a: Assistant): string {
   if (a.endedAtMs != null) return s.ended(calendarDate(a.endedAtMs));
@@ -63,6 +70,7 @@ export function Assistants({ startConnecting = false }: { startConnecting?: bool
   const toast = useToast();
   const assistants = useLoad(() => client.listAssistants(), []);
   const spaces = useLoad(() => client.listSpaces(), []);
+  const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
   const [connecting, setConnecting] = useState(startConnecting);
   const [editing, setEditing] = useState<Assistant>();
   const [removing, setRemoving] = useState<Assistant>();
@@ -74,6 +82,16 @@ export function Assistants({ startConnecting = false }: { startConnecting?: bool
   const active = list.filter((a) => a.endedAtMs == null);
   const current = active.find((a) => a.id === picked) ?? active[0];
   const mine: SpaceSummary[] = (spaces.data ?? []).filter((space) => space.kind !== "remote");
+  const clients: ClientChoice[] = (plugins.data ?? []).flatMap((plugin) =>
+    plugin.capabilities.mcpClients.map((capability) => ({
+      key: `${plugin.id}:${capability.id}`,
+      name: capability.name,
+      app: "other",
+      plugin: plugin.id,
+      client: capability.id,
+      capability,
+    })),
+  );
 
   const give = async (a: Assistant, collections: string[]) => {
     const saved = await grant.run(() => client.setAssistantCollections({ id: a.id, collections }));
@@ -172,6 +190,7 @@ export function Assistants({ startConnecting = false }: { startConnecting?: bool
       {connecting && (
         <ConnectDialog
           mine={mine}
+          clients={clients}
           onClose={() => {
             setConnecting(false);
             assistants.reload();
@@ -292,17 +311,19 @@ function Choose({
 
 function ConnectDialog({
   mine,
+  clients,
   onClose,
   onConnected,
 }: {
   mine: SpaceSummary[];
+  clients: ClientChoice[];
   onClose: () => void;
   onConnected: (a: Assistant) => void;
 }) {
   const client = useClient();
   const toast = useToast();
   const [step, setStep] = useState(1);
-  const [app, setApp] = useState<AssistantApp>("claude_code");
+  const [picked, setPicked] = useState("");
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string>();
   const [chosen, setChosen] = useState<Set<string>>(new Set());
@@ -314,7 +335,10 @@ function ConnectDialog({
   const [replacing, setReplacing] = useState(false);
   const [configError, setConfigError] = useState<string>();
   const connect = useAction();
-  const shown = appName(app, name.trim());
+  const custom = picked === "other" || clients.length === 0;
+  const selected = custom ? undefined : (clients.find((choice) => choice.key === picked) ?? clients[0]);
+  const capability = selected?.capability;
+  const shown = custom ? name.trim() : (selected?.name ?? "");
 
   // Until the assistant first reaches the data center, look now and then.
   useEffect(() => {
@@ -336,26 +360,28 @@ function ConnectDialog({
 
   const endpoint = `${window.location.origin}/mcp`;
   const header = done ? `Authorization: Bearer ${done.token}` : "";
-  const command = done ? `claude mcp add --transport http oikome ${endpoint} --header "${header}"` : "";
   const configuration = !done
     ? ""
-    : app === "claude_code"
-      ? command
-      : app === "kimi_code"
+    : capability?.command
+      ? capability.command.replaceAll("{url}", endpoint).replaceAll("{token}", done.token)
+      : capability?.config?.format === "json"
         ? JSON.stringify(
-            { mcpServers: { oikome: { url: endpoint, headers: { Authorization: `Bearer ${done.token}` } } } },
+            {
+              [capability.config.root]: {
+                oikome: { url: endpoint, [capability.config.headers]: { Authorization: `Bearer ${done.token}` } },
+              },
+            },
             null,
             2,
           )
-        : `[mcp_servers.oikome]\nurl = ${JSON.stringify(endpoint)}\nhttp_headers = { Authorization = ${JSON.stringify(`Bearer ${done.token}`)} }`;
-  const instruction =
-    app === "claude_code"
-      ? s.pasteClaude
-      : app === "kimi_code"
-        ? s.pasteKimi
-        : app === "codex"
-          ? s.pasteCodex
-          : s.pasteOther(shown);
+        : capability?.config?.format === "toml"
+          ? `[${capability.config.root}.oikome]\nurl = ${JSON.stringify(endpoint)}\n${capability.config.headers} = { Authorization = ${JSON.stringify(`Bearer ${done.token}`)} }`
+          : "";
+  const instruction = capability?.command
+    ? s.pasteCommand(shown)
+    : capability?.config
+      ? s.pasteConfig(shown)
+      : s.pasteOther(shown);
 
   const configure = async (replace: boolean) => {
     if (!done) return;
@@ -380,12 +406,14 @@ function ConnectDialog({
       <ChoiceList
         label={s.stepApp}
         name="assistant-app"
-        value={app}
-        onChange={(value) => setApp(value as AssistantApp)}
+        value={custom ? "other" : (selected?.key ?? "")}
+        onChange={setPicked}
         choices={[
-          { value: "claude_code", title: s.claudeCode, meta: s.claudeCodeMeta, leading: <Icon name="terminal" /> },
-          { value: "kimi_code", title: s.kimiCode, meta: s.kimiCodeMeta, leading: <Icon name="terminal" /> },
-          { value: "codex", title: s.codex, meta: s.codexMeta, leading: <Icon name="terminal" /> },
+          ...clients.map((choice) => ({
+            value: choice.key,
+            title: choice.name,
+            leading: <Icon name="terminal" />,
+          })),
           {
             value: "other",
             title: s.other,
@@ -415,7 +443,7 @@ function ConnectDialog({
           variant="primary"
           onClick={() => {
             const n = name.trim();
-            if (app === "other" && (n.length === 0 || n.length > MAX_NAME || /[\u0000-\u001f]/.test(n))) {
+            if (custom && (n.length === 0 || n.length > MAX_NAME || /[\u0000-\u001f]/.test(n))) {
               setNameError(s.nameInvalid);
               return;
             }
@@ -442,7 +470,12 @@ function ConnectDialog({
           disabled={connect.busy}
           onClick={async () => {
             const connected = await connect.run(() =>
-              client.connectAssistant({ name: shown, app, collections: [...chosen] }),
+              client.connectAssistant({
+                name: shown,
+                app: selected?.app ?? "other",
+                ...(selected ? { plugin: selected.plugin, client: selected.client } : {}),
+                collections: [...chosen],
+              }),
             );
             if (connected) {
               setDone(connected);
@@ -457,14 +490,14 @@ function ConnectDialog({
       </>
     );
   } else {
-    const oneClick = app === "kimi_code" || app === "codex";
+    const oneClick = capability?.config !== undefined;
     body = (
       <>
         <p className="oik-dialog__text">{oneClick ? s.oneClick(shown) : instruction}</p>
         {oneClick && (
           <div className="screen-assistant-install">
             {configured ? (
-              <Status kind="ok">{app === "kimi_code" ? s.afterKimi : s.afterCodex}</Status>
+              <Status kind="ok">{s.configured(shown)}</Status>
             ) : (
               <Button variant="primary" disabled={configuring} onClick={() => void configure(false)}>
                 {s.connectNow(shown)}
@@ -477,7 +510,7 @@ function ConnectDialog({
         )}
         {configError && !replacing && <ErrorText>{configError}</ErrorText>}
         {(!oneClick || manual) &&
-          (app !== "other" ? (
+          (!custom ? (
             <div className="screen-assistant-config">
               <CopyField value={configuration} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
             </div>

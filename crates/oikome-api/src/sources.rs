@@ -302,18 +302,43 @@ impl Api {
                 }
                 csv_config(&path, &table).await?
             }
-            SourceKind::FlomoExport | SourceKind::FlomoMcp => {
-                return Err(ApiError::invalid("flomo is added with `oikome source add`"));
+            SourceKind::FlomoExport => {
+                if !path.is_file() {
+                    return Err(ApiError::invalid(format!(
+                        "{} is not a flomo HTML or ZIP export",
+                        path.display()
+                    )));
+                }
+                SourceConfig::FlomoExport {
+                    path: path.to_string_lossy().into_owned(),
+                }
             }
+            SourceKind::FlomoMcp => {
+                return Err(ApiError::invalid(
+                    "flomo MCP needs its endpoint and token; use `oikome source add`",
+                ));
+            }
+        };
+        let writes = match &config {
+            SourceConfig::Csv { .. } => table.as_str(),
+            SourceConfig::FlomoExport { .. } | SourceConfig::FlomoMcp { .. } => "memos",
+            _ => return Err(ApiError::internal("a connector has no destination table")),
         };
         if self.catalog.list_sources().into_iter().any(|def| {
             def.space() == space
-                && matches!(serde_json::from_value::<SourceConfig>(def.config.clone()),
-                    Ok(SourceConfig::Csv { table: existing, .. }) if existing.name == table)
+                && match serde_json::from_value::<SourceConfig>(def.config.clone()) {
+                    Ok(SourceConfig::Csv {
+                        table: existing, ..
+                    }) => existing.name == writes,
+                    Ok(SourceConfig::FlomoExport { .. } | SourceConfig::FlomoMcp { .. }) => {
+                        writes == "memos"
+                    }
+                    _ => false,
+                }
         }) {
             return Err(ApiError::new(
                 ErrorCode::Conflict,
-                format!("a source already writes {space}.{table}"),
+                format!("a source already writes {space}.{writes}"),
             ));
         }
 

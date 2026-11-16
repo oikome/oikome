@@ -956,6 +956,7 @@ const DIRECTORY = [
   { id: 'onthisday', by: 'Oikome', ic: 'calendar', match: ['family-photos', 'flomo-notes'], net: '' },
   { id: 'weather', by: 'Open-Meteo', ic: 'sun', reads: false, net: 'api.open-meteo.com' },
   { id: 'booksbyyear', by: 'Ana Ribeiro', ic: 'note', match: ['reading-list'], net: '' },
+  { id: 'notecount', by: 'Oikome', ic: 'note', match: ['reading-list'], net: '' },
   { id: 'runlog', by: 'Tomás Lima', ic: 'activity', match: [], need: 'strava', net: '' },
   { id: 'energyuse', by: 'Home Assistant', ic: 'bolt', match: ['smart-home'], net: '' },
   { id: 'plants', by: 'Mia Okafor', ic: 'leaf', match: ['smart-home'], net: '' },
@@ -1446,7 +1447,7 @@ const netCell = (net) => (net ? `<span class="tag tag--accent">${net}</span>` : 
 screens.plugins = () => `
   ${head(t('nav.plugins'), t('plugins.sub'), `<button class="btn" data-act="installfile">${t('installFile')}</button><a class="btn btn--primary" href="#directory">${I('plus')}${t('browse')}</a>`)}
   <div class="card wrap"><table class="table"><thead><tr><th class="label">${t('plugins.col.plugin')}</th><th class="label">${t('plugins.col.reads')}</th><th class="label">${t('plugins.col.internet')}</th><th class="label">${t('src.col.status')}</th><th></th></tr></thead><tbody>
-    ${PLUGINS.map((p, i) => `<tr><td><div style="display:flex;align-items:center;gap:10px"><span class="ico">${I('plugin')}</span><div><div style="font-weight:600">${pname(p)}</div><div class="faint mono" style="font-size:11px">${t('by', { who: p.by })}</div></div></div></td><td class="mono" style="font-size:12px">${p.reads.length ? lst(p.reads) : t('nothing')}</td><td>${netCell(p.net)}</td><td>${glyph(p.st, t({ ok: 'plugin.onHome', idle: 'plugin.waiting', off: 'plugin.off' }[p.st]))}</td><td style="text-align:right"><button class="btn btn--ghost" data-act="${p.st === 'idle' ? 'review' : 'plugset'}" data-i="${i}">${t(p.st === 'idle' ? 'review' : 'nav.settings')}</button></td></tr>`).join('')}
+    ${PLUGINS.map((p, i) => `<tr><td><div style="display:flex;align-items:center;gap:10px"><span class="ico">${I('plugin')}</span><div><div style="font-weight:600">${pname(p)}</div><div class="faint mono" style="font-size:11px">${t('by', { who: p.by })}</div></div></div></td><td class="mono" style="font-size:12px">${p.reads.length ? lst(p.reads) : t('nothing')}</td><td>${netCell(p.net)}</td><td><span class="tag">${t('fv.installed')}</span></td><td style="text-align:right"><button class="btn btn--ghost" data-act="plugset" data-i="${i}">${t('nav.settings')}</button></td></tr>`).join('')}
   </tbody></table></div>`;
 
 const installed = (id) => PLUGINS.some((p) => p.id === id);
@@ -1745,8 +1746,8 @@ DLG.install = (D) => {
     : p.match.length ? `<div class="box"><b>${t('in.wants', { what: t(`plg.${p.id}.reads`) })}</b><div class="muted">${t('in.matched', { list: H(lst(p.match.map((n) => H(`<span class="mono">${esc(n)}</span>`)))) })}</div></div>`
       : `<div class="box"><b>${t('in.wants', { what: t(`plg.${p.id}.reads`) })}</b><div class="muted">${t('in.noneYet', { app: appName(appBy(p.need)) })}</div><div><button class="btn" data-act="addsrc" data-app="${p.need}">${I('plus')}${t('in.addApp', { app: appName(appBy(p.need)) })}</button></div></div>`;
   const net = p.net ? `<div class="opts">${flagOpt('net', D.net, twoLine(t('in.allow', { site: p.net }), t('in.allowSub', { why: t(`plg.${p.id}.netWhy`) })))}</div>` : `<div class="row">${Is('lock', 15)}<span>${t('in.noNet')}</span></div>`;
-  return dlg(t('in.title', { name }), `<div class="row"><span class="ico c4">${I(p.ic || 'plugin')}</span><div><b>${name}</b><div class="faint" style="font-size:12px">${t('in.signedBy', { who: p.by })}</div></div></div><p class="muted" style="margin:0">${t(`plg.${p.id}.what`)}</p>${reads}<div class="field"><span class="label">${t('plugins.col.internet')}</span>${net}</div><div class="field"><span class="label">${t('in.size')}</span><div class="seg">${['small', 'wide', 'large'].map((v) => segBtn('size', v, D.size, t(`in.size.${v}`))).join('')}</div></div>`,
-    foot('', `${cancel()}<button class="btn btn--primary" data-act="installok" ${p.reads !== false && !p.match.length ? 'disabled' : ''}>${t(D.existing != null ? 'in.turnOn' : 'in.add')}</button>`));
+  return dlg(t('in.title', { name }), `<div class="row"><span class="ico c4">${I(p.ic || 'plugin')}</span><div><b>${name}</b><div class="faint" style="font-size:12px">${t('in.signedBy', { who: p.by })}</div></div></div><p class="muted" style="margin:0">${t(`plg.${p.id}.what`)}</p>${D.existing != null ? `${reads}<div class="field"><span class="label">${t('plugins.col.internet')}</span>${net}</div><div class="field"><span class="label">${t('in.size')}</span><div class="seg">${['small', 'wide', 'large'].map((v) => segBtn('size', v, D.size, t(`in.size.${v}`))).join('')}</div></div>` : `<p class="hint">${t('in.registerOnly')}</p>`}`,
+    foot('', `${cancel()}<button class="btn btn--primary" data-act="installok" ${D.existing != null && p.reads !== false && !p.match.length ? 'disabled' : ''}>${t(D.existing != null ? 'in.turnOn' : 'add')}</button>`));
 };
 
 DLG.plugset = (D) => {
@@ -1891,7 +1892,7 @@ DLG.folder = (D) => dlg(t('fd.title'), `<div class="opts">${[['~/Oikome', 'fd.ho
 DLG.addcard = () => {
   const builtIn = [['recent', 'note'], ['photo', 'photo'], ['totals', 'table'], ['latest', 'thermo'], ['activity', 'activity'], ['places', 'nas']];
   return dlg(t('home.addCard'), `<div class="field"><span class="label">${t('cards.fromOikome')}</span><div class="box" style="padding:0;gap:0"><div class="list">${builtIn.map(([n, ic]) => `<div class="li"><span class="ico">${I(ic)}</span><div class="li__main"><span class="li__title">${t(`card.${n}`)}</span></div>${n === 'recent' || S.cards.includes(n) ? `<span class="tag">${t('cards.onHome')}</span>` : btn(t('add'), `data-act="cardadd" data-n="${n}"`)}</div>`).join('')}</div></div></div>
-    <div class="field"><span class="label">${t('cards.fromPlugins')}</span><div class="box" style="padding:0;gap:0"><div class="list">${PLUGINS.map((p, i) => `<div class="li"><span class="ico">${I('plugin')}</span><div class="li__main"><span class="li__title">${pname(p)}</span><span class="li__meta">${t('by', { who: p.by })}</span></div>${p.st === 'ok' ? `<span class="tag">${t('cards.onHome')}</span>` : btn(t(p.st === 'idle' ? 'review' : 'in.turnOn'), `data-act="${p.st === 'idle' ? 'review' : 'plugset'}" data-i="${i}"`)}</div>`).join('')}</div></div></div>`,
+    <div class="field"><span class="label">${t('cards.fromPlugins')}</span><div class="box" style="padding:0;gap:0"><div class="list">${PLUGINS.map((p, i) => `<div class="li"><span class="ico">${I('plugin')}</span><div class="li__main"><span class="li__title">${pname(p)}</span><span class="li__meta">${t('by', { who: p.by })}</span></div>${p.st === 'ok' ? `<span class="tag">${t('cards.onHome')}</span>` : btn(t('add'), `data-act="review" data-i="${i}"`)}</div>`).join('')}</div></div></div>`,
   foot(`<a class="link" href="#directory">${t('cards.more')}</a>`, `<button class="btn btn--primary" data-close>${t('done')}</button>`));
 };
 
@@ -2252,12 +2253,12 @@ const ACT = {
   installfile: () => open('install', { step: 'pick', pick: 'weather-card-0.3.zip', size: 'small', net: false }),
   installpick: () => upd({ step: 'review', p: DIRECTORY.find((p) => p.id === (D.pick.startsWith('weather') ? 'weather' : 'booksbyyear')) }),
   install: (el) => open('install', { step: 'review', p: DIRECTORY[+el.dataset.i], size: 'small', net: false }),
-  review: (el) => { const i = +el.dataset.i, p = PLUGINS[i]; open('install', { step: 'review', existing: i, size: 'small', net: false, p: { id: p.id, by: p.by, ic: 'note', match: p.reads.slice(), net: p.net } }); },
+  review: (el) => { const i = +el.dataset.i, p = PLUGINS[i]; open('install', { step: 'review', existing: i, size: 'small', net: false, p: { id: p.id, by: p.by, ic: 'note', match: (p.available ?? p.reads).slice(), net: p.net } }); },
   installok: () => {
-    const p = D.p;
-    if (D.existing != null) Object.assign(PLUGINS[D.existing], { st: 'ok', net: D.net ? p.net : '' });
-    else PLUGINS.push({ id: p.id, by: p.by, reads: p.match ? p.match.slice() : [], fields: [], net: p.net && D.net ? p.net : '', st: 'ok' });
-    close(); render(true); toast(t('toast.onHome', { name: t(`plg.${p.id}`) }));
+    const p = D.p, onHome = D.existing != null;
+    if (onHome) Object.assign(PLUGINS[D.existing], { st: 'ok', reads: p.match.slice(), net: D.net ? p.net : '' });
+    else PLUGINS.push({ id: p.id, by: p.by, reads: [], available: p.match ? p.match.slice() : [], fields: [], net: '', st: 'off' });
+    close(); render(true); toast(t(onHome ? 'toast.onHome' : 'added', { name: t(`plg.${p.id}`) }));
   },
   plugset: (el) => { const p = PLUGINS[+el.dataset.i]; open('plugset', { i: +el.dataset.i, units: '°C', rooms: ['Living room', 'Bedroom', 'Outside'], on: p.st === 'ok' }); },
   plugsetok: () => { const p = PLUGINS[D.i]; p.st = D.on ? 'ok' : 'off'; close(); render(true); toast(t('toast.savedName', { name: pname(p) })); },

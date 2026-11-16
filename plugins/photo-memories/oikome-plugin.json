@@ -4,19 +4,20 @@
   "by": "Oikome",
   "version": "1.0.0",
   "description": "A photo from around this day in an earlier year, from the photos you pick.",
-  "reads": {
-    "what": "Photos, with the day each was taken",
-    "shape": "photos",
-    "columns": [
-      "image",
-      "date"
+  "capabilities": {
+    "cards": [
+      {
+        "id": "card",
+        "name": "Photo memories",
+        "reads": "Photos, with the day each was taken",
+        "shape": "photos",
+        "columns": ["image", "date"],
+        "width": 4,
+        "height": 300,
+        "entry": "index.html"
+      }
     ]
   },
-  "card": {
-    "width": 4,
-    "height": 300
-  },
-  "entry": "index.html",
   "translations": {
     "de": {
       "name": "Foto-Erinnerungen",

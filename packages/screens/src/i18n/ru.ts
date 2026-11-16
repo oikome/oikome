@@ -120,6 +120,9 @@ export const ru: Strings = {
     endedToast: (name: string) => `${name}: доступ закрыт.`,
     removedToast: (name: string) => `Убрано: ${name}.`,
     nameInvalid: "Дайте ему имя длиной до 64 символов в одну строку.",
+    pasteCommand: (name: string) => `Выполните это в терминале, чтобы добавить Oikome в ${name}. Это работает только на этом компьютере.`,
+    pasteConfig: (name: string) => `Добавьте это в конфигурацию MCP ${name} и начните новый сеанс. Это работает только на этом компьютере.`,
+    configured: (name: string) => `${name} настроен. Начните новый сеанс, чтобы использовать Oikome.`,
   },
 
   plugins: {
@@ -137,12 +140,17 @@ export const ru: Strings = {
     byPlugin: (who: string) => `${who} · плагин`,
     nothing: "Пока ничего",
     noInternet: "Без интернета",
+    installed: "Установлен",
+    installHint: "Добавление пакета лишь регистрирует его возможности. Доступ к данным, источники и карточки настраиваются отдельно.",
     onHome: "На главной",
     notOnHome: "Не на главной",
     settings: "Настройки",
     settingsFor: (name: string) => `Настройки: ${name}`,
     none: "Плагинов пока нет. Добавьте один из плагинов Oikome ниже или плагин из папки.",
     fromOikome: "От Oikome",
+    repository: "Официальный репозиторий плагинов",
+    repositoryHint: "Пакеты Oikome в независимом репозитории oikome-plugins. Загрузки проверяются перед установкой.",
+    addFromRepository: (name: string) => `Добавить ${name} из официального репозитория`,
     add: "Добавить",
     addFor: (name: string) => `Добавить: ${name}`,
     addTitle: (name: string) => `Добавить плагин «${name}»`,
@@ -417,6 +425,8 @@ export const ru: Strings = {
     activity: "Недавняя активность",
     allActivity: "Вся активность",
     noActivity: "Когда кто-то откроет то, чем вы делитесь, это появится здесь.",
+    unavailableCard: "Карточка недоступна",
+    unavailableCardBody: "Её плагин или коллекция недоступны. Место сохранено, и карточка вернётся вместе с данными.",
   },
 
   collections: {

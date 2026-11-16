@@ -1,6 +1,6 @@
 # Product Delivery Plan
 
-> **Status**: consolidated 2026-11-14. This is the single implementation queue for the current app work. It preserves the agreed content-viewing stages and adds the data-source, analysis, dataset interoperability, plugin and network work identified through the PR 20 review. Code, the PRD and the prototype must be updated together as each stage lands.
+> **Status**: consolidated 2026-11-16. This is the single implementation queue for the current app work. It preserves the agreed content-viewing stages and adds the data-source, analysis, dataset interoperability, plugin and network work identified through the PR 20 review. Code, the PRD and the prototype must be updated together as each stage lands.
 
 ## Rules
 
@@ -17,9 +17,9 @@
 - PR 22 adds owner-only local UTF-8 text saves with real content hashes, source/copy choices, exclusive creation, confirmed atomic replacement, preserved text encoding and revocable confirmation records. Known non-text formats are excluded before actual UTF-8 bytes determine editability, including code, configuration, extensionless text and CSV/TSV/JSON text tables. It does not edit connector tables or remote/read-only bindings.
 - PR 23 adds read-only PDF first-page grid thumbnails and a full view with a lazy PDF.js display chunk and Worker, current-page rendering, pagination, zoom, text selection and on-demand resources. No engine request occurs before a PDF tile approaches the viewport. MCP Access also has guided standard configurations for Kimi Code and Codex beside Claude Code, with the same scoped grants and one-time tokens.
 - Built-in connectors are CSV, flomo export/MCP and the legacy photo/note folder connectors. There is no Home Assistant connector or Smart Home source plugin in the node. Smart Home appears in the PRD and prototype only.
-- Dashboard plugins already have a manifest, a data-shape contract, per-collection grants and a sandboxed Home card. Source and Content/Preview capabilities are not yet parts of that plugin manifest.
-- Home has Arrange and Add a Card. With no saved arrangement it computes a default from real collections and installed plugins. The arrangement is persisted in `.oikome/node.json` through `set_home_cards`; it is not fake state.
-- Deleting a collection hides cards that no longer resolve. It does not erase the saved card id or permanently ban that card type, but stale entries need an explicit removed/restore experience. Any compatible card can be added again through Arrange → Add a Card.
+- PR 24 extends one package manifest with independent `cards`, `sources`, `preview` and `mcpClients`. Installation has no data, source or Home side effects. Source declarations reuse existing connectors and preview declarations do not execute third-party code; those are not open host runtimes.
+- Home has Arrange and Add a Card. Adding a plugin card separately configures its package's collection grants. The arrangement persists in `.oikome/node.json`; unresolved saved cards show an unavailable state without erasing their layout and recover when their package or data returns. Legacy unarranged installs keep their old cards; new installs never appear implicitly.
+- MCP Access is manifest-driven, including external installed adapters. Official Kimi Code, Codex and Claude Code packages are available directly; the generic writer safely merges only declared JSON/TOML settings and never selects a model/profile.
 - Activity is persisted in `.oikome/access_log.sqlite`. Home previously filtered out owner and plugin events, which could make it empty while Activity had rows. That filter is removed in PR 19.
 - Series presentation currently comes from generic time-and-number schema inference. It is not a Smart Home special case, but connectors still need an explicit semantic contract so inference is only a fallback.
 - Network configuration exists under Settings → Network. There is no persistent network-status entry in the top-level navigation.
@@ -72,12 +72,13 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 
 ## PR 24: plugin capabilities and Home composition
 
-- Extend the plugin manifest with independent optional capabilities such as `sources`, `cards` and `preview`. A plugin may provide several, each with its own configuration, grants and lifecycle. Installation alone changes no data and adds no Home card.
-- Keep Dashboard cards in the browser sandbox. Source plugins run on the node under the connector permission model; Content/Preview plugins use their separate host sandbox. Do not give one plugin kind another kind's runtime privileges.
-- Make Add a Card and each card's collection/grant configuration discoverable. Preserve existing layouts during migration. A deleted collection produces an explicit unavailable/restore state rather than silently losing the card definition forever.
-- Use flomo as the composite example: the flomo capability configures import into a chosen collection, and an optional card is separately added to Home with its own read grant.
-- Smart Home is a later composite example, only after a real Home Assistant source exists. Its source declares sensor semantics; a separate card renders rooms and readings. There is no built-in Smart Home rendering exception and no device control.
-- Validation: capability isolation, no install-time side effects, card add/remove/restore, deleted-collection behavior, grant boundaries, sandbox tests and composite-plugin examples.
+- Extend one manifest with independent optional `sources`, `cards`, `preview` and `mcpClients`. Installation alone changes no data and adds no Home card. Current collection grants are shared by cards within one package.
+- Keep Dashboard cards in the browser sandbox. Source declarations configure only existing node connectors; preview declarations register metadata only and do not execute third-party code. Neither kind inherits Dashboard privileges, and a real third-party host remains separate future work.
+- Make Add a Card and collection/grant configuration discoverable. Preserve existing layouts and legacy default cards during migration. Missing packages or collections produce an explicit unavailable state rather than deleting the saved entry.
+- Use flomo as the composite example: configure HTML import into a chosen collection, then separately add its optional Recent Notes card with a read grant. Move Kimi Code, Codex and Claude Code adapters to the same manifest mechanism; official MCP packages need no installation, while external ones do.
+- Operate the independent `oikome/oikome-plugins` official repository. Its CI publishes deterministic versioned ZIPs and an index with complete manifests, sizes and SHA-256 digests. Plugins lists that release index, and the node downloads only an owner-selected version, verifies it and uses the ordinary installation lifecycle. The external-only official `note-count` card proves this path. Publisher signing and third-party community distribution remain later work.
+- Smart Home remains a later composite example after a real Home Assistant source exists. There is no built-in Smart Home rendering exception and no device control.
+- Validation: capability isolation, no install-time side effects, card add/remove/unavailable/recovery behavior, grant boundaries, external MCP manifests, sandbox tests, the flomo composite example, and a real local HTTP registry install with checksum rejection.
 
 ## PR 25: persistent network access
 

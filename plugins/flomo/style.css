@@ -1,0 +1,43 @@
+/* Copyright 2025 The Oikome Authors
+   SPDX-License-Identifier: Apache-2.0 */
+
+:root {
+  color: var(--oik-ink);
+  background: var(--oik-bg);
+  font-family: var(--oik-font);
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+}
+
+button {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--oik-line);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.45;
+}
+
+time,
+.empty {
+  color: var(--oik-ink3);
+  font-size: 12px;
+}

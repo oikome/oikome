@@ -112,6 +112,9 @@ export const zhHans: Strings = {
     endedToast: (name: string) => `已结束 ${name} 的访问`,
     removedToast: (name: string) => `已移除 ${name}`,
     nameInvalid: "名称只能有一行，最多 64 个字符。",
+    pasteCommand: (name: string) => `在终端运行此命令，把 Oikome 添加到 ${name}。它只在这台电脑上有效。`,
+    pasteConfig: (name: string) => `把这段配置合并到 ${name} 的 MCP 配置中，然后启动新会话。它只在这台电脑上有效。`,
+    configured: (name: string) => `${name} 已配置。启动新会话即可使用 Oikome。`,
   },
 
   plugins: {
@@ -129,12 +132,17 @@ export const zhHans: Strings = {
     byPlugin: (who: string) => `${who} · 插件`,
     nothing: "暂无",
     noInternet: "不联网",
+    installed: "已安装",
+    installHint: "添加软件包只会注册其能力。数据访问、来源和首页卡片需要分别配置。",
     onHome: "已在首页",
     notOnHome: "不在首页",
     settings: "设置",
     settingsFor: (name: string) => `设置：${name}`,
     none: "还没有插件。可以添加下面 Oikome 自带的插件，或者从文件夹添加。",
     fromOikome: "来自 Oikome",
+    repository: "官方插件仓库",
+    repositoryHint: "由 Oikome 在独立的 oikome-plugins 仓库发布的软件包。下载内容会在安装前校验。",
+    addFromRepository: (name: string) => `从官方仓库添加 ${name}`,
     add: "添加",
     addFor: (name: string) => `添加 ${name}`,
     addTitle: (name: string) => `添加 ${name}`,
@@ -395,6 +403,8 @@ export const zhHans: Strings = {
     activity: "最近访问记录",
     allActivity: "查看全部访问记录",
     noActivity: "有人打开你分享的内容时，会显示在这里。",
+    unavailableCard: "卡片不可用",
+    unavailableCardBody: "对应插件或资料库当前不可用。布局会保留，数据恢复后卡片会自动恢复。",
   },
 
   collections: {

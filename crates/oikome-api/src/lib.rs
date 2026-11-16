@@ -41,6 +41,7 @@ mod lending;
 mod network;
 mod places;
 mod plugins;
+mod registry;
 mod search;
 mod sources;
 pub mod types;
@@ -254,6 +255,8 @@ pub struct Api {
     dropbox_sign_ins: dropbox::SignIns,
     /// Google Drive's room by storage, and when it was asked.
     rooms: Arc<std::sync::Mutex<Rooms>>,
+    /// The independent official plugin catalog, or a test's.
+    registry: registry::Endpoints,
 }
 
 impl std::fmt::Debug for Api {
@@ -366,6 +369,7 @@ impl Api {
             dropbox_endpoints: oikome_vfs::dropbox::Endpoints::default(),
             dropbox_sign_ins: dropbox::SignIns::default(),
             rooms: Arc::default(),
+            registry: registry::Endpoints::default(),
         }
     }
 
@@ -373,6 +377,16 @@ impl Api {
     /// serving process's peer-to-peer layer).
     pub fn with_network(mut self, network: Arc<dyn oikome_network::NodeNetwork>) -> Self {
         self.network = Some(network);
+        self
+    }
+
+    /// Use another official-catalog endpoint pair in an integration test.
+    #[doc(hidden)]
+    pub fn with_registry_endpoints(mut self, index: String, download_prefix: String) -> Self {
+        self.registry = registry::Endpoints {
+            index,
+            download_prefix,
+        };
         self
     }
 

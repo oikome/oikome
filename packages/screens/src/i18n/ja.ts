@@ -110,6 +110,9 @@ export const ja: Strings = {
     endedToast: (name: string) => `${name} のアクセスを終了しました`,
     removedToast: (name: string) => `${name} を削除しました`,
     nameInvalid: "名前は 1 行、64 文字以内で付けてください。",
+    pasteCommand: (name: string) => `ターミナルでこれを実行し、Oikome を ${name} に追加してください。このコンピューターでのみ動作します。`,
+    pasteConfig: (name: string) => `これを ${name} の MCP 設定に統合し、新しいセッションを開始してください。このコンピューターでのみ動作します。`,
+    configured: (name: string) => `${name} を設定しました。Oikome を使うには新しいセッションを開始してください。`,
   },
 
   plugins: {
@@ -127,12 +130,17 @@ export const ja: Strings = {
     byPlugin: (who: string) => `${who} · プラグイン`,
     nothing: "まだなし",
     noInternet: "なし",
+    installed: "インストール済み",
+    installHint: "追加するだけでは機能が登録されるだけです。データアクセス、ソース、ホームカードは個別に設定します。",
     onHome: "ホームに表示中",
     notOnHome: "ホームに非表示",
     settings: "設定",
     settingsFor: (name: string) => `設定: ${name}`,
     none: "プラグインはまだありません。下の Oikome のプラグインか、フォルダから追加してください。",
     fromOikome: "Oikome から",
+    repository: "公式プラグインリポジトリ",
+    repositoryHint: "独立した oikome-plugins リポジトリで Oikome が公開するパッケージです。ダウンロードはインストール前に検証されます。",
+    addFromRepository: (name: string) => `公式リポジトリから ${name} を追加`,
     add: "追加",
     addFor: (name: string) => `${name} を追加`,
     addTitle: (name: string) => `${name} を追加`,
@@ -399,6 +407,8 @@ export const ja: Strings = {
     activity: "最近のアクティビティ",
     allActivity: "すべてのアクティビティを表示",
     noActivity: "共有したものを誰かが開くと、ここに表示されます。",
+    unavailableCard: "利用できないカード",
+    unavailableCardBody: "プラグインまたはコレクションを利用できません。配置は保持され、データが戻るとカードも表示されます。",
   },
 
   collections: {

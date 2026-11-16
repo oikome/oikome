@@ -24,6 +24,7 @@
 // AA). No fake data: everything goes through the node.
 
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import dgram from "node:dgram";
 import {
   appendFileSync,
@@ -56,6 +57,8 @@ let owner;
 let contact;
 let server;
 let contactServer;
+let registryServer;
+let registryRoot;
 let base;
 let context;
 let page;
@@ -129,6 +132,68 @@ const api = (op, body = {}) =>
     [op, body],
   );
 
+/** A real local HTTP release of an external official package, with no mocks in the app. */
+async function serveRegistry() {
+  registryRoot = mkdtempSync(join(tmpdir(), "oikome-registry-"));
+  const packageDir = join(registryRoot, "package");
+  mkdirSync(packageDir);
+  const manifest = {
+    id: "note-count",
+    name: "Note count",
+    by: "Oikome",
+    version: "1.0.0",
+    description: "How many notes your chosen collections hold.",
+    capabilities: {
+      cards: [
+        {
+          id: "count",
+          name: "Note count",
+          reads: "Notes with their text and creation dates",
+          shape: "any",
+          columns: ["date", "text"],
+          width: 4,
+          height: 200,
+          entry: "index.html",
+        },
+      ],
+    },
+    translations: {},
+  };
+  writeFileSync(join(packageDir, "oikome-plugin.json"), JSON.stringify(manifest));
+  writeFileSync(join(packageDir, "index.html"), '<!doctype html><html><head></head><body><main id="count">0 notes</main><script src="main.js"></script></body></html>');
+  writeFileSync(join(packageDir, "main.js"), 'oikome.onData(({ collections }) => { document.getElementById("count").textContent = `${collections.flatMap((c) => c.rows).length} notes`; });');
+  const archive = join(registryRoot, "note-count-1.0.0.zip");
+  execFileSync("python3", [
+    "-c",
+    "import pathlib,sys,zipfile\nwith zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_DEFLATED) as z:\n  for p in pathlib.Path(sys.argv[1]).iterdir(): z.write(p, p.name)",
+    packageDir,
+    archive,
+  ]);
+  const bytes = readFileSync(archive);
+  const server = http.createServer((request, response) => {
+    if (request.url === "/index.json") {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        schemaVersion: 1,
+        plugins: [{
+          manifest,
+          download: `${registryBase}/note-count-1.0.0.zip`,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          bytes: bytes.length,
+        }],
+      }));
+    } else if (request.url === "/note-count-1.0.0.zip") {
+      response.end(bytes);
+    } else {
+      response.statusCode = 404;
+      response.end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const registryBase = `http://127.0.0.1:${server.address().port}`;
+  return server;
+}
+
 test.beforeAll(async ({ browser }) => {
   expect(existsSync(BIN), `${BIN} (cargo build -p oikome-server)`).toBe(true);
   expect(existsSync(join(WEB_ROOT, "index.html")), "build apps/web first (npm run build)").toBe(true);
@@ -142,6 +207,13 @@ test.beforeAll(async ({ browser }) => {
     writeFileSync(opener, `#!/bin/sh\nprintf '%s|%s\\n' "$#" "$*" > "${join(owner, "open-with.log")}"\n`, { mode: 0o755 });
     openerEnv = { ...ENV, PATH: `${openerBin}:${ENV.PATH ?? ""}` };
   }
+  registryServer = await serveRegistry();
+  const registryBase = `http://127.0.0.1:${registryServer.address().port}`;
+  openerEnv = {
+    ...openerEnv,
+    OIKOME_PLUGIN_REGISTRY_INDEX: `${registryBase}/index.json`,
+    OIKOME_PLUGIN_DOWNLOAD_PREFIX: `${registryBase}/`,
+  };
   server = await serveWeb(owner, openerEnv);
   base = new URL(loginLink()).origin;
   context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -155,7 +227,8 @@ test.afterAll(async () => {
   await contactContext?.close();
   server?.kill();
   contactServer?.kill();
-  for (const dir of [owner, contact]) if (dir) rmSync(dir, { recursive: true, force: true });
+  registryServer?.close();
+  for (const dir of [owner, contact, registryRoot]) if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
 test("first run: name the data center and save its recovery key", async () => {
@@ -403,6 +476,50 @@ test("sources write into chosen collections, and folders join an empty file coll
     await expect(page).toHaveURL(/\/collections\/file-library$/);
     await expect(page.locator("a.screen-ftile", { hasText: "trip.md" })).toBeVisible();
     await api("drop_space", { space: "file-library" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the flomo package configures its source and Home card separately", async () => {
+  const dir = mkdtempSync(join(homedir(), "oikome-flomo-"));
+  const file = join(dir, "memos.html");
+  writeFileSync(
+    file,
+    '<html><body><div class="memo"><div class="time">2026-11-16 09:30:00</div><div class="content"><p>A note from flomo, kept long enough to read as a note in the collection.</p></div></div></body></html>',
+  );
+  try {
+    await api("create_space", { name: "imported-memos", kind: "transactional" });
+    await api("install_plugin", { builtIn: "flomo" });
+    await page.goto(`${base}/sources`);
+    await expect(page.locator(".screen-source-kind", { hasText: "flomo HTML export" })).toBeVisible();
+    await page.getByRole("button", { name: "Add Source" }).click();
+    const add = page.getByRole("dialog", { name: "Add Source" });
+    await add.getByRole("radio", { name: /flomo HTML export/ }).check();
+    await add.getByLabel("Target collection").selectOption("imported-memos");
+    await add.getByRole("button", { name: "Choose File…" }).click();
+    await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
+    await page.getByRole("button", { name: "memos.html", exact: true }).click();
+    await add.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(add).toHaveCount(0);
+    expect((await api("list_tables", { space: "imported-memos" })).find((table) => table.name === "memos").rows).toBe(1);
+
+    await page.goto(`${base}/`);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    const choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Recent flomo notes" }).getByRole("button", { name: "Add" }).click();
+    const grant = page.getByRole("dialog", { name: "Recent flomo notes" });
+    await grant.getByRole("checkbox", { name: "imported-memos" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+    await page.getByRole("region", { name: "Recent flomo notes" }).scrollIntoViewIfNeeded();
+    const card = page.frameLocator('iframe[title="Recent flomo notes"]');
+    await expect(card.getByText("A note from flomo", { exact: false })).toBeVisible();
+    const { homeCards } = await api("node_info");
+    await api("set_home_cards", { cards: homeCards.filter((card) => card.id !== "plugin:flomo:recent-notes") });
+    await api("drop_space", { space: "imported-memos" });
+    await api("remove_plugin", { id: "flomo" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -2254,20 +2371,29 @@ test("plugins go on Home, read only what they may, and reach nothing", async () 
   const said = [];
   const listen = (m) => m.text().startsWith("PROBE ") && said.push(m.text().slice(6));
   try {
-    // Oikome's own, added from Plugins: the collection that fits is chosen to start.
+    // Installing registers the package only; adding its card grants a collection.
     await page.goto(`${base}/plugins`);
     await page.getByRole("button", { name: "Add Spending by category" }).click();
     const adding = page.getByRole("dialog", { name: "Add Spending by category" });
-    await expect(adding.getByRole("checkbox", { name: "spending" })).toBeChecked();
-    await adding.getByRole("button", { name: "Add to Home" }).click();
-    await expect(page.locator(".oik-toasts")).toContainText("Spending by category is on Home.");
+    await expect(adding).toContainText("only registers its capabilities");
+    await adding.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.locator(".oik-toasts")).toContainText("Added Spending by category.");
     const row = page.locator("tbody tr", { hasText: "Spending by category" });
-    await expect(row).toContainText("spending");
+    await expect(row).toContainText("Nothing yet");
     await expect(row).toContainText("None");
-    await expect(row).toContainText("On Home");
+    await expect(row).toContainText("Installed");
+    expect((await api("plugin_read", { plugin: "spending-by-category", space: "spending" })).code).toBe("permission_denied");
 
-    // On Home, it shows where the money went (its frame loads when near the view).
+    // On Home, the owner picks the card and separately chooses what it reads.
     await page.goto(`${base}/`);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await page.getByRole("button", { name: "Add a Card" }).click();
+    const choices = page.getByRole("dialog", { name: "Add a Card" });
+    await choices.locator("li", { hasText: "Spending by category" }).getByRole("button", { name: "Add" }).click();
+    const grant = page.getByRole("dialog", { name: "Spending by category" });
+    await grant.getByRole("checkbox", { name: "spending" }).check();
+    await grant.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Done" }).click();
     await page.getByRole("region", { name: "Spending by category" }).scrollIntoViewIfNeeded();
     const card = page.frameLocator('iframe[title="Spending by category"]');
     await expect(card.getByText("in 30 days")).toBeVisible();
@@ -2299,7 +2425,8 @@ try { say("parent", parent.document.title); } catch { say("parent", "blocked"); 
 oikome.onData(({ collections }) => { say("data", collections.map((c) => c.name).join(",")); oikome.open("lisbon-photos"); });
 setTimeout(() => { location.href = "${OUT}/navigate"; }, 1000);`,
     );
-    await api("install_plugin", { path: probe, collections: ["spending"] });
+    await api("install_plugin", { path: probe });
+    await api("set_plugin_collections", { id: "probe", collections: ["spending"] });
     const { homeCards } = await api("node_info");
     await api("set_home_cards", { cards: [...homeCards, { id: "plugin:probe", width: 4 }] });
     page.on("console", listen);
@@ -2338,12 +2465,50 @@ setTimeout(() => { location.href = "${OUT}/navigate"; }, 1000);`,
     await page.getByRole("dialog", { name: "Remove Probe?" }).getByRole("button", { name: "Remove" }).click();
     await expect(page.locator(".oik-toasts")).toContainText("Removed Probe.");
     expect((await api("plugin_read", { plugin: "probe", space: "spending" })).code).toBe("not_found");
+    expect((await api("node_info")).homeCards.some((card) => card.id === "plugin:probe")).toBe(true);
+    await page.goto(`${base}/`);
+    await expect(page.getByRole("region", { name: "Unavailable card" }).first()).toContainText("This place is kept");
   } finally {
     page.off("console", listen);
     outside.close();
     udp.close();
     rmSync(probe, { recursive: true, force: true });
   }
+});
+
+test("an external official package downloads, installs and is granted separately", async () => {
+  await page.goto(base);
+  expect((await api("create_space", { name: "note-repository", kind: "transactional" })).name).toBe("note-repository");
+  expect((await api("run_sql", {
+    sql: "CREATE TABLE \"note-repository\".notes (id BIGINT NOT NULL, created_at VARCHAR, content VARCHAR); INSERT INTO \"note-repository\".notes VALUES (1, '2026-11-16 09:30:00', 'A note');",
+  })).code).toBeUndefined();
+  expect((await api("list_tables", { space: "note-repository" })).find((table) => table.name === "notes").rows).toBe(1);
+  await page.goto(`${base}/plugins`);
+  const offered = page.locator(".screen-plugin-offer", { hasText: "Note count" });
+  await expect(offered).toContainText("Oikome");
+  await offered.getByRole("button", { name: "Add Note count from the official repository" }).click();
+  const add = page.getByRole("dialog", { name: "Add Note count" });
+  await add.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.locator(".oik-toasts")).toContainText("Added Note count.");
+  expect((await api("plugin_read", { plugin: "note-count", space: "oikome-guide" })).code).toBe("permission_denied");
+
+  await page.goto(`${base}/`);
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await page.getByRole("button", { name: "Add a Card" }).click();
+  const choices = page.getByRole("dialog", { name: "Add a Card" });
+  await choices.locator("li", { hasText: "Note count" }).getByRole("button", { name: "Add" }).click();
+  const grant = page.getByRole("dialog", { name: "Note count" });
+  await grant.getByRole("checkbox", { name: "note-repository" }).check();
+  await grant.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("region", { name: "Note count" }).scrollIntoViewIfNeeded();
+  const card = page.frameLocator('iframe[title="Note count"]');
+  await expect(card.locator("#count")).toContainText(/[1-9]\d* notes/);
+
+  const { homeCards } = await api("node_info");
+  await api("set_home_cards", { cards: homeCards.filter((card) => card.id !== "plugin:note-count:count") });
+  await api("remove_plugin", { id: "note-count" });
+  await api("drop_space", { space: "note-repository" });
 });
 
 test("screens use words for people, also when something fails", async () => {

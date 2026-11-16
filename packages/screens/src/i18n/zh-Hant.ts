@@ -109,6 +109,9 @@ export const zhHant: Strings = {
     endedToast: (name: string) => `已結束 ${name} 的存取。`,
     removedToast: (name: string) => `已移除 ${name}。`,
     nameInvalid: "請取一個單行、最多 64 個字元的名稱。",
+    pasteCommand: (name: string) => `在終端機執行此指令，把 Oikome 加到 ${name}。它只在這台電腦上有效。`,
+    pasteConfig: (name: string) => `把這段設定合併到 ${name} 的 MCP 設定，然後啟動新工作階段。它只在這台電腦上有效。`,
+    configured: (name: string) => `${name} 已設定。啟動新工作階段即可使用 Oikome。`,
   },
 
   plugins: {
@@ -126,12 +129,17 @@ export const zhHant: Strings = {
     byPlugin: (who: string) => `${who} · 外掛程式`,
     nothing: "尚無",
     noInternet: "不連網",
+    installed: "已安裝",
+    installHint: "新增套件只會註冊其功能。資料存取、來源和首頁卡片需要分別設定。",
     onHome: "已在首頁",
     notOnHome: "不在首頁",
     settings: "設定",
     settingsFor: (name: string) => `設定：${name}`,
     none: "還沒有外掛程式。從下方加入 Oikome 提供的外掛程式，或從資料夾新增。",
     fromOikome: "來自 Oikome",
+    repository: "官方外掛程式庫",
+    repositoryHint: "由 Oikome 在獨立的 oikome-plugins 儲存庫發布的套件。下載內容會在安裝前驗證。",
+    addFromRepository: (name: string) => `從官方儲存庫新增 ${name}`,
     add: "新增",
     addFor: (name: string) => `新增 ${name}`,
     addTitle: (name: string) => `新增 ${name}`,
@@ -391,6 +399,8 @@ export const zhHant: Strings = {
     activity: "最近存取紀錄",
     allActivity: "查看所有存取紀錄",
     noActivity: "有人開啟你分享的內容時，會顯示在這裡。",
+    unavailableCard: "卡片無法使用",
+    unavailableCardBody: "對應的外掛程式或資料庫目前無法使用。版面會保留，資料恢復後卡片會自動恢復。",
   },
 
   collections: {

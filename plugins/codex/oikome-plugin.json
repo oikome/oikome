@@ -1,0 +1,32 @@
+{
+  "id": "codex",
+  "name": "Codex",
+  "by": "Oikome",
+  "version": "1.0.0",
+  "description": "Connect Codex CLI to Oikome over MCP, with only the collections you choose.",
+  "capabilities": {
+    "mcpClients": [
+      {
+        "id": "codex-cli",
+        "name": "Codex",
+        "config": {
+          "format": "toml",
+          "homeEnv": "CODEX_HOME",
+          "directory": ".codex",
+          "file": "config.toml",
+          "root": "mcp_servers",
+          "headers": "http_headers"
+        }
+      }
+    ]
+  },
+  "translations": {
+    "de": { "description": "Verbinde Codex CLI über MCP mit Oikome, nur mit den von dir gewählten Sammlungen." },
+    "fr": { "description": "Connectez Codex CLI à Oikome via MCP, avec uniquement les collections que vous choisissez." },
+    "ja": { "description": "Codex CLI を MCP 経由で Oikome に接続し、選択したコレクションだけを利用できます。" },
+    "ko": { "description": "Codex CLI를 MCP로 Oikome에 연결하고 선택한 컬렉션만 사용할 수 있게 해요." },
+    "ru": { "description": "Подключите Codex CLI к Oikome через MCP, предоставив только выбранные коллекции." },
+    "zh-Hans": { "description": "通过 MCP 将 Codex CLI 接入 Oikome，仅开放你选择的资料库。" },
+    "zh-Hant": { "description": "透過 MCP 將 Codex CLI 接入 Oikome，僅開放你選擇的資料庫。" }
+  }
+}

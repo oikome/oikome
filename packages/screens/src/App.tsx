@@ -156,7 +156,7 @@ function Root() {
   } else if (path === "/assistants") {
     screen = <Assistants startConnecting={query.get("connect") === "1"} />;
   } else if (path === "/plugins") {
-    screen = <Plugins info={info} onInfo={setInfo} />;
+    screen = <Plugins />;
   } else if (path === "/activity") {
     screen = <Activity />;
   } else if (path === "/settings") {

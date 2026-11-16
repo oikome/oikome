@@ -479,7 +479,7 @@
   'ai.chatNote': 'La conversation a lieu dans l’assistant, dans votre langue. Oikome ne transmet que ce que l’assistant a le droit de lire.',
 
   // Plugins
-  'plugins.sub': 'Des cartes pour l’Accueil. Chacune fonctionne de façon isolée, ne lit que ce que vous autorisez et n’accède à Internet que si vous le permettez.',
+  'plugins.sub': 'Cartes, sources, aperçus et clients MCP. L’ajout n’accorde aucun accès ; chaque fonctionnalité se configure séparément.',
   installFile: 'Installer depuis un fichier',
   browse: 'Parcourir',
   'plugins.col.plugin': 'Plugin',
@@ -519,6 +519,9 @@
   'plg.booksbyyear': 'Livres par année',
   'plg.booksbyyear.what': 'Combien de livres vous avez terminés chaque année.',
   'plg.booksbyyear.reads': 'les livres : titre, statut, date de lecture',
+  'plg.notecount': 'Nombre de notes',
+  'plg.notecount.what': 'Combien de notes contiennent les collections choisies et combien sont arrivées cette semaine.',
+  'plg.notecount.reads': 'notes : texte et date de création',
   'plg.runlog': 'Journal de course',
   'plg.runlog.what': 'La distance parcourue cette semaine et cette année.',
   'plg.runlog.reads': 'les courses : date, distance, durée',
@@ -940,6 +943,7 @@
   'in.size.large': 'Grande',
   'in.turnOn': 'Activer',
   'in.add': 'Ajouter à l’Accueil',
+  'in.registerOnly': 'L’ajout enregistre uniquement ses fonctionnalités. Configurez séparément l’accès aux données, les sources et les cartes d’Accueil.',
   'ps.units': 'Unités',
   'ps.rooms': 'Pièces sur la carte · touchez pour inclure',
   'ps.allowed': 'Vous l’avez autorisé en l’ajoutant.',

@@ -138,6 +138,9 @@ export const ko: Strings = {
     endedToast: (name: string) => `${name}의 접근을 종료했어요.`,
     removedToast: (name: string) => `${eulReul(name)} 제거했어요.`,
     nameInvalid: "64자 이내의 한 줄로 이름을 입력하세요.",
+    pasteCommand: (name: string) => `터미널에서 이 명령을 실행해 ${name}에 Oikome를 추가하세요. 이 컴퓨터에서만 작동해요.`,
+    pasteConfig: (name: string) => `이 내용을 ${name}의 MCP 설정에 병합하고 새 세션을 시작하세요. 이 컴퓨터에서만 작동해요.`,
+    configured: (name: string) => `${name} 설정을 마쳤어요. Oikome를 사용하려면 새 세션을 시작하세요.`,
   },
 
   plugins: {
@@ -155,12 +158,17 @@ export const ko: Strings = {
     byPlugin: (who: string) => `${who} · 플러그인`,
     nothing: "아직 없음",
     noInternet: "없음",
+    installed: "설치됨",
+    installHint: "패키지를 추가하면 기능만 등록돼요. 데이터 접근 권한, 소스, 홈 카드는 각각 설정해요.",
     onHome: "홈에 있음",
     notOnHome: "홈에 없음",
     settings: "설정",
     settingsFor: (name: string) => `${name} 설정`,
     none: "아직 플러그인이 없어요. 아래에서 Oikome 플러그인을 추가하거나 폴더에서 추가하세요.",
     fromOikome: "Oikome 제공",
+    repository: "공식 플러그인 저장소",
+    repositoryHint: "독립된 oikome-plugins 저장소에서 Oikome가 배포하는 패키지예요. 다운로드는 설치 전에 검증해요.",
+    addFromRepository: (name: string) => `공식 저장소에서 ${name} 추가`,
     add: "추가",
     addFor: (name: string) => `${name} 추가`,
     addTitle: (name: string) => `${name} 추가`,
@@ -424,6 +432,8 @@ export const ko: Strings = {
     activity: "최근 활동",
     allActivity: "모든 활동 보기",
     noActivity: "누군가 내가 공유한 항목을 열면 여기에 표시돼요.",
+    unavailableCard: "사용할 수 없는 카드",
+    unavailableCardBody: "플러그인이나 컬렉션을 사용할 수 없어요. 자리는 유지되며 데이터가 돌아오면 카드도 다시 표시돼요.",
   },
 
   collections: {

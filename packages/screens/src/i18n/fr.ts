@@ -120,6 +120,9 @@ export const fr: Strings = {
     endedToast: (name: string) => `Accès ${de(name)} terminé.`,
     removedToast: (name: string) => `${name} retiré.`,
     nameInvalid: "Donnez-lui un nom de 64 caractères au plus, sur une seule ligne.",
+    pasteCommand: (name: string) => `Exécutez ceci dans un terminal pour ajouter Oikome à ${name}. Cela fonctionne uniquement sur cet ordinateur.`,
+    pasteConfig: (name: string) => `Intégrez ceci à la configuration MCP de ${name}, puis ouvrez une nouvelle session. Cela fonctionne uniquement sur cet ordinateur.`,
+    configured: (name: string) => `${name} est configuré. Ouvrez une nouvelle session pour utiliser Oikome.`,
   },
 
   plugins: {
@@ -137,12 +140,17 @@ export const fr: Strings = {
     byPlugin: (who: string) => `${who} · plugin`,
     nothing: "Rien pour l’instant",
     noInternet: "Non",
+    installed: "Installé",
+    installHint: "L’ajout enregistre uniquement ses fonctionnalités. Vous configurez séparément l’accès aux données, les sources et les cartes d’Accueil.",
     onHome: "Sur l’Accueil",
     notOnHome: "Pas sur l’Accueil",
     settings: "Réglages",
     settingsFor: (name: string) => `Réglages : ${name}`,
     none: "Aucun plugin pour l’instant. Ajoutez l’un de ceux d’Oikome ci-dessous, ou un plugin depuis un dossier.",
     fromOikome: "Par Oikome",
+    repository: "Dépôt officiel de plugins",
+    repositoryHint: "Paquets publiés par Oikome dans le dépôt indépendant oikome-plugins. Les téléchargements sont vérifiés avant l’installation.",
+    addFromRepository: (name: string) => `Ajouter ${name} depuis le dépôt officiel`,
     add: "Ajouter",
     addFor: (name: string) => `Ajouter ${name}`,
     addTitle: (name: string) => `Ajouter ${name}`,
@@ -413,6 +421,8 @@ export const fr: Strings = {
     activity: "Activité récente",
     allActivity: "Voir toute l’activité",
     noActivity: "Quand quelqu’un ouvre ce que vous partagez, cela apparaît ici.",
+    unavailableCard: "Carte indisponible",
+    unavailableCardBody: "Son plugin ou sa collection n’est pas disponible. Sa place est conservée et la carte revient avec ses données.",
   },
 
   collections: {

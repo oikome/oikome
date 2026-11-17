@@ -923,11 +923,11 @@ const TABLES = {
 const FREQS = ['5min', '30min', 'hourly', 'daily', 'ask'];
 const NEXT_MIN = { '5min': 5, '30min': 30, hourly: 60 };
 const SOURCES = [
-  { name: 'flomo', what: 'notes', into: 'flomo-notes', state: 'ok', lastMin: 4, nextMin: 26, items: { n: 1284, u: 'notes' }, ico: 'note', c: 'c1', freq: '30min', how: 'token' },
-  { name: 'Home Assistant', what: 'sensors', into: 'smart-home', state: 'run', lastMin: null, items: { n: 182340, u: 'readings' }, ico: 'thermo', c: 'c2', freq: '5min', how: 'token' },
-  { name: 'iPhone photos', what: 'photos', into: 'family-photos', state: 'ok', lastMin: 60, nextMin: 60, items: { n: 3912, u: 'photos' }, ico: 'photo', c: 'c3', freq: 'hourly', how: 'iphone' },
-  { name: 'Bank CSV', what: 'files', into: 'spending', state: 'idle', lastDate: '2025-11-01', items: { n: 2431, u: 'rows' }, ico: 'table', c: 'c4', freq: 'ask', how: 'csv' },
-  { name: 'Goodreads', what: 'books', into: 'reading-list', state: 'bad', lastMin: 120, items: { n: 86, u: 'books' }, ico: 'note', c: 'c5', freq: 'daily', how: 'link', why: 'linkExpired' },
+  { name: 'flomo', what: 'notes', into: 'flomo-notes', target: 'memos', state: 'ok', lastMin: 4, nextMin: 26, items: { n: 1284, u: 'notes' }, ico: 'note', c: 'c1', freq: '30min', how: 'token' },
+  { name: 'Home Assistant', what: 'sensors', into: 'smart-home', target: 'readings', state: 'run', lastMin: null, items: { n: 182340, u: 'readings' }, ico: 'thermo', c: 'c2', freq: '5min', how: 'token' },
+  { name: 'iPhone photos', what: 'photos', into: 'family-photos', target: 'DCIM', state: 'ok', lastMin: 60, nextMin: 60, items: { n: 3912, u: 'photos' }, ico: 'photo', c: 'c3', freq: 'hourly', how: 'iphone' },
+  { name: 'Bank CSV', what: 'files', into: 'spending', target: 'spending-2024.csv', state: 'idle', lastDate: '2025-11-01', items: { n: 2431, u: 'rows' }, ico: 'table', c: 'c4', freq: 'ask', how: 'csv' },
+  { name: 'Goodreads', what: 'books', into: 'reading-list', target: 'books', state: 'bad', lastMin: 120, items: { n: 86, u: 'books' }, ico: 'note', c: 'c5', freq: 'daily', how: 'link', why: 'linkExpired' },
 ];
 const APPS = [
   { id: 'notion', n: 'Notion', ic: 'note', what: 'pages', how: 'token' },
@@ -1339,7 +1339,7 @@ screens.source = (sl) => {
     <div class="card w5"><div class="card__head"><span class="label">${t('nav.settings')}</span></div><div class="card__body" style="display:grid;gap:18px">
       <div class="field"><span class="label">${t('src.checkNew')}</span><div class="seg" style="flex-wrap:wrap">${FREQS.map((f) => `<button class="${f === s.freq ? 'on' : ''}" data-act="freq" data-s="${sl}" data-v="${f}">${t(`freq.${f}`)}</button>`).join('')}</div></div>
       <div class="row row--between"><span>${t('src.pause')}</span><span class="toggle ${s.paused ? 'on' : ''}" data-act="pause" data-s="${sl}" role="switch" aria-checked="${!!s.paused}"></span></div>
-      <div class="row row--between"><span>${t('src.goesInto')}</span><a class="link mono" href="#collection/${s.into}">${s.into}</a></div>
+      <div class="row row--between"><span>${t('src.goesInto')}</span><a class="link mono" href="#collection/${s.into}">${s.into} / ${s.target}</a></div>
     </div><div class="card__foot"><button class="btn btn--ghost" data-act="srcremove" data-s="${sl}">${t('src.remove')}</button></div></div>
   </div>`;
 };

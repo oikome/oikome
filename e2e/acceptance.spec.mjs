@@ -164,10 +164,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     expect(psd.readUInt16BE(10)).toBe(3);
     expect(psd.readUInt16BE(38)).toBe(0);
 
-    for (const collection of ["readings", "drive-reading", "rustfs-archive"]) {
+    for (const collection of ["readings", "reading-list", "rustfs-archive"]) {
       await page.goto(`${running.base}/collections/${collection}`);
       await expect(page.getByRole("heading", { name: collection, level: 1 })).toBeVisible();
-      await expect(page.locator(".screen-facts")).toContainText(collection === "readings" ? "Local" : collection === "drive-reading" ? "Drive Sync Folder" : "RustFS Acceptance");
+      await expect(page.locator(".screen-facts")).toContainText(collection === "readings" ? "Local" : collection === "reading-list" ? "Drive Sync Folder" : "RustFS Acceptance");
     }
     await page.goto(`${running.base}/collections/readings`);
     await expect(page.locator(".screen-series")).toBeVisible();
@@ -179,7 +179,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     const photo = page.getByRole("dialog", { name: "Tram 28E.jpg" }).locator("img").first();
     await expect.poll(() => photo.evaluate((element) => element.naturalWidth)).toBeGreaterThan(512);
     await page.keyboard.press("Escape");
-    await page.goto(`${running.base}/collections/drive-reading`);
+    await page.goto(`${running.base}/collections/reading-list`);
     await expect(page.getByText("The Book of Disquiet").first()).toBeVisible();
     await page.goto(`${running.base}/collections/rustfs-archive`);
     await expect(page.getByText("Family recipes scanned").first()).toBeVisible();

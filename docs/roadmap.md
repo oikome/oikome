@@ -98,10 +98,12 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 
 ## PR 27: internal analysis profiles and core computation
 
+- Start with precise source targets: a collection contains files, tables, views and derived artifacts, while each source names its target file or table and the plugin capability that produced it. Storage location and provenance stay separate; no plugin implicitly creates a collection.
+- Replace the misleading `drive-reading` example with `reading-list/books` supplied through the Drive/CSV path, and keep legacy one-source-per-Space registrations compatible during migration.
 - Add the internal dataset profile in `docs/data-analysis.md`: direct-query versus derived-analysis actions, field-meaning inference review, source-structure changes and explicit derived-artifact ownership.
 - Keep computation in the existing engines and federation layers. DuckDB owns analytical work, SQLite owns transactional work, and the browser only presents returned results.
 - Do not expose internal storage layouts as ordinary-user choices. Do not turn file viewing into an implicit analysis or write operation.
-- Validation: known-schema inference, incorrect-inference correction, source changes, direct versus derived results, engine boundaries, grants and real-node acceptance.
+- Validation: multiple source targets within one collection, known-schema inference, incorrect-inference correction, source changes, direct versus derived results, engine boundaries, grants and real-node acceptance.
 
 ## PR 28: dataset interoperability, backup and recovery
 

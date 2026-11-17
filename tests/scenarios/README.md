@@ -13,7 +13,7 @@ This opens the main workspace at `http://127.0.0.1:7342` and prints a second pee
 - `notes`: one meaningful Markdown document;
 - `content-files`: code, structured files, valid PDF/PSD documents, and deliberately damaged or unsafe negative cases;
 - `readings`: 72 hours of sensor rows written by the real CSV connector;
-- `drive-reading`: a reading list stored through the drive-sync-folder test double;
+- `reading-list`: the `books` table within one collection, stored through the drive-sync-folder test double;
 - `rustfs-archive`: family archive metadata stored through real RustFS with encryption.
 
 The peer accepts `photos` through the ordinary contact/share flow and reads the same collection live. There are no duplicate startup collections or placeholder PDF/PSD files. Fresh first-run mode creates the four ordinary examples separately through the actual UI.

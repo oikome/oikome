@@ -270,9 +270,9 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
       address: join(files, "drive-sync"),
       encrypted: true,
     });
-    await call("create_space", { name: "drive-reading", storage: drive.name });
+    await call("create_space", { name: "reading-list", storage: drive.name });
     await call("run_sql", {
-      sql: 'CREATE TABLE "drive-reading".books (id BIGINT, title VARCHAR, status VARCHAR); INSERT INTO "drive-reading".books VALUES (1, \'The Book of Disquiet\', \'Reading\'), (2, \'Blindness\', \'Read\'), (3, \'Pereira Maintains\', \'Next\');',
+      sql: 'CREATE TABLE "reading-list".books (id BIGINT, title VARCHAR, status VARCHAR); INSERT INTO "reading-list".books VALUES (1, \'The Book of Disquiet\', \'Reading\'), (2, \'Blindness\', \'Read\'), (3, \'Pereira Maintains\', \'Next\');',
     });
 
     const object = await call("add_storage", {

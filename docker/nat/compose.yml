@@ -34,7 +34,6 @@ x-node: &node
   cap_add: [NET_ADMIN]
   environment: &node-env
     OIKOME_STORAGE_SYNC: "0"
-    RUST_LOG: "oikome_discovery=debug,libp2p_dcutr=debug"
 
 services:
   router-a:

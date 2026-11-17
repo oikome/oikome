@@ -1930,7 +1930,9 @@ test("Bob lends Home his computer: big summaries of what he may see go there, th
   await expect(bobs).toContainText("In use");
 
   const card = page.getByRole("region", { name: "ledger · last 14 days" });
+  const totals = page.waitForResponse((response) => response.url().endsWith("/api/daily_totals") && response.ok());
   await page.goto(base);
+  await totals;
   await expect(card).toContainText("Worked out here: it isn't shared with Bob");
   await expect(card).toContainText("100,000 in all");
 

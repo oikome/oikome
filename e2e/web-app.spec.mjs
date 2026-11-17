@@ -2690,6 +2690,7 @@ test("a collection is removed from its More menu with the keyboard", async () =>
   const more = page.getByRole("button", { name: "More actions for scratch" });
   await more.focus();
   await page.keyboard.press("Enter");
+  await page.keyboard.press("End");
   const remove = page.getByRole("menuitem", { name: "Remove Collection" });
   await expect(remove).toBeFocused();
   await page.keyboard.press("Escape");
@@ -2697,6 +2698,7 @@ test("a collection is removed from its More menu with the keyboard", async () =>
   await expect(more).toBeFocused();
 
   await page.keyboard.press("Enter");
+  await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   // A modal asks first; focus starts on Cancel, the safe choice.
   const dialog = page.getByRole("dialog", { name: "Remove scratch?" });

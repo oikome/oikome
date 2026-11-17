@@ -1,6 +1,6 @@
 # Knowledge and Analysis Schema
 
-> **Status**: planned, 2026-11-17. Nothing here is implemented yet; the stages are in the roadmap (PR 29). It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
+> **Status**: planned, 2026-11-17. Nothing here is implemented yet; the stages are in the roadmap (PR 28). It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
 
 ## 1. Goal
 
@@ -194,8 +194,8 @@ Defaults follow the original: documents and media go to knowledge, tables to ana
 
 ### 8.1 Runtimes
 
-- **Node.** Splitting, PDF text, EXIF, table sniffing and profiles, and the default text-embedding model (Qwen3-Embedding-0.6B) through candle, so a collection can be prepared without anything else installed. The model is downloaded only when the owner chooses it, with its size shown first (no hidden downloads, roadmap PR 29).
-- **Media recognition (K4).** OCR, speech to text, captions and image vectors need larger models. Their runtime is decided when K4 starts: candle has Rust implementations of Whisper, TrOCR, PaddleOCR-VL and SigLIP, and a content plugin with a sandbox (PR 29's RAW plugin host) is the other route. Vane is not integrated (decided 2026-11-17). Whatever runs them, the node decides channels, clips and provenance and commits the results itself, so it stays the single writer of the dataset (architecture principle 2).
+- **Node.** Splitting, PDF text, EXIF, table sniffing and profiles, and the default text-embedding model (Qwen3-Embedding-0.6B) through candle, so a collection can be prepared without anything else installed. The model is downloaded only when the owner chooses it, with its size shown first (no hidden downloads, roadmap PR 28).
+- **Media recognition (K4).** OCR, speech to text, captions and image vectors need larger models. Their runtime is decided when K4 starts: candle has Rust implementations of Whisper, TrOCR, PaddleOCR-VL and SigLIP, and a content plugin with a sandbox (PR 28's RAW plugin host) is the other route. Vane is not integrated (decided 2026-11-17). Whatever runs them, the node decides channels, clips and provenance and commits the results itself, so it stays the single writer of the dataset (architecture principle 2).
 - **Provider.** An embedding or vision API the owner configures with their own key, kept like storage credentials. Never the default and not part of K1 or K2: it sends content off the computer, and the apps say so before the first use.
 
 ### 8.2 In the apps

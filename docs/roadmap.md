@@ -105,14 +105,7 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Do not expose internal storage layouts as ordinary-user choices. Do not turn file viewing into an implicit analysis or write operation.
 - Validation: multiple source targets within one collection, known-schema inference, incorrect-inference correction, source changes, direct versus derived results, engine boundaries, grants and real-node acceptance.
 
-## PR 28: dataset interoperability, backup and recovery
-
-- Connect existing Iceberg, Lance and S3 datasets read-only first, with clear source identity, offline behavior and no implicit migration.
-- Add deliberately evaluated migrations and backup/recovery paths that preserve source identity, content hashes, grants and restore expectations. A migration is never a side effect of connecting or viewing a dataset.
-- Keep advanced dataset and migration options out of the ordinary interface until their real-node scenarios pass.
-- Validation: real read-only datasets, interrupted transfers, content integrity, repeated recovery, rollback/conflict behavior and destination compatibility.
-
-## PR 29: knowledge for AI, semantic indexes and RAW plugins
+## PR 28: knowledge for AI, semantic indexes and RAW plugins
 
 The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](knowledge-schema.md). Delivered in steps, each with its real-node scenario on the acceptance workspace's `oikome-docs` collection (this project's own documents):
 
@@ -123,6 +116,13 @@ The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](k
 - **RAW** parsing and preview through an external official plugin with a real host sandbox, one-file read grant, resource limits and preview provenance. No parser enters the core or Dashboard iframe.
 - Content is processed on this computer by default. A cloud model is used only with the owner's own key after being told that content leaves the computer, and not before K2 is complete. Never replace original media with thumbnails, embeddings or generated derivatives; no hidden model or plugin downloads.
 - Validation: chunk positions against real PDFs and Markdown, Chinese and English full text, retrieval-test scores and sources, grants and row policies on search hits, rebuild after an original or model change without mixing models, MCP search/read/skills from a real client, model download consent and resource use, real camera RAW samples, plugin failure isolation and package size.
+
+## PR 29: dataset interoperability, backup and recovery
+
+- Connect existing Iceberg, Lance and S3 datasets read-only first, with clear source identity, offline behavior and no implicit migration.
+- Add deliberately evaluated migrations and backup/recovery paths that preserve source identity, content hashes, grants and restore expectations. A migration is never a side effect of connecting or viewing a dataset.
+- Keep advanced dataset and migration options out of the ordinary interface until their real-node scenarios pass.
+- Validation: real read-only datasets, interrupted transfers, content integrity, repeated recovery, rollback/conflict behavior and destination compatibility.
 
 ## Later phases
 

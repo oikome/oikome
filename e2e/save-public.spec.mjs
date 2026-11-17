@@ -24,8 +24,8 @@ test("Save To and public sharing work end to end without an owner session", asyn
     await expect(page.getByRole("heading", { name: "weekend-saved", level: 1 })).toBeVisible();
     await expect(page.getByText("Lisbon, slowly").first()).toBeVisible();
 
-    await page.getByRole("button", { name: "More actions for weekend-saved" }).click();
-    await page.getByRole("menuitem", { name: "Public share…" }).click();
+    await page.getByRole("button", { name: "Share…", exact: true }).click();
+    await page.getByRole("radio", { name: "Anyone with the link" }).click();
     const publish = page.getByRole("dialog", { name: "Share weekend-saved publicly" });
     await publish.getByLabel("Visitor access").selectOption("copy");
     await publish.getByRole("button", { name: "Publish", exact: true }).click();
@@ -53,8 +53,8 @@ test("Save To and public sharing work end to end without an owner session", asyn
     await visitor.close();
 
     await ready.getByRole("button", { name: "Done" }).click();
-    await page.getByRole("button", { name: "More actions for weekend-saved" }).click();
-    await page.getByRole("menuitem", { name: "Public share…" }).click();
+    await page.getByRole("button", { name: "Share…", exact: true }).click();
+    await page.getByRole("radio", { name: "Anyone with the link" }).click();
     await page.getByRole("button", { name: "End share", exact: true }).click();
     await page.getByRole("button", { name: "Close", exact: true }).click();
     const revoked = await page.request.get(`${running.base}/public/${id}/manifest.json`);

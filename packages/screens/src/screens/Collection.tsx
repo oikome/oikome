@@ -56,7 +56,6 @@ import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
 import { SaveDialog } from "./SaveDialog";
-import { PublicShareDialog } from "./PublicShareDialog";
 import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
@@ -84,7 +83,6 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();
@@ -217,7 +215,6 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                   ]
                 : []),
               { label: strings.save.menu, onSelect: () => setSaving(true) },
-              ...(saved ? [{ label: strings.publicShare.menu, onSelect: () => setPublishing(true) }] : []),
               { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
             ]}
           />
@@ -319,6 +316,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           contacts={contacts.data ?? []}
           shares={shares.data ?? []}
           toneOf={toneOf}
+          publicAllowed={saved}
           onClose={() => setSharing(false)}
           onChange={reload}
         />
@@ -333,7 +331,6 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           }}
         />
       )}
-      {publishing && <PublicShareDialog collection={space.name} onClose={() => setPublishing(false)} />}
       {confirming && (
         <ConfirmDialog
           title={local ? s.removeTitle(space.name) : s.leaveTitle(space.name)}

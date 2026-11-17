@@ -1661,7 +1661,7 @@ DLG.share = (D) => {
   let body = steps(['step.what', 'step.part', 'step.whom', 'step.how'], D.step);
   if (D.step === 1) body += `<div class="opts">${C.filter((x) => x.kind !== 'empty').map((x) => opt('c', x.name, D.c, `<span class="ico">${I(kindIcon[x.kind])}</span>${nameCell(x.name)}<span class="faint mono" style="font-size:12px">${colCount(x)}</span>`)).join('')}</div>`;
   if (D.step === 2) body += partStep(c, D);
-  if (D.step === 3) body += `<div class="opts">${CONTACTS.map((p) => opt('to', p.n, D.to, `${av(p.n, p.k)}${twoLine(esc(p.n), SHARES.some((s) => s.c === c.name && s.to === p.n && !s.ended) ? t('share.already', { c: c.name }) : t(p.m[0], { c: p.m[1] || '' }))}`)).join('')}${opt('to', 'new', D.to, `<span class="ico">${I('link')}</span>${twoLine(t('share.someoneNew'), t('share.someoneNewSub'))}`)}</div>`;
+  if (D.step === 3) body += `<div class="opts">${CONTACTS.map((p) => opt('to', p.n, D.to, `${av(p.n, p.k)}${twoLine(esc(p.n), SHARES.some((s) => s.c === c.name && s.to === p.n && !s.ended) ? t('share.already', { c: c.name }) : t(p.m[0], { c: p.m[1] || '' }))}`)).join('')}${opt('to', 'public', D.to, `<span class="ico">${I('globe')}</span>${twoLine(t('publicShare'), t('publicBody'))}`)}${opt('to', 'new', D.to, `<span class="ico">${I('link')}</span>${twoLine(t('share.someoneNew'), t('share.someoneNewSub'))}`)}</div>`;
   if (D.step === 4) {
     const what = partOf(c, D);
     const end = until[1] ? t('share.untilDate', { date: md(until[1]) }) : t('share.noEndDate');
@@ -2181,7 +2181,7 @@ const ACT = {
   colmore: (el) => {
     const n = el.dataset.c, c = C.find((x) => x.name === n), s = SOURCES.find((x) => x.name === c.source);
     menu(el, [s ? [t('syncNow'), 'sync', () => doSync(s)] : null, [fileManagerAction(), 'folder', () => toast(t('toast.finder', { path: n }))], [t('cm.whoSees'), 'eye', () => go('access')],
-      [t('saveTo'), 'download', () => open('saveto', { c: n, title: c.label || n })], [t('publicShare'), 'link', () => open('public', { c: n, mode: 'view', ready: false, signed: false })], '-',
+      [t('saveTo'), 'download', () => open('saveto', { c: n, title: c.label || n })], '-',
       [t('cm.remove'), 'remove', () => confirmDlg(t('cm.removeTitle', { c: n }), t(s ? 'cm.removeBodySrc' : 'cm.removeBody', { app: s ? s.name : '' }), t('remove'), () => removeCollection(n))]].filter(Boolean));
   },
   saveok: () => { close(); toast(t('saveDone')); },
@@ -2193,6 +2193,7 @@ const ACT = {
     open('share', { step: c ? 2 : 1, c: c || 'reading-list', part: (c || 'reading-list') === 'reading-list' ? 'some' : 'all', off: ['Rating', 'My notes'], tags: ['reading'], rooms: ['Living room', 'Kitchen'], to: el.dataset.to || 'Sam', mode: 'live', until: '1m' });
   },
   shareok: () => {
+    if (D.to === 'public') { open('public', { c: D.c, mode: 'view', ready: false, signed: false }); return; }
     if (S.reach === 'ask' && D.step !== 'reach') { upd({ step: 'reach', dontAsk: false }); return; }
     const to = D.to === 'new' ? 'Invite' : D.to;
     SHARES.forEach((s) => { if (s.c === D.c && s.to === to) s.ended = true; });

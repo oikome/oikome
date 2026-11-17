@@ -10,7 +10,15 @@ import { strings } from "../strings";
 
 const s = strings.publicShare;
 
-export function PublicShareDialog({ collection, onClose }: { collection: string; onClose: () => void }) {
+export function PublicShareDialog({
+  collection,
+  onClose,
+  onBack,
+}: {
+  collection: string;
+  onClose: () => void;
+  onBack?: () => void;
+}) {
   const client = useClient();
   const toast = useToast();
   const action = useAction();
@@ -72,7 +80,7 @@ export function PublicShareDialog({ collection, onClose }: { collection: string;
         onClose={onClose}
         footer={
           <>
-            <Button onClick={onClose}>{strings.common.cancel}</Button>
+            {onBack ? <Button onClick={onBack}>{strings.sharing.backToContact}</Button> : <Button onClick={onClose}>{strings.common.cancel}</Button>}
             <Button variant="primary" disabled={action.busy} onClick={() => void create()}>
               {action.busy ? s.publishing : s.publish}
             </Button>

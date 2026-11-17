@@ -112,12 +112,17 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Keep advanced dataset and migration options out of the ordinary interface until their real-node scenarios pass.
 - Validation: real read-only datasets, interrupted transfers, content integrity, repeated recovery, rollback/conflict behavior and destination compatibility.
 
-## PR 29: media, semantic indexes and RAW plugins
+## PR 29: knowledge for AI, semantic indexes and RAW plugins
 
-- Add media metadata and optional model-based semantic indexes as an AI/vector capability, including vector index/query behavior and its relationship to retrieval and MCP reads.
-- Deliver RAW parsing/preview through an external official plugin with a real host sandbox, one-file read grant, resource limits and preview provenance. No parser enters the core or Dashboard iframe.
-- Models, embeddings and RAW capabilities require explicit choices and grants. Never replace original media with thumbnails, embeddings or generated derivatives; no hidden model or plugin downloads.
-- Validation: metadata correctness, vector search/query behavior, model/index revocation and resource use, real camera RAW samples, embedded versus developed preview labels, plugin failure isolation and package size.
+The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](knowledge-schema.md). Delivered in steps, each with its real-node scenario on the acceptance workspace's `oikome-docs` collection (this project's own documents):
+
+- **K1 — documents to knowledge.** A per-collection control plane (assets, conversions, jobs) and a Lance `chunks` dataset written through the `lance` crate at the DuckDB extension's version. Markdown, text, code and PDF text become chunks with their place in the original; full-text search with the `ngram` tokenizer; a Prepare dialog with the format preselected and explained; per-original status; a chunk view and a retrieval test. MCP `search` and `read` return chunks with links to their originals, under the existing grants.
+- **K2 — meaning and skills.** Qwen3-Embedding-0.6B in the node through candle, downloaded only when the owner chooses it; `vec_<model>` columns, hybrid search, model registry, embedding cache and background rebuild. Skill folders registered with SHA-256 digests and offered to assistants (MCP `list_skills` / `get_skill`), plus Oikome's own skill teaching assistants list → search → read with citations.
+- **K3 — tables as knowledge.** PR 27's profiles gain units, `measure`, `text` and `place` roles and column usage; text fields become `table_row` chunks; assistants get read-only `query_table`.
+- **K4 — media.** OCR, speech to text, captions and image vectors in a `media` dataset. Its runtime is decided when K4 starts; Vane is not integrated.
+- **RAW** parsing and preview through an external official plugin with a real host sandbox, one-file read grant, resource limits and preview provenance. No parser enters the core or Dashboard iframe.
+- Content is processed on this computer by default. A cloud model is used only with the owner's own key after being told that content leaves the computer, and not before K2 is complete. Never replace original media with thumbnails, embeddings or generated derivatives; no hidden model or plugin downloads.
+- Validation: chunk positions against real PDFs and Markdown, Chinese and English full text, retrieval-test scores and sources, grants and row policies on search hits, rebuild after an original or model change without mixing models, MCP search/read/skills from a real client, model download consent and resource use, real camera RAW samples, plugin failure isolation and package size.
 
 ## Later phases
 

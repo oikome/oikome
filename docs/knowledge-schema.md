@@ -1,6 +1,6 @@
 # Knowledge and Analysis Schema
 
-> **Status**: draft for review, 2026-11-17. Nothing here is implemented yet. It builds on PR 27 (precise source targets, dataset profiles and derived analyses) and on the media and embedding design of Vane. The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Open decisions are listed in §11.
+> **Status**: planned, 2026-11-17. Nothing here is implemented yet; the stages are in the roadmap (PR 29). It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
 
 ## 1. Goal
 
@@ -47,6 +47,14 @@ Each collection has its own derived data, because grants, sharing, subscriptions
 - Analysis tables are Iceberg + Parquet: scanned and aggregated by DuckDB, as every analytical Space is today. PR 27's derived analyses are this case.
 - A collection's derived data is deleted with the collection and rebuilt from its assets when lost.
 
+### 3.1 Who writes and who reads
+
+- **Lance is written through the Rust `lance` crate, pinned to the version the DuckDB `lance` extension is built on (12.0.0 today).** That version uses the workspace's Arrow 58 and DataFusion 54, the same family as the `lance-table`, `lance-io`, `lance-file` and `lance-encoding` crates the catalog already reads manifests with, so it adds no second Arrow, and what the node writes is exactly what DuckDB reads. The crate gives atomic commits, deletes by asset, merge-insert, new columns for a new model without rewriting data, index builds, compaction, tags and stable row ids. The DuckDB extension cannot do several of these: an UPDATE or MERGE after another write to the same table in one transaction is not implemented, and writes to several tables are not atomic. The crate and the extension are upgraded together.
+- **DuckDB reads and searches Lance** (`lance_fts`, `lance_vector_search`, `lance_hybrid_search`) and joins the results with tables, as it does for Lance Spaces today (architecture §7.6).
+- **One commit per asset.** A conversion writes its asset's new rows, and the same commit deletes the rows of the version they replace. The control plane records the committed `lance_version`; a conversion is `ready` only after its commit. `chunks` and `media` are separate datasets, so a conversion that touches both commits `media` first and `chunks` last, and a reader never sees a chunk pointing at a missing media row.
+- **Full text in Chinese.** The `INVERTED` index is built with the `ngram` base tokenizer, which needs no dictionary download and splits any script, as the SQLite FTS5 trigram index does. `jieba` would need model files in `LANCE_LANGUAGE_MODEL_HOME`; it can be added later as an option if word-level ranking proves worth a download.
+- **Iceberg stays the format of analysis tables**, written through Oikome's existing path (AppendBuffer → Parquet → Iceberg commit; `replace_data_files` for a rebuild as one overwrite snapshot) and read by DuckDB. Field meanings are also written into each Iceberg field's `doc`. Chunks never go into Iceberg and tables never into Lance: one dataset, one layout (data-analysis.md).
+
 ## 4. Control plane (SQLite)
 
 ### 4.1 `assets`
@@ -76,7 +84,7 @@ One row per asset and target. The previous version keeps serving until a new one
 | `model_ids` | JSON list of models used (§4.3) |
 | `status` | `queued`, `reading`, `splitting`, `embedding`, `ready`, `failed`, `stale` |
 | `stage_ms` | JSON of stage → time, for the progress line |
-| `channels` | Requested and produced channels with their status (`text`, `ocr`, `asr`, `caption`, `image_vector`): an empty transcript is a result, a failed recognizer is an error (Vane's rule) |
+| `channels` | Requested and produced channels with their status (`text`, `ocr`, `asr`, `caption`, `image_vector`): an empty transcript is a result, a failed recognizer is an error |
 | `produced` | Counts: chunks, media rows, table rows |
 | `error` | Why it failed, in words for the owner |
 | `lance_version` | The knowledge dataset version this conversion's rows were committed in |
@@ -87,7 +95,7 @@ One row per asset and target. The previous version keeps serving until a new one
 |--------|---------|
 | `model_id` | `qwen3-embedding-0.6b@<revision>` |
 | `purpose` | `text_embedding`, `image_embedding`, `ocr`, `asr`, `caption`, `rerank` |
-| `runtime` | `local` (in the node: ONNX or candle), `vane` (Vane process), `provider` (an API the owner configured) |
+| `runtime` | `local` (in the node: ONNX or candle) or `provider` (an API the owner configured with their own key) |
 | `dims`, `metric`, `normalized` | For vectors |
 | `query_instruction` | Prefix for queries where the model needs one (Qwen3: `Instruct:`; e5: `query:`) |
 | `license` | Shown before the owner picks it |
@@ -119,7 +127,7 @@ One table for everything text-like, so one hybrid search covers documents, notes
 | `text` | STRING | What is read and embedded |
 | `content_hash` | STRING | BLAKE3 of normalized text; keys the embedding cache |
 | `lang`, `token_count` | | |
-| `loc` | STRUCT | `page`, `char_start`, `char_end`, `bbox` (four floats, top-left origin, 0–1), `t_start_ms`, `t_end_ms`, `sheet`, `row_start`, `row_end`. Enough to open the original at the place: a page and box, a time, a row. |
+| `loc` | STRUCT | `page`, `char_start`, `char_end`, `bbox` (four floats, top-left origin, 0–1), `t_start_ms`, `t_end_ms`, `sheet`, `row_key`, `snapshot_id`. Enough to open the original at the place: a page and box, a time, a table row at the snapshot it was read from. |
 | `tags` | LIST<STRING> | Note tags, folder names, owner tags |
 | `enabled` | BOOL | Disabled chunks stay but are not returned |
 | `vec_<model>` | FLOAT[N] NULL | One column per text model, added by schema evolution |
@@ -138,7 +146,7 @@ Typed columns rather than a metadata blob: LlamaIndex and LangChain hide provena
 |--------|---------|
 | `media_id`, `asset_id`, `asset_blake3` | An image, or a clip of a video or recording |
 | `kind` | `image`, `video_clip`, `audio_clip` |
-| `t_start_ms`, `t_end_ms` | A clip's span (Vane Context's clip table: asset, clip, start, end) |
+| `t_start_ms`, `t_end_ms` | A clip's span (a clip is identified by asset, clip id, start and end) |
 | `width`, `height`, `duration_ms`, `taken_at`, `place` | From the file and EXIF |
 | `gps` | STRUCT NULL. Location is personal data: kept for the owner, removed from public shares (architecture §7.9) |
 | `exif` | STRING (JSON text; the `lance` extension cannot write JSON-typed columns) |
@@ -174,9 +182,9 @@ A skill is a folder with `SKILL.md` and optional `scripts/`, `references/`, `ass
 |----------|-----------|----------|---------------------|
 | Markdown, text, code, notes | Split by headings, then paragraphs, keeping the heading path | `text` chunks | Node (Rust) |
 | PDF with a text layer | Text per page with positions | `text` chunks with page and box | Node |
-| Scanned PDF, photos of documents | OCR | `ocr` chunks with page and box | Vane (RapidOCR) |
-| Photos | EXIF, thumbnail (exists), optional caption, image vector | `media` row, `caption` chunk | Node for EXIF; Vane for captions and vectors |
-| Audio, video | Speech to text, keyframes | `media` clips, `transcript` chunks with times | Vane (Faster-Whisper, frames) |
+| Scanned PDF, photos of documents | OCR | `ocr` chunks with page and box | Later (K4) |
+| Photos | EXIF, thumbnail (exists), optional caption, image vector | `media` row, `caption` chunk | Node for EXIF; captions and vectors later (K4) |
+| Audio, video | Speech to text, keyframes | `media` clips, `transcript` chunks with times | Later (K4) |
 | CSV, TSV, Parquet, JSON Lines, Excel | Sniff types, infer roles, write Iceberg | Analysis table; `table_row` chunks for text fields | Node (DuckDB) |
 | Connector records (flomo memos) | Long text fields become chunks | `text` chunks | Node |
 | Skill folders | Parse front matter | Skill registry, `skill` chunks | Node |
@@ -186,9 +194,9 @@ Defaults follow the original: documents and media go to knowledge, tables to ana
 
 ### 8.1 Runtimes
 
-- **Node.** Splitting, PDF text, EXIF, table sniffing and profiles, and one small local text-embedding model through ONNX or candle, so a collection can be prepared without anything else installed.
-- **Vane.** OCR, speech to text, captions, image vectors and large embedding batches. Vane already separates a Context layer (channels, clips, alignment, provenance, search profiles) from execution, and publishes evidence and vectors to Lance. Oikome plays the Context part for its collections: it decides channels, clips and provenance, sends the originals' paths and settings, and commits the returned Arrow batches itself, so the node stays the single writer of the dataset (architecture principle 2).
-- **Provider.** An embedding or vision API the owner configures, with a key kept like storage credentials. Never the default: it sends content off the computer, and the apps say so.
+- **Node.** Splitting, PDF text, EXIF, table sniffing and profiles, and the default text-embedding model (Qwen3-Embedding-0.6B) through candle, so a collection can be prepared without anything else installed. The model is downloaded only when the owner chooses it, with its size shown first (no hidden downloads, roadmap PR 29).
+- **Media recognition (K4).** OCR, speech to text, captions and image vectors need larger models. Their runtime is decided when K4 starts: candle has Rust implementations of Whisper, TrOCR, PaddleOCR-VL and SigLIP, and a content plugin with a sandbox (PR 29's RAW plugin host) is the other route. Vane is not integrated (decided 2026-11-17). Whatever runs them, the node decides channels, clips and provenance and commits the results itself, so it stays the single writer of the dataset (architecture principle 2).
+- **Provider.** An embedding or vision API the owner configures with their own key, kept like storage credentials. Never the default and not part of K1 or K2: it sends content off the computer, and the apps say so before the first use.
 
 ### 8.2 In the apps
 
@@ -231,24 +239,34 @@ Grants stay the rule:
 - **Owner edits.** A chunk the owner edits or disables is recorded as an override keyed by `chunk_id`, so a rebuild of an unchanged version keeps it, and a changed version asks.
 - **Sharing.** A subscriber receives the knowledge dataset at one Lance version with its indexes (architecture §7.6). Searching it by meaning needs the same model to embed the query: the subscriber has it, or the query goes to the owner (query shipping).
 
-## 11. Open decisions
+## 11. Decisions and open questions
 
-1. **Default text model.** Qwen3-Embedding-0.6B (Apache-2.0, 1024 dimensions, shorter on request, 32K context, needs a query instruction) or BGE-M3 (MIT, 1024 dimensions, dense + sparse + multi-vector). Both read Chinese and English. A small local benchmark on our own documents should decide. The jina models are excluded by their non-commercial licenses.
-2. **Image model.** Qwen3-VL-Embedding-2B (text, images and video in one space) or SigLIP 2 (smaller, image–text only).
-3. **Who writes Lance.** The DuckDB `lance` extension refuses an UPDATE after another write in the same transaction and does not commit several tables atomically. Writing through the Rust `lance` crate (atomic commits, tags, merge) and reading and searching through DuckDB avoids that, at the cost of a second Lance dependency.
-4. **Chinese full text in Lance.** Whether DuckDB 1.5.6's `lance` build accepts the `jieba` tokenizer (unknown options are ignored silently); otherwise `ngram`, or SQLite FTS5 trigram for chunks.
-5. **Vane packaging.** Vane is a Python and C++ engine. Shipping it with the desktop app (M6), running it as an optional companion, or reaching it as a compute method (architecture §12).
-6. **Providers.** Whether the owner may use a cloud embedding or vision API at all, and how the apps word the privacy cost.
-7. **One dataset per collection or one per node.** Per collection keeps grants and sharing simple; one per node makes cross-collection search a single query but mixes grants.
-8. **How much format choice to show.** Per collection (simple) or per conversion (flexible). This draft proposes per conversion with the default preselected. Of the applications surveyed, AnythingLLM shows its store preselected and explained; Cherry Studio and Open WebUI do not show it at all.
+Decided on 2026-11-17:
+
+| Question | Decision |
+|----------|----------|
+| Default text model | Qwen3-Embedding-0.6B: Apache-2.0, Chinese and English, 1024 dimensions, 32K context, a query instruction for searches. Run locally through candle. BGE-M3 (MIT) is the alternative if a benchmark on real collections favours it. The jina models are excluded by their non-commercial licenses. |
+| Where content is processed | On this computer by default. A cloud embedding or vision API is used only after the owner adds their own key and is told that content leaves the computer; not in K1 or K2. |
+| Vane | Not integrated. Media recognition (K4) gets its own runtime decision. |
+| Who writes Lance | The Rust `lance` crate, at the DuckDB extension's version; DuckDB reads and searches (§3.1). |
+| Chinese full text in Lance | `ngram` base tokenizer (§3.1). |
+| Analysis tables | Iceberg through the existing write path, with field meanings in the profile and in each field's `doc` (§3.1, §6). |
+| One dataset per collection or per node | Per collection, so grants, sharing, subscriptions and removal stay as they are. Search across collections runs per collection and merges the results; collections with different models are searched with each one's own model. |
+| How much format choice to show | Per Prepare, with the default preselected and each format explained in one sentence (§8.2). Of the applications surveyed, AnythingLLM shows its store preselected and explained; Cherry Studio and Open WebUI do not show it. |
+
+Still open:
+
+1. **Image model**, decided with K4: Qwen3-VL-Embedding-2B (text, images and video in one space) or SigLIP 2 (smaller, image–text only).
+2. **Media runtime**, decided with K4 (§8.1).
+3. **Skills from other people.** Whether a collection shared by a contact may offer its skills to the owner's assistants, and with what warning.
 
 ## 12. Delivery
 
 | Step | Delivers | Owner can |
 |------|----------|-----------|
 | K1 | `assets`, `conversions`, `jobs`; Markdown, text and PDF text to `chunks`; full-text search over chunks; retrieval test; MCP `search` and `read` over chunks | Prepare a collection of documents and let an assistant read it with sources |
-| K2 | Local text model, `vec_<model>`, hybrid search, model registry and rebuild; skills registry and MCP skills | Search by meaning; give assistants skills |
+| K2 | Qwen3-Embedding-0.6B in the node, `vec_<model>`, hybrid search, model registry and rebuild; skills registry and MCP skills | Search by meaning; give assistants skills |
 | K3 | Table profiles (PR 27) extended with units and column usage; `table_row` chunks; `query_table` | Analyze a spreadsheet as a table and ask about it |
-| K4 | Vane: OCR, speech to text, captions, image vectors; `media` | Find what is written on photos and said in recordings |
+| K4 | OCR, speech to text, captions, image vectors; `media` (runtime decided when it starts) | Find what is written on photos and said in recordings |
 
 The acceptance workspace's `oikome-docs` collection (this project's own documents) is the first real knowledge base for K1 and K2.

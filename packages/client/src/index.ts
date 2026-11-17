@@ -68,6 +68,8 @@ import type {
   ShareSpace,
   ShowFolder,
   SaveTextFile,
+  SaveTo,
+  Saved,
   SavedConfirmation,
   RevokeSaveConfirmation,
   SetLending,
@@ -184,6 +186,8 @@ export interface NodeClient {
   dailyTotals(request: DailyTotalsOf): Promise<DailyTotals>;
   /** Copy files into Imports/<name> on this computer and browse the new collection. */
   importFiles(request: ImportFiles): Promise<SpaceSummary>;
+  /** Save a fixed selection as plain files or a detached collection. */
+  saveTo(request: SaveTo): Promise<Saved>;
   /** A collection that views a folder where it is; nothing is copied. */
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
   /** Add selected original files to a collection without copying them. */
@@ -535,6 +539,10 @@ export class HttpClient implements NodeClient {
 
   importFiles(request: ImportFiles): Promise<SpaceSummary> {
     return this.#json("import_files", request);
+  }
+
+  saveTo(request: SaveTo): Promise<Saved> {
+    return this.#json("save_to", request);
   }
 
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary> {

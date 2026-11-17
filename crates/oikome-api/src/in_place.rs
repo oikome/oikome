@@ -419,7 +419,11 @@ impl Api {
         })
     }
 
-    async fn summary_of(&self, caller: &Caller, name: &str) -> Result<SpaceSummary, ApiError> {
+    pub(crate) async fn summary_of(
+        &self,
+        caller: &Caller,
+        name: &str,
+    ) -> Result<SpaceSummary, ApiError> {
         self.list_spaces(caller, Empty {})
             .await?
             .into_iter()

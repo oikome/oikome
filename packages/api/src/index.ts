@@ -1280,6 +1280,54 @@ thumbnail: boolean, content: FileContent, };
 export type FileRef = { space: string, path: string, };
 
 /**
+ * `save_to`: one deliberate, fixed copy of a collection or selected files.
+ */
+export type SaveTo = { source: string,
+/**
+ * Relative files within an in-place collection; all of them when absent.
+ */
+paths?: Array<string>, destination: SaveDestination, };
+
+/**
+ * Where one Save To writes, and how plain files are named.
+ */
+export type SaveDestination = { "kind": "files",
+/**
+ * Registered storage name; this computer when absent.
+ */
+place: string | null,
+/**
+ * Absolute local folder, or a folder within the storage.
+ */
+path: string,
+/**
+ * Such as `{taken:yyyy}/{taken:MM}`.
+ */
+folder_rule: string,
+/**
+ * Such as `{taken:yyyy-MM-dd} {title}` or `{name}`.
+ */
+name_rule: string, } | { "kind": "space", name: string,
+/**
+ * Registered storage name; this computer when absent.
+ */
+storage: string | null, title: string, cover: string | null, captions: { [key in string]: string }, };
+
+/**
+ * One file written by Save To, with its content identity.
+ */
+export type SavedFile = { path: string, size: number, hash: string, };
+
+/**
+ * The result of one fixed Save To.
+ */
+export type Saved = { files: Array<SavedFile>,
+/**
+ * The new collection, when the destination was a Space.
+ */
+space: SpaceSummary | null, };
+
+/**
  * `read_file_rows`: a page of the rows of one data file (a CSV, TSV,
  * Parquet or JSON, at any folder) of a collection that views a folder in
  * place, read where the file is, as an Arrow IPC stream.

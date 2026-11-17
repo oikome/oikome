@@ -15,6 +15,7 @@
 //! The owner API on a local node (M1b): Spaces, rows, SQL, contacts and
 //! shares, with the same data a real node keeps.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow_ipc::reader::StreamReader;
@@ -4430,6 +4431,198 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
         .read_file_rows(&OWNER, rows("damaged.json", 0, 100))
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn save_to_files_keeps_originals_and_never_overwrites() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("source");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("a.txt"), "first").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("source".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    let target = tempfile::tempdir().unwrap();
+    let destination = SaveDestination::Files {
+        place: None,
+        path: target.path().to_string_lossy().into_owned(),
+        folder_rule: String::new(),
+        name_rule: "{name}".into(),
+    };
+    for expected in ["a.txt", "a-2.txt"] {
+        let saved = n
+            .api
+            .save_to(
+                &OWNER,
+                SaveTo {
+                    source: "source".into(),
+                    paths: None,
+                    destination: destination.clone(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(saved.files[0].path, expected);
+        assert_eq!(saved.files[0].size, 5);
+        assert_eq!(saved.files[0].hash, blake3::hash(b"first").to_string());
+        assert_eq!(
+            std::fs::read(target.path().join(expected)).unwrap(),
+            b"first"
+        );
+    }
+    std::fs::write(root.join("a.txt"), "changed").unwrap();
+    assert_eq!(
+        std::fs::read(target.path().join("a.txt")).unwrap(),
+        b"first"
+    );
+}
+
+#[tokio::test]
+async fn save_to_space_keeps_original_bytes_and_portfolio() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("source");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("a.txt"), "first").unwrap();
+    let mut jpeg = Vec::new();
+    image_png(&mut jpeg);
+    std::fs::write(root.join("b.jpg"), jpeg.clone()).unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("source".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    let saved = n
+        .api
+        .save_to(
+            &OWNER,
+            SaveTo {
+                source: "source".into(),
+                paths: Some(vec!["b.jpg".into(), "a.txt".into()]),
+                destination: SaveDestination::Space {
+                    name: "trip".into(),
+                    storage: None,
+                    title: "A weekend".into(),
+                    cover: Some("b.jpg".into()),
+                    captions: HashMap::from([("a.txt".into(), "First caption".into())]),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.space.unwrap().name, "trip");
+    assert_eq!(saved.files.len(), 2);
+    std::fs::write(root.join("a.txt"), "changed").unwrap();
+    let rows = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "trip".into(),
+                table: "_oikome_files".into(),
+                limit: Some(10),
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    let batches = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .map(|b| b.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(batches.iter().map(|b| b.num_rows()).sum::<usize>(), 2);
+    let batch = &batches[0];
+    let paths = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::StringArray>()
+        .unwrap();
+    let captions = batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<arrow_array::StringArray>()
+        .unwrap();
+    let bytes = batch
+        .column(5)
+        .as_any()
+        .downcast_ref::<arrow_array::BinaryArray>()
+        .unwrap();
+    assert_eq!(paths.value(0), "b.jpg");
+    assert_eq!(bytes.value(0), jpeg);
+    assert_eq!(paths.value(1), "a.txt");
+    assert_eq!(captions.value(1), "First caption");
+    assert_eq!(bytes.value(1), b"first");
+    let portfolio = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "trip".into(),
+                table: "_oikome_portfolio".into(),
+                limit: Some(1),
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&portfolio), 1);
+}
+
+#[tokio::test]
+async fn save_to_space_detaches_connector_tables() {
+    let n = node();
+    notes(&n).await;
+    n.api
+        .save_to(
+            &OWNER,
+            SaveTo {
+                source: "notes".into(),
+                paths: None,
+                destination: SaveDestination::Space {
+                    name: "saved-notes".into(),
+                    storage: None,
+                    title: "Saved notes".into(),
+                    cover: None,
+                    captions: HashMap::new(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    sql(&n, "INSERT INTO notes.memos VALUES (4, 'later')").await;
+    for (space, expected) in [("notes", 4), ("saved-notes", 3)] {
+        let rows = n
+            .api
+            .read_rows(
+                &OWNER,
+                ReadRows {
+                    space: space.into(),
+                    table: "memos".into(),
+                    limit: Some(10),
+                    offset: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(row_count(&rows), expected);
+    }
 }
 
 fn image_png(out: &mut Vec<u8>) {

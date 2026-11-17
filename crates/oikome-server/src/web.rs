@@ -430,6 +430,7 @@ impl WebState {
             "create_space" => json_op!(create_space, NewSpace),
             "drop_space" => json_op!(drop_space, SpaceRef),
             "import_files" => json_op!(import_files, ImportFiles),
+            "save_to" => json_op!(save_to, SaveTo),
             "view_in_place" => json_op!(view_in_place, ViewInPlace),
             "add_in_place_files" => json_op!(add_in_place_files, AddInPlaceFiles),
             "add_in_place_folder" => json_op!(add_in_place_folder, AddInPlaceFolder),

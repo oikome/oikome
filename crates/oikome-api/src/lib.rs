@@ -42,6 +42,7 @@ mod network;
 mod places;
 mod plugins;
 mod registry;
+mod save;
 mod search;
 mod sources;
 pub mod types;

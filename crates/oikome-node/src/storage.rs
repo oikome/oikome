@@ -253,7 +253,7 @@ fn seal_message(e: SealError) -> String {
 
 /// The folder of one Space on its storage.
 #[derive(Clone)]
-pub(crate) struct Folder {
+pub struct Folder {
     store: RemoteStore,
     binding: StorageBinding,
     layout: Layout,
@@ -268,7 +268,7 @@ impl Folder {
     }
 
     /// A small file, opened; `None` if it is not there.
-    async fn read(&self, name: &str, max: u64) -> Result<Option<Vec<u8>>, SessionError> {
+    pub async fn read(&self, name: &str, max: u64) -> Result<Option<Vec<u8>>, SessionError> {
         let limit = match self.layout {
             Layout::Plain => max,
             Layout::Sealed(_) => sealed_size(max),
@@ -286,8 +286,17 @@ impl Folder {
         }
     }
 
+    /// Whether a file exists, without reading its contents.
+    pub async fn exists(&self, name: &str) -> Result<bool, SessionError> {
+        self.store
+            .size(name)
+            .await
+            .map(|size| size.is_some())
+            .map_err(|e| self.err(e))
+    }
+
     /// Write a small file, sealing it if the folder is encrypted.
-    async fn write(&self, name: &str, plain: Vec<u8>) -> Result<(), SessionError> {
+    pub async fn write(&self, name: &str, plain: Vec<u8>) -> Result<(), SessionError> {
         let bytes = match &self.layout {
             Layout::Plain => plain,
             Layout::Sealed(key) => {
@@ -602,7 +611,7 @@ type LocalTables = (Vec<String>, Option<PathBuf>);
 impl OikomeSession {
     /// The folder `binding` names, with the storage's credentials and, for
     /// an encrypted storage, its key.
-    fn open_folder(&self, binding: &StorageBinding) -> Result<Folder, SessionError> {
+    pub fn open_folder(&self, binding: &StorageBinding) -> Result<Folder, SessionError> {
         let def = self.catalog.get_storage(&binding.storage)?;
         let err = |e: StoreError| store_error(&def.name, e);
         let secret = |kind| self.engines().storage_secret(&def.name, kind);

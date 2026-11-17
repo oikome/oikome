@@ -154,7 +154,7 @@ export function LatestCard({
   return (
     <section className={`oik-card screen-panel screen-latest ${className ?? ""}`} aria-label={space.name}>
       <header className="screen-panel__head">
-        <h2 className="oik-label">{s.latestTitle(space.name)}</h2>
+        <h2 className="oik-label oik-label--asis">{s.latestTitle(space.name)}</h2>
         <Link to={`/collections/${encodeURIComponent(space.name)}`} className="oik-link">
           {s.open}
         </Link>
@@ -169,7 +169,7 @@ export function LatestCard({
             const value = show(field, table.getChildAt(c)?.get(last));
             return (
               <div key={c}>
-                <dt className="oik-label">{label}</dt>
+                <dt className="oik-label oik-label--asis">{label}</dt>
                 <dd>
                   {value ?? "—"}
                   {value !== null && unit && <small>{unit}</small>}

@@ -17,7 +17,7 @@ WORKDIR /app
 # (DUCKDB_DOWNLOAD_LIB in .cargo/config.toml).
 # cmake: protoc is built from source for the lance manifest reader.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        pkg-config clang cmake \
+        pkg-config clang cmake curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml .clippy.toml ./
@@ -30,10 +30,27 @@ COPY tests ./tests
 COPY plugins ./plugins
 COPY packages/plugin-sdk/sdk.js ./packages/plugin-sdk/sdk.js
 
+# Cargo's build-output layout changed, which breaks libduckdb-sys's cache-path
+# discovery. Give it the official archive's actual location instead.
+RUN case "$(uname -m)" in \
+        x86_64) archive=libduckdb-linux-amd64.zip ;; \
+        aarch64) archive=libduckdb-linux-arm64.zip ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 3 --retry-delay 2 \
+        "https://github.com/duckdb/duckdb/releases/download/v1.5.6/${archive}" \
+        --output /tmp/libduckdb.zip \
+    && mkdir -p /opt/duckdb \
+    && unzip -q /tmp/libduckdb.zip -d /opt/duckdb \
+    && test -f /opt/duckdb/libduckdb.so \
+    && test -f /opt/duckdb/duckdb.h
+ENV DUCKDB_LIB_DIR=/opt/duckdb
+ENV DUCKDB_INCLUDE_DIR=/opt/duckdb
+
 RUN cargo build --release --locked -p oikome-server --bin oikome \
     && mkdir -p /out \
     && cp target/release/oikome /out/ \
-    && cp target/duckdb-download/*/*/libduckdb.so /out/
+    && cp /opt/duckdb/libduckdb.so /out/
 
 # The DuckDB extensions nodes load (sqlite, lance, duckpgq), signed by DuckDB.
 RUN LD_LIBRARY_PATH=/out /out/oikome --root /tmp/node --extension-dir /out/extensions \

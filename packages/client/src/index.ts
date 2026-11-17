@@ -45,6 +45,15 @@ import type {
   ListShares,
   NewShare,
   NewSpace,
+  NewPublicShare,
+  PublicAuthRequest,
+  PublicAuthVerification,
+  PublicChallenge,
+  PublicManifest,
+  PublicQuery,
+  PublicSession,
+  PublicShare,
+  PublicShareRef,
   NodeInfo,
   NodeName,
   Plugin,
@@ -68,6 +77,8 @@ import type {
   ShareSpace,
   ShowFolder,
   SaveTextFile,
+  SaveTo,
+  Saved,
   SavedConfirmation,
   RevokeSaveConfirmation,
   SetLending,
@@ -184,6 +195,17 @@ export interface NodeClient {
   dailyTotals(request: DailyTotalsOf): Promise<DailyTotals>;
   /** Copy files into Imports/<name> on this computer and browse the new collection. */
   importFiles(request: ImportFiles): Promise<SpaceSummary>;
+  /** Save a fixed selection as plain files or a detached collection. */
+  saveTo(request: SaveTo): Promise<Saved>;
+  createPublicShare(request: NewPublicShare): Promise<PublicShare>;
+  listPublicShares(): Promise<PublicShare[]>;
+  revokePublicShare(request: PublicShareRef): Promise<PublicShare>;
+  publicManifest(request: PublicShareRef): Promise<PublicManifest>;
+  publicSnapshot(request: PublicShareRef): Promise<Uint8Array>;
+  publicSnapshotUrl(request: PublicShareRef): string;
+  publicAuthChallenge(request: PublicAuthRequest): Promise<PublicChallenge>;
+  publicAuthVerify(request: PublicAuthVerification): Promise<PublicSession>;
+  publicQuery(request: PublicQuery): Promise<RowsResult>;
   /** A collection that views a folder where it is; nothing is copied. */
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
   /** Add selected original files to a collection without copying them. */
@@ -273,13 +295,11 @@ export class HttpClient implements NodeClient {
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
-  async #post(operation: string, request: unknown): Promise<Response> {
+  async #request(path: string, init?: RequestInit): Promise<Response> {
     let response: Response;
     try {
-      response = await this.#fetch(`${this.#base}/api/${operation}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request ?? {}),
+      response = await this.#fetch(`${this.#base}${path}`, {
+        ...init,
         credentials: "same-origin",
       });
     } catch (e) {
@@ -302,6 +322,14 @@ export class HttpClient implements NodeClient {
       throw new OikomeError(code, message, response.status, reason, params);
     }
     return response;
+  }
+
+  #post(operation: string, request: unknown): Promise<Response> {
+    return this.#request(`/api/${operation}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request ?? {}),
+    });
   }
 
   async #json<T>(operation: string, request: unknown): Promise<T> {
@@ -535,6 +563,63 @@ export class HttpClient implements NodeClient {
 
   importFiles(request: ImportFiles): Promise<SpaceSummary> {
     return this.#json("import_files", request);
+  }
+
+  saveTo(request: SaveTo): Promise<Saved> {
+    return this.#json("save_to", request);
+  }
+
+  createPublicShare(request: NewPublicShare): Promise<PublicShare> {
+    return this.#json("create_public_share", request);
+  }
+
+  listPublicShares(): Promise<PublicShare[]> {
+    return this.#json("list_public_shares", {});
+  }
+
+  revokePublicShare(request: PublicShareRef): Promise<PublicShare> {
+    return this.#json("revoke_public_share", request);
+  }
+
+  async publicManifest(request: PublicShareRef): Promise<PublicManifest> {
+    const response = await this.#request(`/public/${request.id}/manifest.json`);
+    return (await response.json()) as PublicManifest;
+  }
+
+  async publicSnapshot(request: PublicShareRef): Promise<Uint8Array> {
+    const response = await this.#request(this.publicSnapshotUrl(request));
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  publicSnapshotUrl(request: PublicShareRef): string {
+    return `${this.#base}/public/${request.id}/snapshot.zip`;
+  }
+
+  async publicAuthChallenge(request: PublicAuthRequest): Promise<PublicChallenge> {
+    const response = await this.#request(`/public/${request.id}/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return (await response.json()) as PublicChallenge;
+  }
+
+  async publicAuthVerify(request: PublicAuthVerification): Promise<PublicSession> {
+    const response = await this.#request(`/public/${request.id}/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return (await response.json()) as PublicSession;
+  }
+
+  async publicQuery(request: PublicQuery): Promise<RowsResult> {
+    const response = await this.#request(`/public/${request.id}/query`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return this.#rows(response);
   }
 
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary> {

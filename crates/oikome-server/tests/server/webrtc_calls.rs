@@ -20,11 +20,15 @@ use crate::common;
 
 use arrow_array::{Array, Int64Array};
 use common::{strings, Node};
+use oikome_api::{
+    Api, Caller, NewPublicShare, PublicShareRef, SaveDestination, SaveTo, ViewInPlace,
+};
 use oikome_identity::{unix_now, unix_now_ms, AuthRequest, NodeIdentity};
 use oikome_network::protocol::webrtc::{decode_reply, AccessRecord, Envelope};
 use oikome_network::protocol::{
     decode_stream, digest, schema_payload, ListTablesResponse, QueryTicket, METHOD_DO_GET,
-    METHOD_GET_SCHEMA, METHOD_LIST_TABLES,
+    METHOD_GET_SCHEMA, METHOD_LIST_TABLES, METHOD_PUBLIC_CHALLENGE, METHOD_PUBLIC_QUERY,
+    METHOD_PUBLIC_VERIFY,
 };
 use oikome_server::OikomeFlightService;
 use oikome_webrtc::{DtlsIdentity, Handler};
@@ -171,6 +175,118 @@ async fn envelopes_are_authenticated_authorized_and_answered_in_arrow() {
     )
     .await;
     assert_eq!(status, "unimplemented");
+}
+
+#[tokio::test]
+async fn public_enquiries_work_without_opening_private_peer_methods() {
+    let a = Node::new(25);
+    let api = Api::new(a.catalog.clone(), a.engines.clone());
+    let temporary = tempfile::tempdir().unwrap();
+    let source = temporary.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("note.txt"), "public").unwrap();
+    api.view_in_place(
+        &Caller::Owner,
+        ViewInPlace {
+            place: None,
+            path: source.to_string_lossy().into_owned(),
+            name: Some("source".into()),
+            files: None,
+        },
+    )
+    .await
+    .unwrap();
+    api.save_to(
+        &Caller::Owner,
+        SaveTo {
+            source: "source".into(),
+            paths: None,
+            destination: SaveDestination::Space {
+                name: "published".into(),
+                storage: None,
+                title: "Published".into(),
+                cover: None,
+                captions: Default::default(),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let share = api
+        .create_public_share(
+            &Caller::Owner,
+            NewPublicShare {
+                space: "published".into(),
+                allow_copy: Some(false),
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+                reach: None,
+            },
+        )
+        .await
+        .unwrap();
+    let service = OikomeFlightService::new(a.catalog.clone(), a.engines.clone())
+        .unwrap()
+        .with_public_api(api.clone());
+    let visitor = NodeIdentity::from_seed(&[26; 32]);
+    let public_call = |method: &str, value: serde_json::Value| {
+        Envelope::new(method, &serde_json::to_vec(&value).unwrap(), "", "")
+    };
+    let (status, body) = call(
+        &service,
+        public_call(
+            METHOD_PUBLIC_CHALLENGE,
+            serde_json::json!({"id": share.id, "did": visitor.did().to_string()}),
+        ),
+    )
+    .await;
+    assert_eq!(status, "ok");
+    let challenge: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let message = challenge["message"].as_str().unwrap();
+    let (status, body) = call(
+        &service,
+        public_call(
+            METHOD_PUBLIC_VERIFY,
+            serde_json::json!({
+                "id": share.id,
+                "did": visitor.did().to_string(),
+                "message": message,
+                "signature": hex::encode(visitor.sign(message.as_bytes())),
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, "ok");
+    let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let query = public_call(
+        METHOD_PUBLIC_QUERY,
+        serde_json::json!({
+            "id": share.id,
+            "token": session["token"],
+            "sql": "SELECT path FROM _oikome_files",
+        }),
+    );
+    let (status, body) = call(&service, query.clone()).await;
+    assert_eq!(status, "ok");
+    assert_eq!(decode_stream(body).unwrap().1[0].num_rows(), 1);
+    let private = Envelope::new(
+        METHOD_DO_GET,
+        &ticket("SELECT * FROM published._oikome_files"),
+        "",
+        "",
+    );
+    assert_eq!(call(&service, private).await.0, "unauthenticated");
+    api.revoke_public_share(
+        &Caller::Owner,
+        PublicShareRef {
+            id: share.id.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(call(&service, query).await.0, "unauthenticated");
 }
 
 #[tokio::test]

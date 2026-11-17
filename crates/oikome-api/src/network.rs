@@ -53,6 +53,10 @@ pub(crate) fn lend_key(did: &str) -> String {
     format!("lend:{did}")
 }
 
+pub(crate) fn public_key(id: &str) -> String {
+    format!("public:{id}")
+}
+
 /// Whether the share or lending `key` may be reached from outside.
 pub(crate) fn allowed(settings: &NodeSettings, key: &str) -> bool {
     match settings.reach_policy {
@@ -123,6 +127,22 @@ impl Api {
                 });
             }
         }
+        for share in self.active_public_shares()? {
+            let key = public_key(&share.id);
+            live.insert(key.clone());
+            if allowed(settings, &key) {
+                open.push(OpenFor {
+                    kind: OpenForKind::Public,
+                    name: share
+                        .snapshot
+                        .as_ref()
+                        .map(|snapshot| snapshot.manifest.title.clone())
+                        .unwrap_or_else(|| share.space.clone()),
+                    id: share.id,
+                    space: Some(share.space),
+                });
+            }
+        }
         if self.lending_on() {
             let mut seen = HashSet::new();
             for grant in self.lent()? {
@@ -158,6 +178,7 @@ impl Api {
         }
         Ok(ReachWanted {
             open: !open.is_empty(),
+            public: open.iter().any(|item| item.kind == OpenForKind::Public),
             help_contacts: !settings.help_contacts_off,
         })
     }

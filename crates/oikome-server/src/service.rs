@@ -49,6 +49,9 @@ use arrow_ipc::writer::IpcWriteOptions;
 use arrow_schema::SchemaRef;
 use futures::stream;
 use futures::{StreamExt, TryStreamExt};
+use oikome_api::{
+    Api, ApiError, ErrorCode, PublicAuthRequest, PublicAuthVerification, PublicQuery,
+};
 use oikome_catalog::lance::{lance_tables, lance_version, DATASET_SUFFIX};
 use oikome_catalog::{LocationFormat, OikomeCatalog, Space};
 use oikome_core::{CatalogError, SpaceKind};
@@ -64,7 +67,8 @@ use oikome_network::protocol::{
     SnapshotResponse, ACTION_COMPUTE_METHODS, ACTION_FETCH_FILE, ACTION_LIST_TABLES,
     ACTION_SNAPSHOT, FILE_CHUNK_BYTES, HEADER_AUTH, HEADER_UCAN, MAX_SQL_BYTES, METHOD_COMPUTE,
     METHOD_COMPUTE_METHODS, METHOD_DO_GET, METHOD_FETCH_FILE, METHOD_GET_SCHEMA,
-    METHOD_LIST_TABLES, METHOD_SNAPSHOT,
+    METHOD_LIST_TABLES, METHOD_PUBLIC_CHALLENGE, METHOD_PUBLIC_QUERY, METHOD_PUBLIC_VERIFY,
+    METHOD_SNAPSHOT,
 };
 use oikome_node::access_log::entry_now;
 use oikome_node::snapshot::table_snapshot;
@@ -104,6 +108,7 @@ pub struct OikomeFlightService {
     identity: Arc<NodeIdentity>,
     replay: ReplayGuard,
     access_log: Option<AccessLog>,
+    public_api: Option<Api>,
 }
 
 impl std::fmt::Debug for OikomeFlightService {
@@ -141,6 +146,17 @@ fn session_status(e: SessionError) -> Status {
     }
 }
 
+fn public_status(error: ApiError) -> Status {
+    match error.code {
+        ErrorCode::Invalid => Status::invalid_argument(error.message),
+        ErrorCode::Unauthenticated => Status::unauthenticated(error.message),
+        ErrorCode::PermissionDenied => Status::permission_denied(error.message),
+        ErrorCode::NotFound => Status::not_found(error.message),
+        ErrorCode::Conflict => Status::already_exists(error.message),
+        ErrorCode::Internal => Status::internal(error.message),
+    }
+}
+
 impl OikomeFlightService {
     /// A service answering for the node whose engines are `engines`.
     pub fn new(
@@ -154,7 +170,14 @@ impl OikomeFlightService {
             identity,
             replay: ReplayGuard::default(),
             access_log: None,
+            public_api: None,
         })
+    }
+
+    /// Share the web API's visitor challenges and sessions with browser WebRTC calls.
+    pub fn with_public_api(mut self, api: Api) -> Self {
+        self.public_api = Some(api);
+        self
     }
 
     /// Record every request in `log` (architecture v3 §9): one entry per
@@ -672,11 +695,56 @@ impl OikomeFlightService {
             .map_err(session_status)
     }
 
+    async fn serve_public_envelope(&self, envelope: &Envelope) -> Result<Vec<u8>, Status> {
+        let api = self
+            .public_api
+            .as_ref()
+            .ok_or_else(|| Status::unimplemented("public shares are unavailable"))?;
+        let payload = envelope
+            .payload()
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
+        if payload.len() > MAX_SQL_BYTES + 4096 {
+            return Err(Status::invalid_argument("request too large"));
+        }
+        let invalid = |e| Status::invalid_argument(format!("request: {e}"));
+        match envelope.method.as_str() {
+            METHOD_PUBLIC_CHALLENGE => {
+                let request: PublicAuthRequest =
+                    serde_json::from_slice(&payload).map_err(invalid)?;
+                let challenge = api
+                    .public_auth_challenge(request)
+                    .await
+                    .map_err(public_status)?;
+                serde_json::to_vec(&challenge).map_err(|e| Status::internal(e.to_string()))
+            }
+            METHOD_PUBLIC_VERIFY => {
+                let request: PublicAuthVerification =
+                    serde_json::from_slice(&payload).map_err(invalid)?;
+                let session = api
+                    .public_auth_verify(request)
+                    .await
+                    .map_err(public_status)?;
+                serde_json::to_vec(&session).map_err(|e| Status::internal(e.to_string()))
+            }
+            METHOD_PUBLIC_QUERY => {
+                let request: PublicQuery = serde_json::from_slice(&payload).map_err(invalid)?;
+                Ok(api.public_query(request).await.map_err(public_status)?.ipc)
+            }
+            _ => Err(Status::unimplemented("unknown public method")),
+        }
+    }
+
     /// Serve one call that did not come over Arrow Flight (a browser's
     /// WebRTC channel, §10): the same authentication, authorization and
     /// semantic layer, with the result as one message — an Arrow IPC stream
     /// for `do_get` and `get_schema`, JSON for `list_tables`.
     pub async fn serve_envelope(&self, envelope: &Envelope) -> Result<Vec<u8>, Status> {
+        if matches!(
+            envelope.method.as_str(),
+            METHOD_PUBLIC_CHALLENGE | METHOD_PUBLIC_VERIFY | METHOD_PUBLIC_QUERY
+        ) {
+            return self.serve_public_envelope(envelope).await;
+        }
         let method = match envelope.method.as_str() {
             m @ (METHOD_LIST_TABLES | METHOD_GET_SCHEMA | METHOD_DO_GET) => m,
             _ => "unknown",

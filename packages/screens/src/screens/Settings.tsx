@@ -324,7 +324,7 @@ function NetworkSettings({ reveal }: { reveal: boolean }) {
     n.openFor.length === 0
       ? s.openForNothing
       : listNames(
-          n.openFor.map((o) => (o.kind === "share" ? s.openForShare(o.space ?? "", o.name) : s.openForLend(o.name))),
+          n.openFor.map((o) => (o.kind === "lend" ? s.openForLend(o.name) : s.openForShare(o.space ?? "", o.kind === "public" ? strings.publicShare.anyone : o.name))),
         );
   const change = async (request: { policy?: ReachPolicy; helpContacts?: boolean }) => {
     const updated = await save.run(() => client.setNetwork(request));

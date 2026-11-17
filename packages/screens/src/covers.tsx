@@ -9,12 +9,12 @@ import type { TileTone } from "@oikome/ui";
 import type { FileFolder, FileItem, Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import { FileArt } from "./FileArt";
-import { PREVIEW_ROWS, loadPreview, withoutTagLines } from "./content";
+import { PREVIEW_ROWS, loadPreview, plainText, withoutTagLines } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
 import { calendarDate, dateTime, monthAndDay, wallTime } from "./format";
 import { SeriesCover } from "./series";
-import { numeric, show } from "./parts";
+import { Marquee, numeric, show } from "./parts";
 import { Link } from "./router";
 import { strings } from "./strings";
 
@@ -48,7 +48,7 @@ export function countOf(preview: Preview | undefined): string | undefined {
   const read = preview?.rows?.numRows;
   const rows = preview?.count ?? preview?.table?.rows ?? (read !== undefined && read < PREVIEW_ROWS ? read : undefined);
   if (rows === null || rows === undefined || rows === 0) return undefined;
-  if (preview?.files) return s.folderFiles(Number(rows));
+  if (preview?.files || preview?.mixed) return s.folderFiles(Number(rows));
   return s.count(Number(rows), preview!.shape.view);
 }
 
@@ -135,8 +135,8 @@ function Art({
     return (
       <div aria-hidden="true" className="screen-cover__art screen-paper">
         {itemDate(first) && <span className="screen-paper__date">{itemDate(first)}</span>}
-        <p className="screen-paper__text">{first.text}</p>
-        {more > 0 && <span className="screen-paper__more">{s.moreNotes(more)}</span>}
+        <p className="screen-paper__text">{plainText(first.text)}</p>
+        {more > 0 && !preview.mixed && <span className="screen-paper__more">{s.moreNotes(more)}</span>}
       </div>
     );
   }
@@ -182,7 +182,7 @@ export function Cover({
   // its line starts with where it is.
   const folder = space.kind !== "remote" && space.inPlace !== null;
   const meta = [
-    folder ? place : undefined,
+    space.kind !== "remote" ? place : undefined,
     countOf(preview.data),
     ...(space.kind === "remote"
       ? [s.fromPerson(from), s.viewLive]
@@ -194,14 +194,17 @@ export function Cover({
     <Link to={`/collections/${encodeURIComponent(space.name)}`} className="screen-cover">
       <span className="screen-cover__frame">
         <Art space={space} tone={tone} preview={preview.data} failed={preview.error !== undefined} />
-        <span className="screen-cover__chip" aria-hidden="true">
-          <Icon
-            name={
-              folder ? "folder" : space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]
-            }
-          />
-          {folder ? s.folderKind : space.kind === "remote" ? from : s.kinds[preview.data?.shape.view ?? "table"]}
-        </span>
+        {/* What kind it is is known once it has been read: no guess before then. */}
+        {(folder || space.kind === "remote" || preview.data) && (
+          <span className="screen-cover__chip" aria-hidden="true">
+            <Icon
+              name={
+                folder ? "folder" : space.kind === "remote" ? "person-plus" : KIND_ICONS[preview.data?.shape.view ?? "table"]
+              }
+            />
+            {folder ? s.folderKind : space.kind === "remote" ? from : s.kinds[preview.data?.shape.view ?? "table"]}
+          </span>
+        )}
       </span>
       <span className="screen-cover__caption">
         <span className="screen-cover__line">
@@ -221,7 +224,7 @@ export function Cover({
             </span>
           )}
         </span>
-        <span className="screen-cover__meta">{meta}</span>
+        <Marquee className="screen-cover__meta">{meta}</Marquee>
       </span>
     </Link>
   );
@@ -265,7 +268,7 @@ export function FolderCover({
         ) : note ? (
           <span aria-hidden="true" className="screen-cover__art screen-paper">
             {itemDate(note) && <span className="screen-paper__date">{itemDate(note)}</span>}
-            <span className="screen-paper__text">{withoutTagLines(note.text)}</span>
+            <span className="screen-paper__text">{plainText(withoutTagLines(note.text))}</span>
             {folder.notes > 1 && <span className="screen-paper__more">{s.moreNotes(Number(folder.notes) - 1)}</span>}
           </span>
         ) : (

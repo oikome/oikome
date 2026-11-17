@@ -531,6 +531,7 @@ impl Discovery {
             net: self.net.clone(),
             reach: self.reach.clone(),
             catalog: self.catalog.clone(),
+            shared: self.shared.clone(),
             listen_addrs: self.listen_addrs.clone(),
         })
     }
@@ -633,6 +634,7 @@ struct Network {
     net: Arc<NetState>,
     reach: watch::Sender<ReachWanted>,
     catalog: Arc<OikomeCatalog>,
+    shared: Arc<Shared>,
     listen_addrs: Vec<Multiaddr>,
 }
 
@@ -650,6 +652,7 @@ impl NodeNetwork for Network {
     }
 
     fn set_reach(&self, wanted: ReachWanted) {
+        self.shared.set_public(wanted.public);
         self.reach.send_if_modified(|now| {
             let changed = *now != wanted;
             *now = wanted;

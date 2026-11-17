@@ -15,11 +15,14 @@ oikome-identity = { path = "../oikome-identity" }
 oikome-network = { path = "../oikome-network" }
 oikome-node = { path = "../oikome-node" }
 oikome-semantic = { path = "../oikome-semantic" }
+oikome-storage = { path = "../oikome-storage" }
+iceberg = { workspace = true }
 # Signing in to Google Drive (google.rs).
 oikome-vfs = { path = "../oikome-vfs" }
 zeroize = { workspace = true }
 arrow-array = { workspace = true }
 arrow-ipc = { workspace = true }
+bytes = { workspace = true }
 arrow-schema = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -27,10 +30,14 @@ base64 = { workspace = true }
 # Assistants' tokens: made from the system's randomness, kept as BLAKE3 hashes.
 blake3 = { workspace = true }
 getrandom = { workspace = true }
+hex = "0.4.3"
 # Official catalog downloads, bounded streaming and verified ZIP packages.
 futures = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
 sha2 = { workspace = true }
+sha3 = "0.10"
+k256 = { version = "0.13", features = ["ecdsa"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 zip = { version = "9.2.0", default-features = false, features = ["deflate-flate2"] }
 thiserror = { workspace = true }
 # Preserve owners' existing Codex settings when configuring its MCP client.

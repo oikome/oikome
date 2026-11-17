@@ -209,6 +209,7 @@ async fn nodes_that_cant_be_reached_meet_at_a_contact_and_connect_directly() {
     learn(&db, &dc, &c).await;
     dc.network().set_reach(ReachWanted {
         open: false,
+        public: false,
         help_contacts: true,
     });
     wait_for(|| dc.network().status().helping.then_some(())).await;
@@ -217,6 +218,7 @@ async fn nodes_that_cant_be_reached_meet_at_a_contact_and_connect_directly() {
     // a place for it.
     da.network().set_reach(ReachWanted {
         open: true,
+        public: false,
         help_contacts: true,
     });
     let through = wait_for(|| match da.network().status().reach {
@@ -270,10 +272,12 @@ async fn a_contact_that_doesnt_help_introduces_no_one() {
     // Cleo turned helping off.
     dc.network().set_reach(ReachWanted {
         open: false,
+        public: false,
         help_contacts: false,
     });
     da.network().set_reach(ReachWanted {
         open: true,
+        public: false,
         help_contacts: true,
     });
     wait_for(|| (da.network().status().reach == Reach::RouterRefused).then_some(())).await;

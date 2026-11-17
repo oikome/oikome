@@ -5,7 +5,7 @@
 // shows. Every platform (the web now, desktop and phone later) renders this
 // with its own NodeClient.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Card, EmptyState, ErrorText, Icon, Status, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
@@ -15,7 +15,7 @@ import { folderOf, folderPath } from "./item";
 import { ClientProvider, useClient, useLoad } from "./data";
 import { usedOfTotal } from "./format";
 import { Palette } from "./palette";
-import { BackLink } from "./parts";
+import { BackLink, Marquee } from "./parts";
 import { useLanguage } from "./i18n/languages";
 import { NetworkStatus } from "./network";
 import { Link, navigate, previousPage, useLocation } from "./router";
@@ -31,16 +31,19 @@ import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
 import { PlaceDetail, placePath, THIS_COMPUTER } from "./screens/Place";
 import { Sharing } from "./screens/Sharing";
+import { PublicPage } from "./screens/PublicPage";
 import { strings } from "./strings";
 
 export function App({ client }: { client: NodeClient }) {
   // A new language draws the app again from the start, so every word,
   // date and number is in it.
   const language = useLanguage();
+  const path = window.location.pathname;
+  const publicPage = /^\/public\/[0-9a-f]{64}\/?$/.test(path);
   return (
     <ClientProvider client={client}>
       <ToastProvider>
-        <Root key={language} />
+        {publicPage ? <PublicPage key={language} id={path.slice("/public/".length, "/public/".length + 64)} /> : <Root key={language} />}
       </ToastProvider>
     </ClientProvider>
   );
@@ -248,7 +251,9 @@ function PlaceList({
               aria-pressed={place === current}
               onClick={() => onPick(place)}
             >
-              <Status kind={place.spaces > 0 ? "ok" : "idle"}>{placeLabel(place)}</Status>
+              <Status kind={place.spaces > 0 ? "ok" : "idle"}>
+                <Marquee>{placeLabel(place)}</Marquee>
+              </Status>
             </button>
           </li>
         ))}
@@ -264,7 +269,7 @@ function RoomCard({ place }: { place?: StorageSummary }) {
   return (
     <div className="screen-room" aria-live="polite">
       <div className="screen-room__head">
-        <span className="oik-label">{placeLabel(place)}</span>
+        <Marquee className="oik-label oik-label--asis">{placeLabel(place)}</Marquee>
         <span className="screen-room__figure">
           {place.totalBytes != null && place.freeBytes != null
             ? usedOfTotal(place.totalBytes - place.freeBytes, place.totalBytes)
@@ -364,7 +369,7 @@ function Shell({
     navigate(placePath(next));
   };
   // ⌘K (Ctrl+K) opens the palette from anywhere.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();

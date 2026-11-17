@@ -64,6 +64,10 @@ pub const METHOD_SNAPSHOT: &str = "do_action:oikome.snapshot";
 pub const METHOD_FETCH_FILE: &str = "do_action:oikome.fetch_file";
 pub const METHOD_COMPUTE: &str = "do_exchange:oikome.compute";
 pub const METHOD_COMPUTE_METHODS: &str = "do_action:oikome.compute_methods";
+/// Public-share browser methods. A one-time signature challenge replaces UCAN here.
+pub const METHOD_PUBLIC_CHALLENGE: &str = "public_challenge";
+pub const METHOD_PUBLIC_VERIFY: &str = "public_verify";
+pub const METHOD_PUBLIC_QUERY: &str = "public_query";
 
 /// Size of the chunks `oikome.fetch_file` streams a file in.
 pub const FILE_CHUNK_BYTES: usize = 1 << 20;

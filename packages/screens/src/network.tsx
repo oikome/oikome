@@ -136,9 +136,9 @@ export function NetworkStatus({ className = "" }: { className?: string }) {
                     ? settings.openForNothing
                     : current.openFor.map((item) => (
                         <span key={`${item.kind}:${item.id}`}>
-                          {item.kind === "share"
-                            ? settings.openForShare(item.space ?? "", item.name)
-                            : settings.openForLend(item.name)}
+                          {item.kind === "lend"
+                            ? settings.openForLend(item.name)
+                            : settings.openForShare(item.space ?? "", item.kind === "public" ? strings.publicShare.anyone : item.name)}
                         </span>
                       ))}
                   {current.helping && <span>{settings.helpContacts}</span>}

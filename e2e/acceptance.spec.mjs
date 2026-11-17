@@ -139,7 +139,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(pdfViewer.locator(".screen-pdf__text")).toContainText("中文预览");
     expect(pdfRequests.some((url) => url.includes("/pdf/cmaps/"))).toBe(true);
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(() => pdfViewer.locator(".screen-pdf__canvas").evaluate((canvas) => canvas.getBoundingClientRect().width <= canvas.parentElement.parentElement.clientWidth)).toBe(true);
+    await expect.poll(() => pdfViewer.locator(".screen-pdf__canvas").evaluate((canvas) => {
+      const frame = canvas.parentElement?.parentElement;
+      return canvas.isConnected && frame ? canvas.getBoundingClientRect().width <= frame.clientWidth : false;
+    })).toBe(true);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await pdfViewer.getByRole("button", { name: "Zoom in", exact: true }).click();
     await expect(pdfViewer.locator(".screen-pdf__zoom")).toContainText("125%");

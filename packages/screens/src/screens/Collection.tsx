@@ -45,7 +45,7 @@ import { SORT_KEYS, SortHeader, nextOrder, sortBy, useLayout, useOrder } from ".
 import type { Layout, SortKey } from "../order";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
-import { PathText, RowsTable, ScreenHeader } from "../parts";
+import { Marquee, PathText, RowsTable, ScreenHeader } from "../parts";
 import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
@@ -55,6 +55,7 @@ import { AddFiles } from "../import";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
+import { SaveDialog } from "./SaveDialog";
 import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
@@ -81,6 +82,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const [contentsKey, setContentsKey] = useState(0);
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();
@@ -117,6 +119,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
   const source = sources.data?.find((x) => x.name === space.name);
   const folder = space.inPlace;
+  const saved = preview.data?.table?.name === "_oikome_files";
   const folderPlace = folder ? storages.data?.find((x) => x.name === folder.place) : undefined;
   // Where a folder viewed in place is: its path, on this computer or a NAS.
   const folderWhere = folder
@@ -155,6 +158,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
     <>
       <ScreenHeader
         mono={!folder}
+        labelAsIs={!!folder || !local}
         label={
           folder
             ? s.viewedOn(folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer))
@@ -211,6 +215,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                     },
                   ]
                 : []),
+              { label: strings.save.menu, onSelect: () => setSaving(true) },
               { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
             ]}
           />
@@ -218,7 +223,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
       </ScreenHeader>
 
       {local ? (
-        <dl className="oik-card screen-facts">
+        <dl className="oik-card screen-facts screen-facts--collection">
           <div>
             <dt className="oik-label">{s.factHolds}</dt>
             <dd>{countOf(preview.data) ?? s.noData}</dd>
@@ -228,9 +233,11 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             {source ? (
               <dd className="screen-facts__from">
                 <Link to={`/sources/${encodeURIComponent(source.name)}`} className="oik-link">
-                  <span title={source.place} translate="no">
-                    <PathText path={homeRelative(source.place)} />
-                  </span>
+                  <Marquee title={source.place}>
+                    <span translate="no">
+                      <PathText path={homeRelative(source.place)} />
+                    </span>
+                  </Marquee>
                 </Link>
                 <span className="screen-facts__note">
                   {source.failedAtMs != null
@@ -243,9 +250,11 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             ) : folder ? (
               <dd className="screen-facts__from">
                 {folder.place ? (
-                  <span title={folder.path} translate="no">
-                    <PathText path={folderWhere ?? ""} />
-                  </span>
+                  <Marquee>
+                    <span translate="no">
+                      <PathText path={folderWhere ?? ""} />
+                    </span>
+                  </Marquee>
                 ) : (
                   <button
                     type="button"
@@ -255,7 +264,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                     disabled={sync.busy}
                     onClick={() => void sync.run(() => client.showFolder({ space: space.name }))}
                   >
-                    <PathText path={folderWhere ?? ""} />
+                    <Marquee>
+                      <PathText path={folderWhere ?? ""} />
+                    </Marquee>
                   </button>
                 )}
                 <span className="screen-facts__note">
@@ -270,13 +281,15 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           </div>
           <div>
             <dt className="oik-label">{s.factStored}</dt>
-            <dd>{keptOn}</dd>
+            <dd>
+              <Marquee>{keptOn}</Marquee>
+            </dd>
           </div>
           <div>
             <dt className="oik-label">{s.factWho}</dt>
             <dd className="screen-facts__who">
               <AvatarStack names={names} label={s.whoSentence(names)} you={strings.common.you} />
-              <span>{listNames([strings.common.you, ...names])}</span>
+              <Marquee>{listNames([strings.common.you, ...names])}</Marquee>
               <Link to="/sharing">{s.manage}</Link>
             </dd>
           </div>
@@ -312,8 +325,19 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           contacts={contacts.data ?? []}
           shares={shares.data ?? []}
           toneOf={toneOf}
+          publicAllowed={saved}
           onClose={() => setSharing(false)}
           onChange={reload}
+        />
+      )}
+      {saving && (
+        <SaveDialog
+          space={space}
+          onClose={() => setSaving(false)}
+          onSaved={() => {
+            forgetPreviews();
+            spaces.reload();
+          }}
         />
       )}
       {confirming && (
@@ -384,14 +408,14 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           keptOn,
           who: listNames([strings.common.you, ...names]),
         };
-        return folder ? (
+        return folder || saved ? (
           <FolderContents
             key={`${space.name}:${contentsKey}`}
             space={space}
             item={item}
             facts={facts}
             folder={openFolder}
-            placeLabel={folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer)}
+            placeLabel={folder ? (folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer)) : strings.save.savedCollection}
           />
         ) : (
           <Contents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} onImport={() => setImporting(true)} />

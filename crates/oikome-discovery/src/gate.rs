@@ -51,6 +51,8 @@ pub struct Shared {
     turned_away: RwLock<Option<TurnedAway>>,
     /// Contacts may meet here now.
     helping: AtomicBool,
+    /// Public-share methods may be reached by strangers now.
+    public: AtomicBool,
     classifier: Classifier,
     catalog: Option<Arc<OikomeCatalog>>,
     refreshed: std::sync::Mutex<Option<Instant>>,
@@ -80,6 +82,7 @@ impl Shared {
             contacts: RwLock::default(),
             turned_away: RwLock::new(None),
             helping: AtomicBool::new(false),
+            public: AtomicBool::new(false),
             classifier,
             catalog: None,
             refreshed: std::sync::Mutex::new(None),
@@ -164,9 +167,15 @@ impl Shared {
         self.helping.load(Ordering::Relaxed)
     }
 
+    pub fn set_public(&self, on: bool) {
+        self.public.store(on, Ordering::Relaxed);
+    }
+
     /// Whether `peer` may connect from `remote`.
     pub fn admits(&self, peer: &PeerId, remote: &Multiaddr) -> bool {
-        !self.classifier.is_outside(remote) || self.is_contact(peer)
+        !self.classifier.is_outside(remote)
+            || self.public.load(Ordering::Relaxed)
+            || self.is_contact(peer)
     }
 }
 
@@ -298,6 +307,10 @@ mod tests {
         assert!(!shared.admits(&stranger, &internet));
         assert!(!shared.admits(&stranger, &relayed));
         assert!(shared.admits(&contact, &relayed));
+        shared.set_public(true);
+        assert!(shared.admits(&stranger, &internet));
+        shared.set_public(false);
+        assert!(!shared.admits(&stranger, &internet));
 
         // Tests treat this computer as outside.
         let test = Shared::empty(Classifier {

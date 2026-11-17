@@ -20,15 +20,17 @@
 //! file into a SQLite file; [`Api::view_folders_in_place`] turns each into a
 //! collection of the same name that views the same folder, once.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
 
+use arrow_array::{Array, BinaryArray, Int64Array, StringArray};
 use base64::Engine as _;
 use oikome_catalog::{InPlaceSource, Location, LocationFormat};
 use oikome_connect::SourceConfig;
 use oikome_core::CreateSpaceRequest;
-use oikome_node::inplace;
+use oikome_engine::EngineError;
+use oikome_node::{inplace, QueryResult, SessionError};
 
 use crate::sources::slug;
 use crate::{
@@ -334,6 +336,107 @@ fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
     }
 }
 
+fn saved_listing(
+    entries: Vec<inplace::FileEntry>,
+    req: ListFiles,
+) -> Result<FileListing, ApiError> {
+    let folder = req.folder.unwrap_or_default();
+    let folder = folder.trim_matches('/');
+    if !folder.is_empty() && !inplace::is_path_within(folder) {
+        return Err(ApiError::invalid(format!("{folder} is not a folder in it")));
+    }
+    let deep = req.deep == Some(true);
+    let prefix = (!folder.is_empty()).then(|| format!("{folder}/"));
+    let mut files = Vec::new();
+    let mut folders: BTreeMap<String, Vec<inplace::FileEntry>> = BTreeMap::new();
+    for entry in entries {
+        let Some(relative) = prefix
+            .as_deref()
+            .map_or(Some(entry.path.as_str()), |prefix| {
+                entry.path.strip_prefix(prefix)
+            })
+        else {
+            continue;
+        };
+        if req.kind.is_some_and(|kind| kind_of(&entry.kind) != kind) {
+            continue;
+        }
+        if !deep && relative.contains('/') {
+            let first = relative.split('/').next().unwrap_or_default().to_string();
+            folders.entry(first).or_default().push(entry);
+        } else {
+            files.push(entry);
+        }
+    }
+    let descending = req.descending.unwrap_or(false);
+    files.sort_by(|a, b| {
+        let order = match req.sort {
+            Some(FileSort::Name) => a.name.cmp(&b.name),
+            Some(FileSort::Modified) => a.modified.cmp(&b.modified),
+            Some(FileSort::Size) => a.size.cmp(&b.size),
+            Some(FileSort::Kind) => a.kind.cmp(&b.kind),
+            None => {
+                let rank = |entry: &inplace::FileEntry| match entry.kind.as_str() {
+                    inplace::IMAGE => 0,
+                    inplace::NOTE => 1,
+                    inplace::TABLE => 2,
+                    _ => 3,
+                };
+                rank(a).cmp(&rank(b)).then_with(|| a.name.cmp(&b.name))
+            }
+        };
+        if descending {
+            order.reverse()
+        } else {
+            order
+        }
+    });
+    let total = files.len() as u64;
+    let offset = req.offset.unwrap_or(0) as usize;
+    let limit = req.limit.unwrap_or(DEFAULT_LIST).clamp(1, MAX_LIST) as usize;
+    let files = files
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|entry| item_of(entry, false))
+        .collect();
+    let folders = folders
+        .into_iter()
+        .map(|(name, entries)| {
+            let photos = entries
+                .iter()
+                .filter(|entry| entry.kind == inplace::IMAGE)
+                .count() as u64;
+            let notes = entries
+                .iter()
+                .filter(|entry| entry.kind == inplace::NOTE)
+                .count() as u64;
+            let size = entries.iter().map(|entry| entry.size).sum();
+            let cover = entries
+                .iter()
+                .filter(|entry| entry.kind == inplace::IMAGE)
+                .take(3)
+                .cloned()
+                .map(|entry| item_of(entry, false))
+                .collect();
+            FileFolder {
+                name,
+                files: entries.len() as u64,
+                size,
+                modified_ms: None,
+                photos,
+                notes,
+                cover,
+            }
+        })
+        .collect();
+    Ok(FileListing {
+        folders,
+        files,
+        total,
+    })
+}
+
 /// The media type of an original Oikome's image or native media views show.
 fn original_type(name: &str) -> Option<&'static str> {
     let extension = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
@@ -419,7 +522,11 @@ impl Api {
         })
     }
 
-    async fn summary_of(&self, caller: &Caller, name: &str) -> Result<SpaceSummary, ApiError> {
+    pub(crate) async fn summary_of(
+        &self,
+        caller: &Caller,
+        name: &str,
+    ) -> Result<SpaceSummary, ApiError> {
         self.list_spaces(caller, Empty {})
             .await?
             .into_iter()
@@ -1082,6 +1189,135 @@ impl Api {
         Ok(rows)
     }
 
+    async fn saved_entries(
+        &self,
+        space: &str,
+    ) -> Result<Option<Vec<inplace::FileEntry>>, ApiError> {
+        if self.in_place_of(space).is_ok() {
+            return Ok(None);
+        }
+        let session = self.session(None);
+        if !session
+            .readable_relations(space)
+            .await?
+            .iter()
+            .any(|table| table == "_oikome_files")
+        {
+            return Ok(None);
+        }
+        let result = match session
+            .sql(&format!(
+                "SELECT path, name, caption, taken, kind, octet_length(content) AS size, \
+                 CASE WHEN kind = 'note' THEN substr(decode(content), 1, 1000) END AS text \
+                 FROM {}._oikome_files ORDER BY position",
+                oikome_semantic::rewrite::quote_ident(space)
+            ))
+            .await
+        {
+            Ok(result) => result,
+            Err(SessionError::Engine(EngineError::Sql(_))) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let QueryResult::Batches { batches, .. } = result else {
+            return Err(ApiError::internal("saved files returned no rows"));
+        };
+        let mut entries = Vec::new();
+        for batch in batches {
+            let paths = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let names = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let captions = batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let taken = batch
+                .column(3)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let kinds = batch
+                .column(4)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let sizes = batch
+                .column(5)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            let texts = batch
+                .column(6)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                let taken = taken.is_valid(row).then(|| taken.value(row).to_string());
+                let kind = kinds.value(row).to_string();
+                entries.push(inplace::FileEntry {
+                    path: paths.value(row).into(),
+                    name: names.value(row).into(),
+                    kind: kind.clone(),
+                    size: sizes.value(row).max(0) as u64,
+                    modified: taken.clone().unwrap_or_default(),
+                    modified_ms: 0,
+                    title: captions
+                        .is_valid(row)
+                        .then(|| captions.value(row).to_string()),
+                    taken,
+                    written: None,
+                    place: None,
+                    credit: None,
+                    text: texts.is_valid(row).then(|| texts.value(row).to_string()),
+                    thumbnail: kind == inplace::IMAGE,
+                });
+            }
+        }
+        Ok(Some(entries))
+    }
+
+    async fn saved_original(
+        &self,
+        space: &str,
+        path: &str,
+    ) -> Result<Option<(inplace::FileEntry, Vec<u8>)>, ApiError> {
+        let Some(entries) = self.saved_entries(space).await? else {
+            return Ok(None);
+        };
+        let Some(entry) = entries.into_iter().find(|entry| entry.path == path) else {
+            return Err(ApiError::not_found(format!("{space} has no file {path}")));
+        };
+        let literal = entry.path.replace('\'', "''");
+        let result = self
+            .session(None)
+            .sql(&format!(
+                "SELECT content FROM {}._oikome_files WHERE path = '{literal}'",
+                oikome_semantic::rewrite::quote_ident(space)
+            ))
+            .await?;
+        let QueryResult::Batches { batches, .. } = result else {
+            return Err(ApiError::internal("saved file content returned no rows"));
+        };
+        let bytes = batches
+            .first()
+            .and_then(|batch| batch.column(0).as_any().downcast_ref::<BinaryArray>())
+            .filter(|contents| contents.len() == 1)
+            .map(|contents| contents.value(0).to_vec())
+            .ok_or_else(|| ApiError::not_found(format!("{space} has no file {path}")))?;
+        let mut entry = entry;
+        if entry.kind == inplace::NOTE {
+            entry.text = String::from_utf8(bytes.clone()).ok();
+        }
+        Ok(Some((entry, bytes)))
+    }
+
     /// One folder of a collection viewed in place, from its index (so also
     /// while the place is offline): the folders in it and a page of files.
     pub async fn list_files(
@@ -1091,6 +1327,9 @@ impl Api {
     ) -> Result<FileListing, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        if let Some(entries) = self.saved_entries(&req.space).await? {
+            return saved_listing(entries, req);
+        }
         let location = self.in_place_of(&req.space)?;
         let local = matches!(
             &location.format,
@@ -1164,6 +1403,9 @@ impl Api {
     pub async fn read_file(&self, caller: &Caller, req: FileRef) -> Result<FileItem, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        if let Some((entry, _)) = self.saved_original(&req.space, &req.path).await? {
+            return Ok(item_of(entry, false));
+        }
         let location = self.in_place_of(&req.space)?;
         let local = matches!(
             &location.format,
@@ -1181,6 +1423,11 @@ impl Api {
     /// A photo's thumbnail (JPEG), from the index.
     pub async fn file_thumbnail(&self, caller: &Caller, req: FileRef) -> Result<Vec<u8>, ApiError> {
         caller.require_owner()?;
+        if let Some((_, bytes)) = self.saved_original(&req.space, &req.path).await? {
+            return inplace::thumbnail(&bytes)
+                .map(|(jpeg, _, _)| jpeg)
+                .ok_or_else(|| ApiError::not_found("no thumbnail"));
+        }
         let location = self.in_place_of(&req.space)?;
         inplace::thumb(&self.catalog, &location, &req.path)?
             .ok_or_else(|| ApiError::not_found("no thumbnail"))
@@ -1195,6 +1442,30 @@ impl Api {
         range: Option<(u64, Option<u64>)>,
     ) -> Result<Original, ApiError> {
         caller.require_owner()?;
+        if let Some((entry, bytes)) = self.saved_original(&req.space, &req.path).await? {
+            let content_type = original_type(&entry.name)
+                .ok_or_else(|| ApiError::not_found("not an original Oikome shows"))?;
+            let total = bytes.len() as u64;
+            let (start, end) = match range {
+                None => (0, total),
+                Some((start, end)) => {
+                    let end = end.map_or(total, |end| end.saturating_add(1)).min(total);
+                    if start >= end {
+                        return Err(ApiError::invalid("the range is outside the file"));
+                    }
+                    (start, end.min(start.saturating_add(MAX_RANGE)))
+                }
+            };
+            if range.is_none() && total > inplace::MAX_IMAGE_BYTES {
+                return Err(ApiError::invalid("ask for a large original in ranges"));
+            }
+            return Ok(Original {
+                start,
+                total,
+                content_type,
+                bytes: bytes[start as usize..end as usize].to_vec(),
+            });
+        }
         let location = self.in_place_of(&req.space)?;
         let file = inplace::file(&self.catalog, &location, &req.path)?.ok_or_else(|| {
             ApiError::not_found(format!("{} has no file {}", req.space, req.path))

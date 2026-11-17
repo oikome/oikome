@@ -849,7 +849,7 @@ export type Reachable = "local_only" | "opening" | "direct" | "through_contact" 
 /**
  * What the port is open for.
  */
-export type OpenForKind = "share" | "lend";
+export type OpenForKind = "share" | "lend" | "public";
 
 /**
  * One thing the owner allowed to be reached from outside, still going.
@@ -1278,6 +1278,147 @@ thumbnail: boolean, content: FileContent, };
  * One file of a collection viewed in place.
  */
 export type FileRef = { space: string, path: string, };
+
+/**
+ * `save_to`: one deliberate, fixed copy of a collection or selected files.
+ */
+export type SaveTo = { source: string,
+/**
+ * Relative files within an in-place collection; all of them when absent.
+ */
+paths?: Array<string>, destination: SaveDestination, };
+
+/**
+ * Where one Save To writes, and how plain files are named.
+ */
+export type SaveDestination = { "kind": "files",
+/**
+ * Registered storage name; this computer when absent.
+ */
+place: string | null,
+/**
+ * Absolute local folder, or a folder within the storage.
+ */
+path: string,
+/**
+ * Such as `{taken:yyyy}/{taken:MM}`.
+ */
+folder_rule: string,
+/**
+ * Such as `{taken:yyyy-MM-dd} {title}` or `{name}`.
+ */
+name_rule: string, } | { "kind": "space", name: string,
+/**
+ * Registered storage name; this computer when absent.
+ */
+storage: string | null, title: string, cover: string | null, captions: { [key in string]: string }, };
+
+/**
+ * One file written by Save To, with its content identity.
+ */
+export type SavedFile = { path: string, size: number, hash: string, };
+
+/**
+ * The result of one fixed Save To.
+ */
+export type Saved = { files: Array<SavedFile>,
+/**
+ * The new collection, when the destination was a Space.
+ */
+space: SpaceSummary | null, };
+
+/**
+ * `create_public_share`: publish a detached collection with live-query and
+ * snapshot limits chosen by the owner.
+ */
+export type NewPublicShare = { space: string,
+/**
+ * Allow copying through live queries. Query-only is the default.
+ */
+allowCopy?: boolean,
+/**
+ * 1 to 120 requests per caller per minute; 30 by default.
+ */
+requestsPerMinute?: number,
+/**
+ * 1 to 10,000 rows per query; 1,000 by default.
+ */
+maxRows?: number,
+/**
+ * 100 ms to 30 seconds per query; 5 seconds by default.
+ */
+maxMs?: number,
+/**
+ * Strip JPEG GPS metadata in the public snapshot; true by default.
+ */
+removeLocation?: boolean,
+/**
+ * Whether strangers may reach live queries from outside this network.
+ */
+reach?: ReachChoice, };
+
+/**
+ * A file in a signed public manifest.
+ */
+export type PublicSnapshotFile = { path: string, name: string, caption: string | null, taken: string | null, kind: string, hash: string, size: number, };
+
+/**
+ * A public snapshot's signed description of its content.
+ */
+export type PublicManifest = { version: number, owner: string, space: string, title: string, cover: string | null, createdAtMs: number, removeLocation: boolean, allowCopy: boolean, files: Array<PublicSnapshotFile>,
+/**
+ * Ed25519 signature, in lowercase hex.
+ */
+signature: string, };
+
+/**
+ * A snapshot's bytes and manifest, when it was published.
+ */
+export type PublicSnapshot = { hash: string, size: number, manifest: PublicManifest, };
+
+/**
+ * A public share and its current state.
+ */
+export type PublicShare = { id: string, space: string, allowCopy: boolean, requestsPerMinute: number, maxRows: number, maxMs: number, removeLocation: boolean, active: boolean, createdAtMs: number, snapshot: PublicSnapshot | null, };
+
+/**
+ * A public share to inspect, query or revoke.
+ */
+export type PublicShareRef = { id: string, };
+
+/**
+ * One published original in a copy-enabled public snapshot.
+ */
+export type PublicFileRef = { id: string, path: string, };
+
+/**
+ * Start authenticating a visitor for a public share.
+ */
+export type PublicAuthRequest = { id: string,
+/**
+ * An Ed25519 `did:key`, or an Ethereum `did:pkh:eip155` address.
+ */
+did: string, };
+
+/**
+ * The exact EIP-4361 or `did:key` challenge the visitor signs.
+ */
+export type PublicChallenge = { message: string, nonce: string, expiresAtMs: number, };
+
+/**
+ * Finish visitor authentication. Signatures are lowercase or 0x-prefixed hex.
+ */
+export type PublicAuthVerification = { id: string, did: string, message: string, signature: string, };
+
+/**
+ * A short-lived visitor session. Only its token's hash is kept by the node.
+ */
+export type PublicSession = { token: string, did: string, expiresAtMs: number, };
+
+/**
+ * One read-only SQL statement in a visitor's authenticated public session.
+ */
+export type PublicQuery = { id: string, token: string, sql: string, };
 
 /**
  * `read_file_rows`: a page of the rows of one data file (a CSV, TSV,

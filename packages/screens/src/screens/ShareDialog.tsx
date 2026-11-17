@@ -15,6 +15,7 @@ import {
   ErrorText,
   InsetWell,
   Select,
+  Segmented,
   Tile,
   useToast,
 } from "@oikome/ui";
@@ -26,6 +27,7 @@ import { useReachPrompt, toastReach } from "../reach";
 import type { ReachFor } from "../reach";
 import { navigate } from "../router";
 import { strings } from "../strings";
+import { PublicShareDialog } from "./PublicShareDialog";
 
 const s = strings.sharing;
 type Ends = "7" | "30" | "365";
@@ -37,6 +39,7 @@ export function ShareDialog({
   contacts,
   shares,
   toneOf,
+  publicAllowed = false,
   onClose,
   onChange,
 }: {
@@ -47,11 +50,13 @@ export function ShareDialog({
   contacts: Contact[];
   shares: Share[];
   toneOf: (name: string) => TileTone;
+  publicAllowed?: boolean;
   onClose: () => void;
   /** A share was made or stopped: lists behind the dialog reload. */
   onChange: () => void;
 }) {
   const client = useClient();
+  const [channel, setChannel] = useState<"contact" | "public">("contact");
   const [space, setSpace] = useState(collection ?? spaces[0]?.name ?? "");
   const [did, setDid] = useState(contacts[0]?.did ?? "");
   const [access, setAccess] = useState<Access>("view");
@@ -88,6 +93,10 @@ export function ShareDialog({
         <p className="screen-help">{s.inviteBody(name, made.space)}</p>
       </Dialog>
     );
+  }
+
+  if (channel === "public" && publicAllowed) {
+    return <PublicShareDialog collection={space} onClose={onClose} onBack={() => setChannel("contact")} />;
   }
 
   const title = collection ? s.shareTitle(collection) : s.newShare;
@@ -166,6 +175,17 @@ export function ShareDialog({
           }
         }}
       >
+        {publicAllowed && (
+          <Segmented
+            label={s.channel}
+            value={channel}
+            onChange={(value) => setChannel(value as "contact" | "public")}
+            options={[
+              { value: "contact", label: s.contactChannel },
+              { value: "public", label: s.publicChannel },
+            ]}
+          />
+        )}
         {!collection && (
           <Select
             label={s.collectionLabel}

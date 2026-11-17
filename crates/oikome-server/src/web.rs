@@ -61,14 +61,15 @@ use oikome_api::{
     AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant,
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
     ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
-    NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections, PluginFolder,
-    PluginRead, PluginRef, ReadFileRows, ReadRow, ReadRows, RegistryPluginRef, Rows, RunSql,
+    NewPublicShare, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
+    PluginFolder, PluginRead, PluginRef, PublicAuthRequest, PublicAuthVerification, PublicFileRef,
+    PublicQuery, PublicShareRef, ReadFileRows, ReadRow, ReadRows, RegistryPluginRef, Rows, RunSql,
     Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult,
     StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
-    SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
+    SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -430,6 +431,10 @@ impl WebState {
             "create_space" => json_op!(create_space, NewSpace),
             "drop_space" => json_op!(drop_space, SpaceRef),
             "import_files" => json_op!(import_files, ImportFiles),
+            "save_to" => json_op!(save_to, SaveTo),
+            "create_public_share" => json_op!(create_public_share, NewPublicShare),
+            "list_public_shares" => json_op!(list_public_shares, Empty),
+            "revoke_public_share" => json_op!(revoke_public_share, PublicShareRef),
             "view_in_place" => json_op!(view_in_place, ViewInPlace),
             "add_in_place_files" => json_op!(add_in_place_files, AddInPlaceFiles),
             "add_in_place_folder" => json_op!(add_in_place_folder, AddInPlaceFolder),
@@ -741,6 +746,104 @@ impl WebState {
     }
 }
 
+impl WebState {
+    async fn serve_public(&self, path: &str) -> Response {
+        let Some((id, file)) = path
+            .strip_prefix("/public/")
+            .and_then(|path| path.split_once('/'))
+        else {
+            return error(ApiError::not_found("not found"));
+        };
+        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return error(ApiError::not_found("not found"));
+        }
+        let request = PublicShareRef { id: id.into() };
+        let mut response = match file {
+            "manifest.json" => match self.api.public_manifest(request).await {
+                Ok(manifest) => match serde_json::to_vec(&manifest) {
+                    Ok(body) => respond(StatusCode::OK, "application/json", body),
+                    Err(e) => error(ApiError::internal(e)),
+                },
+                Err(e) => error(e),
+            },
+            "snapshot.zip" => match self.api.public_snapshot(request).await {
+                Ok(body) => respond(StatusCode::OK, "application/zip", body),
+                Err(e) => error(e),
+            },
+            _ => {
+                let Some(path) = file.strip_prefix("files/") else {
+                    return error(ApiError::not_found("not found"));
+                };
+                let Some(path) = path
+                    .split('/')
+                    .map(percent_decoded)
+                    .collect::<Option<Vec<_>>>()
+                    .map(|parts| parts.join("/"))
+                else {
+                    return error(ApiError::not_found("not found"));
+                };
+                match self
+                    .api
+                    .public_file(PublicFileRef {
+                        id: id.into(),
+                        path: path.clone(),
+                    })
+                    .await
+                {
+                    Ok(body) => respond(StatusCode::OK, content_type(Path::new(&path)), body),
+                    Err(e) => error(e),
+                }
+            }
+        };
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("*"),
+        );
+        response
+    }
+
+    async fn public_call(&self, path: &str, body: Bytes) -> Response {
+        let Some((id, operation)) = path
+            .strip_prefix("/public/")
+            .and_then(|path| path.split_once('/'))
+        else {
+            return error(ApiError::not_found("not found"));
+        };
+        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return error(ApiError::not_found("not found"));
+        }
+        let mismatched = || ApiError::invalid("the public share id does not match its URL");
+        let mut response = match operation {
+            "challenge" => match parse::<PublicAuthRequest>(&body) {
+                Ok(request) if request.id == id => {
+                    json(self.api.public_auth_challenge(request).await)
+                }
+                Ok(_) => error(mismatched()),
+                Err(e) => error(e),
+            },
+            "verify" => match parse::<PublicAuthVerification>(&body) {
+                Ok(request) if request.id == id => json(self.api.public_auth_verify(request).await),
+                Ok(_) => error(mismatched()),
+                Err(e) => error(e),
+            },
+            "query" => match parse::<PublicQuery>(&body) {
+                Ok(request) if request.id == id => match self.api.public_query(request).await {
+                    Ok(rows) => arrow(rows),
+                    Err(e) => error(e),
+                },
+                Ok(_) => error(mismatched()),
+                Err(e) => error(e),
+            },
+            _ => error(ApiError::not_found("not found")),
+        };
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("*"),
+        );
+        response
+    }
+}
+
 fn secure_headers(headers: &mut HeaderMap) {
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
@@ -931,6 +1034,30 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
         }
         (&Method::GET, "/login") => state.login(parts.uri.query()),
         (&Method::GET, GOOGLE_CALLBACK) => state.google_callback(parts.uri.query()).await,
+        (&Method::OPTIONS, _) if path.starts_with("/public/") => {
+            let mut response = Response::new(Body::empty());
+            *response.status_mut() = StatusCode::NO_CONTENT;
+            let headers = response.headers_mut();
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("*"),
+            );
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                HeaderValue::from_static("GET, POST, OPTIONS"),
+            );
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                HeaderValue::from_static("content-type"),
+            );
+            secure_headers(headers);
+            response
+        }
+        (&Method::GET, _)
+            if path.starts_with("/public/") && path["/public/".len()..].contains('/') =>
+        {
+            state.serve_public(path).await
+        }
         (&Method::GET, _) if path.starts_with("/api/") => {
             error(ApiError::not_found("API calls use POST"))
         }
@@ -950,6 +1077,13 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
             "Oikome is running without its app (start it with --web-root apps/web/dist); \
              the API is at POST /api/<operation>.\n",
         ),
+        (&Method::POST, _) if path.starts_with("/public/") => {
+            let body = match to_bytes(body, MAX_BODY_BYTES).await {
+                Ok(body) => body,
+                Err(_) => return error(ApiError::invalid("public request is too large")),
+            };
+            state.public_call(path, body).await
+        }
         (&Method::POST, _) if path.starts_with("/api/") => {
             if let Err(e) = state.api_request_ok(&parts.headers, host) {
                 return error(e);

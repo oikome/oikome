@@ -1621,6 +1621,27 @@ function partStep(c, D) {
   }
   return `<div class="opts">${opt('part', 'all', D.part, twoLine(t('part.all'), c.kind === 'table' ? t('part.allCols', { count: colCount(c) }) : colCount(c)))}${opt('part', 'some', D.part, twoLine(t(`part.some.${k}`), t(`part.some.${k}.sub`)))}</div>${more}`;
 }
+DLG.saveto = (D) => dlg(t('saveTo'), `
+  <p class="muted" style="margin:0">${t('saveBody')}</p>
+  <div class="field"><span class="label">${t('addTo')}</span><div class="input"><select><option>${t('newCol')}</option><option>${t('plainFiles')}</option></select></div></div>
+  <div class="field"><span class="label">${t('collectionNameLabel')}</span><div class="input"><input value="${esc(D.c)}-saved"></div></div>
+  <div class="field"><span class="label">${t('portfolioTitle')}</span><div class="input"><input value="${esc(D.title)}"></div></div>
+  <div class="box">${t('saveSelection')}</div>`, foot('', cancel() + btn(t('saveOnce'), 'data-act="saveok"', 'btn--primary')));
+
+DLG.public = (D) => {
+  if (D.ready) return dlg(t('publicReady'), `
+    <div class="code-row"><div class="code">http://127.0.0.1:7340/public/7c2f…91a0</div>${btn(`${I('copy')}${t('copy')}`, 'data-act="copy" data-what="inviteCode"')}</div>
+    <p class="muted" style="margin:0">${t(D.mode === 'copy' ? 'publicCopyReady' : 'publicQueryReady')}</p>
+    ${D.signed ? `<div class="box">${t('publicLiveRows')}</div>` : `<button class="btn" data-act="publicsign">${t('visitorSign')}</button>`}
+    <button class="btn" data-act="publicrevoke">${t('revokePublic')}</button>`, foot('', `<button class="btn btn--primary" data-close>${t('done')}</button>`));
+  return dlg(t('publicShare'), `
+    <p class="muted" style="margin:0">${t('publicBody')}</p>
+    <div class="opts">${opt('mode', 'view', D.mode, twoLine(t('queryOnly'), t('queryOnlyBody')))}${opt('mode', 'copy', D.mode, twoLine(t('queryAndCopy'), t('queryCopyBody')))}</div>
+    <div class="box">${t('publicLimits')}</div>
+    <div class="opts">${flagOpt('privacy', true, `<b style="flex:1">${t('publicPrivacy')}</b>`)}</div>`,
+    foot('', cancel() + btn(t('publish'), 'data-act="publicok"', 'btn--primary')));
+};
+
 DLG.share = (D) => {
   const c = C.find((x) => x.name === D.c) || C[0];
   const who = D.to === 'new' ? t('share.whoever') : esc(D.to);
@@ -1640,7 +1661,7 @@ DLG.share = (D) => {
   let body = steps(['step.what', 'step.part', 'step.whom', 'step.how'], D.step);
   if (D.step === 1) body += `<div class="opts">${C.filter((x) => x.kind !== 'empty').map((x) => opt('c', x.name, D.c, `<span class="ico">${I(kindIcon[x.kind])}</span>${nameCell(x.name)}<span class="faint mono" style="font-size:12px">${colCount(x)}</span>`)).join('')}</div>`;
   if (D.step === 2) body += partStep(c, D);
-  if (D.step === 3) body += `<div class="opts">${CONTACTS.map((p) => opt('to', p.n, D.to, `${av(p.n, p.k)}${twoLine(esc(p.n), SHARES.some((s) => s.c === c.name && s.to === p.n && !s.ended) ? t('share.already', { c: c.name }) : t(p.m[0], { c: p.m[1] || '' }))}`)).join('')}${opt('to', 'new', D.to, `<span class="ico">${I('link')}</span>${twoLine(t('share.someoneNew'), t('share.someoneNewSub'))}`)}</div>`;
+  if (D.step === 3) body += `<div class="opts">${CONTACTS.map((p) => opt('to', p.n, D.to, `${av(p.n, p.k)}${twoLine(esc(p.n), SHARES.some((s) => s.c === c.name && s.to === p.n && !s.ended) ? t('share.already', { c: c.name }) : t(p.m[0], { c: p.m[1] || '' }))}`)).join('')}${opt('to', 'public', D.to, `<span class="ico">${I('globe')}</span>${twoLine(t('publicShare'), t('publicBody'))}`)}${opt('to', 'new', D.to, `<span class="ico">${I('link')}</span>${twoLine(t('share.someoneNew'), t('share.someoneNewSub'))}`)}</div>`;
   if (D.step === 4) {
     const what = partOf(c, D);
     const end = until[1] ? t('share.untilDate', { date: md(until[1]) }) : t('share.noEndDate');
@@ -2159,14 +2180,20 @@ const ACT = {
   lb: (el) => upd({ i: (D.i + +el.dataset.d + D.set.length) % D.set.length }),
   colmore: (el) => {
     const n = el.dataset.c, c = C.find((x) => x.name === n), s = SOURCES.find((x) => x.name === c.source);
-    menu(el, [s ? [t('syncNow'), 'sync', () => doSync(s)] : null, [fileManagerAction(), 'folder', () => toast(t('toast.finder', { path: n }))], [t('cm.whoSees'), 'eye', () => go('access')], '-',
+    menu(el, [s ? [t('syncNow'), 'sync', () => doSync(s)] : null, [fileManagerAction(), 'folder', () => toast(t('toast.finder', { path: n }))], [t('cm.whoSees'), 'eye', () => go('access')],
+      [t('saveTo'), 'download', () => open('saveto', { c: n, title: c.label || n })], '-',
       [t('cm.remove'), 'remove', () => confirmDlg(t('cm.removeTitle', { c: n }), t(s ? 'cm.removeBodySrc' : 'cm.removeBody', { app: s ? s.name : '' }), t('remove'), () => removeCollection(n))]].filter(Boolean));
   },
+  saveok: () => { close(); toast(t('saveDone')); },
+  publicok: () => upd({ ready: true }),
+  publicsign: () => upd({ signed: true }),
+  publicrevoke: () => { close(); toast(t('publicRevoked')); },
   share: (el) => {
     const c = el.dataset.c;
     open('share', { step: c ? 2 : 1, c: c || 'reading-list', part: (c || 'reading-list') === 'reading-list' ? 'some' : 'all', off: ['Rating', 'My notes'], tags: ['reading'], rooms: ['Living room', 'Kitchen'], to: el.dataset.to || 'Sam', mode: 'live', until: '1m' });
   },
   shareok: () => {
+    if (D.to === 'public') { open('public', { c: D.c, mode: 'view', ready: false, signed: false }); return; }
     if (S.reach === 'ask' && D.step !== 'reach') { upd({ step: 'reach', dontAsk: false }); return; }
     const to = D.to === 'new' ? 'Invite' : D.to;
     SHARES.forEach((s) => { if (s.c === D.c && s.to === to) s.ended = true; });

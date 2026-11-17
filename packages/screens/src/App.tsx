@@ -5,7 +5,7 @@
 // shows. Every platform (the web now, desktop and phone later) renders this
 // with its own NodeClient.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Card, EmptyState, ErrorText, Icon, Status, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
@@ -367,7 +367,7 @@ function Shell({
     navigate(placePath(next));
   };
   // ⌘K (Ctrl+K) opens the palette from anywhere.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();

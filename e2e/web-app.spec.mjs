@@ -546,7 +546,7 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   const box = palette.getByRole("combobox", { name: "Search" });
   // ⌘K is listened for once the app's frame is on the page.
   await expect(page.getByRole("button", { name: /Search everything/ })).toBeVisible();
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Meta+k");
   await expect(palette).toBeVisible();
 
   // A photo by its caption, accents aside, shown with its picture.
@@ -585,7 +585,7 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   await expect(page).toHaveURL(/\/collections\/oikome-guide$/);
 
   // A row of a table, field by field; the column it matched in is named.
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Meta+k");
   await box.fill("airport");
   const metro = palette.getByRole("group", { name: "Rows" }).getByRole("option", { name: /Metro to the airport/ });
   await expect(metro).toContainText("spending");
@@ -597,11 +597,11 @@ test("⌘K searches what the collections hold, and a hit opens that one on its o
   await expect(page).toHaveURL(/\/collections\/spending$/);
 
   // A table with no key opens its collection; nothing found says so.
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Meta+k");
   await box.fill("milk");
   await palette.getByRole("group", { name: "Rows" }).getByRole("option", { name: /buy milk/ }).click();
   await expect(page).toHaveURL(/\/collections\/notes$/);
-  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Meta+k");
   await box.fill("zzqxv");
   await expect(palette.getByText("Nothing matches “zzqxv”.")).toBeVisible();
   await page.keyboard.press("Escape");

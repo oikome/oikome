@@ -7,6 +7,8 @@
 | [`content-viewing.md`](content-viewing.md) | The agreed content-viewing direction and delivery plan: light core viewers, safe editing, local opening and optional content plugins | English |
 | [`roadmap.md`](roadmap.md) | The consolidated app implementation queue: current facts, PR stages, data-source targets, plugin capabilities, Home composition and network access | English |
 | [`data-analysis.md`](data-analysis.md) | The agreed boundary between ordinary content, internal analysis, existing technical datasets and migrations | English |
+| [`knowledge-schema.md`](knowledge-schema.md) | Draft: the schema for knowledge an AI can read (chunks, vectors, media evidence, skills) and for analysis tables, with conversions, MCP access and delivery steps | English |
+| [`research/knowledge-bases.md`](research/knowledge-bases.md) | Research notes behind the draft: knowledge-base applications, Lance and table formats, embedding models, skills and MCP | English |
 | [`prototype/`](prototype/prototype.html) | The design folder: the clickable prototype of the apps (`prototype.html`, nine languages in `i18n/`, photos in `lisbon/`) and the design references (`references/`) | — |
 | [`../tests/scenarios/`](../tests/scenarios/README.md) | The complete real-node acceptance workspace and fresh first-run mode, with one-command browser opening and isolated tests | English |
 

@@ -8,6 +8,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -154,7 +155,29 @@ function validPsd() {
   return psd;
 }
 
+/**
+ * The project's own documents as a knowledge base: the agent protocol and
+ * every design document, copied as they are at launch so the workspace never
+ * writes into the repository.
+ */
+function copyProjectDocs(root) {
+  const target = resolve(root, "oikome-docs");
+  mkdirSync(target, { recursive: true });
+  copyFileSync(join(REPO, "AGENT.md"), join(target, "AGENT.md"));
+  const copy = (from, to) => {
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== "prototype") copy(join(from, entry.name), join(to, entry.name));
+      else if (entry.isFile() && entry.name.endsWith(".md")) {
+        mkdirSync(to, { recursive: true });
+        copyFileSync(join(from, entry.name), join(to, entry.name));
+      }
+    }
+  };
+  copy(join(REPO, "docs"), join(target, "docs"));
+}
+
 function generateFiles(root) {
+  copyProjectDocs(root);
   const photos = join(REPO, "docs", "prototype", "lisbon", "pick");
   for (const [source, target] of [["2-tram-of-line-28e-on-rua-augusto.jpg", "Tram 28E.jpg"], ["4-pasteis-de-belem-4128575449.jpg", "Pastéis de Belém.jpg"], ["6-sunset-in-lisbon-36542861635.jpg", "Sunset.jpg"]]) {
     const destination = resolve(root, "nas-mount", "Oikome", "photos", target);

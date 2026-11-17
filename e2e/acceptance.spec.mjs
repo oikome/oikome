@@ -32,7 +32,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.goto(running.loginLink);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await page.goto(`${running.base}/collections`);
-    await expect(page.locator(".screen-cover")).toHaveCount(7);
+    await expect(page.locator(".screen-cover")).toHaveCount(8);
     expect(pdfRequests).toHaveLength(0);
     const mediaCover = page.locator('a.screen-cover[href="/collections/media"]');
     await expect(mediaCover.locator(".screen-file-collage")).toBeVisible();
@@ -173,6 +173,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(page.locator(".screen-series")).toBeVisible();
     await page.goto(`${running.base}/collections/notes`);
     await expect(page.getByText("Lisbon, slowly").first()).toBeVisible();
+    // The project's own documents, as a knowledge base: the agent protocol
+    // at the top and the design documents in their folder, read in full.
+    await page.goto(`${running.base}/collections/oikome-docs`);
+    await expect(page.locator("a.screen-ftile", { hasText: "AGENT.md" })).toBeVisible();
+    await page.locator(".screen-cover--button", { hasText: "docs" }).click();
+    await page.locator("a.screen-ftile").filter({ has: page.getByTitle("architecture.md", { exact: true }) }).click();
+    const architecture = page.getByRole("dialog", { name: "architecture.md" });
+    await expect(architecture.getByRole("heading", { name: "Oikome — Architecture" })).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.goto(`${running.base}/collections/photos`);
     await expect(page.locator(".screen-facts")).toContainText("NAS Mounted Folder");
     await page.locator("a.screen-ftile", { hasText: "Tram 28E.jpg" }).click();

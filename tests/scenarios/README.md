@@ -6,12 +6,13 @@ One command starts one complete acceptance workspace. It uses real Oikome nodes,
 npm run acceptance
 ```
 
-This opens the main workspace at `http://127.0.0.1:7342` and prints a second peer's loopback address. The full workspace deliberately uses only seven purposeful collections rather than duplicating the ordinary first-run examples:
+This opens the main workspace at `http://127.0.0.1:7342` and prints a second peer's loopback address. The full workspace deliberately uses only eight purposeful collections rather than duplicating the ordinary first-run examples:
 
 - `photos`: original photos read from the mounted-NAS-folder test double and shared with the real second node;
 - `media`: local audio, video and SVG;
 - `notes`: one meaningful Markdown document;
 - `content-files`: code, structured files, valid PDF/PSD documents, and deliberately damaged or unsafe negative cases;
+- `oikome-docs`: this project's own `AGENT.md` and design documents under `docs/`, copied at launch and viewed in place, as a knowledge base for AI context and search;
 - `readings`: 72 hours of sensor rows written by the real CSV connector;
 - `reading-list`: the `books` table within one collection, stored through the drive-sync-folder test double;
 - `rustfs-archive`: family archive metadata stored through real RustFS with encryption.

@@ -27,7 +27,9 @@ use axum::Router;
 use base64::Engine as _;
 use common::Node;
 use http_body_util::BodyExt;
-use oikome_api::Api;
+use oikome_api::{
+    Api, Caller, NewPublicShare, PublicShareRef, SaveDestination, SaveTo, ViewInPlace,
+};
 use oikome_node::SecretKind;
 use oikome_server::web::{login_file, WebApp, LOGIN_TTL, MAX_BODY_BYTES};
 use oikome_vfs::dropbox::{Endpoints as DropboxEndpoints, FILES_SCOPE as DROPBOX_SCOPE};
@@ -424,6 +426,97 @@ async fn the_app_is_served_with_a_strict_policy() {
     .unwrap()
     .with_web_root(empty.path())
     .is_err());
+}
+
+#[tokio::test]
+async fn public_snapshots_need_no_owner_session_and_revocation_closes_them() {
+    let web = web(LOGIN_TTL);
+    let temporary = tempfile::tempdir().unwrap();
+    let source = temporary.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("note.txt"), "published").unwrap();
+    let api = Api::new(web.node.catalog.clone(), web.node.engines.clone());
+    api.view_in_place(
+        &Caller::Owner,
+        ViewInPlace {
+            place: None,
+            path: source.to_string_lossy().into_owned(),
+            name: Some("source".into()),
+            files: None,
+        },
+    )
+    .await
+    .unwrap();
+    api.save_to(
+        &Caller::Owner,
+        SaveTo {
+            source: "source".into(),
+            paths: None,
+            destination: SaveDestination::Space {
+                name: "published".into(),
+                storage: None,
+                title: "Published notes".into(),
+                cover: None,
+                captions: Default::default(),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let share = api
+        .create_public_share(
+            &Caller::Owner,
+            NewPublicShare {
+                space: "published".into(),
+                allow_copy: None,
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let manifest = web
+        .get(&format!("/public/{}/manifest.json", share.id))
+        .await;
+    assert_eq!(manifest.status(), StatusCode::OK);
+    assert_eq!(manifest.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    assert_eq!(json(manifest).await["title"], "Published notes");
+    let snapshot = web.get(&format!("/public/{}/snapshot.zip", share.id)).await;
+    assert_eq!(snapshot.status(), StatusCode::OK);
+    assert_eq!(snapshot.headers()[header::CONTENT_TYPE], "application/zip");
+    let bytes = snapshot.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        blake3::hash(&bytes).to_string(),
+        share.snapshot.unwrap().hash
+    );
+
+    let cookie = web.login().await;
+    let response = web
+        .send(
+            web.api("revoke_public_share")
+                .header(header::COOKIE, cookie)
+                .body(Body::from(
+                    serde_json::to_vec(&PublicShareRef {
+                        id: share.id.clone(),
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!json(response).await["active"].as_bool().unwrap());
+    for file in ["manifest.json", "snapshot.zip"] {
+        assert_eq!(
+            web.get(&format!("/public/{}/{file}", share.id))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
 }
 
 // ----- Connecting Google Drive (3.4c) -----

@@ -1328,6 +1328,61 @@ export type Saved = { files: Array<SavedFile>,
 space: SpaceSummary | null, };
 
 /**
+ * `create_public_share`: publish a detached collection with live-query and
+ * snapshot limits chosen by the owner.
+ */
+export type NewPublicShare = { space: string,
+/**
+ * Allow copying through live queries. Query-only is the default.
+ */
+allowCopy?: boolean,
+/**
+ * 1 to 120 requests per caller per minute; 30 by default.
+ */
+requestsPerMinute?: number,
+/**
+ * 1 to 10,000 rows per query; 1,000 by default.
+ */
+maxRows?: number,
+/**
+ * 100 ms to 30 seconds per query; 5 seconds by default.
+ */
+maxMs?: number,
+/**
+ * Strip JPEG GPS metadata in the public snapshot; true by default.
+ */
+removeLocation?: boolean, };
+
+/**
+ * A file in a signed public manifest.
+ */
+export type PublicSnapshotFile = { path: string, name: string, caption: string | null, taken: string | null, kind: string, hash: string, size: number, };
+
+/**
+ * A public snapshot's signed description of its content.
+ */
+export type PublicManifest = { version: number, owner: string, space: string, title: string, cover: string | null, createdAtMs: number, removeLocation: boolean, files: Array<PublicSnapshotFile>,
+/**
+ * Ed25519 signature, in lowercase hex.
+ */
+signature: string, };
+
+/**
+ * A snapshot's bytes and manifest, when it was published.
+ */
+export type PublicSnapshot = { hash: string, size: number, manifest: PublicManifest, };
+
+/**
+ * A public share and its current state.
+ */
+export type PublicShare = { id: string, space: string, allowCopy: boolean, requestsPerMinute: number, maxRows: number, maxMs: number, removeLocation: boolean, active: boolean, createdAtMs: number, snapshot: PublicSnapshot | null, };
+
+/**
+ * A public share to inspect, query or revoke.
+ */
+export type PublicShareRef = { id: string, };
+
+/**
  * `read_file_rows`: a page of the rows of one data file (a CSV, TSV,
  * Parquet or JSON, at any folder) of a collection that views a folder in
  * place, read where the file is, as an Arrow IPC stream.

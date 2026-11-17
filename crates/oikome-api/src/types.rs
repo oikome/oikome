@@ -442,6 +442,92 @@ pub struct Saved {
     pub space: Option<SpaceSummary>,
 }
 
+/// `create_public_share`: publish a detached collection with live-query and
+/// snapshot limits chosen by the owner.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct NewPublicShare {
+    pub space: String,
+    /// Allow copying through live queries. Query-only is the default.
+    #[serde(default)]
+    pub allow_copy: Option<bool>,
+    /// 1 to 120 requests per caller per minute; 30 by default.
+    #[serde(default)]
+    pub requests_per_minute: Option<u32>,
+    /// 1 to 10,000 rows per query; 1,000 by default.
+    #[serde(default)]
+    pub max_rows: Option<u32>,
+    /// 100 ms to 30 seconds per query; 5 seconds by default.
+    #[serde(default)]
+    pub max_ms: Option<u64>,
+    /// Strip JPEG GPS metadata in the public snapshot; true by default.
+    #[serde(default)]
+    pub remove_location: Option<bool>,
+}
+
+/// A file in a signed public manifest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicSnapshotFile {
+    pub path: String,
+    pub name: String,
+    pub caption: Option<String>,
+    pub taken: Option<String>,
+    pub kind: String,
+    pub hash: String,
+    pub size: u64,
+}
+
+/// A public snapshot's signed description of its content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicManifest {
+    pub version: u32,
+    pub owner: String,
+    pub space: String,
+    pub title: String,
+    pub cover: Option<String>,
+    pub created_at_ms: u64,
+    pub remove_location: bool,
+    pub files: Vec<PublicSnapshotFile>,
+    /// Ed25519 signature, in lowercase hex.
+    pub signature: String,
+}
+
+/// A snapshot's bytes and manifest, when it was published.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicSnapshot {
+    pub hash: String,
+    pub size: u64,
+    pub manifest: PublicManifest,
+}
+
+/// A public share and its current state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicShare {
+    pub id: String,
+    pub space: String,
+    pub allow_copy: bool,
+    pub requests_per_minute: u32,
+    pub max_rows: u32,
+    pub max_ms: u64,
+    pub remove_location: bool,
+    pub active: bool,
+    pub created_at_ms: u64,
+    #[serde(default)]
+    pub snapshot: Option<PublicSnapshot>,
+}
+
+/// A public share to inspect, query or revoke.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicShareRef {
+    pub id: String,
+}
+
 /// `read_file_rows`: a page of the rows of one data file (a CSV, TSV,
 /// Parquet or JSON, at any folder) of a collection that views a folder in
 /// place, read where the file is, as an Arrow IPC stream.

@@ -41,6 +41,7 @@ mod lending;
 mod network;
 mod places;
 mod plugins;
+mod public;
 mod registry;
 mod save;
 mod search;

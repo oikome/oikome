@@ -30,6 +30,7 @@ base64 = { workspace = true }
 # Assistants' tokens: made from the system's randomness, kept as BLAKE3 hashes.
 blake3 = { workspace = true }
 getrandom = { workspace = true }
+hex = "0.4.3"
 # Official catalog downloads, bounded streaming and verified ZIP packages.
 futures = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }

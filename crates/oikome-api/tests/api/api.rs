@@ -4625,6 +4625,151 @@ async fn save_to_space_detaches_connector_tables() {
     }
 }
 
+#[tokio::test]
+async fn public_snapshot_is_signed_private_and_revocable() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("source");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("a.txt"), "first").unwrap();
+    let tiff = [
+        b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x25, 0x88, 4, 0, 0, 0, 0, 0,
+    ];
+    let mut jpeg = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(8, 8, image::Rgb([120, 80, 40])))
+        .write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+    let mut with_gps = b"Exif\0\0".to_vec();
+    with_gps.extend_from_slice(&tiff);
+    let mut app = vec![0xff, 0xe1];
+    app.extend_from_slice(&((with_gps.len() as u16 + 2).to_be_bytes()));
+    app.extend_from_slice(&with_gps);
+    jpeg.splice(2..2, app);
+    std::fs::write(root.join("b.jpg"), jpeg).unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("source".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .save_to(
+            &OWNER,
+            SaveTo {
+                source: "source".into(),
+                paths: None,
+                destination: SaveDestination::Space {
+                    name: "trip".into(),
+                    storage: None,
+                    title: "A weekend".into(),
+                    cover: Some("b.jpg".into()),
+                    captions: HashMap::from([("a.txt".into(), "First caption".into())]),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let share = n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "trip".into(),
+                allow_copy: None,
+                requests_per_minute: Some(10),
+                max_rows: Some(100),
+                max_ms: Some(1_000),
+                remove_location: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(share.active);
+    let manifest = n
+        .api
+        .public_manifest(PublicShareRef {
+            id: share.id.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(manifest.title, "A weekend");
+    assert_eq!(manifest.cover.as_deref(), Some("b.jpg"));
+    assert_eq!(manifest.files.len(), 2);
+    assert!(manifest.remove_location);
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "version": manifest.version,
+        "owner": manifest.owner,
+        "space": manifest.space,
+        "title": manifest.title,
+        "cover": manifest.cover,
+        "createdAtMs": manifest.created_at_ms,
+        "removeLocation": manifest.remove_location,
+        "files": manifest.files,
+    }))
+    .unwrap();
+    n.engines
+        .identity()
+        .unwrap()
+        .did()
+        .verify(&payload, &hex::decode(&manifest.signature).unwrap())
+        .unwrap();
+    let bytes = n
+        .api
+        .public_snapshot(PublicShareRef {
+            id: share.id.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        blake3::hash(&bytes).to_string(),
+        share.snapshot.unwrap().hash
+    );
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    use std::io::Read;
+    let mut photo = Vec::new();
+    zip.by_name("b.jpg")
+        .unwrap()
+        .read_to_end(&mut photo)
+        .unwrap();
+    assert!(!photo.windows(2).any(|pair| pair == [0x25, 0x88]));
+    let photo_file = manifest
+        .files
+        .iter()
+        .find(|file| file.path == "b.jpg")
+        .unwrap();
+    assert_eq!(blake3::hash(&photo).to_string(), photo_file.hash);
+    let revoked = n
+        .api
+        .revoke_public_share(
+            &OWNER,
+            PublicShareRef {
+                id: share.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!revoked.active);
+    assert!(n
+        .api
+        .public_snapshot(PublicShareRef {
+            id: share.id.clone()
+        })
+        .await
+        .is_err());
+    let shares = n.api.list_public_shares(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(shares.len(), 1);
+    assert!(!shares[0].active);
+}
+
 fn image_png(out: &mut Vec<u8>) {
     image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(32, 16, |x, y| {
         image::Rgb([x as u8 * 8, y as u8 * 16, 120])

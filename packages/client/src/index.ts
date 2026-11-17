@@ -45,6 +45,10 @@ import type {
   ListShares,
   NewShare,
   NewSpace,
+  NewPublicShare,
+  PublicManifest,
+  PublicShare,
+  PublicShareRef,
   NodeInfo,
   NodeName,
   Plugin,
@@ -188,6 +192,12 @@ export interface NodeClient {
   importFiles(request: ImportFiles): Promise<SpaceSummary>;
   /** Save a fixed selection as plain files or a detached collection. */
   saveTo(request: SaveTo): Promise<Saved>;
+  createPublicShare(request: NewPublicShare): Promise<PublicShare>;
+  listPublicShares(): Promise<PublicShare[]>;
+  revokePublicShare(request: PublicShareRef): Promise<PublicShare>;
+  publicManifest(request: PublicShareRef): Promise<PublicManifest>;
+  publicSnapshot(request: PublicShareRef): Promise<Uint8Array>;
+  publicSnapshotUrl(request: PublicShareRef): string;
   /** A collection that views a folder where it is; nothing is copied. */
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
   /** Add selected original files to a collection without copying them. */
@@ -277,13 +287,11 @@ export class HttpClient implements NodeClient {
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
-  async #post(operation: string, request: unknown): Promise<Response> {
+  async #request(path: string, init?: RequestInit): Promise<Response> {
     let response: Response;
     try {
-      response = await this.#fetch(`${this.#base}/api/${operation}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request ?? {}),
+      response = await this.#fetch(`${this.#base}${path}`, {
+        ...init,
         credentials: "same-origin",
       });
     } catch (e) {
@@ -306,6 +314,14 @@ export class HttpClient implements NodeClient {
       throw new OikomeError(code, message, response.status, reason, params);
     }
     return response;
+  }
+
+  #post(operation: string, request: unknown): Promise<Response> {
+    return this.#request(`/api/${operation}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request ?? {}),
+    });
   }
 
   async #json<T>(operation: string, request: unknown): Promise<T> {
@@ -543,6 +559,32 @@ export class HttpClient implements NodeClient {
 
   saveTo(request: SaveTo): Promise<Saved> {
     return this.#json("save_to", request);
+  }
+
+  createPublicShare(request: NewPublicShare): Promise<PublicShare> {
+    return this.#json("create_public_share", request);
+  }
+
+  listPublicShares(): Promise<PublicShare[]> {
+    return this.#json("list_public_shares", {});
+  }
+
+  revokePublicShare(request: PublicShareRef): Promise<PublicShare> {
+    return this.#json("revoke_public_share", request);
+  }
+
+  async publicManifest(request: PublicShareRef): Promise<PublicManifest> {
+    const response = await this.#request(`/public/${request.id}/manifest.json`);
+    return (await response.json()) as PublicManifest;
+  }
+
+  async publicSnapshot(request: PublicShareRef): Promise<Uint8Array> {
+    const response = await this.#request(this.publicSnapshotUrl(request));
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  publicSnapshotUrl(request: PublicShareRef): string {
+    return `${this.#base}/public/${request.id}/snapshot.zip`;
   }
 
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary> {

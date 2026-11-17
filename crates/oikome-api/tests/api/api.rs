@@ -1946,6 +1946,20 @@ async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinatio
         .unwrap();
     let entries = tables.iter().find(|table| table.name == "entries").unwrap();
     assert_eq!(entries.rows, Some(2));
+    let second = n
+        .api
+        .add_source(
+            &OWNER,
+            request(Some("finance"), Some("other"), Some("second-import")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.space, "finance");
+    assert_eq!(second.table.as_deref(), Some("other"));
+    assert_eq!(second.plugin, None);
+    assert_eq!(second.capability, None);
+    let registered = n.catalog.get_source("bank-import").unwrap();
+    assert_eq!(registered.target.table.as_deref(), Some("entries"));
     assert!(n
         .api
         .add_source(
@@ -1976,6 +1990,60 @@ async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinatio
         .unwrap();
     assert_eq!(legacy.space, "legacy");
     assert!(n.catalog.get_source("legacy").unwrap().space.is_none());
+}
+
+#[tokio::test]
+async fn a_plugin_source_records_its_collection_table_and_capability() {
+    let n = node();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "library".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("flomo".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let html = root.join("memos.html");
+    std::fs::write(
+        &html,
+        "<html><body><div class=\"memo\"><div class=\"time\">2026-01-01 10:00:00</div><div class=\"content\"><p>hello</p></div></div></body></html>",
+    )
+    .unwrap();
+    let source = n
+        .api
+        .add_source(
+            &OWNER,
+            NewSource {
+                kind: SourceKind::FlomoExport,
+                path: html.to_string_lossy().into_owned(),
+                space: Some("library".into()),
+                table: None,
+                name: Some("flomo-export".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(source.space, "library");
+    assert_eq!(source.table.as_deref(), Some("memos"));
+    assert_eq!(source.plugin.as_deref(), Some("flomo"));
+    assert_eq!(source.capability.as_deref(), Some("flomo-export"));
+    assert!(n.catalog.get_space("flomo-export").is_err());
+    let registered = n.catalog.get_source("flomo-export").unwrap();
+    assert_eq!(registered.target.table.as_deref(), Some("memos"));
 }
 
 /// A source can be paused and resumed; removed, its collection stays, and

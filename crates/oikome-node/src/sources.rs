@@ -34,7 +34,7 @@ use std::time::Duration;
 use arrow_array::{Array, ArrayRef, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
-use oikome_catalog::{SourceDef, SourceFailure};
+use oikome_catalog::{SourceDef, SourceFailure, SourceTarget};
 use oikome_connect::{ConnectError, Connector, Pull, SourceConfig, TableDef, Value};
 use oikome_core::{CatalogError, CreateSpaceRequest, SpaceKind};
 use oikome_engine::name::quote_ident;
@@ -479,8 +479,16 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
-        self.add_source_inner(name, name, config, every, token, true)
-            .await
+        self.add_source_inner(
+            name,
+            name,
+            config,
+            every,
+            token,
+            true,
+            SourceTarget::default(),
+        )
+        .await
     }
 
     /// Add a source into an existing transactional Space chosen by the owner.
@@ -492,7 +500,28 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
-        self.add_source_inner(name, space, config, every, token, false)
+        self.add_source_inner(
+            name,
+            space,
+            config,
+            every,
+            token,
+            false,
+            SourceTarget::default(),
+        )
+        .await
+    }
+
+    pub async fn add_source_to_target(
+        &self,
+        name: &str,
+        space: &str,
+        target: SourceTarget,
+        config: SourceConfig,
+        every: Option<Duration>,
+        token: Option<Zeroizing<String>>,
+    ) -> Result<PullReport, SessionError> {
+        self.add_source_inner(name, space, config, every, token, false, target)
             .await
     }
 
@@ -504,6 +533,7 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
         create_space: bool,
+        target: SourceTarget,
     ) -> Result<PullReport, SessionError> {
         self.deny_principal("adding a source")?;
         let settings = serde_json::to_value(&config)
@@ -512,9 +542,10 @@ impl OikomeSession {
             self.catalog
                 .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
         } else {
-            self.catalog.add_source_to(
+            self.catalog.add_source_to_target(
                 name,
                 space,
+                target,
                 settings,
                 every.map(|e| e.as_secs().max(60)),
             )?;

@@ -387,7 +387,11 @@ space: string,
 /**
  * The table it writes, when the connector has one main table.
  */
-table: string | null, kind: SourceKind,
+table: string | null,
+/**
+ * The package and capability that produced this target, when plugin-driven.
+ */
+plugin?: string, capability?: string, kind: SourceKind,
 /**
  * The folder or file it reads, or the service it asks.
  */

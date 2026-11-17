@@ -835,6 +835,13 @@ pub struct SourceSummary {
     pub space: String,
     /// The table it writes, when the connector has one main table.
     pub table: Option<String>,
+    /// The package and capability that produced this target, when plugin-driven.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub capability: Option<String>,
     pub kind: SourceKind,
     /// The folder or file it reads, or the service it asks.
     pub place: String,

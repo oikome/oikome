@@ -37,7 +37,7 @@ use crate::{
     encode_rows, now_ms, Api, ApiError, Caller, Empty, ErrorCode, InstallPlugin,
     McpClientCapability, McpClientConfig, McpConfigFormat, Plugin, PluginCapabilities,
     PluginCapabilityText, PluginCardCapability, PluginCollections, PluginColumn, PluginFolder,
-    PluginRead, PluginRef, PluginShape, PluginText, Rows,
+    PluginRead, PluginRef, PluginShape, PluginText, Rows, SourceKind,
 };
 
 /// The bridge every plugin page loads first (`/plugins/sdk.js`).
@@ -684,6 +684,25 @@ impl Api {
 
     fn installed(&self) -> Result<Vec<Installed>, ApiError> {
         read_private(&self.plugins_path())
+    }
+
+    pub(crate) fn source_plugin(
+        &self,
+        kind: SourceKind,
+    ) -> Result<Option<(String, String)>, ApiError> {
+        self.ensure_built_ins()?;
+        for installed in self.installed()? {
+            let package = installed.plugin();
+            if let Some(source) = package
+                .capabilities
+                .sources
+                .iter()
+                .find(|source| source.kind == kind)
+            {
+                return Ok(Some((package.id, source.id.clone())));
+            }
+        }
+        Ok(None)
     }
 
     pub(crate) fn installed_plugin(&self, id: &str) -> Result<Installed, ApiError> {

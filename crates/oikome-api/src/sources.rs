@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use oikome_catalog::SourceDef;
+use oikome_catalog::{SourceDef, SourceTarget};
 use oikome_connect::csv::CsvSource;
 use oikome_connect::{Connector, SourceConfig, Value};
 
@@ -54,14 +54,16 @@ fn place_key(place: &str) -> String {
 
 fn summary(def: &SourceDef, config: &SourceConfig, pulled_at_ms: Option<u64>) -> SourceSummary {
     let (kind, place) = kind_and_place(config);
-    let table = match config {
+    let table = def.target.table.clone().or_else(|| match config {
         SourceConfig::Csv { table, .. } => Some(table.name.clone()),
         _ => None,
-    };
+    });
     SourceSummary {
         name: def.name.clone(),
         space: def.space().to_string(),
         table,
+        plugin: def.target.plugin.clone(),
+        capability: def.target.capability.clone(),
         kind,
         place,
         every_secs: def.every_secs,
@@ -380,8 +382,14 @@ impl Api {
                 .find(|name| self.catalog.get_source(name).is_err())
                 .unwrap_or(base)
         });
+        let (plugin, capability) = self.source_plugin(req.kind)?.unzip();
+        let target = SourceTarget {
+            table: Some(writes.to_string()),
+            plugin,
+            capability,
+        };
         self.session(None)
-            .add_source_to(&name, space, config, Some(EVERY), None)
+            .add_source_to_target(&name, space, target, config, Some(EVERY), None)
             .await?;
         self.update_settings(|s| s.removed_sources.remove(&place))?;
         self.list_sources(caller, Empty {})

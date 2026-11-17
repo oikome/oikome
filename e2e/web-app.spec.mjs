@@ -1256,7 +1256,9 @@ test("removing an MCP plugin hides its client until the owner restores it", asyn
 
   await page.goto(`${base}/plugins`);
   await page.getByRole("button", { name: "Add Kimi Code", exact: true }).click();
+  const installed = page.waitForResponse((response) => response.url().endsWith("/api/install_plugin") && response.ok());
   await page.getByRole("dialog", { name: "Add Kimi Code" }).getByRole("button", { name: "Add", exact: true }).click();
+  await installed;
   await page.goto(`${base}/assistants`);
   await page.getByRole("button", { name: "Connect MCP Client" }).click();
   await expect(page.getByRole("dialog", { name: "Connect MCP Client" }).getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();

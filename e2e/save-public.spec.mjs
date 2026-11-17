@@ -69,7 +69,7 @@ test("Save To and public sharing work end to end without an owner session", asyn
     await plain.getByLabel("Folder naming rule").fill("");
     await plain.getByRole("button", { name: "Save once" }).click();
     await expect(plain).toHaveCount(0);
-    expect(readFileSync(join(running.files, "exports", "Reading.md"), "utf8")).toContain("Lisbon, slowly");
+    expect(readFileSync(join(running.files, "exports", "reading.md"), "utf8")).toContain("Lisbon, slowly");
   } finally {
     await running.stop();
     rmSync(parent, { recursive: true, force: true });

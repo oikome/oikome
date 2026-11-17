@@ -420,6 +420,12 @@ impl WebState {
                     Err(e) => error(e),
                 }
             };
+            (boxed $method:ident, $request:ty) => {
+                match parse::<$request>(&body) {
+                    Ok(request) => json(Box::pin(api.$method(&caller, request)).await),
+                    Err(e) => error(e),
+                }
+            };
         }
         match op {
             "node_info" => json_op!(node_info, Empty),
@@ -456,9 +462,9 @@ impl WebState {
             "show_folder" => json_op!(show_folder, ShowFolder),
             "open_with" => json_op!(open_with, FileRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
-            "dataset_profile" => json_op!(dataset_profile, SpaceRef),
-            "analyze_dataset" => json_op!(analyze_dataset, AnalyzeDataset),
-            "analysis_profile" => json_op!(analysis_profile, SpaceRef),
+            "dataset_profile" => json_op!(boxed dataset_profile, SpaceRef),
+            "analyze_dataset" => json_op!(boxed analyze_dataset, AnalyzeDataset),
+            "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),

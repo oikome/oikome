@@ -479,16 +479,8 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
-        self.add_source_inner(
-            name,
-            name,
-            config,
-            every,
-            token,
-            true,
-            SourceTarget::default(),
-        )
-        .await
+        self.add_source_inner(name, name, config, every, token, None)
+            .await
     }
 
     /// Add a source into an existing transactional Space chosen by the owner.
@@ -506,8 +498,7 @@ impl OikomeSession {
             config,
             every,
             token,
-            false,
-            SourceTarget::default(),
+            Some(SourceTarget::default()),
         )
         .await
     }
@@ -521,7 +512,7 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
-        self.add_source_inner(name, space, config, every, token, false, target)
+        self.add_source_inner(name, space, config, every, token, Some(target))
             .await
     }
 
@@ -532,16 +523,13 @@ impl OikomeSession {
         config: SourceConfig,
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
-        create_space: bool,
-        target: SourceTarget,
+        target: Option<SourceTarget>,
     ) -> Result<PullReport, SessionError> {
         self.deny_principal("adding a source")?;
         let settings = serde_json::to_value(&config)
             .map_err(|e| CatalogError::Registry(format!("source settings: {e}")))?;
-        if create_space {
-            self.catalog
-                .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
-        } else {
+        let create_space = target.is_none();
+        if let Some(target) = target {
             self.catalog.add_source_to_target(
                 name,
                 space,
@@ -549,6 +537,9 @@ impl OikomeSession {
                 settings,
                 every.map(|e| e.as_secs().max(60)),
             )?;
+        } else {
+            self.catalog
+                .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
         }
         let mut created_space = false;
         let added = async {

@@ -119,7 +119,7 @@ fn schema_profile(space: &str, table: &str, schema: &SchemaRef) -> DatasetProfil
     }
 }
 
-fn string_column<'a>(batches: &'a [RecordBatch], index: usize) -> Option<&'a StringArray> {
+fn string_column(batches: &[RecordBatch], index: usize) -> Option<&StringArray> {
     batches
         .first()?
         .column(index)

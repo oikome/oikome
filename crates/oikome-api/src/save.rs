@@ -43,6 +43,14 @@ struct Original {
     bytes: Vec<u8>,
 }
 
+struct SpaceTarget {
+    name: String,
+    storage: Option<String>,
+    title: String,
+    cover: Option<String>,
+    captions: std::collections::HashMap<String, String>,
+}
+
 enum PlainTarget {
     Local(RemoteStore),
     Remote(oikome_node::storage::Folder),
@@ -313,12 +321,15 @@ impl Api {
         &self,
         req: &SaveTo,
         originals: Vec<Original>,
-        name: String,
-        storage: Option<String>,
-        title: String,
-        cover: Option<String>,
-        captions: std::collections::HashMap<String, String>,
+        target: SpaceTarget,
     ) -> Result<Saved, ApiError> {
+        let SpaceTarget {
+            name,
+            storage,
+            title,
+            cover,
+            captions,
+        } = target;
         if self.catalog.get_space(&name).is_ok() || self.catalog.get_location(&name).is_ok() {
             return Err(ApiError::new(
                 ErrorCode::Conflict,
@@ -511,8 +522,18 @@ impl Api {
                 cover,
                 captions,
             } => {
-                self.save_space(&req, originals, name, storage, title, cover, captions)
-                    .await
+                self.save_space(
+                    &req,
+                    originals,
+                    SpaceTarget {
+                        name,
+                        storage,
+                        title,
+                        cover,
+                        captions,
+                    },
+                )
+                .await
             }
         }
     }

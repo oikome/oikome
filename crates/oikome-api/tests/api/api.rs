@@ -4871,8 +4871,7 @@ async fn public_snapshot_is_signed_private_and_revocable() {
 async fn public_live_queries_authenticate_limit_log_and_revoke() {
     let mut n = node();
     let _source = saved_files(&n, "published").await;
-    let log =
-        oikome_node::AccessLog::open(&std::path::PathBuf::from(n.catalog.oikome_dir())).unwrap();
+    let log = oikome_node::AccessLog::open(&n.catalog.oikome_dir()).unwrap();
     n.api = n.api.with_access_log(log);
     let share = n
         .api

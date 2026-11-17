@@ -67,11 +67,13 @@ struct Session {
     expires: Instant,
 }
 
+type PublicCalls = Arc<Mutex<HashMap<(String, String), Vec<Instant>>>>;
+
 #[derive(Clone, Default)]
 pub(crate) struct LiveState {
     challenges: Arc<Mutex<HashMap<String, Challenge>>>,
     sessions: Arc<Mutex<HashMap<String, Session>>>,
-    calls: Arc<Mutex<HashMap<(String, String), Vec<Instant>>>>,
+    calls: PublicCalls,
 }
 
 fn registry_path(root: &std::path::Path) -> PathBuf {
@@ -319,7 +321,7 @@ fn random_hex() -> Result<String, ApiError> {
 
 impl Api {
     fn public_root(&self) -> PathBuf {
-        PathBuf::from(self.catalog.oikome_dir())
+        self.catalog.oikome_dir()
     }
 
     fn write_public_registry(&self, shares: &[PublicShare]) -> Result<(), ApiError> {

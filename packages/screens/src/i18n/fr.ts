@@ -217,13 +217,13 @@ export const fr: Strings = {
     discardTitle: "Abandonner les modifications non enregistrées ?",
     discardBody: "Vos modifications n’ont pas été enregistrées.",
     discard: "Abandonner les modifications",
-    confirmationsTitle: "Confirmations enregistrées",
-    confirmationsBody: "Oikome redemande si le fichier, la version, l’autorisation, le dossier ou l’identité change.",
+    confirmationsTitle: "Confirmations de modification de fichiers",
+    confirmationsBody: "Lorsque vous modifiez un fichier original ou remplacez un fichier existant, « Ne plus demander » est mémorisé ici. Révoquez ce choix pour être de nouveau consulté.",
     sourceSave: "Modifier l’original",
     overwrite: "Remplacer le fichier existant",
     revoke: "Redemander",
     revoked: "Confirmation révoquée. Oikome redemandera avant cet enregistrement.",
-    noConfirmations: "Aucune confirmation enregistrée.",
+    noConfirmations: "Aucune confirmation de modification de fichiers.",
   },
 
   toast: {
@@ -1215,6 +1215,14 @@ export const fr: Strings = {
       names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`,
   },
 
+  networkStatus: {
+    title: "Réseau",
+    unavailable: "Réseau indisponible",
+    addressLabel: "Adresse pair à pair",
+    noAddress: "Aucune adresse pair à pair",
+    openSettings: "Ouvrir les réglages réseau",
+  },
+
   settings: {
     title: "Réglages",
     recoveryTitle: "Clé de récupération",
@@ -1224,7 +1232,7 @@ export const fr: Strings = {
     recoveryBody:
       "C’est votre identité. Avec elle, ce centre de données peut être restauré sur un nouvel ordinateur.",
     showAgain: "Afficher à nouveau",
-    centerTitle: "Ce centre de données",
+    centerTitle: "Détails du centre de données",
     nameLabel: "Nom",
     rename: "Renommer",
     version: "Version",

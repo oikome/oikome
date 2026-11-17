@@ -123,6 +123,23 @@ a { color: inherit; text-decoration: none; }
 .crumb .sep { color: var(--ink3); }
 .crumb .here { font-weight: 600; }
 .top__actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.network-entry { position: relative; margin-left: auto; flex: none; }
+.network-entry.network-entry--top { display: none; }
+.network-entry__dot { position: absolute; right: 3px; bottom: 3px; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--raised); border-radius: 50%; background: var(--raised); box-shadow: inset 0 0 0 1px var(--ink); }
+.network-entry__dot--ok { background: var(--ink); box-shadow: none; }
+.network-pop { width: min(360px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 16px; overflow-y: auto; }
+.network-pop__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.network-pop__facts { display: grid; gap: 12px; margin: 0 0 16px; }
+.network-pop__facts > div { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: 12px; }
+.network-pop__facts dt { color: var(--ink3); font-size: 12px; }
+.network-pop__facts dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.network-pop__address { overflow: hidden; font: 500 12px/18px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+#network-settings { scroll-margin-top: 72px; }
+@media (min-width: 1101px) {
+  .settings-grid > .card:nth-child(-n+2) { grid-column: 1 / span 7; }
+  .settings-grid > .card:nth-child(n+3) { grid-column: 8 / span 5; }
+}
+@media (max-width: 760px) { .network-entry.network-entry--brand { display: none; } .network-entry.network-entry--top { display: inline-flex; } }
 .page { padding: 28px 32px 64px; max-width: 1240px; animation: rise .28s var(--ease) both; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
@@ -1468,10 +1485,16 @@ screens.activity = () => {
 
 screens.settings = () => `
   ${head(t('nav.settings'), t('settings.sub'))}
-  <div class="dash dash--start">
+  <div class="dash dash--start settings-grid">
     <div class="card w7"><div class="card__head"><span class="label">${t('storage')}</span><button class="btn btn--ghost" data-act="addplace">${I('plus')}${t('addPlace')}</button></div><div class="list">
       ${PLACES.map((p, i) => { const n = C.filter((c) => c.stored === p.name).length; return `<div class="li" data-go="place/${slug(p.name)}"><span class="ico">${I(p.ico)}</span><div class="li__main"><span class="li__title">${esc(placeName(p.name))} ${p.def ? `<span class="tag">${t('default')}</span>` : ''}</span><span class="li__meta">${placeMeta(p)} · ${p.kind === 'local' ? t('place.localCount', { all: cnt({ n: C.length, u: 'collections' }), n }) : cnt({ n, u: 'collections' })}</span></div><div style="width:140px;display:grid;gap:6px;text-align:right"><span class="mono faint" style="font-size:11px">${p.free ? t('place.free', { size: sz(p.free) }) : t('checking')}</span><div class="bar"><i style="width:${p.p}%"></i></div></div>${p.kind === 'local' && p.def ? '<span style="width:32px"></span>' : `<button class="btn btn--ghost icon-btn" data-act="placemore" data-i="${i}" aria-label="${t('more')}">${I('more')}</button>`}</div>`; }).join('')}
     </div></div>
+    <div class="card w7" id="network-settings"><div class="card__head"><span class="label">${t('net.title')}</span></div><div class="list">
+      <div class="li"><div class="li__main"><span class="li__meta">${t('net.reachable')}</span><span class="li__title">${t(netOpen().length ? 'net.direct' : 'net.local')}</span></div>${glyph(netOpen().length ? 'ok' : 'off', t(netOpen().length ? 'net.direct' : 'net.local'))}</div>
+      <div class="li"><div class="li__main"><span class="li__meta">${t('net.openFor')}</span><span class="li__title">${netOpen().length ? netOpen().map(([c, who]) => t('net.openShare', { c, who })).join(', ') : t('net.nothing')}</span></div></div>
+      <div class="li"><div class="li__main"><span class="li__title">${t('net.when')}</span></div><select class="btn" data-change="reachpolicy" aria-label="${t('net.when')}">${['ask', 'always', 'never'].map((v) => `<option value="${v}" ${S.reach === v ? 'selected' : ''}>${t(`net.${v}`)}</option>`).join('')}</select></div>
+      <div class="li"><div class="li__main"><span class="li__title">${t('net.help')}</span><span class="li__meta">${t('net.helpSub')}</span></div><span class="toggle ${S.helpContacts ? 'on' : ''}" data-act="flag" data-bind="helpContacts" role="switch" aria-checked="${S.helpContacts}" aria-label="${t('net.help')}"></span></div>
+    </div><p class="faint" style="font-size:12px;margin:10px 16px 14px">${t('net.foot')}</p></div>
     <div class="card w5"><div class="card__head"><span class="label">${t('appearance')}</span></div><div class="card__body" style="display:grid;gap:14px">
       <div class="row row--between"><span>${t('style')}</span><div class="seg" id="style-seg"><button data-set="ink">Ink</button><button data-set="bold">Bold</button></div></div>
       <div class="row row--between"><span>${t('theme')}</span><div class="seg">${['light', 'dark', 'system'].map((m) => `<button class="${S.mode === m ? 'on' : ''}" data-act="mode" data-v="${m}">${t(m)}</button>`).join('')}</div></div>
@@ -1481,21 +1504,16 @@ screens.settings = () => `
     <div class="card w5"><div class="card__head"><span class="label">${t('fv.confirmations')}</span></div><div class="list">
       ${S.confirmations.length ? S.confirmations.map((c, i) => `<div class="li"><div class="li__main"><span class="li__meta">${t(c.action === 'original' ? 'fv.saveOriginal' : 'fv.overwrite')}</span><span class="li__title mono">${esc(c.path)}</span><span class="li__meta">${t(c.scope === 'identity' ? 'fv.scopeIdentity' : 'fv.scopeFolder')}</span></div><button class="btn btn--ghost" data-act="frevoke" data-i="${i}">${t('fv.askAgain')}</button></div>`).join('') : `<div class="li"><span class="muted">${t('fv.noConfirmations')}</span></div>`}
     </div><p class="faint" style="font-size:12px;margin:10px 16px 14px">${t('fv.confirmationsBody')}</p></div>
-    <div class="card w7"><div class="card__head"><span class="label">${t('recoveryKey')}</span>${S.keySkipped ? glyph('bad', t('key.notSaved')) : glyph('ok', t('key.savedOn', { date: md(S.keyDate) }))}</div><div class="card__body" style="display:flex;gap:16px;align-items:center"><span class="ico">${I('key')}</span><div style="flex:1" class="muted">${t('key.what')}</div><button class="btn" data-act="key">${t(S.keySkipped ? 'key.saveNow' : 'showAgain')}</button></div></div>
     <div class="card w5"><div class="card__head"><span class="label">${t('thisDC')}</span></div><div class="list">
       <div class="li"><div class="li__main"><span class="li__meta">${t('name')}</span><span class="li__title">${esc(S.dcName)}</span></div><button class="btn btn--ghost" data-act="rename">${t('rename')}</button></div>
-      <div class="li"><div class="li__main"><span class="li__meta">${t('yourId')}</span><span class="li__title mono" style="font-family:var(--mono);font-size:12px">z6MkrYLgFi4cuz…TTsM5U6Ui</span></div><button class="btn btn--ghost icon-btn" data-act="copy" data-what="yourId" aria-label="${t('copy')}">${I('copy')}</button></div>
+      <div class="li"><div class="li__main"><span class="li__meta">${t('yourId')}</span><span class="li__title mono" style="font-family:var(--mono);font-size:12px;white-space:normal;overflow-wrap:anywhere">did:key:z6MkrYLgFi4cuzQe8Vn2kR7pL9mD4sX6yB1aF3hJ5kN8pQ</span></div><button class="btn btn--ghost icon-btn" data-act="copy" data-what="yourId" aria-label="${t('copy')}">${I('copy')}</button></div>
       <div class="li"><div class="li__main"><span class="li__meta">${t('version')}</span><span class="li__title mono" style="font-family:var(--mono)">1.0.0</span></div></div>
     </div></div>
-    <div class="card w7"><div class="card__head"><span class="label">${t('net.title')}</span></div><div class="list">
-      <div class="li"><div class="li__main"><span class="li__meta">${t('net.reachable')}</span><span class="li__title">${t(netOpen().length ? 'net.direct' : 'net.local')}</span></div>${glyph(netOpen().length ? 'ok' : 'off', t(netOpen().length ? 'net.direct' : 'net.local'))}</div>
-      <div class="li"><div class="li__main"><span class="li__meta">${t('net.openFor')}</span><span class="li__title">${netOpen().length ? netOpen().map(([c, who]) => t('net.openShare', { c, who })).join(', ') : t('net.nothing')}</span></div></div>
-      <div class="li"><div class="li__main"><span class="li__title">${t('net.when')}</span></div><select class="btn" data-change="reachpolicy" aria-label="${t('net.when')}">${['ask', 'always', 'never'].map((v) => `<option value="${v}" ${S.reach === v ? 'selected' : ''}>${t(`net.${v}`)}</option>`).join('')}</select></div>
-      <div class="li"><div class="li__main"><span class="li__title">${t('net.help')}</span><span class="li__meta">${t('net.helpSub')}</span></div><span class="toggle ${S.helpContacts ? 'on' : ''}" data-act="flag" data-bind="helpContacts" role="switch" aria-checked="${S.helpContacts}" aria-label="${t('net.help')}"></span></div>
-    </div><p class="faint" style="font-size:12px;margin:10px 16px 14px">${t('net.foot')}</p></div>
+    <div class="card w5"><div class="card__head"><span class="label">${t('recoveryKey')}</span>${S.keySkipped ? glyph('bad', t('key.notSaved')) : glyph('ok', t('key.savedOn', { date: md(S.keyDate) }))}</div><div class="card__body" style="display:flex;gap:16px;align-items:center"><span class="ico">${I('key')}</span><div style="flex:1" class="muted">${t('key.what')}</div><button class="btn" data-act="key">${t(S.keySkipped ? 'key.saveNow' : 'showAgain')}</button></div></div>
   </div>`;
 // What the port is open for: shares allowed one at a time, or every active share once always allowed.
 const netOpen = () => (S.reach === 'never' ? [] : SHARES.filter((x) => !x.ended && (S.reach === 'always' || S.reachFor.includes(x.c + '|' + x.to))).map((x) => [x.c, x.to]));
+const networkEntry = (cls) => { const open = netOpen().length > 0, state = t(open ? 'net.direct' : 'net.local'); return `<button class="btn btn--ghost icon-btn network-entry ${cls}" data-act="network" title="${t('net.title')}: ${state}" aria-label="${t('net.title')}: ${state}">${I('globe')}<i class="network-entry__dot ${open ? 'network-entry__dot--ok' : ''}" aria-hidden="true"></i></button>`; };
 
 const langBtn = (cls) => `<button class="btn btn--ghost top__lang ${cls || ''}" data-act="langmenu" title="${esc(LANGS[li()][1])}" aria-label="${t('language')}: ${esc(LANGS[li()][1])}">${Is('globe', 15)}<span class="lang-code">${LANGS[li()][3]}</span></button>`;
 screens.welcome = () => {
@@ -1999,6 +2017,20 @@ function menu(anchor, items) {
   MENU = { el, items };
   (el.querySelector('[aria-checked="true"]') || el.querySelector('button'))?.focus();
 }
+function networkMenu(anchor) {
+  closeMenu();
+  const r = anchor.getBoundingClientRect(), open = netOpen().length > 0, state = t(open ? 'net.direct' : 'net.local');
+  const address = '/ip4/192.168.1.20/tcp/40123/p2p/12D3KooWExample';
+  const el = document.createElement('div');
+  el.className = 'menu network-pop'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', t('net.title'));
+  el.innerHTML = `<div class="network-pop__head"><strong>${t('net.title')}</strong>${glyph(open ? 'ok' : 'idle', state)}</div><dl class="network-pop__facts"><div><dt>${t('net.openFor')}</dt><dd>${open ? netOpen().map(([c, who]) => t('net.openShare', { c, who })).join(', ') : t('net.nothing')}</dd></div><div><dt>${t('net.address')}</dt><dd class="network-pop__address" title="${address}">${address}</dd></div></dl><button class="btn" data-mi="0">${t('net.openSettings')}</button>`;
+  document.body.appendChild(el);
+  const w = el.offsetWidth, h = el.offsetHeight;
+  el.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+  el.style.top = Math.max(8, Math.min(r.bottom + 8, window.innerHeight - h - 8)) + 'px';
+  MENU = { el, items: [[t('net.openSettings'), null, () => { go('settings'); setTimeout(() => document.getElementById('network-settings')?.scrollIntoView({ block: 'start' }), 0); }]] };
+  el.querySelector('button')?.focus();
+}
 function toast(msg) {
   document.querySelector('.toast')?.remove();
   const el = document.createElement('div');
@@ -2044,6 +2076,7 @@ function connectEventually(id) {
   }, 3000);
 }
 const ACT = {
+  network: (el) => networkMenu(el),
   cmdk: (el) => open('cmdk', { q: el.dataset.scope ? '' : 'pessoa train', scope: el.dataset.scope || '', sel: 0 }),
   hit: (el) => { const h = HITS[+el.dataset.i]; close(); if (h.go) go(h.go); else h.run(); },
   edit: () => { S.edit = !S.edit; render(true); },
@@ -2379,7 +2412,7 @@ function shell(route, arg, inner) {
   const child = { collection: (C.find((x) => x.name === arg) || {}).label || arg, source: (srcBy(arg) || {}).name, access: t('access'), directory: t('dirShort'), place: (() => { const p = PLACES.find((x) => slug(x.name) === arg); return p && placeName(p.name); })() }[route];
   const pl = PLACES[S.place] || PLACES[0];
   return `<div class="app"><aside class="side">
-    <div class="ws"><span class="ws__mark">${I('mark')}</span><div><div class="ws__name">Oikome</div><div class="ws__sub">rosh-mbp</div></div></div>
+    <div class="ws"><span class="ws__mark">${I('mark')}</span><div><div class="ws__name">Oikome</div><div class="ws__sub">rosh-mbp</div></div>${networkEntry('network-entry--brand')}</div>
     <div class="search" data-act="cmdk">${Is('search', 15)}${t('search')}<kbd>⌘K</kbd></div>
     <nav class="nav">${NAV.map(([r, k, ic, n]) => `<a href="#${r}" class="${sec === r ? 'on' : ''}">${I(ic)}${t(k)}${n ? `<span class="nav__count">${n}</span>` : ''}</a>`).join('')}</nav>
     <div class="nav-group label">${t('places')}</div>
@@ -2389,7 +2422,7 @@ function shell(route, arg, inner) {
       <div class="me">${av('Rosh', 'd')}<div><div class="me__name">${esc(S.dcName)}</div><div class="ws__sub">${plain('ok', t('running'))}</div></div></div></div>
   </aside>
   <main class="main"><div class="top"><div class="crumb"><span class="faint">rosh-mbp</span><span class="sep">/</span>${child ? `<a class="faint" href="#${sec}">${t(TITLES[route])}</a><span class="sep">/</span>${folderCrumb(route, arg, child)}` : `<span class="here">${t(TITLES[route])}</span>`}</div>
-    <div class="top__actions"><button class="btn btn--ghost icon-btn" data-act="cmdk" title="${t('search')}" aria-label="${t('search')}">${I('search')}</button>${langBtn()}<button class="btn btn--ghost icon-btn" data-act="modemenu" title="${t('theme')}" aria-label="${t('theme')}: ${t(S.mode)}">${I(MODE_ICON[S.mode])}</button><a class="btn" href="#welcome">${t('firstRun')}</a></div></div>
+    <div class="top__actions">${networkEntry('network-entry--top')}<button class="btn btn--ghost icon-btn" data-act="cmdk" title="${t('search')}" aria-label="${t('search')}">${I('search')}</button>${langBtn()}<button class="btn btn--ghost icon-btn" data-act="modemenu" title="${t('theme')}" aria-label="${t('theme')}: ${t(S.mode)}">${I(MODE_ICON[S.mode])}</button><a class="btn" href="#welcome">${t('firstRun')}</a></div></div>
     <div class="page" id="page">${inner}</div></main></div>`;
 }
 const root = document.getElementById('root');

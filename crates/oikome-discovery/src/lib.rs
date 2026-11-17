@@ -531,6 +531,7 @@ impl Discovery {
             net: self.net.clone(),
             reach: self.reach.clone(),
             catalog: self.catalog.clone(),
+            listen_addrs: self.listen_addrs.clone(),
         })
     }
 
@@ -632,6 +633,7 @@ struct Network {
     net: Arc<NetState>,
     reach: watch::Sender<ReachWanted>,
     catalog: Arc<OikomeCatalog>,
+    listen_addrs: Vec<Multiaddr>,
 }
 
 impl NodeNetwork for Network {
@@ -641,6 +643,10 @@ impl NodeNetwork for Network {
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .clone()
+    }
+
+    fn listen_addresses(&self) -> Vec<String> {
+        self.listen_addrs.iter().map(ToString::to_string).collect()
     }
 
     fn set_reach(&self, wanted: ReachWanted) {

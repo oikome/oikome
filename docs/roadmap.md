@@ -22,7 +22,7 @@
 - MCP Access is manifest-driven, including external installed adapters. Official Kimi Code, Codex and Claude Code packages are available directly; the generic writer safely merges only declared JSON/TOML settings and never selects a model/profile.
 - Activity is persisted in `.oikome/access_log.sqlite`. Home previously filtered out owner and plugin events, which could make it empty while Activity had rows. That filter is removed in PR 19.
 - Series presentation currently comes from generic time-and-number schema inference. It is not a Smart Home special case, but connectors still need an explicit semantic contract so inference is only a fallback.
-- Network configuration exists under Settings → Network. There is no persistent network-status entry in the top-level navigation.
+- PR 25 adds a persistent Network entry beside the desktop node identity and in the phone top bar. Its popover reads the existing owner API on open and every 30 seconds, shows the real reachability state, active reasons for opening the port and current peer-to-peer listen address, and deep-links to Settings → Network. It keeps no duplicate configuration state and shows no online indicator for local-only or unavailable networking.
 
 ## PR 19: content, file targets and navigation consistency
 
@@ -88,11 +88,38 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Keyboard, mobile and accessibility behavior matches the rest of the navigation. No green online indicator is shown without a real connectivity check.
 - Validation: every network state, no false online status, settings deep link, port-permission choices, mobile layout and no duplicate configuration state.
 
+## PR 26: Save To and public sharing
+
+- Treat saving and public sharing as one complete content-delivery item (3.10 and 3.8). A saved collection is detached from later source-file changes and can carry its portfolio: order, cover, title and captions.
+- The owner deliberately chooses the destination place, folder and naming rule, once or continuously. Only files Oikome wrote itself are changed. Saving can create plain files or a new collection; no source is rewritten implicitly.
+- Public sharing starts from chosen collections, views or columns, preferably a saved collection. Query-only is the default; copying requires explicit permission. Per-caller request, row and runtime limits apply, and photos lose location metadata by default.
+- Support deliberately published read-only snapshots with signed manifests on owner-selected storage. Live public access must use the real reachability model and never claim availability without a working path.
+- Validation: source changes after saving, file-write ownership, portfolio fidelity, public grant revocation, query limits, photo privacy, snapshot integrity and real-node browser scenarios.
+
+## PR 27: internal analysis profiles and core computation
+
+- Add the internal dataset profile in `docs/data-analysis.md`: direct-query versus derived-analysis actions, field-meaning inference review, source-structure changes and explicit derived-artifact ownership.
+- Keep computation in the existing engines and federation layers. DuckDB owns analytical work, SQLite owns transactional work, and the browser only presents returned results.
+- Do not expose internal storage layouts as ordinary-user choices. Do not turn file viewing into an implicit analysis or write operation.
+- Validation: known-schema inference, incorrect-inference correction, source changes, direct versus derived results, engine boundaries, grants and real-node acceptance.
+
+## PR 28: dataset interoperability, backup and recovery
+
+- Connect existing Iceberg, Lance and S3 datasets read-only first, with clear source identity, offline behavior and no implicit migration.
+- Add deliberately evaluated migrations and backup/recovery paths that preserve source identity, content hashes, grants and restore expectations. A migration is never a side effect of connecting or viewing a dataset.
+- Keep advanced dataset and migration options out of the ordinary interface until their real-node scenarios pass.
+- Validation: real read-only datasets, interrupted transfers, content integrity, repeated recovery, rollback/conflict behavior and destination compatibility.
+
+## PR 29: media, semantic indexes and RAW plugins
+
+- Add media metadata and optional model-based semantic indexes as an AI/vector capability, including vector index/query behavior and its relationship to retrieval and MCP reads.
+- Deliver RAW parsing/preview through an external official plugin with a real host sandbox, one-file read grant, resource limits and preview provenance. No parser enters the core or Dashboard iframe.
+- Models, embeddings and RAW capabilities require explicit choices and grants. Never replace original media with thumbnails, embeddings or generated derivatives; no hidden model or plugin downloads.
+- Validation: metadata correctness, vector search/query behavior, model/index revocation and resource use, real camera RAW samples, embedded versus developed preview labels, plugin failure isolation and package size.
+
 ## Later phases
 
-After safe editing, land internal analysis profiles and direct-query versus derived-analysis actions, then read-only Iceberg/Lance/S3 dataset interoperability and deliberately evaluated migrations, then media metadata and optional semantic indexes. These stages follow `docs/data-analysis.md` and never expose storage formats as ordinary-user choices.
-
-The existing architecture order then continues: 3.8 public shares, 3.7 security, 3.10 Save To, M6 desktop, M7 phone/devices, M9 family and 3.13 WebDAV. M5 payments and M10 third-party plugin distribution remain last. RAW and other complex content capabilities are distributed as optional plugins through the independent plugin library, not added to the light core.
+After PR 29, the existing architecture order continues with security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and serving over WebDAV (3.13). M5 payments and M10 third-party plugin distribution remain last. Security work remains deliberate and does not delay the content capabilities above unless a concrete threat requires reordering.
 
 ## Review gates
 

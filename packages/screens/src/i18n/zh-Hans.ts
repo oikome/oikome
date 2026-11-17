@@ -209,13 +209,13 @@ export const zhHans: Strings = {
     discardTitle: "要放弃未保存的修改吗？",
     discardBody: "你的修改尚未保存。",
     discard: "放弃修改",
-    confirmationsTitle: "已保存的确认",
-    confirmationsBody: "文件、版本、权限、目录或身份发生变化时，Oikome 都会重新询问。",
+    confirmationsTitle: "文件修改确认",
+    confirmationsBody: "修改原文件或覆盖已有文件时，选择“不再询问”会记录在这里。撤销后，Oikome 下次会重新确认。",
     sourceSave: "修改原文件",
     overwrite: "替换已有文件",
     revoke: "重新询问",
     revoked: "已撤销确认，下次保存时会重新询问。",
-    noConfirmations: "没有已保存的确认。",
+    noConfirmations: "还没有文件修改确认。",
   },
 
   toast: {
@@ -1150,6 +1150,14 @@ export const zhHans: Strings = {
       names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join("、")} 和 ${names[names.length - 1]}`,
   },
 
+  networkStatus: {
+    title: "网络",
+    unavailable: "网络不可用",
+    addressLabel: "点对点地址",
+    noAddress: "没有点对点地址",
+    openSettings: "打开网络设置",
+  },
+
   settings: {
     title: "设置",
     recoveryTitle: "恢复密钥",
@@ -1158,7 +1166,7 @@ export const zhHans: Strings = {
     notBackedUp: "尚未备份",
     recoveryBody: "它就是你的身份。有了它，就能在新电脑上恢复这个数据中心。",
     showAgain: "再次显示",
-    centerTitle: "这个数据中心",
+    centerTitle: "数据中心信息",
     nameLabel: "名称",
     rename: "重命名",
     version: "版本",

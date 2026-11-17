@@ -217,13 +217,13 @@ export const ru: Strings = {
     discardTitle: "Отменить несохранённые изменения?",
     discardBody: "Ваши изменения не сохранены.",
     discard: "Отменить изменения",
-    confirmationsTitle: "Сохранённые подтверждения",
-    confirmationsBody: "Oikome спросит снова при смене файла, версии, разрешения, папки или учётной записи.",
+    confirmationsTitle: "Подтверждения изменения файлов",
+    confirmationsBody: "При изменении исходного файла или замене существующего выбор «Больше не спрашивать» сохраняется здесь. Отмените его, чтобы Oikome спросил снова.",
     sourceSave: "Изменить оригинал",
     overwrite: "Заменить существующий файл",
     revoke: "Спросить снова",
     revoked: "Подтверждение отозвано. Oikome снова спросит перед сохранением.",
-    noConfirmations: "Нет сохранённых подтверждений.",
+    noConfirmations: "Нет сохранённых подтверждений изменения файлов.",
   },
 
   toast: {
@@ -1209,6 +1209,14 @@ export const ru: Strings = {
       names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} и ${names[names.length - 1]}`,
   },
 
+  networkStatus: {
+    title: "Сеть",
+    unavailable: "Сеть недоступна",
+    addressLabel: "Адрес P2P",
+    noAddress: "Нет адреса P2P",
+    openSettings: "Открыть настройки сети",
+  },
+
   settings: {
     title: "Настройки",
     recoveryTitle: "Ключ восстановления",
@@ -1217,7 +1225,7 @@ export const ru: Strings = {
     notBackedUp: "Ещё не сохранён",
     recoveryBody: "Ключ подтверждает, что это вы. С ним этот дата-центр можно восстановить на новом компьютере.",
     showAgain: "Показать снова",
-    centerTitle: "Этот дата-центр",
+    centerTitle: "Сведения о дата-центре",
     nameLabel: "Название",
     rename: "Переименовать",
     version: "Версия",

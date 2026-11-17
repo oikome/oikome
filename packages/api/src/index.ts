@@ -874,6 +874,10 @@ space: string | null, };
  */
 export type Network = { reachable: Reachable,
 /**
+ * A current peer-to-peer listen address, when this node has one.
+ */
+address: string | null,
+/**
  * The contact others meet this computer through.
  */
 through: string | null,

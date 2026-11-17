@@ -4,7 +4,7 @@
 // English (UK). Only the strings that differ from en.js (American English); everything else falls back to en.js.
 // Dates, times and numbers follow en-GB through Intl.
 (window.OIKOME_I18N = window.OIKOME_I18N || {})['en-GB'] = {
-  thisDC: 'This data centre',
+  thisDC: 'Data centre details',
   'key.remindBody': 'Without it, this data centre can’t be brought back on a new computer.',
   'col.getLive': 'View live: read from their data centre',
   'dev.self': 'Runs your data centre · always on',

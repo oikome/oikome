@@ -1345,6 +1345,8 @@ pub struct OpenFor {
 #[serde(rename_all = "camelCase")]
 pub struct Network {
     pub reachable: Reachable,
+    /// A current peer-to-peer listen address, when this node has one.
+    pub address: Option<String>,
     /// The contact others meet this computer through.
     pub through: Option<String>,
     /// Shares and lending allowed to be reached from outside, still going.

@@ -207,13 +207,13 @@ export const ja: Strings = {
     discardTitle: "未保存の変更を破棄しますか？",
     discardBody: "編集内容は保存されていません。",
     discard: "変更を破棄",
-    confirmationsTitle: "保存した確認",
-    confirmationsBody: "ファイル、バージョン、権限、フォルダー、ID が変わると、Oikome は再確認します。",
+    confirmationsTitle: "ファイル変更の確認",
+    confirmationsBody: "元のファイルの変更や既存ファイルの置き換えで「今後は確認しない」を選ぶと、ここに記録されます。取り消すと、次回は再度確認します。",
     sourceSave: "元のファイルを変更",
     overwrite: "既存のファイルを置き換える",
     revoke: "再確認する",
     revoked: "確認を取り消しました。次回の保存時に再確認します。",
-    noConfirmations: "保存した確認はありません。",
+    noConfirmations: "ファイル変更の確認はまだありません。",
   },
 
   toast: {
@@ -1167,6 +1167,14 @@ export const ja: Strings = {
     names: (names: string[]) => names.join("、"),
   },
 
+  networkStatus: {
+    title: "ネットワーク",
+    unavailable: "ネットワークを利用できません",
+    addressLabel: "P2P アドレス",
+    noAddress: "P2P アドレスがありません",
+    openSettings: "ネットワーク設定を開く",
+  },
+
   settings: {
     title: "設定",
     recoveryTitle: "復旧キー",
@@ -1175,7 +1183,7 @@ export const ja: Strings = {
     notBackedUp: "未バックアップ",
     recoveryBody: "これはあなたの身元を示すものです。これがあれば、新しいコンピュータでこのデータセンターを復元できます。",
     showAgain: "もう一度表示",
-    centerTitle: "このデータセンター",
+    centerTitle: "データセンター情報",
     nameLabel: "名前",
     rename: "名前を変更",
     version: "バージョン",

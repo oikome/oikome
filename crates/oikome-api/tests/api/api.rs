@@ -4750,6 +4750,110 @@ async fn save_to_space_detaches_connector_tables() {
     }
 }
 
+#[tokio::test]
+async fn analysis_profiles_drive_explicit_derived_results_and_source_review() {
+    let n = node();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "spending".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(&n, "CREATE TABLE spending.entries (id BIGINT, day DATE, amount DOUBLE, category VARCHAR, title VARCHAR)").await;
+    sql(&n, "INSERT INTO spending.entries VALUES (1, '2026-01-01', 12.5, 'food', 'lunch'), (2, '2026-01-01', 17.5, 'food', 'dinner'), (3, '2026-01-02', 8, 'travel', 'metro')").await;
+    let profile = n
+        .api
+        .dataset_profile(
+            &OWNER,
+            SpaceRef {
+                space: "spending.entries".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(profile.fields[0].role, FieldRole::Key);
+    assert_eq!(profile.fields[1].role, FieldRole::Time);
+    assert_eq!(profile.fields[2].role, FieldRole::Amount);
+    assert_eq!(profile.fields[3].role, FieldRole::Category);
+    assert_eq!(profile.fields[4].role, FieldRole::Title);
+    let analysis = n
+        .api
+        .analyze_dataset(
+            &OWNER,
+            AnalyzeDataset {
+                space: "spending".into(),
+                table: "entries".into(),
+                name: "spending-analysis".into(),
+                time_field: "day".into(),
+                amount_field: "amount".into(),
+                category_field: "category".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(analysis.space.name, "spending-analysis");
+    assert!(!analysis.profile.source_changed);
+    let rows = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "spending-analysis".into(),
+                table: "_analysis_daily".into(),
+                limit: Some(10),
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+    let batches = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .map(|batch| batch.unwrap())
+        .collect::<Vec<_>>();
+    let totals = batches[0]
+        .column(2)
+        .as_any()
+        .downcast_ref::<arrow_array::Float64Array>()
+        .unwrap();
+    assert_eq!(totals.value(0), 30.0);
+    assert_eq!(totals.value(1), 8.0);
+    assert_eq!(
+        row_count(
+            &n.api
+                .read_rows(
+                    &OWNER,
+                    ReadRows {
+                        space: "spending".into(),
+                        table: "entries".into(),
+                        limit: Some(10),
+                        offset: None,
+                    }
+                )
+                .await
+                .unwrap()
+        ),
+        3
+    );
+    sql(&n, "ALTER TABLE spending.entries ADD COLUMN note VARCHAR").await;
+    let changed = n
+        .api
+        .analysis_profile(
+            &OWNER,
+            SpaceRef {
+                space: "spending-analysis".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(changed.source_changed);
+}
+
 async fn saved_files(n: &Node, name: &str) -> tempfile::TempDir {
     let source = tempfile::tempdir().unwrap();
     let root = source.path().join("source");

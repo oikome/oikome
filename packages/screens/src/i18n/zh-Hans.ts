@@ -1215,6 +1215,12 @@ export const zhHans: Strings = {
     networkFootnote: "Oikome 只请路由器为它打开一个端口。它自己的页面和你的 MCP 客户端留在这台电脑上。",
     networkSaved: "已保存",
   },
+  analysis: {
+    menu: "分析…", title: (name: string) => `分析 ${name}`,
+    body: "确认字段后生成按日期和分类统计的派生结果，源表保持不变。",
+    name: "分析名称", fields: { time: "日期字段", amount: "金额字段", category: "分类字段" },
+    action: "创建分析", creating: "正在分析…",
+  },
   save: {
     menu: "保存到…", title: (name: string) => `保存 ${name}`,
     body: "制作一份固定副本。源内容保持不变，之后的修改也不会跟随过来。",

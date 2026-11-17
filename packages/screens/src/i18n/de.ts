@@ -1254,6 +1254,12 @@ export const de: Strings = {
       "Oikome bittet deinen Router, einen Port für sich zu öffnen. Seine eigenen Seiten und deine KI-Assistenten bleiben auf diesem Computer.",
     networkSaved: "Gespeichert.",
   },
+  analysis: {
+    menu: "Analysieren…", title: (name: string) => `${name} analysieren`,
+    body: "Prüfe die Felder und erstelle eine abgeleitete Analyse nach Datum und Kategorie. Die Quelltabelle bleibt unverändert.",
+    name: "Name der Analyse", fields: { time: "Datumsfeld", amount: "Betragsfeld", category: "Kategoriefeld" },
+    action: "Analyse erstellen", creating: "Wird analysiert…",
+  },
   save: {
     menu: "Sichern unter…", title: (name: string) => `${name} sichern`,
     body: "Erstellt eine feste Kopie. Die Quelle bleibt unverändert und spätere Änderungen werden nicht übernommen.",

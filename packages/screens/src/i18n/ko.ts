@@ -1260,6 +1260,12 @@ export const ko: Strings = {
       "Oikome는 라우터에 Oikome용 포트 하나만 열어 달라고 요청해요. Oikome의 페이지와 AI 어시스턴트는 이 컴퓨터에 머물러요.",
     networkSaved: "저장했어요.",
   },
+  analysis: {
+    menu: "분석…", title: (name: string) => `${name} 분석`,
+    body: "필드를 검토한 뒤 날짜·분류별 파생 분석을 만들어요. 원본 테이블은 바꾸지 않아요.",
+    name: "분석 이름", fields: { time: "날짜 필드", amount: "금액 필드", category: "분류 필드" },
+    action: "분석 만들기", creating: "분석 중…",
+  },
   save: {
     menu: "다른 곳에 저장…", title: (name: string) => `${name} 저장`,
     body: "현재 내용을 한 번만 복사해요. 원본은 바꾸지 않으며, 이후 변경 사항도 따라오지 않아요.",

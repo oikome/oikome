@@ -1263,6 +1263,16 @@ export const en = {
     networkSaved: "Saved.",
   },
 
+  analysis: {
+    menu: "Analyze…",
+    title: (name: string) => `Analyze ${name}`,
+    body: "Review the fields, then create a derived daily/category analysis. The source table stays unchanged.",
+    name: "Analysis name",
+    fields: { time: "Date field", amount: "Amount field", category: "Category field" },
+    action: "Create analysis",
+    creating: "Analyzing…",
+  },
+
   save: {
     menu: "Save To…",
     title: (name: string) => `Save ${name}`,

@@ -1143,4 +1143,7 @@
   'publicBody': 'Les visiteurs doivent signer leur identité. Chaque requête en direct est limitée et consignée.',
   'queryOnly': 'Requêtes uniquement', 'queryOnlyBody': 'Aucun octet original ni instantané à télécharger.', 'queryAndCopy': 'Requêtes et copie', 'queryCopyBody': 'Autorise les octets originaux et l’instantané signé.',
   'publicLimits': '30 requêtes/minute · 1 000 lignes · 5 secondes par visiteur', 'publicPrivacy': 'Supprimer les métadonnées de localisation des photos', 'publish': 'Publier',
+  'analyze': 'Analyser…', 'analysisBody': 'Vérifiez les champs et créez une analyse dérivée. La source reste inchangée.',
+  'analysisName': 'Nom de l’analyse', 'dateField': 'Champ de date', 'amountField': 'Champ de montant', 'categoryField': 'Champ de catégorie',
+  'createAnalysis': 'Créer l’analyse', 'analysisDone': 'Analyse créée sans modifier la source.',
 };

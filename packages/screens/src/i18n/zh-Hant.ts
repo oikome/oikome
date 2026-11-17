@@ -1210,6 +1210,12 @@ export const zhHant: Strings = {
     networkFootnote: "Oikome 會請路由器為它開啟一個連接埠。它自己的頁面和你的 MCP 用戶端留在這台電腦上。",
     networkSaved: "已儲存。",
   },
+  analysis: {
+    menu: "分析…", title: (name: string) => `分析 ${name}`,
+    body: "確認欄位後產生按日期和分類統計的衍生結果，來源表保持不變。",
+    name: "分析名稱", fields: { time: "日期欄位", amount: "金額欄位", category: "分類欄位" },
+    action: "建立分析", creating: "正在分析…",
+  },
   save: {
     menu: "儲存到…", title: (name: string) => `儲存 ${name}`,
     body: "製作一份固定副本。來源內容保持不變，之後的修改也不會跟隨過來。",

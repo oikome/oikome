@@ -1112,4 +1112,7 @@
   'publicBody': '訪問者は署名で認証し、ライブクエリは制限され、記録されます。',
   'queryOnly': 'クエリのみ', 'queryOnlyBody': '元のバイト列とスナップショットは取得できません。', 'queryAndCopy': 'クエリとコピー', 'queryCopyBody': '元のバイト列と署名付きスナップショットを許可します。',
   'publicLimits': '訪問者ごとに30件/分・1,000行・5秒', 'publicPrivacy': '写真の位置メタデータを削除', 'publish': '公開',
+  'analyze': '分析…', 'analysisBody': 'フィールドを確認して派生分析を作成します。元の内容は変更しません。',
+  'analysisName': '分析名', 'dateField': '日付フィールド', 'amountField': '金額フィールド', 'categoryField': 'カテゴリーフィールド',
+  'createAnalysis': '分析を作成', 'analysisDone': '元の内容を変えずに分析を作成しました。',
 };

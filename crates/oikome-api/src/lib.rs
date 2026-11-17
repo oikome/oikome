@@ -27,6 +27,7 @@
 //! the catalog and the operations call the node directly. Only `run_sql`
 //! runs SQL, the owner's own; `add_examples` runs this crate's constants.
 
+mod analysis;
 mod assistant_config;
 mod assistants;
 mod borrowing;

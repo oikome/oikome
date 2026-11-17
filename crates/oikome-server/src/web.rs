@@ -57,7 +57,7 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, Api, ApiError,
+    AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, AnalyzeDataset, Api, ApiError,
     AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant,
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
     ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
@@ -456,6 +456,9 @@ impl WebState {
             "show_folder" => json_op!(show_folder, ShowFolder),
             "open_with" => json_op!(open_with, FileRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
+            "dataset_profile" => json_op!(dataset_profile, SpaceRef),
+            "analyze_dataset" => json_op!(analyze_dataset, AnalyzeDataset),
+            "analysis_profile" => json_op!(analysis_profile, SpaceRef),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),

@@ -13,6 +13,10 @@ import type {
   AddExamples,
   AddInPlaceFiles,
   AddInPlaceFolder,
+  AnalyzeDataset,
+  AnalysisProfile,
+  DatasetAnalysis,
+  DatasetProfile,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -138,6 +142,9 @@ export interface NodeClient {
   createSpace(request: NewSpace): Promise<SpaceSummary>;
   dropSpace(request: SpaceRef): Promise<Empty>;
   listTables(request: SpaceRef): Promise<TableSummary[]>;
+  datasetProfile(request: SpaceRef): Promise<DatasetProfile>;
+  analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis>;
+  analysisProfile(request: SpaceRef): Promise<AnalysisProfile>;
   /** Once, on a new data center: the examples, in `language` when they are written in it. */
   addExamples(request?: AddExamples): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
@@ -375,6 +382,18 @@ export class HttpClient implements NodeClient {
 
   listTables(request: SpaceRef): Promise<TableSummary[]> {
     return this.#json("list_tables", request);
+  }
+
+  datasetProfile(request: SpaceRef): Promise<DatasetProfile> {
+    return this.#json("dataset_profile", request);
+  }
+
+  analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis> {
+    return this.#json("analyze_dataset", request);
+  }
+
+  analysisProfile(request: SpaceRef): Promise<AnalysisProfile> {
+    return this.#json("analysis_profile", request);
   }
 
   addExamples(request: AddExamples = {}): Promise<SpaceSummary[]> {

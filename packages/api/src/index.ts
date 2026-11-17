@@ -1332,6 +1332,36 @@ export type Saved = { files: Array<SavedFile>,
 space: SpaceSummary | null, };
 
 /**
+ * A field's meaning inferred from its name and Arrow type.
+ */
+export type FieldRole = "time" | "amount" | "category" | "title" | "key" | "other";
+
+/**
+ * One source field in a dataset profile.
+ */
+export type FieldProfile = { name: string, dataType: string, role: FieldRole, inferred: boolean, };
+
+/**
+ * `dataset_profile`: inferred roles the owner can correct before analysis.
+ */
+export type DatasetProfile = { space: string, table: string, fields: Array<FieldProfile>, fingerprint: string, };
+
+/**
+ * `analyze_dataset`: explicitly create a derived daily/category analysis.
+ */
+export type AnalyzeDataset = { space: string, table: string, name: string, timeField: string, amountField: string, categoryField: string, };
+
+/**
+ * Why a derived analysis can be rebuilt, and whether its source shape changed.
+ */
+export type AnalysisProfile = { name: string, sourceSpace: string, sourceTable: string, timeField: string, amountField: string, categoryField: string, query: string, sourceFingerprint: string, sourceChanged: boolean, createdAtMs: number, };
+
+/**
+ * A derived analysis and its source profile.
+ */
+export type DatasetAnalysis = { space: SpaceSummary, profile: AnalysisProfile, };
+
+/**
  * `create_public_share`: publish a detached collection with live-query and
  * snapshot limits chosen by the owner.
  */

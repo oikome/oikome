@@ -1282,6 +1282,12 @@ export const fr: Strings = {
       "Oikome demande à votre routeur d’ouvrir un seul port pour lui. Ses pages et vos assistants IA restent sur cet ordinateur.",
     networkSaved: "Enregistré.",
   },
+  analysis: {
+    menu: "Analyser…", title: (name: string) => `Analyser ${name}`,
+    body: "Vérifiez les champs puis créez une analyse dérivée par date et catégorie. La table source reste inchangée.",
+    name: "Nom de l’analyse", fields: { time: "Champ de date", amount: "Champ de montant", category: "Champ de catégorie" },
+    action: "Créer l’analyse", creating: "Analyse…",
+  },
   save: {
     menu: "Enregistrer vers…", title: (name: string) => `Enregistrer ${name}`,
     body: "Crée une copie figée. La source reste intacte et ses modifications ultérieures ne sont pas suivies.",

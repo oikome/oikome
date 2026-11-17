@@ -1233,6 +1233,12 @@ export const ja: Strings = {
       "Oikome はルーターに Oikome 用のポートを 1 つだけ開くよう求めます。Oikome のページと AIアシスタントはこのコンピュータにとどまります。",
     networkSaved: "保存しました",
   },
+  analysis: {
+    menu: "分析…", title: (name: string) => `${name} を分析`,
+    body: "フィールドを確認し、日付・カテゴリー別の派生分析を作成します。元のテーブルは変更しません。",
+    name: "分析名", fields: { time: "日付フィールド", amount: "金額フィールド", category: "カテゴリーフィールド" },
+    action: "分析を作成", creating: "分析中…",
+  },
   save: {
     menu: "保存先…", title: (name: string) => `${name} を保存`,
     body: "現在の内容を1回だけコピーします。元の内容は変更せず、後の変更も引き継ぎません。",

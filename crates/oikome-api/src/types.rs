@@ -442,6 +442,74 @@ pub struct Saved {
     pub space: Option<SpaceSummary>,
 }
 
+/// A field's meaning inferred from its name and Arrow type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldRole {
+    Time,
+    Amount,
+    Category,
+    Title,
+    Key,
+    Other,
+}
+
+/// One source field in a dataset profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldProfile {
+    pub name: String,
+    pub data_type: String,
+    pub role: FieldRole,
+    pub inferred: bool,
+}
+
+/// `dataset_profile`: inferred roles the owner can correct before analysis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetProfile {
+    pub space: String,
+    pub table: String,
+    pub fields: Vec<FieldProfile>,
+    pub fingerprint: String,
+}
+
+/// `analyze_dataset`: explicitly create a derived daily/category analysis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzeDataset {
+    pub space: String,
+    pub table: String,
+    pub name: String,
+    pub time_field: String,
+    pub amount_field: String,
+    pub category_field: String,
+}
+
+/// Why a derived analysis can be rebuilt, and whether its source shape changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisProfile {
+    pub name: String,
+    pub source_space: String,
+    pub source_table: String,
+    pub time_field: String,
+    pub amount_field: String,
+    pub category_field: String,
+    pub query: String,
+    pub source_fingerprint: String,
+    pub source_changed: bool,
+    pub created_at_ms: u64,
+}
+
+/// A derived analysis and its source profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetAnalysis {
+    pub space: SpaceSummary,
+    pub profile: AnalysisProfile,
+}
+
 /// `create_public_share`: publish a detached collection with live-query and
 /// snapshot limits chosen by the owner.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

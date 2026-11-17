@@ -56,6 +56,7 @@ import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
 import { SaveDialog } from "./SaveDialog";
+import { DatasetAnalysisDialog } from "./DatasetAnalysisDialog";
 import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
@@ -83,6 +84,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();
@@ -216,6 +218,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                   ]
                 : []),
               { label: strings.save.menu, onSelect: () => setSaving(true) },
+              ...(!folder && !saved && preview.data?.table ? [{ label: strings.analysis.menu, onSelect: () => setAnalyzing(true) }] : []),
               { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
             ]}
           />
@@ -339,6 +342,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             spaces.reload();
           }}
         />
+      )}
+      {analyzing && preview.data?.table && (
+        <DatasetAnalysisDialog space={space.name} table={preview.data.table.name} onClose={() => setAnalyzing(false)} />
       )}
       {confirming && (
         <ConfirmDialog

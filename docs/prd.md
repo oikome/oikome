@@ -196,7 +196,7 @@ A milestone starts only once its gate phases are done; no skipping (architecture
 | M9 Family | Give family members their own identity and what each may see | M7 | Not started |
 | M10 Plugins from others | Install source, card and Content/Preview plugins other people make, one at a time, signed, from an independent plugin library | M4 | Not started; last, with M5 |
 
-**Order (2026-11-16).** Phase numbers are not the order. Done through PR 24. Next: persistent network access (PR 25); Save To and public sharing together (PR 26); internal analysis profiles as core computation (PR 27); dataset interoperability with backup/recovery (PR 28); media, semantic/vector indexes and real RAW plugins (PR 29). Then security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and WebDAV (3.13). M5 and M10 remain last. See [the roadmap](roadmap.md) and [the analysis plan](data-analysis.md).
+**Order (2026-11-17).** Phase numbers are not the order. Done through PR 25. Current: Save To and public sharing together (PR 26). Next: internal analysis profiles as core computation (PR 27); dataset interoperability with backup/recovery (PR 28); media, semantic/vector indexes and real RAW plugins (PR 29). Then security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and WebDAV (3.13). M5 and M10 remain last. See [the roadmap](roadmap.md) and [the analysis plan](data-analysis.md).
 
 Device pairing comes with the phone app (M7). The smart home reference plugin also depends on which phase the Home Assistant source lands in (see Open Questions).
 

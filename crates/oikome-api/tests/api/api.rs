@@ -4530,6 +4530,63 @@ async fn save_to_space_keeps_original_bytes_and_portfolio() {
     assert_eq!(saved.space.unwrap().name, "trip");
     assert_eq!(saved.files.len(), 2);
     std::fs::write(root.join("a.txt"), "changed").unwrap();
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "trip".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: Some(true),
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.total, 2);
+    assert_eq!(listed.files[0].path, "b.jpg");
+    let note = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "trip".into(),
+                path: "a.txt".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(note.text.as_deref(), Some("first"));
+    assert_eq!(note.title.as_deref(), Some("First caption"));
+    let original = n
+        .api
+        .file_original(
+            &OWNER,
+            FileRef {
+                space: "trip".into(),
+                path: "b.jpg".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(original.bytes, jpeg);
+    assert!(!n
+        .api
+        .file_thumbnail(
+            &OWNER,
+            FileRef {
+                space: "trip".into(),
+                path: "b.jpg".into(),
+            },
+        )
+        .await
+        .unwrap()
+        .is_empty());
     let rows = n
         .api
         .read_rows(
@@ -4625,6 +4682,44 @@ async fn save_to_space_detaches_connector_tables() {
     }
 }
 
+async fn saved_files(n: &Node, name: &str) -> tempfile::TempDir {
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("source");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("a.txt"), "first").unwrap();
+    std::fs::write(root.join("b.txt"), "second").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("source".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .save_to(
+            &OWNER,
+            SaveTo {
+                source: "source".into(),
+                paths: None,
+                destination: SaveDestination::Space {
+                    name: name.into(),
+                    storage: None,
+                    title: "Published notes".into(),
+                    cover: None,
+                    captions: HashMap::new(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    source
+}
+
 #[tokio::test]
 async fn public_snapshot_is_signed_private_and_revocable() {
     let n = node();
@@ -4684,11 +4779,12 @@ async fn public_snapshot_is_signed_private_and_revocable() {
             &OWNER,
             NewPublicShare {
                 space: "trip".into(),
-                allow_copy: None,
+                allow_copy: Some(true),
                 requests_per_minute: Some(10),
                 max_rows: Some(100),
                 max_ms: Some(1_000),
                 remove_location: None,
+                reach: None,
             },
         )
         .await
@@ -4713,6 +4809,7 @@ async fn public_snapshot_is_signed_private_and_revocable() {
         "cover": manifest.cover,
         "createdAtMs": manifest.created_at_ms,
         "removeLocation": manifest.remove_location,
+        "allowCopy": manifest.allow_copy,
         "files": manifest.files,
     }))
     .unwrap();
@@ -4768,6 +4865,189 @@ async fn public_snapshot_is_signed_private_and_revocable() {
     let shares = n.api.list_public_shares(&OWNER, Empty {}).await.unwrap();
     assert_eq!(shares.len(), 1);
     assert!(!shares[0].active);
+}
+
+#[tokio::test]
+async fn public_live_queries_authenticate_limit_log_and_revoke() {
+    let mut n = node();
+    let _source = saved_files(&n, "published").await;
+    let log =
+        oikome_node::AccessLog::open(&std::path::PathBuf::from(n.catalog.oikome_dir())).unwrap();
+    n.api = n.api.with_access_log(log);
+    let share = n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "published".into(),
+                allow_copy: Some(false),
+                requests_per_minute: Some(4),
+                max_rows: Some(1),
+                max_ms: Some(1_000),
+                remove_location: None,
+                reach: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(n
+        .api
+        .public_snapshot(PublicShareRef {
+            id: share.id.clone()
+        })
+        .await
+        .is_err());
+    let visitor = NodeIdentity::from_seed(&[88; 32]);
+    let did = visitor.did().to_string();
+    let challenge = n
+        .api
+        .public_auth_challenge(PublicAuthRequest {
+            id: share.id.clone(),
+            did: did.clone(),
+        })
+        .await
+        .unwrap();
+    let signature = hex::encode(visitor.sign(challenge.message.as_bytes()));
+    let verification = PublicAuthVerification {
+        id: share.id.clone(),
+        did: did.clone(),
+        message: challenge.message,
+        signature,
+    };
+    let session = n
+        .api
+        .public_auth_verify(verification.clone())
+        .await
+        .unwrap();
+    assert!(n.api.public_auth_verify(verification).await.is_err());
+    let query = |sql: &str| PublicQuery {
+        id: share.id.clone(),
+        token: session.token.clone(),
+        sql: sql.into(),
+    };
+    assert!(n
+        .api
+        .public_query(query("SELECT content FROM _oikome_files LIMIT 1"))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .public_query(query("SELECT path FROM _oikome_files"))
+        .await
+        .is_err());
+    let rows = n
+        .api
+        .public_query(query("SELECT path FROM _oikome_files WHERE path = 'a.txt'"))
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 1);
+    assert!(n
+        .api
+        .public_query(query("DELETE FROM _oikome_files"))
+        .await
+        .is_err());
+    let limited = n
+        .api
+        .public_query(query("SELECT path FROM _oikome_files LIMIT 1"))
+        .await
+        .unwrap_err();
+    assert!(limited.message.contains("request limit"));
+    n.api
+        .revoke_public_share(
+            &OWNER,
+            PublicShareRef {
+                id: share.id.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(n
+        .api
+        .public_query(query("SELECT path FROM _oikome_files LIMIT 1"))
+        .await
+        .is_err());
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let activity = n
+        .api
+        .list_access(&OWNER, ListAccess::default())
+        .await
+        .unwrap();
+    assert!(activity
+        .iter()
+        .any(|entry| entry.did.as_deref() == Some(did.as_str())
+            && entry.method == "public_query"
+            && entry.outcome == AccessOutcome::Allowed));
+    assert!(activity
+        .iter()
+        .any(|entry| entry.did.as_deref() == Some(did.as_str())
+            && entry.outcome == AccessOutcome::Denied));
+}
+
+#[tokio::test]
+async fn public_live_queries_verify_ethereum_signatures() {
+    use k256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey};
+    use sha3::{Digest, Keccak256};
+
+    let n = node();
+    let _source = saved_files(&n, "published").await;
+    let share = n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "published".into(),
+                allow_copy: Some(true),
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+                reach: None,
+            },
+        )
+        .await
+        .unwrap();
+    let key = SigningKey::from_bytes(&[7; 32].into()).unwrap();
+    let encoded = key.verifying_key().to_encoded_point(false);
+    let address = hex::encode(&Keccak256::digest(&encoded.as_bytes()[1..])[12..]);
+    let did = format!("did:pkh:eip155:1:0x{address}");
+    let challenge = n
+        .api
+        .public_auth_challenge(PublicAuthRequest {
+            id: share.id.clone(),
+            did: did.clone(),
+        })
+        .await
+        .unwrap();
+    assert!(challenge.message.contains("Version: 1\nChain ID: 1"));
+    let prefixed = format!(
+        "\x19Ethereum Signed Message:\n{}{}",
+        challenge.message.len(),
+        challenge.message
+    );
+    let hash = Keccak256::digest(prefixed.as_bytes());
+    let (signature, recovery): (Signature, _) = key.sign_prehash(&hash).unwrap();
+    let mut signature = signature.to_vec();
+    signature.push(recovery.to_byte() + 27);
+    let session = n
+        .api
+        .public_auth_verify(PublicAuthVerification {
+            id: share.id.clone(),
+            did,
+            message: challenge.message,
+            signature: hex::encode(signature),
+        })
+        .await
+        .unwrap();
+    let rows = n
+        .api
+        .public_query(PublicQuery {
+            id: share.id.clone(),
+            token: session.token,
+            sql: "SELECT content FROM _oikome_files WHERE path = 'a.txt'".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 1);
 }
 
 fn image_png(out: &mut Vec<u8>) {

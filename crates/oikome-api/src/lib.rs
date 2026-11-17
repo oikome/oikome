@@ -259,6 +259,7 @@ pub struct Api {
     rooms: Arc<std::sync::Mutex<Rooms>>,
     /// The independent official plugin catalog, or a test's.
     registry: registry::Endpoints,
+    public_live: public::LiveState,
 }
 
 impl std::fmt::Debug for Api {
@@ -372,6 +373,7 @@ impl Api {
             dropbox_sign_ins: dropbox::SignIns::default(),
             rooms: Arc::default(),
             registry: registry::Endpoints::default(),
+            public_live: public::LiveState::default(),
         }
     }
 

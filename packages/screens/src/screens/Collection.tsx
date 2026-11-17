@@ -55,6 +55,8 @@ import { AddFiles } from "../import";
 import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
+import { SaveDialog } from "./SaveDialog";
+import { PublicShareDialog } from "./PublicShareDialog";
 import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
@@ -81,6 +83,8 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const [contentsKey, setContentsKey] = useState(0);
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();
@@ -117,6 +121,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const where = space.storage === null ? s.thisComputer : (place?.label ?? space.storage);
   const source = sources.data?.find((x) => x.name === space.name);
   const folder = space.inPlace;
+  const saved = preview.data?.table?.name === "_oikome_files";
   const folderPlace = folder ? storages.data?.find((x) => x.name === folder.place) : undefined;
   // Where a folder viewed in place is: its path, on this computer or a NAS.
   const folderWhere = folder
@@ -211,6 +216,8 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                     },
                   ]
                 : []),
+              { label: strings.save.menu, onSelect: () => setSaving(true) },
+              ...(saved ? [{ label: strings.publicShare.menu, onSelect: () => setPublishing(true) }] : []),
               { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
             ]}
           />
@@ -316,6 +323,17 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           onChange={reload}
         />
       )}
+      {saving && (
+        <SaveDialog
+          space={space}
+          onClose={() => setSaving(false)}
+          onSaved={() => {
+            forgetPreviews();
+            spaces.reload();
+          }}
+        />
+      )}
+      {publishing && <PublicShareDialog collection={space.name} onClose={() => setPublishing(false)} />}
       {confirming && (
         <ConfirmDialog
           title={local ? s.removeTitle(space.name) : s.leaveTitle(space.name)}
@@ -384,14 +402,14 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           keptOn,
           who: listNames([strings.common.you, ...names]),
         };
-        return folder ? (
+        return folder || saved ? (
           <FolderContents
             key={`${space.name}:${contentsKey}`}
             space={space}
             item={item}
             facts={facts}
             folder={openFolder}
-            placeLabel={folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer)}
+            placeLabel={folder ? (folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer)) : strings.save.savedCollection}
           />
         ) : (
           <Contents key={`${space.name}:${contentsKey}`} space={space} item={item} facts={facts} onImport={() => setImporting(true)} />

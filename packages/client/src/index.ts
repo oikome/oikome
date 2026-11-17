@@ -46,7 +46,12 @@ import type {
   NewShare,
   NewSpace,
   NewPublicShare,
+  PublicAuthRequest,
+  PublicAuthVerification,
+  PublicChallenge,
   PublicManifest,
+  PublicQuery,
+  PublicSession,
   PublicShare,
   PublicShareRef,
   NodeInfo,
@@ -198,6 +203,9 @@ export interface NodeClient {
   publicManifest(request: PublicShareRef): Promise<PublicManifest>;
   publicSnapshot(request: PublicShareRef): Promise<Uint8Array>;
   publicSnapshotUrl(request: PublicShareRef): string;
+  publicAuthChallenge(request: PublicAuthRequest): Promise<PublicChallenge>;
+  publicAuthVerify(request: PublicAuthVerification): Promise<PublicSession>;
+  publicQuery(request: PublicQuery): Promise<RowsResult>;
   /** A collection that views a folder where it is; nothing is copied. */
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary>;
   /** Add selected original files to a collection without copying them. */
@@ -585,6 +593,33 @@ export class HttpClient implements NodeClient {
 
   publicSnapshotUrl(request: PublicShareRef): string {
     return `${this.#base}/public/${request.id}/snapshot.zip`;
+  }
+
+  async publicAuthChallenge(request: PublicAuthRequest): Promise<PublicChallenge> {
+    const response = await this.#request(`/public/${request.id}/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return (await response.json()) as PublicChallenge;
+  }
+
+  async publicAuthVerify(request: PublicAuthVerification): Promise<PublicSession> {
+    const response = await this.#request(`/public/${request.id}/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return (await response.json()) as PublicSession;
+  }
+
+  async publicQuery(request: PublicQuery): Promise<RowsResult> {
+    const response = await this.#request(`/public/${request.id}/query`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return this.#rows(response);
   }
 
   viewInPlace(request: ViewInPlace): Promise<SpaceSummary> {

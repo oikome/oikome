@@ -849,7 +849,7 @@ export type Reachable = "local_only" | "opening" | "direct" | "through_contact" 
 /**
  * What the port is open for.
  */
-export type OpenForKind = "share" | "lend";
+export type OpenForKind = "share" | "lend" | "public";
 
 /**
  * One thing the owner allowed to be reached from outside, still going.
@@ -1351,7 +1351,11 @@ maxMs?: number,
 /**
  * Strip JPEG GPS metadata in the public snapshot; true by default.
  */
-removeLocation?: boolean, };
+removeLocation?: boolean,
+/**
+ * Whether strangers may reach live queries from outside this network.
+ */
+reach?: ReachChoice, };
 
 /**
  * A file in a signed public manifest.
@@ -1361,7 +1365,7 @@ export type PublicSnapshotFile = { path: string, name: string, caption: string |
 /**
  * A public snapshot's signed description of its content.
  */
-export type PublicManifest = { version: number, owner: string, space: string, title: string, cover: string | null, createdAtMs: number, removeLocation: boolean, files: Array<PublicSnapshotFile>,
+export type PublicManifest = { version: number, owner: string, space: string, title: string, cover: string | null, createdAtMs: number, removeLocation: boolean, allowCopy: boolean, files: Array<PublicSnapshotFile>,
 /**
  * Ed25519 signature, in lowercase hex.
  */
@@ -1381,6 +1385,40 @@ export type PublicShare = { id: string, space: string, allowCopy: boolean, reque
  * A public share to inspect, query or revoke.
  */
 export type PublicShareRef = { id: string, };
+
+/**
+ * One published original in a copy-enabled public snapshot.
+ */
+export type PublicFileRef = { id: string, path: string, };
+
+/**
+ * Start authenticating a visitor for a public share.
+ */
+export type PublicAuthRequest = { id: string,
+/**
+ * An Ed25519 `did:key`, or an Ethereum `did:pkh:eip155` address.
+ */
+did: string, };
+
+/**
+ * The exact EIP-4361 or `did:key` challenge the visitor signs.
+ */
+export type PublicChallenge = { message: string, nonce: string, expiresAtMs: number, };
+
+/**
+ * Finish visitor authentication. Signatures are lowercase or 0x-prefixed hex.
+ */
+export type PublicAuthVerification = { id: string, did: string, message: string, signature: string, };
+
+/**
+ * A short-lived visitor session. Only its token's hash is kept by the node.
+ */
+export type PublicSession = { token: string, did: string, expiresAtMs: number, };
+
+/**
+ * One read-only SQL statement in a visitor's authenticated public session.
+ */
+export type PublicQuery = { id: string, token: string, sql: string, };
 
 /**
  * `read_file_rows`: a page of the rows of one data file (a CSV, TSV,

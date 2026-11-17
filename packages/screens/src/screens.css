@@ -4511,3 +4511,51 @@ tr.screen-source {
   text-align: left;
   cursor: pointer;
 }
+
+.screen-public {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 48px 0 80px;
+}
+
+.screen-public__signin {
+  margin: 24px 0;
+  padding: 24px;
+}
+
+.screen-public__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.screen-public__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.screen-public__file {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.screen-public__file img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.screen-public__file h3,
+.screen-public__file p {
+  padding: 0 16px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .screen-public {
+    width: min(100% - 28px, 1120px);
+    padding-top: 24px;
+  }
+}

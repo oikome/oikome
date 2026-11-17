@@ -953,8 +953,11 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                 ))
             });
             let access_log = AccessLog::open(&catalog_dir)?;
+            let api =
+                Api::new(catalog.clone(), engines.clone()).with_access_log(access_log.clone());
             let service = OikomeFlightService::new(catalog.clone(), engines.clone())?
-                .with_access_log(access_log.clone());
+                .with_access_log(access_log.clone())
+                .with_public_api(api.clone());
             let listener = TcpListener::bind(listen).await?;
             let scheme = if plaintext { "http" } else { "https" };
             tracing::info!(did = %service.did(), addr = %listener.local_addr()?, %scheme, "serving Arrow Flight");
@@ -1006,8 +1009,7 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             let web = if web {
                 let web_listener = TcpListener::bind(web_listen).await?;
                 let addr = web_listener.local_addr()?;
-                let api = Api::new(catalog.clone(), engines.clone())
-                    .with_access_log(access_log)
+                let api = api
                     .with_flight_url(format!("{scheme}://{}", listener.local_addr()?))
                     .with_network(network);
                 let mut app = WebApp::new(api, addr, login_file(&catalog_dir))?;

@@ -30,6 +30,7 @@ use http_body_util::BodyExt;
 use oikome_api::{
     Api, Caller, NewPublicShare, PublicShareRef, SaveDestination, SaveTo, ViewInPlace,
 };
+use oikome_identity::NodeIdentity;
 use oikome_node::SecretKind;
 use oikome_server::web::{login_file, WebApp, LOGIN_TTL, MAX_BODY_BYTES};
 use oikome_vfs::dropbox::{Endpoints as DropboxEndpoints, FILES_SCOPE as DROPBOX_SCOPE};
@@ -468,11 +469,12 @@ async fn public_snapshots_need_no_owner_session_and_revocation_closes_them() {
             &Caller::Owner,
             NewPublicShare {
                 space: "published".into(),
-                allow_copy: None,
+                allow_copy: Some(true),
                 requests_per_minute: None,
                 max_rows: None,
                 max_ms: None,
                 remove_location: None,
+                reach: None,
             },
         )
         .await
@@ -493,6 +495,68 @@ async fn public_snapshots_need_no_owner_session_and_revocation_closes_them() {
         share.snapshot.unwrap().hash
     );
 
+    let visitor = NodeIdentity::from_seed(&[91; 32]);
+    let did = visitor.did().to_string();
+    let response = web
+        .send(
+            Request::post(format!("/public/{}/challenge", share.id))
+                .header(header::HOST, HOST)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "id": share.id,
+                        "did": did,
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let challenge = json(response).await;
+    let message = challenge["message"].as_str().unwrap();
+    let response = web
+        .send(
+            Request::post(format!("/public/{}/verify", share.id))
+                .header(header::HOST, HOST)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "id": share.id,
+                        "did": did,
+                        "message": message,
+                        "signature": hex::encode(visitor.sign(message.as_bytes())),
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let session = json(response).await;
+    let token = session["token"].as_str().unwrap();
+    let response = web
+        .send(
+            Request::post(format!("/public/{}/query", share.id))
+                .header(header::HOST, HOST)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "id": share.id,
+                        "token": token,
+                        "sql": "SELECT path FROM _oikome_files",
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/vnd.apache.arrow.stream"
+    );
+
     let cookie = web.login().await;
     let response = web
         .send(
@@ -509,6 +573,23 @@ async fn public_snapshots_need_no_owner_session_and_revocation_closes_them() {
         .await;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(!json(response).await["active"].as_bool().unwrap());
+    let response = web
+        .send(
+            Request::post(format!("/public/{}/query", share.id))
+                .header(header::HOST, HOST)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&serde_json::json!({
+                        "id": share.id,
+                        "token": token,
+                        "sql": "SELECT path FROM _oikome_files",
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     for file in ["manifest.json", "snapshot.zip"] {
         assert_eq!(
             web.get(&format!("/public/{}/{file}", share.id))

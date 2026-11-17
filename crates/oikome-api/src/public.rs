@@ -16,24 +16,63 @@
 //! ZIP with a signed manifest and content hashes. Live queries share the same
 //! owner configuration; revoking closes both kinds of access.
 
+use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use arrow_array::{Array, BinaryArray, StringArray};
 use arrow_ipc::reader::StreamReader;
+use chrono::{SecondsFormat, Utc};
+use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use oikome_identity::Did;
-use oikome_semantic::rewrite::quote_ident;
+use oikome_node::{AccessEntry, Outcome, QueryResult, SessionConfig};
+use oikome_semantic::{rewrite::quote_ident, split_statements};
 use serde_json::{json, Value};
+use sha3::{Digest, Keccak256};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::{
-    Api, ApiError, Caller, Empty, NewPublicShare, PublicManifest, PublicShare, PublicShareRef,
-    PublicSnapshot, PublicSnapshotFile, RunSql, SqlResult,
+    encode_rows, Api, ApiError, Caller, Empty, NewPublicShare, PublicAuthRequest,
+    PublicAuthVerification, PublicChallenge, PublicFileRef, PublicManifest, PublicQuery,
+    PublicSession, PublicShare, PublicShareRef, PublicSnapshot, PublicSnapshotFile, Rows, RunSql,
+    SqlResult,
 };
 
 const REGISTRY: &str = "public-shares.json";
 const SNAPSHOTS: &str = "public";
+const CHALLENGE_LIFE: Duration = Duration::from_secs(5 * 60);
+const SESSION_LIFE: Duration = Duration::from_secs(60 * 60);
+const MAX_PUBLIC_SQL: usize = 64 * 1024;
+const PUBLIC_METHOD: &str = "public_query";
+const PUBLIC_FILE_COLUMNS: [&str; 7] = [
+    "path", "name", "position", "caption", "taken", "kind", "hash",
+];
+
+#[derive(Clone)]
+struct Challenge {
+    id: String,
+    did: String,
+    message: String,
+    expires: Instant,
+}
+
+#[derive(Clone)]
+struct Session {
+    id: String,
+    did: String,
+    principal: String,
+    expires: Instant,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct LiveState {
+    challenges: Arc<Mutex<HashMap<String, Challenge>>>,
+    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    calls: Arc<Mutex<HashMap<(String, String), Vec<Instant>>>>,
+}
 
 fn registry_path(root: &std::path::Path) -> PathBuf {
     root.join(REGISTRY)
@@ -60,6 +99,7 @@ fn manifest_payload(manifest: &PublicManifest) -> Value {
         "cover": manifest.cover,
         "createdAtMs": manifest.created_at_ms,
         "removeLocation": manifest.remove_location,
+        "allowCopy": manifest.allow_copy,
         "files": manifest.files,
     })
 }
@@ -189,6 +229,94 @@ fn sanitize(name: &str, kind: &str, bytes: &[u8], remove_location: bool) -> Vec<
     }
 }
 
+fn visitor_did(text: &str) -> Result<(String, Option<u64>), ApiError> {
+    if text.starts_with("did:key:") {
+        let did = Did::parse(text)
+            .map_err(|_| ApiError::invalid("a valid did:key or Ethereum did:pkh is required"))?;
+        return Ok((did.to_string(), None));
+    }
+    let Some(rest) = text.strip_prefix("did:pkh:eip155:") else {
+        return Err(ApiError::invalid(
+            "a valid did:key or Ethereum did:pkh is required",
+        ));
+    };
+    let Some((chain, address)) = rest.split_once(':') else {
+        return Err(ApiError::invalid(
+            "an Ethereum DID names its chain and address",
+        ));
+    };
+    let chain = chain
+        .parse::<u64>()
+        .ok()
+        .filter(|chain| *chain > 0)
+        .ok_or_else(|| ApiError::invalid("the Ethereum chain id is not valid"))?;
+    if address.len() != 42
+        || !address.starts_with("0x")
+        || !address[2..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(ApiError::invalid("the Ethereum address is not valid"));
+    }
+    Ok((
+        format!("did:pkh:eip155:{chain}:{}", address.to_ascii_lowercase()),
+        Some(chain),
+    ))
+}
+
+fn public_principal(id: &str, did: &str) -> String {
+    format!("public:{id}:{}", blake3::hash(did.as_bytes()))
+}
+
+fn signature_bytes(signature: &str) -> Result<Vec<u8>, ApiError> {
+    hex::decode(signature.strip_prefix("0x").unwrap_or(signature))
+        .map_err(|_| ApiError::invalid("the signature is not hexadecimal"))
+}
+
+fn verify_visitor(did: &str, message: &str, signature: &str) -> Result<(), ApiError> {
+    let signature = signature_bytes(signature)?;
+    if did.starts_with("did:key:") {
+        return Did::parse(did)
+            .and_then(|did| did.verify(message.as_bytes(), &signature))
+            .map_err(|_| ApiError::permission_denied("the signature is not valid"));
+    }
+    if signature.len() != 65 {
+        return Err(ApiError::invalid("an Ethereum signature is 65 bytes"));
+    }
+    let recovery = match signature[64] {
+        27 | 28 => signature[64] - 27,
+        value => value,
+    };
+    let recovery = RecoveryId::from_byte(recovery)
+        .ok_or_else(|| ApiError::invalid("the Ethereum recovery id is not valid"))?;
+    let signature = Signature::try_from(&signature[..64])
+        .map_err(|_| ApiError::invalid("the Ethereum signature is not valid"))?;
+    let prefixed = format!("\x19Ethereum Signed Message:\n{}", message.len());
+    let mut hash = Keccak256::new();
+    hash.update(prefixed.as_bytes());
+    hash.update(message.as_bytes());
+    let hash = hash.finalize();
+    let key = VerifyingKey::recover_from_prehash(&hash, &signature, recovery)
+        .map_err(|_| ApiError::permission_denied("the signature is not valid"))?;
+    let encoded = key.to_encoded_point(false);
+    let address = Keccak256::digest(&encoded.as_bytes()[1..]);
+    let expected = did
+        .rsplit_once(":0x")
+        .map(|(_, address)| address)
+        .ok_or_else(|| ApiError::invalid("the Ethereum address is not valid"))?;
+    let expected = hex::decode(expected).map_err(ApiError::internal)?;
+    if address[12..] != expected {
+        return Err(ApiError::permission_denied(
+            "the signature belongs to another Ethereum address",
+        ));
+    }
+    Ok(())
+}
+
+fn random_hex() -> Result<String, ApiError> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(hex::encode(bytes))
+}
+
 impl Api {
     fn public_root(&self) -> PathBuf {
         PathBuf::from(self.catalog.oikome_dir())
@@ -218,7 +346,81 @@ impl Api {
             .ok_or_else(|| ApiError::not_found("this public share does not exist"))
     }
 
-    async fn public_query(&self, sql: String) -> Result<Vec<arrow_array::RecordBatch>, ApiError> {
+    async fn grant_public_visitor(
+        &self,
+        share: &PublicShare,
+        principal: &str,
+    ) -> Result<(), ApiError> {
+        let owner = self.session(None);
+        if share.allow_copy {
+            return owner
+                .grant_space(&share.space, &[principal.to_string()])
+                .map_err(ApiError::from);
+        }
+        let columns = PUBLIC_FILE_COLUMNS
+            .iter()
+            .map(|column| quote_ident(column))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for (table, columns) in [
+            ("_oikome_files", columns.as_str()),
+            ("_oikome_portfolio", "title, cover"),
+        ] {
+            owner
+                .sql(&format!(
+                    "GRANT SELECT ({columns}) ON {}.{} TO {}",
+                    quote_ident(&share.space),
+                    quote_ident(table),
+                    quote_ident(principal)
+                ))
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn revoke_public_visitor(&self, share: &PublicShare, did: &str) -> Result<(), ApiError> {
+        let owner = self.session(None);
+        let principal = public_principal(&share.id, did);
+        if share.allow_copy {
+            owner.revoke_space(&share.space, &[principal])?;
+            return Ok(());
+        }
+        for table in ["_oikome_files", "_oikome_portfolio"] {
+            owner
+                .sql(&format!(
+                    "REVOKE SELECT ON {}.{} FROM {}",
+                    quote_ident(&share.space),
+                    quote_ident(table),
+                    quote_ident(&principal)
+                ))
+                .await?;
+        }
+        Ok(())
+    }
+
+    fn log_public(
+        &self,
+        did: Option<String>,
+        share: &PublicShare,
+        outcome: Outcome,
+        reason: Option<String>,
+    ) {
+        if let Some(log) = &self.access_log {
+            log.record(AccessEntry {
+                at_ms: crate::now_ms(),
+                caller: did,
+                method: PUBLIC_METHOD.into(),
+                spaces: vec![share.space.clone()],
+                token_id: Some(share.id.clone()),
+                outcome,
+                reason,
+                detail: None,
+                merge: false,
+            });
+        }
+    }
+
+    async fn snapshot_rows(&self, sql: String) -> Result<Vec<arrow_array::RecordBatch>, ApiError> {
         let result = self
             .run_sql(&Caller::Owner, RunSql { sql, space: None })
             .await?;
@@ -259,8 +461,9 @@ impl Api {
             return Err(ApiError::invalid("query time must be 100 ms to 30 seconds"));
         }
         let remove_location = req.remove_location.unwrap_or(true);
+        let allow_copy = req.allow_copy.unwrap_or(false);
         let batches = self
-            .public_query(format!(
+            .snapshot_rows(format!(
                 "SELECT * FROM {}.{}",
                 quote_ident(&req.space),
                 "_oikome_files"
@@ -292,7 +495,7 @@ impl Api {
         let kinds = strings(6)?;
         let (title, cover) = {
             let batches = self
-                .public_query(format!(
+                .snapshot_rows(format!(
                     "SELECT * FROM {}.{}",
                     quote_ident(&req.space),
                     "_oikome_portfolio"
@@ -347,6 +550,7 @@ impl Api {
             cover,
             created_at_ms,
             remove_location,
+            allow_copy,
             files: manifest_files,
             signature: String::new(),
         };
@@ -367,7 +571,7 @@ impl Api {
         let share = PublicShare {
             id,
             space: req.space,
-            allow_copy: req.allow_copy.unwrap_or(false),
+            allow_copy,
             requests_per_minute,
             max_rows,
             max_ms,
@@ -375,11 +579,21 @@ impl Api {
             active: true,
             created_at_ms,
             snapshot: Some(snapshot),
+            visitors: Vec::new(),
         };
         let mut shares = read_registry(&root)?;
         shares.push(share.clone());
         self.write_public_registry(&shares)?;
+        self.reach_for(req.reach, &[crate::network::public_key(&share.id)])
+            .await?;
         Ok(share)
+    }
+
+    pub(crate) fn active_public_shares(&self) -> Result<Vec<PublicShare>, ApiError> {
+        Ok(read_registry(&self.public_root())?
+            .into_iter()
+            .filter(|share| share.active)
+            .collect())
     }
 
     /// The owner's public shares, including revoked ones.
@@ -401,13 +615,32 @@ impl Api {
         caller.require_owner()?;
         let mut shares = read_registry(&self.public_root())?;
         let share = shares
-            .iter_mut()
+            .iter()
             .find(|share| share.id == req.id)
+            .cloned()
             .ok_or_else(|| ApiError::not_found("this public share does not exist"))?;
-        share.active = false;
-        let result = share.clone();
+        for did in &share.visitors {
+            self.revoke_public_visitor(&share, did).await?;
+        }
+        if let Some(stored) = shares.iter_mut().find(|stored| stored.id == req.id) {
+            stored.active = false;
+        }
         self.write_public_registry(&shares)?;
-        Ok(result)
+        self.public_live
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|_, session| session.id != req.id);
+        self.public_live
+            .calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(id, _), _| id != &req.id);
+        self.update_reach();
+        Ok(PublicShare {
+            active: false,
+            ..share
+        })
     }
 
     /// A public share's signed manifest, verified again before it is returned.
@@ -425,6 +658,11 @@ impl Api {
 
     /// The public snapshot ZIP, with its signed manifest checked first.
     pub async fn public_snapshot(&self, req: PublicShareRef) -> Result<Vec<u8>, ApiError> {
+        if !self.public_share(&req.id)?.allow_copy {
+            return Err(ApiError::permission_denied(
+                "this public share does not allow copying",
+            ));
+        }
         self.public_manifest(req.clone()).await?;
         let path = snapshot_path(&self.public_root(), &req.id);
         let bytes = std::fs::read(path).map_err(ApiError::internal)?;
@@ -448,5 +686,255 @@ impl Api {
             }
         }
         Ok(bytes)
+    }
+
+    /// One sanitized original from a copy-enabled public snapshot.
+    pub async fn public_file(&self, req: PublicFileRef) -> Result<Vec<u8>, ApiError> {
+        let manifest = self
+            .public_manifest(PublicShareRef { id: req.id.clone() })
+            .await?;
+        let file = manifest
+            .files
+            .iter()
+            .find(|file| file.path == req.path)
+            .ok_or_else(|| ApiError::not_found("this public file does not exist"))?;
+        let bytes = self.public_snapshot(PublicShareRef { id: req.id }).await?;
+        let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(ApiError::internal)?;
+        let mut content = Vec::new();
+        zip.by_name(&file.path)
+            .map_err(ApiError::internal)?
+            .read_to_end(&mut content)
+            .map_err(ApiError::internal)?;
+        if blake3::hash(&content).to_string() != file.hash {
+            return Err(ApiError::invalid("the public file has changed"));
+        }
+        Ok(content)
+    }
+
+    /// Issue a one-time challenge for a visitor's DID.
+    pub async fn public_auth_challenge(
+        &self,
+        req: PublicAuthRequest,
+    ) -> Result<PublicChallenge, ApiError> {
+        let share = self.public_share(&req.id)?;
+        if !share.active {
+            return Err(ApiError::not_found("this public share has ended"));
+        }
+        let (did, chain) = visitor_did(&req.did)?;
+        let nonce = random_hex()?;
+        let issued = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+        let message = if let Some(chain) = chain {
+            let address = did
+                .rsplit_once(':')
+                .map(|(_, address)| address)
+                .unwrap_or("");
+            format!(
+                "oikome wants you to sign in with your Ethereum account:\n{address}\n\n\
+                 Sign in to read this Oikome public share.\n\n\
+                 URI: oikome://public/{}\nVersion: 1\nChain ID: {chain}\n\
+                 Nonce: {nonce}\nIssued At: {issued}",
+                share.id
+            )
+        } else {
+            format!(
+                "Oikome public share\nID: {}\nNonce: {nonce}\nIssued At: {issued}",
+                share.id
+            )
+        };
+        let expires = Instant::now() + CHALLENGE_LIFE;
+        let expires_at_ms = crate::now_ms() + CHALLENGE_LIFE.as_millis() as u64;
+        let mut challenges = self
+            .public_live
+            .challenges
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        challenges.retain(|_, challenge| challenge.expires > Instant::now());
+        challenges.insert(
+            nonce.clone(),
+            Challenge {
+                id: share.id,
+                did,
+                message: message.clone(),
+                expires,
+            },
+        );
+        Ok(PublicChallenge {
+            message,
+            nonce,
+            expires_at_ms,
+        })
+    }
+
+    /// Verify a wallet or Ed25519 signature and open a short-lived session.
+    pub async fn public_auth_verify(
+        &self,
+        req: PublicAuthVerification,
+    ) -> Result<PublicSession, ApiError> {
+        let (did, _) = visitor_did(&req.did)?;
+        let challenge = {
+            let mut challenges = self
+                .public_live
+                .challenges
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            challenges.retain(|_, challenge| challenge.expires > Instant::now());
+            let nonce = challenges
+                .iter()
+                .find(|(_, challenge)| {
+                    challenge.id == req.id
+                        && challenge.did == did
+                        && challenge.message == req.message
+                })
+                .map(|(nonce, _)| nonce.clone());
+            nonce.and_then(|nonce| challenges.remove(&nonce))
+        }
+        .ok_or_else(|| ApiError::permission_denied("this sign-in challenge is not valid"))?;
+        verify_visitor(&challenge.did, &challenge.message, &req.signature)?;
+        let share = self.public_share(&req.id)?;
+        if !share.active {
+            return Err(ApiError::not_found("this public share has ended"));
+        }
+        let principal = public_principal(&share.id, &did);
+        self.grant_public_visitor(&share, &principal).await?;
+        let mut shares = read_registry(&self.public_root())?;
+        let stored = shares
+            .iter_mut()
+            .find(|stored| stored.id == share.id && stored.active)
+            .ok_or_else(|| ApiError::not_found("this public share has ended"))?;
+        if !stored.visitors.contains(&did) {
+            stored.visitors.push(did.clone());
+        }
+        self.write_public_registry(&shares)?;
+        let token = random_hex()?;
+        let expires = Instant::now() + SESSION_LIFE;
+        let expires_at_ms = crate::now_ms() + SESSION_LIFE.as_millis() as u64;
+        self.public_live
+            .sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                blake3::hash(token.as_bytes()).to_string(),
+                Session {
+                    id: share.id,
+                    did: did.clone(),
+                    principal,
+                    expires,
+                },
+            );
+        Ok(PublicSession {
+            token,
+            did,
+            expires_at_ms,
+        })
+    }
+
+    /// Query only what this public share grants, within its per-visitor limits.
+    pub async fn public_query(&self, req: PublicQuery) -> Result<Rows, ApiError> {
+        let share = self.public_share(&req.id).ok();
+        let session = {
+            let mut sessions = self
+                .public_live
+                .sessions
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            sessions.retain(|_, session| session.expires > Instant::now());
+            sessions
+                .get(&blake3::hash(req.token.as_bytes()).to_string())
+                .cloned()
+        };
+        let Some(session) = session.filter(|session| session.id == req.id) else {
+            if let Some(share) = &share {
+                self.log_public(
+                    None,
+                    share,
+                    Outcome::Denied,
+                    Some("visitor authentication required".into()),
+                );
+            }
+            return Err(ApiError::new(
+                crate::ErrorCode::Unauthenticated,
+                "sign in to this public share first",
+            ));
+        };
+        let Some(share) = share.filter(|share| share.active) else {
+            return Err(ApiError::not_found("this public share has ended"));
+        };
+        let now = Instant::now();
+        let within_limit = {
+            let mut calls = self
+                .public_live
+                .calls
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let calls = calls
+                .entry((share.id.clone(), session.did.clone()))
+                .or_default();
+            calls.retain(|at| now.duration_since(*at) < Duration::from_secs(60));
+            calls.push(now);
+            calls.len() <= share.requests_per_minute as usize
+        };
+        let result = if !within_limit {
+            Err(ApiError::permission_denied(
+                "this visitor's request limit has been reached",
+            ))
+        } else {
+            self.run_public_query(&share, &session, &req.sql).await
+        };
+        self.log_public(
+            Some(session.did),
+            &share,
+            if result.is_ok() {
+                Outcome::Allowed
+            } else {
+                Outcome::Denied
+            },
+            result.as_ref().err().map(|error| error.message.clone()),
+        );
+        result
+    }
+
+    async fn run_public_query(
+        &self,
+        share: &PublicShare,
+        session: &Session,
+        sql: &str,
+    ) -> Result<Rows, ApiError> {
+        if sql.len() > MAX_PUBLIC_SQL {
+            return Err(ApiError::invalid("a public query is limited to 64 KiB"));
+        }
+        let statements = split_statements(sql);
+        if statements.len() != 1 {
+            return Err(ApiError::invalid("send one read-only SQL statement"));
+        }
+        self.refresh()?;
+        let session = oikome_node::OikomeSession::new(
+            self.catalog.clone(),
+            self.engines.clone(),
+            SessionConfig {
+                default_space: Some(share.space.clone()),
+                principal: Some(session.principal.clone()),
+            },
+        );
+        let result = tokio::time::timeout(
+            Duration::from_millis(share.max_ms),
+            session.sql(&statements[0]),
+        )
+        .await
+        .map_err(|_| ApiError::permission_denied("the public query time limit was reached"))??;
+        let QueryResult::Batches { schema, batches } = result else {
+            return Err(ApiError::invalid("a public query must return rows"));
+        };
+        let rows = encode_rows(
+            &schema,
+            &batches,
+            share.max_rows as usize,
+            crate::MAX_RESULT_BYTES,
+        )?;
+        if rows.truncated {
+            return Err(ApiError::permission_denied(
+                "the public query row or result-size limit was reached",
+            ));
+        }
+        Ok(rows)
     }
 }

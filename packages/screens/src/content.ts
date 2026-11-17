@@ -302,6 +302,8 @@ export function loadPreview(client: NodeClient, space: SpaceSummary): Promise<Pr
   if (!preview) {
     preview = (async () => {
       const tables = await client.listTables({ space: space.name });
+      const saved = tables.find((table) => table.name === "_oikome_files");
+      if (saved) return { ...(await folderPreview(client, space)), table: saved };
       const table = tables[0];
       if (!table || table.rows === 0) return { table, shape: { view: "table" as View }, items: [] };
       const { table: rows } = await client.readRows({

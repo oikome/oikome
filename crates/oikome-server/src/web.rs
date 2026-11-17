@@ -62,9 +62,10 @@ use oikome_api::{
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
     ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
     NewPublicShare, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
-    PluginFolder, PluginRead, PluginRef, PublicShareRef, ReadFileRows, ReadRow, ReadRows,
-    RegistryPluginRef, Rows, RunSql, Search, SetLending, SetSourceEvery, ShareRef, ShareSpace,
-    SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
+    PluginFolder, PluginRead, PluginRef, PublicAuthRequest, PublicAuthVerification, PublicFileRef,
+    PublicQuery, PublicShareRef, ReadFileRows, ReadRow, ReadRows, RegistryPluginRef, Rows, RunSql,
+    Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult,
+    StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
@@ -769,7 +770,71 @@ impl WebState {
                 Ok(body) => respond(StatusCode::OK, "application/zip", body),
                 Err(e) => error(e),
             },
-            _ => return error(ApiError::not_found("not found")),
+            _ => {
+                let Some(path) = file.strip_prefix("files/") else {
+                    return error(ApiError::not_found("not found"));
+                };
+                let Some(path) = path
+                    .split('/')
+                    .map(percent_decoded)
+                    .collect::<Option<Vec<_>>>()
+                    .map(|parts| parts.join("/"))
+                else {
+                    return error(ApiError::not_found("not found"));
+                };
+                match self
+                    .api
+                    .public_file(PublicFileRef {
+                        id: id.into(),
+                        path: path.clone(),
+                    })
+                    .await
+                {
+                    Ok(body) => respond(StatusCode::OK, content_type(Path::new(&path)), body),
+                    Err(e) => error(e),
+                }
+            }
+        };
+        response.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("*"),
+        );
+        response
+    }
+
+    async fn public_call(&self, path: &str, body: Bytes) -> Response {
+        let Some((id, operation)) = path
+            .strip_prefix("/public/")
+            .and_then(|path| path.split_once('/'))
+        else {
+            return error(ApiError::not_found("not found"));
+        };
+        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return error(ApiError::not_found("not found"));
+        }
+        let mismatched = || ApiError::invalid("the public share id does not match its URL");
+        let mut response = match operation {
+            "challenge" => match parse::<PublicAuthRequest>(&body) {
+                Ok(request) if request.id == id => {
+                    json(self.api.public_auth_challenge(request).await)
+                }
+                Ok(_) => error(mismatched()),
+                Err(e) => error(e),
+            },
+            "verify" => match parse::<PublicAuthVerification>(&body) {
+                Ok(request) if request.id == id => json(self.api.public_auth_verify(request).await),
+                Ok(_) => error(mismatched()),
+                Err(e) => error(e),
+            },
+            "query" => match parse::<PublicQuery>(&body) {
+                Ok(request) if request.id == id => match self.api.public_query(request).await {
+                    Ok(rows) => arrow(rows),
+                    Err(e) => error(e),
+                },
+                Ok(_) => error(mismatched()),
+                Err(e) => error(e),
+            },
+            _ => error(ApiError::not_found("not found")),
         };
         response.headers_mut().insert(
             header::ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -969,7 +1034,30 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
         }
         (&Method::GET, "/login") => state.login(parts.uri.query()),
         (&Method::GET, GOOGLE_CALLBACK) => state.google_callback(parts.uri.query()).await,
-        (&Method::GET, _) if path.starts_with("/public/") => state.serve_public(path).await,
+        (&Method::OPTIONS, _) if path.starts_with("/public/") => {
+            let mut response = Response::new(Body::empty());
+            *response.status_mut() = StatusCode::NO_CONTENT;
+            let headers = response.headers_mut();
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                HeaderValue::from_static("*"),
+            );
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                HeaderValue::from_static("GET, POST, OPTIONS"),
+            );
+            headers.insert(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                HeaderValue::from_static("content-type"),
+            );
+            secure_headers(headers);
+            response
+        }
+        (&Method::GET, _)
+            if path.starts_with("/public/") && path["/public/".len()..].contains('/') =>
+        {
+            state.serve_public(path).await
+        }
         (&Method::GET, _) if path.starts_with("/api/") => {
             error(ApiError::not_found("API calls use POST"))
         }
@@ -989,6 +1077,13 @@ async fn handle(State(state): State<Arc<WebState>>, request: Request) -> Respons
             "Oikome is running without its app (start it with --web-root apps/web/dist); \
              the API is at POST /api/<operation>.\n",
         ),
+        (&Method::POST, _) if path.starts_with("/public/") => {
+            let body = match to_bytes(body, MAX_BODY_BYTES).await {
+                Ok(body) => body,
+                Err(_) => return error(ApiError::invalid("public request is too large")),
+            };
+            state.public_call(path, body).await
+        }
         (&Method::POST, _) if path.starts_with("/api/") => {
             if let Err(e) = state.api_request_ok(&parts.headers, host) {
                 return error(e);

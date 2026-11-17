@@ -25,6 +25,8 @@ pub struct ReachWanted {
     /// Something the owner allowed needs this node reached from outside:
     /// the router is asked to open a port, or else a contact helps.
     pub open: bool,
+    /// Let strangers reach the public-share methods; UCAN still guards every private method.
+    pub public: bool,
     /// Help contacts reach each other here, when this node itself can be
     /// reached from outside.
     pub help_contacts: bool,

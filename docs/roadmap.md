@@ -90,11 +90,11 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 
 ## PR 26: Save To and public sharing
 
-- Treat saving and public sharing as one complete content-delivery item (3.10 and 3.8). A saved collection is detached from later source-file changes and can carry its portfolio: order, cover, title and captions.
-- The owner deliberately chooses the destination place, folder and naming rule, once or continuously. Only files Oikome wrote itself are changed. Saving can create plain files or a new collection; no source is rewritten implicitly.
-- Public sharing starts from chosen collections, views or columns, preferably a saved collection. Query-only is the default; copying requires explicit permission. Per-caller request, row and runtime limits apply, and photos lose location metadata by default.
-- Support deliberately published read-only snapshots with signed manifests on owner-selected storage. Live public access must use the real reachability model and never claim availability without a working path.
-- Validation: source changes after saving, file-write ownership, portfolio fidelity, public grant revocation, query limits, photo privacy, snapshot integrity and real-node browser scenarios.
+- Treat saving and public sharing as one complete content-delivery item (3.10 and 3.8). A saved collection is detached from later source-file changes and carries its portfolio: order, cover, title and captions. Saved files open through the ordinary viewer even after the source changes.
+- This iteration deliberately implements one-time saves only. The owner chooses the destination place, folder and naming rule. Plain files receive unique names and never replace existing files; a new collection keeps original bytes and portfolio metadata. Continuing save rules remain future work.
+- Public sharing starts from a saved collection. Query-only is the default and excludes original bytes and snapshot downloads; copying requires explicit permission. Per-visitor request, row, result-size and runtime limits apply, and JPEG/PNG location metadata is removed by default.
+- Signed read-only snapshots live under the node's private `.oikome/public/` directory and are served only when copying is allowed. `did:key` and Ethereum `did:pkh` (EIP-4361) authentication, short-lived sessions, revocation and Activity work over the public HTTP API and the existing WebRTC envelope dispatcher. The existing network gate admits strangers only while an allowed public share is active; private methods still require UCAN. Publishing to external storage, IPFS or Arweave and relays remains future work.
+- Validation: source changes after saving, file-write ownership, saved-file viewing, portfolio fidelity, public grant revocation, query limits, both signature methods, photo privacy, snapshot integrity, private-method isolation and the real-node browser Save To → publish → visitor → revoke scenario.
 
 ## PR 27: internal analysis profiles and core computation
 

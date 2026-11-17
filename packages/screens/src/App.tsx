@@ -31,16 +31,19 @@ import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
 import { PlaceDetail, placePath, THIS_COMPUTER } from "./screens/Place";
 import { Sharing } from "./screens/Sharing";
+import { PublicPage } from "./screens/PublicPage";
 import { strings } from "./strings";
 
 export function App({ client }: { client: NodeClient }) {
   // A new language draws the app again from the start, so every word,
   // date and number is in it.
   const language = useLanguage();
+  const path = window.location.pathname;
+  const publicPage = /^\/public\/[0-9a-f]{64}\/?$/.test(path);
   return (
     <ClientProvider client={client}>
       <ToastProvider>
-        <Root key={language} />
+        {publicPage ? <PublicPage key={language} id={path.slice("/public/".length, "/public/".length + 64)} /> : <Root key={language} />}
       </ToastProvider>
     </ClientProvider>
   );

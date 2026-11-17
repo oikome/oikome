@@ -218,9 +218,16 @@ impl Api {
                 self.session(None)
                     .open_folder(&StorageBinding { storage, path })?,
             ),
-            None => PlainTarget::Local(
-                RemoteStore::folder(Path::new(&path), "").map_err(ApiError::internal)?,
-            ),
+            None => {
+                let root = Path::new(&path);
+                if !root.is_absolute() {
+                    return Err(ApiError::invalid(
+                        "a destination folder on this computer must be an absolute path",
+                    ));
+                }
+                std::fs::create_dir_all(root).map_err(ApiError::internal)?;
+                PlainTarget::Local(RemoteStore::folder(root, "").map_err(ApiError::internal)?)
+            }
         };
         let mut files = Vec::with_capacity(originals.len());
         for original in originals {

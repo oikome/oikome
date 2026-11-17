@@ -464,6 +464,9 @@ pub struct NewPublicShare {
     /// Strip JPEG GPS metadata in the public snapshot; true by default.
     #[serde(default)]
     pub remove_location: Option<bool>,
+    /// Whether strangers may reach live queries from outside this network.
+    #[serde(default)]
+    pub reach: Option<ReachChoice>,
 }
 
 /// A file in a signed public manifest.
@@ -490,6 +493,8 @@ pub struct PublicManifest {
     pub cover: Option<String>,
     pub created_at_ms: u64,
     pub remove_location: bool,
+    #[serde(default)]
+    pub allow_copy: bool,
     pub files: Vec<PublicSnapshotFile>,
     /// Ed25519 signature, in lowercase hex.
     pub signature: String,
@@ -519,6 +524,10 @@ pub struct PublicShare {
     pub created_at_ms: u64,
     #[serde(default)]
     pub snapshot: Option<PublicSnapshot>,
+    /// Authenticated visitors, used to remove this share's isolated grants.
+    #[serde(default)]
+    #[ts(skip)]
+    pub visitors: Vec<String>,
 }
 
 /// A public share to inspect, query or revoke.
@@ -526,6 +535,60 @@ pub struct PublicShare {
 #[serde(rename_all = "camelCase")]
 pub struct PublicShareRef {
     pub id: String,
+}
+
+/// One published original in a copy-enabled public snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicFileRef {
+    pub id: String,
+    pub path: String,
+}
+
+/// Start authenticating a visitor for a public share.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicAuthRequest {
+    pub id: String,
+    /// An Ed25519 `did:key`, or an Ethereum `did:pkh:eip155` address.
+    pub did: String,
+}
+
+/// The exact EIP-4361 or `did:key` challenge the visitor signs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicChallenge {
+    pub message: String,
+    pub nonce: String,
+    pub expires_at_ms: u64,
+}
+
+/// Finish visitor authentication. Signatures are lowercase or 0x-prefixed hex.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicAuthVerification {
+    pub id: String,
+    pub did: String,
+    pub message: String,
+    pub signature: String,
+}
+
+/// A short-lived visitor session. Only its token's hash is kept by the node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicSession {
+    pub token: String,
+    pub did: String,
+    pub expires_at_ms: u64,
+}
+
+/// One read-only SQL statement in a visitor's authenticated public session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicQuery {
+    pub id: String,
+    pub token: String,
+    pub sql: String,
 }
 
 /// `read_file_rows`: a page of the rows of one data file (a CSV, TSV,
@@ -1472,6 +1535,8 @@ pub enum OpenForKind {
     Share,
     /// This computer lent to someone.
     Lend,
+    /// A public share's live queries.
+    Public,
 }
 
 /// One thing the owner allowed to be reached from outside, still going.

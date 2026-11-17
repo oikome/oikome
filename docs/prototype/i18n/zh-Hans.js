@@ -1103,4 +1103,13 @@
   'copyWhat.inviteCode': '邀请码',
   'copyWhat.key': '密钥',
   'copyWhat.settings': '配置',
+  'saveTo': '保存到…', 'saveBody': '制作一份固定副本，源内容不变，之后的修改也不会跟随。',
+  'plainFiles': '文件夹中的普通文件', 'portfolioTitle': '标题', 'saveSelection': '选择文件、顺序、封面和说明。',
+  'saveOnce': '保存一次', 'saveDone': '已保存，源内容未改变。',
+  'publicShare': '公开分享…', 'publicReady': '公开分享已就绪', 'publicCopyReady': '访客可以查询并下载签名快照。',
+  'publicQueryReady': '访客只能进行经过签名且受限的实时查询。', 'publicLiveRows': '已验证，实时查询返回了已发布文件。',
+  'visitorSign': '使用临时密钥签名', 'revokePublic': '结束公开分享', 'publicRevoked': '公开分享已结束。',
+  'publicBody': '访客必须签名验证，每次实时查询都会受限并留下记录。',
+  'queryOnly': '仅查询', 'queryOnlyBody': '不能下载原始字节或快照。', 'queryAndCopy': '查询和复制', 'queryCopyBody': '允许原始字节和签名快照。',
+  'publicLimits': '每位访客每分钟 30 次 · 1000 行 · 5 秒', 'publicPrivacy': '移除照片位置元数据', 'publish': '发布',
 };

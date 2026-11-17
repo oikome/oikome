@@ -58,6 +58,6 @@ export const enGB: Strings = overlay(en, {
   settings: {
     recoveryBody:
       "It is your identity. With it, this data centre can be brought back on a new computer.",
-    centerTitle: "This Data Centre",
+    centerTitle: "Data Centre Details",
   },
 });

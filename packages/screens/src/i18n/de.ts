@@ -215,13 +215,13 @@ export const de: Strings = {
     discardTitle: "Ungespeicherte Änderungen verwerfen?",
     discardBody: "Deine Änderungen wurden nicht gespeichert.",
     discard: "Änderungen verwerfen",
-    confirmationsTitle: "Gespeicherte Bestätigungen",
-    confirmationsBody: "Oikome fragt erneut, wenn sich Datei, Version, Berechtigung, Verzeichnis oder Identität ändern.",
+    confirmationsTitle: "Bestätigungen für Dateiänderungen",
+    confirmationsBody: "Wenn du eine Originaldatei änderst oder eine vorhandene Datei ersetzt, wird „Nicht mehr fragen“ hier gespeichert. Widerrufe die Auswahl, um erneut gefragt zu werden.",
     sourceSave: "Original ändern",
     overwrite: "Vorhandene Datei ersetzen",
     revoke: "Erneut fragen",
     revoked: "Bestätigung aufgehoben. Oikome fragt vor diesem Speichern erneut.",
-    noConfirmations: "Keine gespeicherten Bestätigungen.",
+    noConfirmations: "Noch keine Bestätigungen für Dateiänderungen.",
   },
 
   toast: {
@@ -1187,6 +1187,14 @@ export const de: Strings = {
       names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`,
   },
 
+  networkStatus: {
+    title: "Netzwerk",
+    unavailable: "Netzwerk nicht verfügbar",
+    addressLabel: "Peer-to-Peer-Adresse",
+    noAddress: "Keine Peer-to-Peer-Adresse",
+    openSettings: "Netzwerkeinstellungen öffnen",
+  },
+
   settings: {
     title: "Einstellungen",
     recoveryTitle: "Wiederherstellungsschlüssel",
@@ -1196,7 +1204,7 @@ export const de: Strings = {
     recoveryBody:
       "Er ist deine Identität. Mit ihm lässt sich dieses Datenzentrum auf einem neuen Computer wiederherstellen.",
     showAgain: "Erneut zeigen",
-    centerTitle: "Dieses Datenzentrum",
+    centerTitle: "Details zum Datenzentrum",
     nameLabel: "Name",
     rename: "Umbenennen",
     version: "Version",

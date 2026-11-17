@@ -208,13 +208,13 @@ export const en = {
     discardTitle: "Discard unsaved changes?",
     discardBody: "Your edits have not been saved.",
     discard: "Discard Changes",
-    confirmationsTitle: "Saved Confirmations",
-    confirmationsBody: "Oikome asks again if the file, version, permission, directory or identity changes.",
+    confirmationsTitle: "File Editing Confirmations",
+    confirmationsBody: "When you change an original file or replace an existing file, “Don’t ask again” is remembered here. Revoke a saved choice to be asked again.",
     sourceSave: "Change original",
     overwrite: "Replace existing file",
     revoke: "Ask Again",
     revoked: "Confirmation revoked. Oikome will ask again before this save.",
-    noConfirmations: "No saved confirmations.",
+    noConfirmations: "No file editing confirmations yet.",
   },
 
   toast: {
@@ -1195,6 +1195,14 @@ export const en = {
       names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`,
   },
 
+  networkStatus: {
+    title: "Network",
+    unavailable: "Network unavailable",
+    addressLabel: "Peer-to-peer address",
+    noAddress: "No peer-to-peer address",
+    openSettings: "Open Network Settings",
+  },
+
   settings: {
     title: "Settings",
     recoveryTitle: "Recovery Key",
@@ -1204,7 +1212,7 @@ export const en = {
     recoveryBody:
       "It is your identity. With it, this data center can be brought back on a new computer.",
     showAgain: "Show Again",
-    centerTitle: "This Data Center",
+    centerTitle: "Data Center Details",
     nameLabel: "Name",
     rename: "Rename",
     version: "Version",

@@ -244,6 +244,10 @@ impl Api {
             _ => None,
         };
         Ok(Network {
+            address: self
+                .network
+                .as_ref()
+                .and_then(|network| network.listen_addresses().into_iter().next()),
             reachable: status
                 .as_ref()
                 .map_or(Reachable::LocalOnly, |s| reachable(&s.reach)),

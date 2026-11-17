@@ -17,6 +17,7 @@ import { usedOfTotal } from "./format";
 import { Palette } from "./palette";
 import { BackLink } from "./parts";
 import { useLanguage } from "./i18n/languages";
+import { NetworkStatus } from "./network";
 import { Link, navigate, previousPage, useLocation } from "./router";
 import { Activity } from "./screens/Activity";
 import { Assistants } from "./screens/Assistants";
@@ -165,6 +166,7 @@ function Root() {
         info={info}
         onInfo={setInfo}
         backup={query.get("backup") === "1"}
+        network={query.get("network") === "1"}
         google={query.get("google")}
       />
     );
@@ -394,6 +396,7 @@ function Shell({
                 {host}
               </span>
             </span>
+            <NetworkStatus className="screen-network--brand" />
           </div>
           <button type="button" className="screen-search" onClick={() => setSearching(true)}>
             <Icon name="search" />
@@ -485,6 +488,7 @@ function Shell({
               </>
             )}
           </nav>
+          <NetworkStatus className="screen-network--top" />
           <button
             type="button"
             className="oik-icon-button screen-top__search"

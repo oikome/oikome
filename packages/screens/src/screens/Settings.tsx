@@ -28,7 +28,7 @@ import type { Network, NodeInfo, ReachPolicy, StorageSummary } from "@oikome/cli
 import type { StatusKind } from "@oikome/ui";
 import { useAction, useClient, useLoad } from "../data";
 import { LanguageSelect, RecoveryKeyPanel, ScreenHeader } from "../parts";
-import { bytes, dateFromMs, homeRelative, listNames, middle, shortId } from "../format";
+import { bytes, dateFromMs, homeRelative, listNames } from "../format";
 import { AddStorage, googleMessage } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
@@ -305,13 +305,16 @@ const REACH_LOOK: Record<Network["reachable"], StatusKind> = {
  * Whether people outside this computer's network reach it, for what, and
  * what Oikome does when something needs that (3.12).
  */
-function NetworkSettings() {
+function NetworkSettings({ reveal }: { reveal: boolean }) {
   const client = useClient();
   const toast = useToast();
   const network = useLoad(() => client.network(), []);
   const save = useAction();
   const [changed, setChanged] = useState<Network>();
   const n = changed ?? network.data;
+  useEffect(() => {
+    if (reveal && n) document.getElementById("network-settings")?.scrollIntoView({ block: "start" });
+  }, [reveal, n]);
   if (!n) return network.error ? <Group title={s.networkTitle}><Row title={network.error} muted /></Group> : null;
   const reachable =
     n.reachable === "through_contact" ? s.reachable.through_contact(n.through ?? "") : s.reachable[n.reachable];
@@ -379,11 +382,13 @@ export function Settings({
   info,
   onInfo,
   backup,
+  network,
   google,
 }: {
   info: NodeInfo;
   onInfo: (info: NodeInfo) => void;
   backup: boolean;
+  network: boolean;
   /** How connecting Google Drive went, on coming back from Google's page. */
   google: string | null;
 }) {
@@ -393,6 +398,9 @@ export function Settings({
   const [name, setName] = useState(info.name);
   const rename = useAction();
   const toast = useToast();
+  useEffect(() => {
+    if (network) document.getElementById("network-settings")?.scrollIntoView({ block: "start" });
+  }, [network]);
   // Opened from the banner (?backup=1): closing drops the flag, so a reload
   // or Forward does not open the key again.
   const close = () => {
@@ -406,47 +414,9 @@ export function Settings({
       <div className="screen-dash screen-dash--start screen-dash--split">
         <div>
           <Storage google={google} />
-          <Group
-            title={s.recoveryTitle}
-            action={
-              info.recoveryKeySaved ? (
-                <Status kind="ok">
-                  {info.recoveryKeySavedAtMs ? s.backedUpOn(dateFromMs(info.recoveryKeySavedAtMs)) : s.backedUp}
-                </Status>
-              ) : (
-                <Status kind="bad">{s.notBackedUp}</Status>
-              )
-            }
-          >
-            <Row
-              leading={<Tile icon="key" tone="apricot" />}
-              title={<span className="screen-row-prose">{s.recoveryBody}</span>}
-              trailing={
-                !showKey && (
-                  <Button
-                    variant={info.recoveryKeySaved ? "secondary" : "primary"}
-                    onClick={() => setShowKey(true)}
-                  >
-                    {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
-                  </Button>
-                )
-              }
-            />
-            {showKey && (
-              <GroupPanel>
-                <RecoveryKeyPanel
-                  doneLabel={strings.common.done}
-                  onDone={(updated) => {
-                    toast(strings.toast.keySaved);
-                    onInfo(updated);
-                    close();
-                  }}
-                  onLater={close}
-                  laterLabel={info.recoveryKeySaved ? strings.common.close : undefined}
-                />
-              </GroupPanel>
-            )}
-          </Group>
+          <div id="network-settings">
+            <NetworkSettings reveal={network} />
+          </div>
         </div>
         <div>
           <Appearance />
@@ -510,14 +480,10 @@ export function Settings({
             )}
             <Row
               overline={strings.sharing.yourId}
-              title={
-                <span className="oik-mono" translate="no" title={shortId(info.did)}>
-                  {middle(shortId(info.did))}
-                </span>
-              }
+              title={<span className="oik-mono screen-id-full" translate="no">{info.did}</span>}
               trailing={
                 <CopyButton
-                  value={shortId(info.did)}
+                  value={info.did}
                   copyLabel={strings.common.copyId}
                   copiedLabel={strings.common.copied}
                   iconOnly
@@ -534,7 +500,47 @@ export function Settings({
             />
             <Row overline={s.version} title={<span className="oik-mono">{info.version}</span>} />
           </Group>
-          <NetworkSettings />
+          <Group
+            title={s.recoveryTitle}
+            action={
+              info.recoveryKeySaved ? (
+                <Status kind="ok">
+                  {info.recoveryKeySavedAtMs ? s.backedUpOn(dateFromMs(info.recoveryKeySavedAtMs)) : s.backedUp}
+                </Status>
+              ) : (
+                <Status kind="bad">{s.notBackedUp}</Status>
+              )
+            }
+          >
+            <Row
+              leading={<Tile icon="key" tone="apricot" />}
+              title={<span className="screen-row-prose">{s.recoveryBody}</span>}
+              trailing={
+                !showKey && (
+                  <Button
+                    variant={info.recoveryKeySaved ? "secondary" : "primary"}
+                    onClick={() => setShowKey(true)}
+                  >
+                    {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
+                  </Button>
+                )
+              }
+            />
+            {showKey && (
+              <GroupPanel>
+                <RecoveryKeyPanel
+                  doneLabel={strings.common.done}
+                  onDone={(updated) => {
+                    toast(strings.toast.keySaved);
+                    onInfo(updated);
+                    close();
+                  }}
+                  onLater={close}
+                  laterLabel={info.recoveryKeySaved ? strings.common.close : undefined}
+                />
+              </GroupPanel>
+            )}
+          </Group>
         </div>
       </div>
     </>

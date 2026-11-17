@@ -73,6 +73,8 @@ impl Default for NetworkStatus {
 /// The node's peer-to-peer layer, as the owner's API uses it.
 pub trait NodeNetwork: Send + Sync + 'static {
     fn status(&self) -> NetworkStatus;
+    /// Current peer-to-peer listen addresses, when the node serves them.
+    fn listen_addresses(&self) -> Vec<String>;
     /// Say what the owner's choices ask of the network now.
     fn set_reach(&self, wanted: ReachWanted);
     /// Where this node is reached, signed with its key, for an invite.

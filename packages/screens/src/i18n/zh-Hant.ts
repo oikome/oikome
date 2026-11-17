@@ -206,13 +206,13 @@ export const zhHant: Strings = {
     discardTitle: "要放棄未儲存的修改嗎？",
     discardBody: "你的修改尚未儲存。",
     discard: "放棄修改",
-    confirmationsTitle: "已儲存的確認",
-    confirmationsBody: "檔案、版本、權限、目錄或身分變更時，Oikome 都會重新詢問。",
+    confirmationsTitle: "檔案修改確認",
+    confirmationsBody: "修改原檔案或覆蓋現有檔案時，選擇「不再詢問」會記錄在這裡。撤銷後，Oikome 下次會重新確認。",
     sourceSave: "修改原檔案",
     overwrite: "取代現有檔案",
     revoke: "重新詢問",
     revoked: "已撤銷確認，下次儲存時會重新詢問。",
-    noConfirmations: "沒有已儲存的確認。",
+    noConfirmations: "還沒有檔案修改確認。",
   },
 
   toast: {
@@ -1145,6 +1145,14 @@ export const zhHant: Strings = {
       names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join("、")} 和 ${names[names.length - 1]}`,
   },
 
+  networkStatus: {
+    title: "網路",
+    unavailable: "網路無法使用",
+    addressLabel: "點對點位址",
+    noAddress: "沒有點對點位址",
+    openSettings: "開啟網路設定",
+  },
+
   settings: {
     title: "設定",
     recoveryTitle: "復原金鑰",
@@ -1153,7 +1161,7 @@ export const zhHant: Strings = {
     notBackedUp: "尚未備份",
     recoveryBody: "它就是你的身分。有了它，就能在新電腦上復原這個資料中心。",
     showAgain: "再次顯示",
-    centerTitle: "這個資料中心",
+    centerTitle: "資料中心資訊",
     nameLabel: "名稱",
     rename: "重新命名",
     version: "版本",

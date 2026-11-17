@@ -235,13 +235,13 @@ export const ko: Strings = {
     discardTitle: "저장하지 않은 변경 사항을 버릴까요?",
     discardBody: "편집 내용이 저장되지 않았습니다.",
     discard: "변경 사항 버리기",
-    confirmationsTitle: "저장된 확인",
-    confirmationsBody: "파일, 버전, 권한, 디렉터리 또는 신원이 바뀌면 Oikome이 다시 묻습니다.",
+    confirmationsTitle: "파일 수정 확인",
+    confirmationsBody: "원본 파일을 수정하거나 기존 파일을 덮어쓸 때 “다시 묻지 않기”를 선택하면 여기에 기록돼요. 취소하면 다음에 다시 확인해요.",
     sourceSave: "원본 변경",
     overwrite: "기존 파일 교체",
     revoke: "다시 묻기",
     revoked: "확인을 취소했습니다. 다음 저장 전에 다시 묻습니다.",
-    noConfirmations: "저장된 확인이 없습니다.",
+    noConfirmations: "저장된 파일 수정 확인이 없어요.",
   },
 
   toast: {
@@ -1194,6 +1194,14 @@ export const ko: Strings = {
     names: (names: string[]) => people(names),
   },
 
+  networkStatus: {
+    title: "네트워크",
+    unavailable: "네트워크를 사용할 수 없음",
+    addressLabel: "P2P 주소",
+    noAddress: "P2P 주소 없음",
+    openSettings: "네트워크 설정 열기",
+  },
+
   settings: {
     title: "설정",
     recoveryTitle: "복구 키",
@@ -1202,7 +1210,7 @@ export const ko: Strings = {
     notBackedUp: "아직 백업 안 됨",
     recoveryBody: "복구 키는 나를 증명하는 수단이에요. 이 키가 있으면 새 컴퓨터에서 이 데이터 센터를 되살릴 수 있어요.",
     showAgain: "다시 보기",
-    centerTitle: "이 데이터 센터",
+    centerTitle: "데이터 센터 정보",
     nameLabel: "이름",
     rename: "이름 변경",
     version: "버전",

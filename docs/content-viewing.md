@@ -74,7 +74,7 @@ Local UTF-8 text is editable up to 512 KiB, using the existing CodeMirror chunk 
 - Carry the real BLAKE3 content hash. A file changed by another application is a conflict with a reload action, not an overwrite opportunity.
 - Create new files exclusively in the source file's directory. Replacing an existing copy requires its target hash and confirmation; path traversal, links and unindexed sibling targets are refused.
 - Write replacements through a same-directory temporary file and atomic rename. Preserve UTF-8 BOM, CRLF/CR line endings and existing permissions.
-- Remember source-save and overwrite confirmations separately for the current identity and normalized directory in `.oikome/node.json`. Records include the action, scope, identity, canonical file, directory, version and permissions; Settings lists and revokes them.
+- Remember source-save and overwrite confirmations separately for the current identity and normalized directory in `.oikome/node.json`. Records include the action, scope, identity, canonical file, directory, version and permissions. Settings lists them as File Editing Confirmations, explains that they are the “Don’t ask again” choices for changing originals or replacing files, and revokes them on request.
 - Never suppress warnings for a version conflict, changed permission, different directory, different identity or a different file than the one confirmed. A successful save advances only its own remembered version.
 - The PR 22 first-paint baseline is 674.01 kB of JS and 101.57 kB of CSS; the separate TextEditor chunk is 3.62 kB. No editor, parser or other runtime dependency was added.
 

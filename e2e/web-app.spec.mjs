@@ -802,7 +802,7 @@ test("Markdown saves originals and copies with confirmations and version conflic
     expect(readFileSync(copy, "utf8")).toContain("Replacement copy");
 
     await page.goto(`${base}/settings`);
-    const confirmations = page.getByRole("region", { name: "Saved Confirmations" });
+    const confirmations = page.getByRole("region", { name: "File Editing Confirmations" });
     await expect(confirmations.getByText("Change original", { exact: true })).toBeVisible();
     await expect(confirmations.getByText("Replace existing file", { exact: true })).toBeVisible();
     await confirmations.getByRole("button", { name: "Ask Again", exact: true }).first().click();
@@ -1981,6 +1981,57 @@ test("Bob lends Home his computer: big summaries of what he may see go there, th
   await api("drop_space", { space: "ledger" });
 });
 
+test("the persistent Network entry shows the real listen address and opens Network settings", async () => {
+  await page.goto(base);
+  const current = await api("network");
+  expect(current.available).toBe(true);
+  expect(current.reachable).toBe("local_only");
+  expect(current.address).toMatch(/^\/ip4\/127\.0\.0\.1\/tcp\/[1-9]\d*/);
+
+  const entry = page.getByRole("button", { name: "Network: Only on your network", exact: true });
+  await expect(entry.locator(".screen-network__dot--idle")).toBeVisible();
+  await entry.click();
+  const panel = page.getByRole("dialog", { name: "Network", exact: true });
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Only on your network");
+  await expect(panel).toContainText("Nothing now");
+  await expect(panel).toContainText(current.address);
+  await panel.getByRole("button", { name: "Open Network Settings" }).click();
+  await expect(page).toHaveURL(`${base}/settings?network=1`);
+  await expect(page.locator("#network-settings")).toBeInViewport();
+  await expect(page.getByRole("region", { name: "Network" })).toContainText("Only on your network");
+  const settingsOrder = await page.locator(".screen-dash--split > div").evaluateAll((columns) =>
+    columns.map((column) =>
+      Array.from(column.children).map((child) => child.querySelector(".oik-group__title")?.textContent ?? child.id),
+    ),
+  );
+  expect(settingsOrder).toEqual([
+    ["Storage", "Network"],
+    ["Appearance", "File Editing Confirmations", "Data Center Details", "Recovery Key"],
+  ]);
+  const fullDid = (await api("node_info")).did;
+  const details = page.getByRole("region", { name: "Data Center Details" });
+  await expect(details).toContainText(fullDid);
+  await details.getByRole("button", { name: "Copy Your ID" }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(fullDid);
+
+  await page.goto(base);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await entry.click();
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText(current.address);
+  const bounds = await panel.boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  expect(bounds.y).toBeGreaterThanOrEqual(0);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(844);
+  expect((await sideways()).over).toBe(0);
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(entry).toBeFocused();
+  await page.setViewportSize({ width: 1280, height: 800 });
+});
+
 test("Settings › Network says what the port is open for, and Don't ask again stops the question", async () => {
   // Lending was paused and the notes share stopped: what was allowed for them ended with them.
   await page.goto(`${base}/settings`);
@@ -2017,6 +2068,15 @@ test("Settings › Network says what the port is open for, and Don't ask again s
   await expect(network).toContainText("Turn on UPnP in your router's settings");
   await expect(network).toContainText("sharing spending with Bob");
   await expect(network).toContainText("sharing notes with Bob");
+  await page.getByRole("button", { name: /^Network:/ }).click();
+  const networkPanel = page.getByRole("dialog", { name: "Network", exact: true });
+  await expect(networkPanel).toContainText("Your router didn't allow it");
+  await expect(networkPanel).toContainText("sharing spending with Bob");
+  await expect(networkPanel).toContainText("sharing notes with Bob");
+  await expect(
+    page.getByRole("button", { name: "Network: Your router didn't allow it", exact: true }).locator(".screen-network__dot--bad"),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
   const policy = network.getByLabel("When Oikome needs to be reached from outside");
   await expect(policy).toHaveValue("always");
   await policy.selectOption("ask");
@@ -2554,7 +2614,7 @@ test("official cards calculate spending and pick a real photo memory", async () 
 });
 
 test("screens use words for people, also when something fails", async () => {
-  // Engine words never reach the screens (PRD success criterion), nor SQL.
+  // Engine words never reach the screens (PRD success criterion), except the owner's full ID itself; nor SQL.
   const ENGINE = /\b(space|spaces|ucan|did|token|principal)\b/i;
 
   await page.goto(`${base}/collections`);
@@ -2597,7 +2657,7 @@ test("screens use words for people, also when something fails", async () => {
   ]) {
     await page.goto(`${base}${path}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    const text = await page.locator("body").innerText();
+    const text = (await page.locator("body").innerText()).replaceAll((await api("node_info")).did, "");
     expect(text, path).not.toMatch(ENGINE);
     expect(text, path).not.toMatch(/\bsql\b/i);
   }

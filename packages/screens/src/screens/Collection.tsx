@@ -45,7 +45,7 @@ import { SORT_KEYS, SortHeader, nextOrder, sortBy, useLayout, useOrder } from ".
 import type { Layout, SortKey } from "../order";
 import { since } from "./Sources";
 import { SeriesView } from "../series";
-import { PathText, RowsTable, ScreenHeader } from "../parts";
+import { Marquee, PathText, RowsTable, ScreenHeader } from "../parts";
 import { ItemDialog, folderPath, itemPath } from "../item";
 import type { ItemNav } from "../item";
 import { Palette } from "../palette";
@@ -158,6 +158,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
     <>
       <ScreenHeader
         mono={!folder}
+        labelAsIs={!!folder || !local}
         label={
           folder
             ? s.viewedOn(folderPlace ? storageLabel(folderPlace) : (folder.place ?? s.thisComputer))
@@ -222,7 +223,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
       </ScreenHeader>
 
       {local ? (
-        <dl className="oik-card screen-facts">
+        <dl className="oik-card screen-facts screen-facts--collection">
           <div>
             <dt className="oik-label">{s.factHolds}</dt>
             <dd>{countOf(preview.data) ?? s.noData}</dd>
@@ -232,9 +233,11 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             {source ? (
               <dd className="screen-facts__from">
                 <Link to={`/sources/${encodeURIComponent(source.name)}`} className="oik-link">
-                  <span title={source.place} translate="no">
-                    <PathText path={homeRelative(source.place)} />
-                  </span>
+                  <Marquee title={source.place}>
+                    <span translate="no">
+                      <PathText path={homeRelative(source.place)} />
+                    </span>
+                  </Marquee>
                 </Link>
                 <span className="screen-facts__note">
                   {source.failedAtMs != null
@@ -247,9 +250,11 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
             ) : folder ? (
               <dd className="screen-facts__from">
                 {folder.place ? (
-                  <span title={folder.path} translate="no">
-                    <PathText path={folderWhere ?? ""} />
-                  </span>
+                  <Marquee>
+                    <span translate="no">
+                      <PathText path={folderWhere ?? ""} />
+                    </span>
+                  </Marquee>
                 ) : (
                   <button
                     type="button"
@@ -259,7 +264,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                     disabled={sync.busy}
                     onClick={() => void sync.run(() => client.showFolder({ space: space.name }))}
                   >
-                    <PathText path={folderWhere ?? ""} />
+                    <Marquee>
+                      <PathText path={folderWhere ?? ""} />
+                    </Marquee>
                   </button>
                 )}
                 <span className="screen-facts__note">
@@ -274,13 +281,15 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           </div>
           <div>
             <dt className="oik-label">{s.factStored}</dt>
-            <dd>{keptOn}</dd>
+            <dd>
+              <Marquee>{keptOn}</Marquee>
+            </dd>
           </div>
           <div>
             <dt className="oik-label">{s.factWho}</dt>
             <dd className="screen-facts__who">
               <AvatarStack names={names} label={s.whoSentence(names)} you={strings.common.you} />
-              <span>{listNames([strings.common.you, ...names])}</span>
+              <Marquee>{listNames([strings.common.you, ...names])}</Marquee>
               <Link to="/sharing">{s.manage}</Link>
             </dd>
           </div>

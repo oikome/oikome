@@ -114,7 +114,7 @@
   'kind.photos': '写真',
   'kind.notes': 'メモ',
   'kind.table': '表',
-  'kind.series': '測定値',
+  'kind.series': 'グラフ',
   'kind.empty': '空',
   'cols.allPlaces': 'すべての保存先',
   'cols.place': '保存先',

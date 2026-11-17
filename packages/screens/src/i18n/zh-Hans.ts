@@ -452,7 +452,7 @@ export const zhHans: Strings = {
     create: "创建",
     emptyTitle: "还没有资料库",
     emptyBody: "一个资料库存放一类数据，比如笔记或照片。创建你的第一个资料库吧。",
-    kinds: { photos: "照片", notes: "笔记", table: "表格", series: "读数" },
+    kinds: { photos: "照片", notes: "笔记", table: "表格", series: "图表" },
     viewFolder: "查看文件夹",
     viewFolderBody:
       "Oikome 在原处读取这个文件夹，从不改动它。不会复制任何文件：它只记下文件列表、文字内容和缩略图，用来显示和搜索。",

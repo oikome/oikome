@@ -697,6 +697,10 @@
   text-transform: var(--label-case);
   color: var(--label-color);
 }
+/* A label holding a name the owner gave: written as given. */
+.oik-label--asis {
+  text-transform: none;
+}
 
 /* ----- Form controls ----- */
 
@@ -1119,8 +1123,15 @@
   background: var(--hover);
   outline: none;
 }
+/* Red waits for the confirmation: in a menu it is set apart by a line. */
 .oik-menu__item--destructive {
-  color: var(--signal);
+  color: var(--ink);
+}
+.oik-menu__item + .oik-menu__item--destructive {
+  margin-top: 4px;
+  border-top: 1px solid var(--line2);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 @keyframes oik-drop {
   from {

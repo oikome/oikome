@@ -114,7 +114,7 @@
   'kind.photos': '照片',
   'kind.notes': '笔记',
   'kind.table': '表格',
-  'kind.series': '读数',
+  'kind.series': '图表',
   'kind.empty': '空',
   'cols.allPlaces': '全部位置',
   'cols.place': '位置',

@@ -15,7 +15,7 @@ import { folderOf, folderPath } from "./item";
 import { ClientProvider, useClient, useLoad } from "./data";
 import { usedOfTotal } from "./format";
 import { Palette } from "./palette";
-import { BackLink } from "./parts";
+import { BackLink, Marquee } from "./parts";
 import { useLanguage } from "./i18n/languages";
 import { NetworkStatus } from "./network";
 import { Link, navigate, previousPage, useLocation } from "./router";
@@ -251,7 +251,9 @@ function PlaceList({
               aria-pressed={place === current}
               onClick={() => onPick(place)}
             >
-              <Status kind={place.spaces > 0 ? "ok" : "idle"}>{placeLabel(place)}</Status>
+              <Status kind={place.spaces > 0 ? "ok" : "idle"}>
+                <Marquee>{placeLabel(place)}</Marquee>
+              </Status>
             </button>
           </li>
         ))}
@@ -267,7 +269,7 @@ function RoomCard({ place }: { place?: StorageSummary }) {
   return (
     <div className="screen-room" aria-live="polite">
       <div className="screen-room__head">
-        <span className="oik-label">{placeLabel(place)}</span>
+        <Marquee className="oik-label oik-label--asis">{placeLabel(place)}</Marquee>
         <span className="screen-room__figure">
           {place.totalBytes != null && place.freeBytes != null
             ? usedOfTotal(place.totalBytes - place.freeBytes, place.totalBytes)

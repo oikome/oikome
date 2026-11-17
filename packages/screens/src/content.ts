@@ -37,6 +37,9 @@ export interface Item {
   row: number;
   /** A file of a folder viewed in place: its path within the folder. */
   path?: string;
+  /** That file's own name and kind. */
+  name?: string;
+  fileKind?: FileItem["kind"];
   image?: string;
   text?: string;
   detail?: string;
@@ -56,6 +59,8 @@ export interface Preview {
   rows?: Table;
   /** Real files for an in-place folder without photos or notes for its cover. */
   files?: FileItem[];
+  /** A folder where the photos or notes on its cover are not most of its files: counted as files. */
+  mixed?: boolean;
   /** How many there are of what it shows, when not a table's rows: the
    * photos or notes of a folder viewed in place. */
   count?: number;
@@ -155,6 +160,21 @@ export function shapeOf(table: Table): Shape {
   );
   const texts = fields.map((f, c) => (isText(f) && c !== when ? c : -1)).filter((c) => c >= 0);
   const numbers = fields.map((f, c) => (numeric(f) ? c : -1)).filter((c) => c >= 0);
+  // A row's number or key is not something measured: a whole-number column
+  // named as one ("id", "order_id"), or going up by one every row.
+  const identifier = (c: number) => {
+    const f = fields[c]!;
+    if (!DataType.isInt(f.type)) return false;
+    if (/^(?:id|rowid|key|index|seq|no)$|_id$/i.test(f.name)) return true;
+    if (table.numRows < 3) return false;
+    for (let r = 1; r < table.numRows; r++) {
+      const [a, b] = [value(c, r - 1), value(c, r)];
+      if (a === null || a === undefined || b === null || b === undefined) return false;
+      if (Number(b) - Number(a) !== 1) return false;
+    }
+    return true;
+  };
+  const measures = numbers.filter((c) => !identifier(c));
   if (image >= 0) {
     const credit = texts.find((c) => named(fields[c]!, "credit", "source", "attribution", "license"));
     const rest = texts.filter((c) => c !== credit);
@@ -168,8 +188,8 @@ export function shapeOf(table: Table): Shape {
   }
 
   // Readings: numbers over time and nothing else, such as a thermometer's.
-  if (when >= 0 && numbers.length > 0 && texts.length === 0 && table.numRows >= SERIES_MIN_ROWS) {
-    return { view: "series", when, measures: numbers };
+  if (when >= 0 && measures.length > 0 && texts.length === 0 && table.numRows >= SERIES_MIN_ROWS) {
+    return { view: "series", when, measures };
   }
 
   // Notes: a few columns, one of them text people wrote (long on average).
@@ -253,6 +273,8 @@ export function fileItems(client: NodeClient, space: string, files: FileItem[]):
     return {
       row,
       path: file.path,
+      name: file.name,
+      fileKind: file.kind,
       image: file.kind === "image" && file.thumbnail ? client.fileUrl("thumb", { space, path: file.path }) : undefined,
       text: file.kind === "note" ? (file.text ?? file.title ?? file.name) : (file.title ?? file.name),
       detail: file.place ?? undefined,
@@ -269,10 +291,15 @@ async function folderPreview(client: NodeClient, space: SpaceSummary): Promise<P
   for (const kind of ["image", "note"] as const) {
     const listed = await client.listFiles({ space: space.name, deep: true, kind, limit: PREVIEW_ROWS });
     if (listed.files.length > 0) {
+      // Where they are not most of what the folder holds, it is a folder of
+      // files and counted as such; a caption file beside photos changes nothing.
+      const all = await client.listFiles({ space: space.name, deep: true, limit: 1 });
+      const mixed = Number(listed.total) * 2 <= Number(all.total);
       return {
         shape: { view: kind === "image" ? "photos" : "notes" },
         items: chronological(fileItems(client, space.name, listed.files)),
-        count: Number(listed.total),
+        count: Number(mixed ? all.total : listed.total),
+        mixed,
       };
     }
   }
@@ -368,6 +395,35 @@ export function withoutTagLines(text: string | undefined): string | undefined {
     .filter((line) => !TAG_LINE.test(line))
     .join("\n")
     .trim();
+}
+
+/**
+ * A note's words without its Markdown signs, for a cover or a list line:
+ * headings, quotes, list marks, emphasis, code marks and link addresses go.
+ */
+export function plainText(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*(?:```|~~~)/.test(line))
+    .map((line) =>
+      line
+        .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/, "")
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2")
+        .replace(/(^|[\s(])[*_]([^*_\s][^*_]*)[*_](?=$|[\s).,;:!?])/g, "$1$2"),
+    )
+    .join("\n")
+    .trim();
+}
+
+/** The first line of a note that says something, without Markdown signs. */
+export function firstLine(text: string | undefined): string | undefined {
+  return plainText(text)
+    ?.split("\n")
+    .find((line) => line.trim() !== "")
+    ?.trim();
 }
 
 /** The newest item, by its date; the first one when there are no dates. */

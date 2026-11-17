@@ -469,7 +469,7 @@ export const en = {
     create: "Create",
     emptyTitle: "No Collections Yet",
     emptyBody: "A collection holds one kind of data, such as notes or photos. Create your first one.",
-    kinds: { photos: "Photos", notes: "Notes", table: "Table", series: "Readings" },
+    kinds: { photos: "Photos", notes: "Notes", table: "Table", series: "Chart" },
     // A folder viewed where it is (3.9).
     viewFolder: "View a Folder",
     viewFolderBody:

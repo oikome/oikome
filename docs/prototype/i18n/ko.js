@@ -114,7 +114,7 @@
   'kind.photos': '사진',
   'kind.notes': '메모',
   'kind.table': '표',
-  'kind.series': '측정값',
+  'kind.series': '차트',
   'kind.empty': '비어 있음',
   'cols.allPlaces': '모든 저장 위치',
   'cols.place': '저장 위치',

@@ -154,7 +154,7 @@
   'kind.photos': 'Фото',
   'kind.notes': 'Заметки',
   'kind.table': 'Таблица',
-  'kind.series': 'Показания',
+  'kind.series': 'График',
   'kind.empty': 'Пусто',
   'cols.allPlaces': 'Все места',
   'cols.place': 'Место',

@@ -127,7 +127,7 @@
   'kind.photos': 'Fotos',
   'kind.notes': 'Notizen',
   'kind.table': 'Tabelle',
-  'kind.series': 'Messwerte',
+  'kind.series': 'Diagramm',
   'kind.empty': 'Leer',
   'cols.allPlaces': 'Alle Orte',
   'cols.place': 'Ort',

@@ -212,6 +212,7 @@
 }
 .screen-places__list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   margin: 0;
   padding: 0;
@@ -222,6 +223,7 @@
   display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
   min-height: 28px;
   padding: 0 10px;
   border: 0;
@@ -237,6 +239,8 @@
   background: var(--hover);
 }
 .screen-place .oik-status {
+  min-width: 0;
+  max-width: 100%;
   font-weight: 400;
 }
 .screen-place[aria-pressed="true"] .oik-status {
@@ -278,9 +282,7 @@
   min-width: 0;
 }
 .screen-room__head .oik-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 0 1 auto;
 }
 .screen-room__figure,
 .screen-room__note {
@@ -2402,7 +2404,6 @@ a.screen-list__row:hover .screen-list__thumb {
 .screen-series-cover__label {
   font: var(--label-font);
   letter-spacing: var(--label-spacing);
-  text-transform: var(--label-case);
   color: var(--label-color);
 }
 .screen-series-cover__value {
@@ -2507,18 +2508,29 @@ a.screen-list__row:hover .screen-list__thumb {
   margin: 0;
 }
 .screen-facts dd {
+  min-width: 0;
   margin: 0;
   font: var(--text-data);
   overflow-wrap: anywhere;
+}
+/* A collection's facts stay on one line each: where it comes from gets the most room. */
+.screen-facts--collection {
+  grid-template-columns: minmax(0, 0.6fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.3fr);
 }
 [data-theme="bold"] .screen-facts dd {
   font: 700 14px/18px var(--font);
 }
 .screen-facts__who {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
+}
+.screen-facts__who > * {
+  flex: none;
+}
+.screen-facts__who > .screen-marquee {
+  flex: 0 1 auto;
 }
 .screen-contents {
   display: grid;
@@ -3653,6 +3665,8 @@ a.screen-lift:hover {
 }
 .screen-source__name {
   overflow: hidden;
+  color: inherit;
+  text-decoration: none;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3848,6 +3862,49 @@ tr.screen-source {
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+}
+/* One line that travels to its end and back when it does not fit. */
+.screen-marquee {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.screen-marquee__text {
+  display: inline-block;
+  white-space: nowrap;
+}
+/* Inside it a path is written whole: it travels rather than giving up its middle. */
+.screen-marquee .screen-path-value {
+  display: inline-flex;
+  max-width: none;
+  overflow: visible;
+}
+.screen-marquee .screen-path-value__middle {
+  flex: none;
+  overflow: visible;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .screen-marquee[data-moving] .screen-marquee__text {
+    animation: screen-marquee var(--marquee-time, 8s) ease-in-out infinite alternate;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen-marquee[data-moving] {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+@keyframes screen-marquee {
+  0%,
+  22% {
+    transform: translateX(0);
+  }
+  78%,
+  100% {
+    transform: translateX(var(--marquee-shift, 0));
+  }
 }
 .screen-path-value {
   display: flex;

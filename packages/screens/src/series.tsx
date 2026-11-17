@@ -154,7 +154,7 @@ export function SeriesView({ table, shape }: { table: Table; shape: Shape }) {
           const value = show(table.schema.fields[c]!, table.getChildAt(c)?.get(table.numRows - 1));
           return (
             <div key={c} className={c === column ? "screen-series__figure is-picked" : "screen-series__figure"}>
-              <dt className="oik-label">{m.label}</dt>
+              <dt className="oik-label oik-label--asis">{m.label}</dt>
               <dd>{value === null ? "—" : withUnit(value, m.unit)}</dd>
             </div>
           );

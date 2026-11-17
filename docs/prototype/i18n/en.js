@@ -131,7 +131,7 @@
   'kind.photos': 'Photos',
   'kind.notes': 'Notes',
   'kind.table': 'Table',
-  'kind.series': 'Readings',
+  'kind.series': 'Chart',
   'kind.empty': 'Empty',
   'cols.allPlaces': 'All places',
   'cols.place': 'Place',

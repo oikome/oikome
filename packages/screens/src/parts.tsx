@@ -4,8 +4,8 @@
 // Pieces several screens share: a Back link, a table of rows and the
 // recovery key panel.
 
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Button, Checkbox, CopyField, ErrorText, Icon, InsetWell, Select } from "@oikome/ui";
 import type { NodeInfo } from "@oikome/client";
 import { DataType } from "apache-arrow";
@@ -21,12 +21,15 @@ import type { Language } from "./i18n/languages";
 export function ScreenHeader({
   title,
   label,
+  labelAsIs,
   lede,
   mono,
   children,
 }: {
   title: ReactNode;
   label?: ReactNode;
+  /** The label holds a name the owner gave: written as given. */
+  labelAsIs?: boolean;
   lede?: ReactNode;
   /** A collection's name: set in the data face. */
   mono?: boolean;
@@ -35,12 +38,71 @@ export function ScreenHeader({
   return (
     <header className="screen-header">
       <div className="screen-header__text">
-        {label && <span className="oik-label">{label}</span>}
+        {label && <span className={labelAsIs ? "oik-label oik-label--asis" : "oik-label"}>{label}</span>}
         <h1 className={mono ? "screen-title screen-title--mono" : "screen-title"}>{title}</h1>
         {lede && <p className="screen-lede">{lede}</p>}
       </div>
       {children && <div className="screen-header__actions">{children}</div>}
     </header>
+  );
+}
+
+/**
+ * One line of text that never wraps or cuts its end off: when it is longer
+ * than its box it travels slowly to its end and back, pausing at both.
+ * With reduced motion it stays still and can be scrolled sideways instead.
+ */
+export function Marquee({
+  children,
+  className,
+  title,
+}: {
+  children: ReactNode;
+  className?: string;
+  /** What pointing at it says, when that is more than its own words: a path in full. */
+  title?: string;
+}) {
+  const box = useRef<HTMLSpanElement>(null);
+  const text = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  // Pointing at it says all of it at once, whatever part is in view.
+  const [whole, setWhole] = useState<string>();
+  useLayoutEffect(() => {
+    const outer = box.current;
+    const inner = text.current;
+    if (!outer || !inner) return;
+    const measure = () => {
+      const over = inner.scrollWidth - outer.clientWidth;
+      setShift(over > 1 ? Math.ceil(over) : 0);
+      setWhole(over > 1 ? (inner.textContent ?? undefined) : undefined);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(outer);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, []);
+  const style =
+    shift > 0
+      ? ({
+          "--marquee-shift": `-${shift}px`,
+          // A steady pace whatever the length, plus the pauses at both ends.
+          "--marquee-time": `${(4 + shift / 24).toFixed(1)}s`,
+        } as CSSProperties)
+      : undefined;
+  return (
+    <span
+      ref={box}
+      className={className ? `screen-marquee ${className}` : "screen-marquee"}
+      data-moving={shift > 0 ? "" : undefined}
+      title={title ?? whole}
+      style={style}
+    >
+      <span ref={text} className="screen-marquee__text">
+        {children}
+      </span>
+    </span>
   );
 }
 

@@ -472,7 +472,7 @@ export const fr: Strings = {
     create: "Créer",
     emptyTitle: "Aucune collection",
     emptyBody: "Une collection contient un seul type de données, comme des notes ou des photos. Créez la première.",
-    kinds: { photos: "Photos", notes: "Notes", table: "Tableau", series: "Relevés" },
+    kinds: { photos: "Photos", notes: "Notes", table: "Tableau", series: "Graphique" },
     viewFolder: "Voir un dossier",
     viewFolderBody:
       "Oikome lit le dossier là où il se trouve et ne le modifie jamais. Rien n’est copié : Oikome garde la liste des fichiers, leur texte et de petites images, pour les afficher et y chercher.",

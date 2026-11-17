@@ -127,7 +127,7 @@
   'kind.photos': 'Photos',
   'kind.notes': 'Notes',
   'kind.table': 'Tableau',
-  'kind.series': 'Relevés',
+  'kind.series': 'Graphique',
   'kind.empty': 'Vide',
   'cols.allPlaces': 'Tous les emplacements',
   'cols.place': 'Emplacement',

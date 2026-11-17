@@ -470,7 +470,7 @@ export const de: Strings = {
     create: "Erstellen",
     emptyTitle: "Noch keine Sammlungen",
     emptyBody: "Eine Sammlung enthält eine Art von Daten, etwa Notizen oder Fotos. Erstelle deine erste.",
-    kinds: { photos: "Fotos", notes: "Notizen", table: "Tabelle", series: "Messwerte" },
+    kinds: { photos: "Fotos", notes: "Notizen", table: "Tabelle", series: "Diagramm" },
     viewFolder: "Ordner ansehen",
     viewFolderBody:
       "Oikome liest den Ordner dort, wo er liegt, und verändert ihn nie. Nichts wird kopiert: Oikome führt eine Liste der Dateien, ihres Texts und kleiner Vorschaubilder, um sie zu zeigen und zu durchsuchen.",

@@ -448,7 +448,7 @@ export const zhHant: Strings = {
     create: "建立",
     emptyTitle: "還沒有資料庫",
     emptyBody: "一個資料庫存放一種資料，例如筆記或照片。建立你的第一個資料庫吧。",
-    kinds: { photos: "照片", notes: "筆記", table: "表格", series: "讀數" },
+    kinds: { photos: "照片", notes: "筆記", table: "表格", series: "圖表" },
     viewFolder: "查看資料夾",
     viewFolderBody:
       "Oikome 會在資料夾原處讀取，絕不更動。不會複製任何檔案：它只保留檔案清單、檔案裡的文字和縮圖，用來顯示和搜尋。",

@@ -457,7 +457,7 @@ export const ja: Strings = {
     create: "作成",
     emptyTitle: "コレクションはまだありません",
     emptyBody: "コレクションには、メモや写真など 1 種類のデータを入れます。最初のコレクションを作成しましょう。",
-    kinds: { photos: "写真", notes: "メモ", table: "表", series: "測定値" },
+    kinds: { photos: "写真", notes: "メモ", table: "表", series: "グラフ" },
     viewFolder: "フォルダを表示",
     viewFolderBody:
       "Oikome はフォルダを元の場所で読み取り、変更することはありません。何もコピーせず、表示と検索のためにファイルの一覧、テキスト、小さな画像だけを保持します。",

@@ -18,7 +18,7 @@ import type {
   SpaceSummary,
   StorageSummary,
 } from "@oikome/client";
-import { latest, loadPreview } from "../content";
+import { firstLine, latest, loadPreview } from "../content";
 import type { Item, Preview } from "../content";
 import { itemDate } from "../covers";
 import { AddCardDialog, CardGrid, settle } from "../arrange";
@@ -249,7 +249,7 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
               >
                 <img src={photo.image} alt="" decoding="async" />
                 <span className="screen-memory__cap">
-                  <span className="oik-label">{s.fromPhotos(photoFrom.name)}</span>
+                  <span className="oik-label oik-label--asis">{s.fromPhotos(photoFrom.name)}</span>
                   <span className="screen-memory__title">{photo.text ?? photoFrom.name}</span>
                   {itemDate(photo) && <span className="screen-memory__meta">{itemDate(photo)}</span>}
                 </span>
@@ -404,15 +404,21 @@ export function Home({ info, onInfo }: { info: NodeInfo; onInfo: (info: NodeInfo
           to="/settings"
           icon={preferred ? PLACE_ICONS[preferred.type] : "computer"}
           tone="lavender"
-          label={s.statStored(preferred ? placeLabel(preferred) : strings.storage.thisComputer)}
+          // The room left on the place, not what the whole disk has used:
+          // most of that is not Oikome's.
+          label={
+            preferred?.freeBytes != null
+              ? s.statFree(placeLabel(preferred))
+              : s.statStored(preferred ? placeLabel(preferred) : strings.storage.thisComputer)
+          }
           value={
             storages.data
-              ? preferred?.freeBytes != null && preferred.totalBytes != null
-                ? bytes(preferred.totalBytes - preferred.freeBytes)
+              ? preferred?.freeBytes != null
+                ? bytes(preferred.freeBytes)
                 : strings.settings.storageCount(preferred?.spaces ?? 0)
               : undefined
           }
-          note={preferred?.freeBytes != null ? s.freeShort(bytes(preferred.freeBytes)) : undefined}
+          note={preferred?.totalBytes != null && preferred.freeBytes != null ? s.ofTotal(bytes(preferred.totalBytes)) : undefined}
         />
       </div>
 
@@ -627,6 +633,19 @@ function Panel({
   );
 }
 
+/** The sign of a recent item: a file by what it is, a row by how its table reads. */
+function recentIcon({ view, item }: Recent): IconName {
+  if (item.fileKind === "note") return "note";
+  if (item.fileKind === "table") return "table";
+  if (item.fileKind === "image") return "photo";
+  if (item.fileKind === "other") {
+    if (/\.(?:mp4|m4v|mov|webm|mkv)$/i.test(item.name ?? "")) return "video";
+    if (/\.(?:mp3|m4a|wav|flac|ogg|aac)$/i.test(item.name ?? "")) return "audio";
+    return "collection";
+  }
+  return view === "notes" ? "note" : view === "series" ? "activity" : "table";
+}
+
 function RecentRow({ recent, tone }: { recent: Recent; tone: TileTone }) {
   const { space, view, item } = recent;
   const meta = [space.name, itemDate(item)].filter(Boolean).join(" · ");
@@ -636,10 +655,10 @@ function RecentRow({ recent, tone }: { recent: Recent; tone: TileTone }) {
         {item.image ? (
           <img className="screen-list__thumb" src={item.image} alt="" decoding="async" />
         ) : (
-          <Tile icon={view === "notes" ? "note" : view === "series" ? "activity" : "table"} tone={tone} />
+          <Tile icon={recentIcon(recent)} tone={tone} />
         )}
         <span className="screen-list__text">
-          <span className="screen-list__title">{item.text ?? space.name}</span>
+          <span className="screen-list__title">{item.name ?? firstLine(item.text) ?? space.name}</span>
           <span className="screen-list__meta">{meta}</span>
         </span>
         {view === "table" && item.detail && <span className="screen-list__value">{item.detail}</span>}

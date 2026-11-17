@@ -481,7 +481,7 @@ export const ko: Strings = {
     create: "만들기",
     emptyTitle: "아직 컬렉션이 없어요",
     emptyBody: "컬렉션에는 메모나 사진처럼 한 종류의 데이터를 담아요. 첫 컬렉션을 만들어 보세요.",
-    kinds: { photos: "사진", notes: "메모", table: "표", series: "측정값" },
+    kinds: { photos: "사진", notes: "메모", table: "표", series: "차트" },
     viewFolder: "폴더 보기",
     viewFolderBody:
       "Oikome는 폴더를 원래 위치에서 읽고, 절대 변경하지 않아요. 아무것도 복사하지 않고, 보여 주고 검색할 수 있도록 파일 목록과 텍스트, 작은 미리보기 이미지만 보관해요.",

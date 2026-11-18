@@ -102,6 +102,8 @@ For the sandbox, wasmtime 50.0.2 (Apache-2.0 with LLVM exception) gives memory l
 | ECharts 6.1, Vega-Lite 6.5, Observable Plot 0.6.19, AntV S2/G2 | Apache-2.0 / BSD-3 / ISC / MIT | Renderers or pivot tables only, no exploration UI. |
 | Evidence, Superset, Metabase | MIT / Apache-2.0 / AGPL | Not embeddable as a component, or need their own server. |
 
+**Choice (2026-11-18).** The owner wants the experience to feel like Tableau, wrapped by Oikome. That makes Graphic Walker the first candidate and Perspective the alternative: Perspective is more mature and fits Arrow and DuckDB better, but its interface is a pivot-table panel and grouping by month needs an expression; Graphic Walker is 0.x and led by one company, so its version is pinned and the plugin kept replaceable. Whether each library's interface can follow the app's nine languages is to be checked (*unverified*).
+
 Plugin input that becomes SQL needs guarding in both leading candidates: Perspective's generic SQL model places user expressions in SQL as text, and Graphic Walker's query payload can carry `sql` expressions (*see each project's source*). The host therefore builds the SQL itself from validated fields, with quoted identifiers and bound parameters, refuses free expressions, and runs it read-only over the granted views only, with external access off and memory and time limits.
 
 ### 4.2 Where it computes

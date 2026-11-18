@@ -113,3 +113,37 @@ DuckDB-WASM in the iframe is 8.1 MB gzip, its stable releases stopped at 1.32.0,
 ### 4.3 Excel
 
 calamine 0.38.0 (MIT, pure Rust, 2026-11-02, active) reads xls, xlsx, xlsm, xlsb and ods, sheet by sheet, with typed cells including dates ([docs](https://docs.rs/calamine/latest/calamine/)); there is no Arrow output, so the conversion is ours. DuckDB's `excel` extension reads xlsx only and would be a runtime download for Oikome's prebuilt libduckdb ([excel](https://duckdb.org/docs/2.0/core_extensions/excel.html)). calamine is the choice: one analysis table per sheet.
+
+## 5. BI on the node's DuckDB (2026-11-19)
+
+The owner's frame: Oikome's analysis is a BI, its computation is SQL in Oikome's own DuckDB (that is the premise), and the BI layer comes from a mature third-party product rather than being built here. Charts made by assistants over MCP lower the threshold, so expressive power and speed of making charts come first.
+
+### 5.1 Why every BI must come through Oikome
+
+DuckDB allows one writing process; another process can only open a file read-only, and would skip Oikome's grants and row policies anyway ([concurrency](https://duckdb.org/docs/1.5/connect/concurrency)). Every BI product that "supports DuckDB" opens its own. So a BI reaches Oikome's data only through an interface Oikome serves, behind one **SQL gateway**: who is asking (a BI, an assistant, a plugin, the owner), only queries let through, Oikome's semantic layer rewriting for grants and row policies, only granted tables listed, time and memory limits, every statement in the access log. Each protocol is a door in front of the same gateway.
+
+### 5.2 Doors
+
+| Door | Clients | Notes |
+|---|---|---|
+| Inside Oikome's own pages | Oikome's analysis view, plugins | Cheapest; no protocol |
+| PostgreSQL wire (`pgwire` 0.42.3, MIT/Apache-2.0) | Superset, Metabase, Grafana, Redash, most SQL tools | Works on DuckDB 1.5. Targeting only a bundled Superset (with a DuckDB SQLAlchemy dialect over the Postgres transport) is about 3–4 weeks; full Postgres dialect and catalog compatibility for every BI is open-ended (BI upgrades break it) |
+| Quack (DuckDB's client-server protocol) | DuckDB clients (CLI, Python, R, JDBC, Superset's duckdb-engine) | Native dialect, fast (10M rows in 0.89 s against 2.9 s over Flight). **Needs DuckDB 2.0 on both sides**: 1.5 clients push no whole queries down and fail on joins of two remote tables. Its authorization callback (a Rust function registered through duckdb-rs) sees every statement and may return rewritten SQL. Young: open bugs on parameterized queries (#323, which Superset's table browsing uses), dropped connections (#354, #356), `quack_stop` leaving sessions open (#361); the client's catalog listing must be filtered by rewriting Quack's internal queries ([2.0 security](https://duckdb.org/docs/2.0/quack/security), [duckdb-quack](https://github.com/duckdb/duckdb-quack)) |
+| Arrow Flight SQL | DBeaver, ADBC clients | Superset, Metabase and Grafana support it poorly |
+
+### 5.3 BI products compared
+
+Superset (Apache-2.0, may be bundled, widest charts and dashboards, official MCP that builds charts and dashboards, heavy Python service) and Metabase (AGPL, installed by the owner, friendliest) are the full BI products worth connecting; Grafana is AGPL and time-series first; Rill, Lightdash and Evidence compute in their own DuckDB or need dbt/paid features; DataEase is GPL with extra terms; Datart is dormant. Each would come through a door above.
+
+### 5.4 Perspective computing in Oikome's DuckDB: spike
+
+Perspective (Apache-2.0, `@perspective-dev/*` 5.9.3) has a "virtual server": its SQL builder turns the grid, pivot, filters and aggregates into SQL, and a handler runs it. **Its bundled DuckDB handler runs on DuckDB-WASM in the browser, not on Oikome**, so a handler of our own is needed. Spike on branch `spike/perspective-duckdb` (a card plugin on the acceptance workspace's `household`):
+
+- **Computation:** Perspective's builder writes the SQL; the page's executor never runs it. Perspective creates a temporary table per view; the executor keeps that definition in page memory only and sends each read as one `WITH <view> AS (<query>) SELECT …` to the node, which runs it as the plugin's principal through the semantic layer. Of 337 statements the node received, all were SELECT/WITH except four deliberate probes. Nothing is created in DuckDB, so views are isolated per page by construction. Totals matched the Analysis view.
+- **Authorization:** another collection's table is "not found"; DROP, CREATE, ATTACH, SET, `read_csv` and two statements at once are refused; a row policy for the plugin (`category <> 'Health'`) removed that row and changed the total accordingly; every statement is in Activity.
+- **Browser constraints:** Perspective needs WebAssembly compilation (`'wasm-unsafe-eval'`) and creates `blob:` scripts; its charts render in a **module** worker. In today's plugin sandbox (an opaque origin) classic blob workers start and module workers do not, so the grid and pivot worked and charts did not. Served from an origin of its own (still not the app's: no app cookie, `connect-src 'none'` still blocks the app's API), bar, line and treemap charts rendered with data computed by the node.
+- **Rough edges:** the bundle is 7.3 MB (the plugin limit is 8 MB); one interaction issues dozens of small statements (describe, count, refresh); the spike's executor recognises Perspective's `CREATE … AS (…)` by its text, which a release could change, so the real executor belongs in the node (Rust) or upstream as a builder option that returns the query alone; expressions and expand/collapse were turned off.
+
+### 5.5 Where Perspective lives
+
+As **Oikome's own component in the Analysis view** (recommended), it is a pinned, reviewed dependency, needs no iframe, and the opaque-origin, worker and size problems disappear; the app's CSP must then allow WebAssembly compilation and `blob:` workers and scripts, which is reviewed on its own. Assistants make views declaratively (Perspective's view configuration as JSON over MCP) and Oikome's Perspective renders them, so no outside code runs. Third-party plugin pages stay in iframes, each on an origin of its own.

@@ -133,7 +133,7 @@ Publisher signing, network permissions, third-party node/host execution, automat
 
 ## Data Sources as Plugins, and Data Analysis
 
-> **Status:** agreed direction 2026-11-18, not implemented. It replaces the Sources row above and the Source capability row in Plugins once delivered.
+> **Status:** agreed 2026-11-18. Delivered with PR 27: data sources offered only by plugins (File Import, RustFS, flomo), browsing a storage to pick a folder, naming a folder's collection, the Plugins groups and the acceptance examples. Still to do (PR 28): a RustFS folder joining an existing collection, moving sources registered as CSV, and Data Analysis over files.
 
 **One rule.** Every data source is a plugin. A built-in data source is a preinstalled plugin; a new data source is a new plugin, added the same way, with no change to the core and no categories of source. Sources lists what the installed plugins offer; it has no cards of its own.
 

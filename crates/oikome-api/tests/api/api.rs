@@ -4965,11 +4965,72 @@ async fn public_snapshot_is_signed_private_and_revocable() {
                 max_ms: Some(1_000),
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await
         .unwrap();
     assert!(share.active);
+    // Without copying, a visitor sees a photo's preview, never the original,
+    // and a share given an end stops at it.
+    let viewing = n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "trip".into(),
+                allow_copy: Some(false),
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+                reach: None,
+                expires_at_ms: Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64
+                        + 1_500,
+                ),
+            },
+        )
+        .await
+        .unwrap();
+    let file = |path: &str| PublicFileRef {
+        id: viewing.id.clone(),
+        path: path.into(),
+    };
+    assert!(n.api.public_file(file("b.jpg")).await.is_err());
+    let preview = n.api.public_preview(file("b.jpg")).await.unwrap();
+    assert_eq!(&preview[..2], &[0xff, 0xd8]);
+    assert!(!preview.windows(4).any(|w| w == b"Exif"));
+    assert!(n.api.public_preview(file("a.txt")).await.is_err());
+    assert!(n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "trip".into(),
+                allow_copy: None,
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+                reach: None,
+                expires_at_ms: Some(1),
+            },
+        )
+        .await
+        .is_err());
+    tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
+    assert!(n
+        .api
+        .public_manifest(PublicShareRef {
+            id: viewing.id.clone()
+        })
+        .await
+        .is_err());
+    assert!(n.api.public_preview(file("b.jpg")).await.is_err());
     let manifest = n
         .api
         .public_manifest(PublicShareRef {
@@ -5043,8 +5104,8 @@ async fn public_snapshot_is_signed_private_and_revocable() {
         .await
         .is_err());
     let shares = n.api.list_public_shares(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(shares.len(), 1);
-    assert!(!shares[0].active);
+    assert_eq!(shares.len(), 2);
+    assert!(!shares.iter().find(|s| s.id == share.id).unwrap().active);
 }
 
 #[tokio::test]
@@ -5065,6 +5126,7 @@ async fn public_live_queries_authenticate_limit_log_and_revoke() {
                 max_ms: Some(1_000),
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await
@@ -5181,6 +5243,7 @@ async fn public_live_queries_verify_ethereum_signatures() {
                 max_ms: None,
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await
@@ -5841,4 +5904,169 @@ async fn knowledge_is_the_owners_and_its_requests_are_checked() {
         )
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("household");
+    std::fs::create_dir_all(root.join("spending")).unwrap();
+    std::fs::write(
+        root.join("spending/2026-09.csv"),
+        "date,category,amount\n2026-09-02,Groceries,30.50\n2026-09-14,Books,12.00\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("spending/2026-10.csv"),
+        "date,category,amount\n2026-10-03,Groceries,20.00\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("readings.csv"),
+        "recorded_at,room,celsius\n2026-11-01 00:00:00,Bedroom,19.5\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("trip.md"), "# Not a table\n").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("household".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    let household = || SpaceRef {
+        space: "household".into(),
+    };
+
+    // What can be made, before anything is: a top-level file, and a folder
+    // of files read as one table; a note is not a table.
+    let offered = n.api.file_analysis(&OWNER, household()).await.unwrap();
+    assert!(offered.tables.is_empty());
+    let names: Vec<(&str, usize)> = offered
+        .sources
+        .iter()
+        .map(|s| (s.name.as_str(), s.files.len()))
+        .collect();
+    assert_eq!(names, vec![("readings", 1), ("spending", 2)]);
+
+    let made = n.api.build_analysis(&OWNER, household()).await.unwrap();
+    assert!(made.sources.is_empty());
+    let spending = made.tables.iter().find(|t| t.name == "spending").unwrap();
+    assert_eq!(spending.rows, 3);
+    assert_eq!(spending.problem, None);
+    let role = |table: &AnalysisTable, field: &str| {
+        table.fields.iter().find(|f| f.name == field).unwrap().role
+    };
+    assert_eq!(role(spending, "date"), FieldRole::Time);
+    assert_eq!(role(spending, "amount"), FieldRole::Amount);
+    assert_eq!(role(spending, "category"), FieldRole::Category);
+    assert_eq!(role(spending, "_source_file"), FieldRole::Other);
+
+    // The tables are the collection's: queried by name, each row with its file.
+    let rows = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "household".into(),
+                table: "spending".into(),
+                limit: None,
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 3);
+
+    let summary = n
+        .api
+        .analysis_summary(
+            &OWNER,
+            AnalysisTableRef {
+                space: "household".into(),
+                table: "spending".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        summary
+            .by_month
+            .iter()
+            .map(|p| (p.label.as_str(), p.value))
+            .collect::<Vec<_>>(),
+        vec![("2026-09", 42.5), ("2026-10", 20.0)]
+    );
+    assert_eq!(summary.by_category[0].label, "Groceries");
+    assert_eq!(summary.by_category[0].value, 50.5);
+
+    // A column's role, corrected: the readings are measured in celsius.
+    let corrected = n
+        .api
+        .set_analysis_field(
+            &OWNER,
+            SetAnalysisField {
+                space: "household".into(),
+                table: "readings".into(),
+                field: "celsius".into(),
+                role: FieldRole::Amount,
+            },
+        )
+        .await
+        .unwrap();
+    let readings = corrected
+        .tables
+        .iter()
+        .find(|t| t.name == "readings")
+        .unwrap();
+    let celsius = readings
+        .fields
+        .iter()
+        .find(|f| f.name == "celsius")
+        .unwrap();
+    assert_eq!((celsius.role, celsius.inferred), (FieldRole::Amount, false));
+    assert!(n
+        .api
+        .set_analysis_field(
+            &OWNER,
+            SetAnalysisField {
+                space: "household".into(),
+                table: "readings".into(),
+                field: "_source_file".into(),
+                role: FieldRole::Amount,
+            },
+        )
+        .await
+        .is_err());
+
+    // A file changes: its table follows; a folder that goes takes its table.
+    std::fs::write(
+        root.join("spending/2026-10.csv"),
+        "date,category,amount\n2026-10-03,Groceries,20.00\n2026-10-09,Health,8.25\n",
+    )
+    .unwrap();
+    std::fs::remove_file(root.join("readings.csv")).unwrap();
+    n.api.refresh_space(&OWNER, household()).await.unwrap();
+    let followed = n.api.file_analysis(&OWNER, household()).await.unwrap();
+    let names: Vec<(&str, u64)> = followed
+        .tables
+        .iter()
+        .map(|t| (t.name.as_str(), t.rows))
+        .collect();
+    assert_eq!(names, vec![("spending", 4)]);
+
+    // Removing the collection removes what was made of its files, not them.
+    n.api.drop_space(&OWNER, household()).await.unwrap();
+    assert!(root.join("spending/2026-09.csv").is_file());
+    assert!(!n
+        .catalog
+        .oikome_dir()
+        .join("analysis/household.json")
+        .exists());
 }

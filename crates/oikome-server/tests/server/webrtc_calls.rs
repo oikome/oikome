@@ -223,6 +223,7 @@ async fn public_enquiries_work_without_opening_private_peer_methods() {
                 max_ms: None,
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await

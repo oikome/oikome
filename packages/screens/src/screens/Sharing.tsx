@@ -12,6 +12,7 @@ import {
   Avatar,
   Button,
   Checkbox,
+  ChoiceList,
   ConfirmDialog,
   CopyButton,
   CopyField,
@@ -19,6 +20,7 @@ import {
   ErrorText,
   Group,
   GroupPanel,
+  Icon,
   InsetWell,
   Menu,
   Row,
@@ -71,18 +73,21 @@ export function Sharing({
   const lending = useLoad(() => client.lending(), []);
   const borrowed = useLoad(() => client.listBorrowed(), []);
   const [composing, setComposing] = useState(startSharing);
-  const [inviting, setInviting] = useState(startInviting);
+  // Add Contact, open on one of its two ways: an invite they sent, or their ID.
+  const [addingContact, setAddingContact] = useState<"code" | "id" | undefined>(
+    startInviting ? "code" : startAdding ? "id" : undefined,
+  );
   const [lendingOpen, setLendingOpen] = useState(startLending);
   const [borrowing, setBorrowing] = useState<Borrowed>();
   useEffect(() => {
-    if (startSharing || startInviting || startLending) {
+    if (startSharing || startInviting || startAdding || startLending) {
       setComposing(startSharing);
-      setInviting(startInviting);
+      setAddingContact(startInviting ? "code" : startAdding ? "id" : undefined);
       setLendingOpen(startLending);
       // Drop the ?share=1 kind of query, so a reload does not open the dialog again.
       navigate("/sharing", { replace: true });
     }
-  }, [startSharing, startInviting, startLending]);
+  }, [startSharing, startInviting, startAdding, startLending]);
   const stop = useAction();
   const toast = useToast();
 
@@ -104,7 +109,9 @@ export function Sharing({
   return (
     <>
       <ScreenHeader title={s.title} lede={s.lede}>
-        <Button onClick={() => setInviting(true)}>{s.addInvite}</Button>
+        <Button icon="person-plus" onClick={() => setAddingContact("id")}>
+          {s.addContact}
+        </Button>
         <Button variant="primary" icon="plus" onClick={() => setComposing(true)}>
           {s.newShare}
         </Button>
@@ -144,7 +151,7 @@ export function Sharing({
             <p className="screen-panel__empty">{s.nothingShared}</p>
           ) : (
             <div className="screen-table-in-card">
-              <table className="oik-table" aria-label={s.sharedByYou}>
+              <table className="oik-table screen-shares" aria-label={s.sharedByYou}>
                 <thead>
                   <tr>
                     <th scope="col">{s.colCollection}</th>
@@ -218,8 +225,6 @@ export function Sharing({
           fromThem={(spaces.data ?? []).filter((space) => space.kind === "remote")}
           lenders={(borrowed.data ?? []).map((b) => b.fromDid)}
           shares={active}
-          me={info.did}
-          startAdding={startAdding}
           onChange={reload}
         />
 
@@ -231,22 +236,6 @@ export function Sharing({
           onChange={reload}
         />
 
-        <Group title={s.yourId} footnote={s.yourIdBody}>
-          <Row
-            title={
-              <span className="oik-mono" translate="no">
-                {shortId(info.did)}
-              </span>
-            }
-            trailing={
-              <CopyButton
-                value={shortId(info.did)}
-                copyLabel={strings.common.copy}
-                copiedLabel={strings.common.copied}
-              />
-            }
-          />
-        </Group>
       </div>
 
       {composing && spaces.data && contacts.data && shares.data && (
@@ -278,12 +267,15 @@ export function Sharing({
           }}
         />
       )}
-      {inviting && (
-        <AddInvite
-          onClose={() => setInviting(false)}
+      {addingContact && (
+        <AddContact
+          start={addingContact}
+          me={info.did}
+          contacts={contacts.data ?? []}
+          onClose={() => setAddingContact(undefined)}
           onAdded={() => {
-            setInviting(false);
-            invites.reload();
+            setAddingContact(undefined);
+            reload();
           }}
         />
       )}
@@ -769,57 +761,175 @@ function LendDialog({
   );
 }
 
-/** Paste an invite code someone sent; it then waits on Sharing. */
-function AddInvite({ onClose, onAdded }: { onClose: () => void; onAdded: (invite: Invite) => void }) {
+/** Add a contact, the one way in: an invite they sent (which names them
+ * and what they share), or their ID; with this data center's own ID to
+ * copy, for them to add you. */
+function AddContact({
+  start,
+  me,
+  contacts,
+  onClose,
+  onAdded,
+}: {
+  start: "code" | "id";
+  /** This data center's own ID, which is never a contact. */
+  me: string;
+  contacts: Contact[];
+  onClose: () => void;
+  onAdded: () => void;
+}) {
   const client = useClient();
+  const toast = useToast();
+  const [how, setHow] = useState(start);
   const [code, setCode] = useState("");
-  const [problem, setProblem] = useState<string>();
-  const add = useAction();
-  // The node's words name what is wrong with the code; other failures get
+  const [name, setName] = useState("");
+  const [did, setDid] = useState("");
+  // A problem with one field, shown under that field.
+  const [problem, setProblem] = useState<{ field: "code" | "name" | "id"; message: string }>();
+  const action = useAction();
+  // The node's words name what is wrong with a code; other failures get
   // the general wording.
-  const describe: Describe = (e) => (e.code === "invalid" || e.code === "conflict" ? asSentence(e) : undefined);
+  const describeCode: Describe = (e) => (e.code === "invalid" || e.code === "conflict" ? asSentence(e) : undefined);
+  const edited = () => {
+    setProblem(undefined);
+    action.clear();
+  };
+  // The dialog opens on its first control; the field to fill is focused
+  // after it, and again when the way changes (the dialog's effect runs first).
+  useEffect(() => {
+    document
+      .querySelector<HTMLElement>(how === "code" ? '#add-contact [name="invite-code"]' : '#add-contact [name="contact-name"]')
+      ?.focus();
+  }, [how]);
+
+  const submit = async () => {
+    if (how === "code") {
+      if (!code.trim()) {
+        setProblem({ field: "code", message: s.inviteCodeRequired });
+        return;
+      }
+      if (await action.run(() => client.addInvite({ invite: code }), describeCode)) onAdded();
+      return;
+    }
+    const id = fullId(did);
+    const known = contacts.find((c) => c.did === id);
+    const field = !name.trim()
+      ? { field: "name" as const, message: strings.common.nameRequired }
+      : !did.trim()
+        ? { field: "id" as const, message: s.idRequired }
+        : id === me
+          ? { field: "id" as const, message: s.idIsYours }
+          : known
+            ? { field: "id" as const, message: s.idTaken(known.name) }
+            : undefined;
+    setProblem(field);
+    if (field) return;
+    let invalid = false;
+    const added = await action.run(
+      () => client.addContact({ did: id, name: name.trim() }),
+      (err) => {
+        invalid = err.code === "invalid";
+        return undefined;
+      },
+    );
+    if (added) {
+      toast(strings.toast.contactAdded(name.trim()));
+      onAdded();
+    } else if (invalid) {
+      action.clear();
+      setProblem({ field: "id", message: s.idInvalid });
+    }
+  };
+
   return (
     <Dialog
-      title={s.addInvite}
+      title={s.addContact}
       closeLabel={strings.common.close}
       onClose={onClose}
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button type="submit" form="add-invite" variant="primary" disabled={add.busy}>
-            {s.addInviteYes}
+          <Button type="submit" form="add-contact" variant="primary" disabled={action.busy}>
+            {how === "code" ? s.addInviteYes : s.add}
           </Button>
         </>
       }
     >
       <form
-        id="add-invite"
+        id="add-contact"
         className="screen-form"
-        onSubmit={async (e) => {
+        onSubmit={(e) => {
           e.preventDefault();
-          if (!code.trim()) {
-            setProblem(s.inviteCodeRequired);
-            return;
-          }
-          const added = await add.run(() => client.addInvite({ invite: code }), describe);
-          if (added) onAdded(added);
+          void submit();
         }}
       >
-        <TextArea
-          label={s.inviteCode}
-          name="invite-code"
-          hint={s.inviteCodeHint}
-          value={code}
+        <ChoiceList
+          label={s.addHow}
+          name="add-contact-how"
+          value={how}
           onChange={(value) => {
-            setCode(value);
-            setProblem(undefined);
-            add.clear();
+            setHow(value === "code" ? "code" : "id");
+            edited();
           }}
-          error={problem ?? add.error}
-          mono
-          autoFocus
+          choices={[
+            { value: "id", title: s.byId, meta: s.byIdHelp, leading: <Icon name="person-plus" /> },
+            { value: "code", title: s.byInvite, meta: s.byInviteHelp, leading: <Icon name="key" /> },
+          ]}
         />
+        {how === "code" ? (
+          <TextArea
+            label={s.inviteCode}
+            name="invite-code"
+            hint={s.inviteCodeHint}
+            value={code}
+            onChange={(value) => {
+              setCode(value);
+              edited();
+            }}
+            error={problem?.field === "code" ? problem.message : (action.error ?? undefined)}
+            mono
+            autoFocus
+          />
+        ) : (
+          <>
+            <TextField
+              label={s.contactName}
+              name="contact-name"
+              value={name}
+              onChange={(value) => {
+                setName(value);
+                edited();
+              }}
+              error={problem?.field === "name" ? problem.message : undefined}
+              autoFocus
+            />
+            <TextField
+              label={s.contactId}
+              name="contact-id"
+              value={did}
+              onChange={(value) => {
+                setDid(value);
+                edited();
+              }}
+              error={problem?.field === "id" ? problem.message : undefined}
+              mono
+            />
+            {action.error && <ErrorText>{action.error}</ErrorText>}
+          </>
+        )}
       </form>
+      <InsetWell>
+        <div className="screen-your-id">
+          <span className="screen-your-id__text">
+            <span className="oik-label">{s.yourId}</span>
+            <span className="oik-mono" translate="no">
+              {shortId(me)}
+            </span>
+            <span className="screen-help">{s.yourIdBody}</span>
+          </span>
+          <CopyButton value={shortId(me)} copyLabel={strings.common.copy} copiedLabel={strings.common.copied} />
+        </div>
+      </InsetWell>
     </Dialog>
   );
 }
@@ -829,8 +939,6 @@ function Contacts({
   fromThem,
   lenders,
   shares,
-  me,
-  startAdding,
   onChange,
 }: {
   contacts: Contact[];
@@ -839,20 +947,9 @@ function Contacts({
   /** Data centers that lend you their computer. */
   lenders: string[];
   shares: Share[];
-  /** This data center's own ID, which is never a contact. */
-  me: string;
-  startAdding: boolean;
   onChange: () => void;
 }) {
   const client = useClient();
-  const [adding, setAdding] = useState(startAdding);
-  useEffect(() => {
-    if (startAdding) setAdding(true);
-  }, [startAdding]);
-  const [name, setName] = useState("");
-  const [did, setDid] = useState("");
-  // A problem with one field, shown under that field.
-  const [problem, setProblem] = useState<{ field: "name" | "id"; message: string }>();
   const [editing, setEditing] = useState<string>();
   const [newName, setNewName] = useState("");
   const [removing, setRemoving] = useState<Contact>();
@@ -860,30 +957,13 @@ function Contacts({
   const remove = useAction();
   const toast = useToast();
 
-  const stopAdding = () => {
-    setAdding(false);
-    setName("");
-    setDid("");
-    setProblem(undefined);
-    action.clear();
-    // Drop ?add=1, so a reload does not open the form again.
-    if (startAdding) navigate("/sharing", { replace: true });
-  };
-
   return (
     <>
       <Group
         title={s.contacts}
         footnote={s.contactsFootnote}
-        action={
-          !adding && (
-            <Button variant="quiet" icon="plus" aria-label={s.addContact} onClick={() => setAdding(true)}>
-              {s.add}
-            </Button>
-          )
-        }
       >
-        {contacts.length === 0 && !adding && <Row title={s.noContacts} muted />}
+        {contacts.length === 0 && <Row title={s.noContacts} muted />}
         {contacts.map((contact) => {
           const count = shares.filter((share) => share.did === contact.did).length;
           const theirs = fromThem.filter((space) => space.fromDid === contact.did).map((space) => space.name);
@@ -965,77 +1045,6 @@ function Contacts({
             />
           );
         })}
-        {adding ? (
-          <GroupPanel>
-            <form
-              className="screen-form"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const id = fullId(did);
-                const known = contacts.find((c) => c.did === id);
-                const field = !name.trim()
-                  ? { field: "name" as const, message: strings.common.nameRequired }
-                  : !did.trim()
-                    ? { field: "id" as const, message: s.idRequired }
-                    : id === me
-                      ? { field: "id" as const, message: s.idIsYours }
-                      : known
-                        ? { field: "id" as const, message: s.idTaken(known.name) }
-                        : undefined;
-                setProblem(field);
-                if (field) return;
-                let invalid = false;
-                const added = await action.run(
-                  () => client.addContact({ did: id, name: name.trim() }),
-                  (err) => {
-                    invalid = err.code === "invalid";
-                    return undefined;
-                  },
-                );
-                if (added) {
-                  toast(strings.toast.contactAdded(name.trim()));
-                  stopAdding();
-                  onChange();
-                } else if (invalid) {
-                  action.clear();
-                  setProblem({ field: "id", message: s.idInvalid });
-                }
-              }}
-            >
-              <h3 className="screen-panel-title">{s.addContact}</h3>
-              <TextField
-                label={s.contactName}
-                name="contact-name"
-                value={name}
-                onChange={(value) => {
-                  setName(value);
-                  setProblem(undefined);
-                }}
-                error={problem?.field === "name" ? problem.message : undefined}
-                autoFocus
-              />
-              <TextField
-                label={s.contactId}
-                name="contact-id"
-                hint={s.contactIdHint}
-                value={did}
-                onChange={(value) => {
-                  setDid(value);
-                  setProblem(undefined);
-                }}
-                error={problem?.field === "id" ? problem.message : undefined}
-                mono
-              />
-              {action.error && <ErrorText>{action.error}</ErrorText>}
-              <div className="screen-actions">
-                <Button onClick={stopAdding}>{strings.common.cancel}</Button>
-                <Button type="submit" variant="primary" disabled={action.busy}>
-                  {s.add}
-                </Button>
-              </div>
-            </form>
-          </GroupPanel>
-        ) : null}
       </Group>
       {removing && (
         <ConfirmDialog

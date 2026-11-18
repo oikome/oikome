@@ -4329,11 +4329,12 @@ tr.screen-source {
   }
   .screen-shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr;
   }
+  /* A phone's pages are in the tab bar at the bottom; the top bar keeps
+     where you are, the network and search. */
   .screen-sidebar {
-    border-right: 0;
-    border-bottom: var(--bw) solid var(--line);
+    display: none;
   }
   .screen-sidebar__inner {
     position: static;
@@ -4379,7 +4380,7 @@ tr.screen-source {
     margin-left: 0;
   }
   .screen-page {
-    padding: var(--space-5) var(--space-4) 48px;
+    padding: var(--space-5) var(--space-4) calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-6));
   }
   .screen-title {
     font: var(--text-display-compact);
@@ -4808,4 +4809,259 @@ tr.screen-source {
 .screen-browser__file {
   color: var(--ink3);
   cursor: default;
+}
+
+/* What you share sits in a third of the page beside Contacts: its five
+   columns keep the card's edges but sit closer, so Stop stays in view at
+   1280 px without the table scrolling sideways. */
+.screen-table-in-card .oik-table.screen-shares th,
+.screen-table-in-card .oik-table.screen-shares td {
+  padding-right: 8px;
+  padding-left: 8px;
+}
+.screen-table-in-card .oik-table.screen-shares th:first-child,
+.screen-table-in-card .oik-table.screen-shares td:first-child {
+  padding-left: var(--space-4);
+}
+.screen-table-in-card .oik-table.screen-shares th:last-child,
+.screen-table-in-card .oik-table.screen-shares td:last-child {
+  padding-right: var(--space-4);
+}
+
+/* Add Contact: this data center's own ID, to give to the other side. */
+.screen-your-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.screen-your-id__text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.screen-your-id__text .oik-mono {
+  overflow-wrap: anywhere;
+}
+.screen-your-id__text .screen-help {
+  margin: 0;
+}
+
+/* A phone's tab bar: four tabs, each at least 44 px, over the page's foot. */
+:root {
+  --tabbar-height: 60px;
+}
+.screen-tabbar {
+  position: fixed;
+  z-index: 40;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-height: var(--tabbar-height);
+  padding: 4px var(--space-2) calc(4px + env(safe-area-inset-bottom));
+  border-top: var(--bw) solid var(--line);
+  background: var(--raised);
+}
+.screen-tabbar__tab,
+.screen-tabbar__more .oik-menu > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: none;
+  box-shadow: none;
+  color: var(--ink3);
+  font: 500 11px/14px var(--font);
+  text-decoration: none;
+  transform: none;
+}
+.screen-tabbar__more,
+.screen-tabbar__more .oik-menu {
+  display: flex;
+  width: 100%;
+}
+.screen-tabbar__tab .oik-icon,
+.screen-tabbar__more .oik-menu > button .oik-icon {
+  width: 22px;
+  height: 22px;
+}
+.screen-tabbar__tab[aria-current="page"],
+.screen-tabbar__more--current .oik-menu > button {
+  color: var(--ink);
+}
+.screen-tabbar__tab[aria-current="page"] .screen-tabbar__label,
+.screen-tabbar__more--current .oik-menu__shown {
+  font-weight: 600;
+}
+.screen-tabbar__tab:focus-visible,
+.screen-tabbar__more .oik-menu > button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+[data-theme="bold"] .screen-tabbar {
+  border-top: 2px solid #111;
+}
+/* Wider screens list every page in the sidebar. */
+@media (min-width: 761px) {
+  .screen-tabbar {
+    display: none;
+  }
+}
+[data-theme="bold"] .screen-tabbar__tab[aria-current="page"],
+[data-theme="bold"] .screen-tabbar__more--current .oik-menu > button {
+  background: #ffd23f;
+  color: #111;
+}
+
+/* ----- Analysis: a folder collection's analysis tables ----- */
+
+.screen-analysis {
+  display: grid;
+  gap: var(--space-4);
+}
+.screen-analysis__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-analysis__more {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.screen-analysis__table {
+  display: grid;
+  gap: var(--space-4);
+}
+.screen-analysis__facts {
+  margin: 0;
+}
+.screen-analysis__charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.screen-analysis__chart {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.screen-analysis__chart h3 {
+  margin: 0;
+}
+.screen-analysis__chart .screen-help {
+  margin: 0;
+}
+.screen-analysis__skeleton {
+  height: 160px;
+  border-radius: var(--r-btn);
+}
+/* The files a table is made of, as a list under its name. */
+.screen-analysis__sources {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-analysis__sources li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.screen-analysis__sources .screen-help {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .screen-analysis__charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Totals as bars: across for categories, upright for months. */
+.screen-bars {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-bars__item {
+  display: grid;
+  grid-template-columns: minmax(0, 9em) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-small);
+}
+.screen-bars__label {
+  overflow: hidden;
+  color: var(--ink2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-bars__track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--active);
+  overflow: hidden;
+}
+.screen-bars__track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ink);
+}
+.screen-bars__value {
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.screen-bars--columns {
+  align-items: end;
+  gap: var(--space-2);
+  min-height: 180px;
+}
+.screen-bars--columns .screen-bars__item {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 140px auto;
+  justify-items: center;
+  gap: 4px;
+}
+.screen-bars--columns .screen-bars__track {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 36px;
+  height: 140px;
+  border-radius: 6px 6px 2px 2px;
+}
+.screen-bars--columns .screen-bars__track i {
+  width: 100%;
+  height: auto;
+}
+.screen-bars--columns .screen-bars__label {
+  order: 3;
+  font: var(--text-meta);
+}
+.screen-bars--columns .screen-bars__value {
+  order: -1;
+  font: var(--text-meta);
+  text-align: center;
+}
+[data-theme="bold"] .screen-bars__track i {
+  background: #3ddc97;
 }

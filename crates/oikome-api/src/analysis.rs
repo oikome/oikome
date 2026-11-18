@@ -85,7 +85,20 @@ fn role(field: &Field) -> FieldRole {
     }
     if matches!(
         name.as_str(),
-        "category" | "kind" | "type" | "group" | "status" | "place" | "room" | "vendor"
+        "category"
+            | "kind"
+            | "type"
+            | "group"
+            | "status"
+            | "place"
+            | "room"
+            | "vendor"
+            | "city"
+            | "country"
+            | "line"
+            | "author"
+            | "account"
+            | "tag"
     ) {
         return FieldRole::Category;
     }
@@ -101,7 +114,7 @@ fn role(field: &Field) -> FieldRole {
     FieldRole::Other
 }
 
-fn schema_profile(space: &str, table: &str, schema: &SchemaRef) -> DatasetProfile {
+pub(crate) fn schema_profile(space: &str, table: &str, schema: &SchemaRef) -> DatasetProfile {
     DatasetProfile {
         space: space.into(),
         table: table.into(),

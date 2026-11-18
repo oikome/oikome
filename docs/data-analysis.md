@@ -72,13 +72,26 @@ Safe additive changes can be accepted automatically. Type widening is allowed wh
 - A directory of compatible tabular files may be treated as one logical dataset with per-file provenance and partition information. A mixed directory remains a file collection; eligible files are analyzed individually and failures are reported per file.
 - Images remain original files. Metadata can be analyzed separately. Thumbnails are caches. Embeddings require an explicit semantic-index action and a model/plugin choice; they are never backups or replacements for original images.
 
+## Analysis tables of a folder collection (PR 28)
+
+Delivered as the first concrete form of "Generate analysis data" for files:
+
+- **What becomes a table.** Every CSV, TSV, Parquet and JSON Lines file of a folder collection, at any depth (captions files excepted). A top-level file is a table of its own, named after the file; the files of one format in one subfolder are read as one table, named after the folder, with `UNION ALL BY NAME`. Names are made unique; top-level files keep their own.
+- **Where it is kept.** An Iceberg table in the node's catalog under the namespace named after the collection, whatever the collection's own location; binding a folder collection attaches these tables beside its file tables and lets one stand in for the file table of the same name. Each row carries `_source_file`.
+- **Following the files.** The size and modification time of each file are kept with the table (`.oikome/analysis/<collection>.json`, with the owner's role corrections). When the folder is read again and they differ, the table is made again whole; when its files are gone, it is dropped. Removing the collection drops its tables and the namespace.
+- **Roles.** Proposed from names and types (time, amount, category, title, key, other), corrected per column by the owner; the summary sums the Amount column by month and by category, or counts rows.
+- **Not yet.** Excel sheets, photo metadata and note front matter as tables; tables joining files across folders; aggregations other than sum and count.
+
 ## Delivery order
 
 1. **PR 21:** collection and data-source targets, source identity migration, built-in CSV/file flows, semantic declarations and source/destination validation.
 2. **PR 22:** safe local UTF-8 text editing, including code, configuration and text tables, with original-versus-derived behavior clear.
 3. **PR 26:** Save To and public sharing form one content-delivery item, with saved portfolios and deliberately published public snapshots.
 4. **PR 27:** precise source targets first, then internal analysis profiles as core computation: collection-contained files and tables, plugin capabilities, direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
-5. **PR 28:** knowledge for AI in steps K1–K4 (chunks and full text, a local embedding model and skills, tables as knowledge, then media), plus real RAW plugin support, as planned in `knowledge-schema.md`. Models are chosen explicitly and never downloaded silently.
-6. **PR 29:** read-only Iceberg/Lance/S3 dataset interoperability, followed by deliberately evaluated migrations and backup/recovery paths with integrity and restore checks.
+5. **PR 28:** data sources as plugins and analysis tables of a folder collection's files (above). K1 and K2 of knowledge landed with PR 27.
+6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
+7. **PR 30–31:** backup and restore, then read-only Iceberg/Lance/Parquet datasets and deliberate migration.
+8. **PR 32–33:** media recognition (knowledge K4), then the plugin sandbox and RAW previews.
+9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
 
 Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.

@@ -1359,6 +1359,65 @@ export type DatasetProfile = { space: string, table: string, fields: Array<Field
 export type AnalyzeDataset = { space: string, table: string, name: string, timeField: string, amountField: string, categoryField: string, };
 
 /**
+ * Files of a folder collection Data Analysis can make one table of: a
+ * file, or a folder of files read as one.
+ */
+export type AnalysisSource = {
+/**
+ * The table it makes.
+ */
+name: string,
+/**
+ * Its files' paths within the collection.
+ */
+files: Array<string>, };
+
+/**
+ * An analysis table of a folder collection: made from its files, kept in
+ * Iceberg, rebuilt when they change; queried as `<collection>.<name>`.
+ */
+export type AnalysisTable = { name: string, files: Array<string>, rows: number,
+/**
+ * Its columns, with what each is for, as proposed or as corrected.
+ */
+fields: Array<FieldProfile>, builtAtMs: number,
+/**
+ * Why it could not be made from its files, if it could not.
+ */
+problem: string | null, };
+
+/**
+ * `file_analysis`: what a folder collection's files can make and has made.
+ */
+export type FileAnalysis = { space: string,
+/**
+ * Tables its files can make that are not made yet.
+ */
+sources: Array<AnalysisSource>, tables: Array<AnalysisTable>, };
+
+/**
+ * `set_analysis_field`: correct what a column is for.
+ */
+export type SetAnalysisField = { space: string, table: string, field: string, role: FieldRole, };
+
+/**
+ * One analysis table of a collection.
+ */
+export type AnalysisTableRef = { space: string, table: string, };
+
+/**
+ * A value of a summary: a month, or a category, and its total.
+ */
+export type AnalysisPoint = { label: string, value: number, };
+
+/**
+ * `analysis_summary`: an analysis table's totals by month and by category,
+ * from the columns marked time, amount and category (rows are counted when
+ * no column is the amount).
+ */
+export type AnalysisSummary = { table: string, time: string | null, amount: string | null, category: string | null, byMonth: Array<AnalysisPoint>, byCategory: Array<AnalysisPoint>, };
+
+/**
  * Why a derived analysis can be rebuilt, and whether its source shape changed.
  */
 export type AnalysisProfile = { name: string, sourceSpace: string, sourceTable: string, timeField: string, amountField: string, categoryField: string, query: string, sourceFingerprint: string, sourceChanged: boolean, createdAtMs: number, };
@@ -1630,7 +1689,12 @@ removeLocation?: boolean,
 /**
  * Whether strangers may reach live queries from outside this network.
  */
-reach?: ReachChoice, };
+reach?: ReachChoice,
+/**
+ * When the share ends by itself, in milliseconds since the Unix epoch;
+ * it lasts until revoked when left out.
+ */
+expiresAtMs?: number, };
 
 /**
  * A file in a signed public manifest.
@@ -1654,7 +1718,11 @@ export type PublicSnapshot = { hash: string, size: number, manifest: PublicManif
 /**
  * A public share and its current state.
  */
-export type PublicShare = { id: string, space: string, allowCopy: boolean, requestsPerMinute: number, maxRows: number, maxMs: number, removeLocation: boolean, active: boolean, createdAtMs: number, snapshot: PublicSnapshot | null, };
+export type PublicShare = { id: string, space: string, allowCopy: boolean, requestsPerMinute: number, maxRows: number, maxMs: number, removeLocation: boolean, active: boolean, createdAtMs: number,
+/**
+ * When it ends by itself; `None` until revoked.
+ */
+expiresAtMs: number | null, snapshot: PublicSnapshot | null, };
 
 /**
  * A public share to inspect, query or revoke.

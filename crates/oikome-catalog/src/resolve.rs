@@ -102,44 +102,80 @@ impl OikomeCatalog {
         pin: Option<i64>,
     ) -> Result<ResolvedTable, CatalogError> {
         let tbl = self.load_space_table(space, table).await?;
-        let metadata = tbl.metadata();
-        let snapshot_id = pin.or_else(|| metadata.current_snapshot_id());
-
-        let (schema, files) = match snapshot_id {
-            None => (metadata.current_schema().clone(), Vec::new()),
-            Some(id) => {
-                let snapshot = metadata.snapshot_by_id(id).ok_or_else(|| {
-                    CatalogError::Iceberg(format!(
-                        "snapshot {id} not found in table {}.{}",
-                        space.name, table
-                    ))
-                })?;
-                let schema = snapshot.schema(metadata).map_err(iceberg_err)?;
-                let scan = tbl.scan().snapshot_id(id).build().map_err(iceberg_err)?;
-                let tasks: Vec<_> = scan
-                    .plan_files()
-                    .await
-                    .map_err(iceberg_err)?
-                    .try_collect()
-                    .await
-                    .map_err(iceberg_err)?;
-                let mut files: Vec<PathBuf> = tasks
-                    .iter()
-                    .map(|t| local_path(t.data_file_path()))
-                    .collect();
-                files.sort();
-                files.dedup();
-                (schema, files)
-            }
-        };
-
-        let arrow = schema_to_arrow_schema(&schema).map_err(iceberg_err)?;
-        let arrow = strip_metadata_from_schema(&arrow).map_err(iceberg_err)?;
-        Ok(ResolvedTable {
-            ident: tbl.identifier().clone(),
-            snapshot_id,
-            files,
-            schema: Arc::new(arrow),
-        })
+        resolve_loaded(&tbl, pin, &space.name, table).await
     }
+
+    /// The tables kept in the Iceberg namespace `name` whatever the Space's
+    /// own location: a folder viewed in place keeps its analysis tables
+    /// there, under its own name. None when the namespace does not exist.
+    pub async fn tables_in(
+        &self,
+        name: &str,
+    ) -> Result<Vec<(String, ResolvedTable)>, CatalogError> {
+        let ns = iceberg::NamespaceIdent::new(name.to_string());
+        if !self.namespace_exists(&ns).await.map_err(iceberg_err)? {
+            return Ok(Vec::new());
+        }
+        let mut idents = self.list_tables(&ns).await.map_err(iceberg_err)?;
+        idents.sort_by(|a, b| a.name().cmp(b.name()));
+        let mut out = Vec::with_capacity(idents.len());
+        for ident in idents {
+            let tbl = self.load_table(&ident).await.map_err(iceberg_err)?;
+            let table = ident.name().to_string();
+            out.push((
+                table.clone(),
+                resolve_loaded(&tbl, None, name, &table).await?,
+            ));
+        }
+        Ok(out)
+    }
+}
+
+/// The data files and schema of a loaded table, at `pin` or its current
+/// snapshot.
+async fn resolve_loaded(
+    tbl: &Table,
+    pin: Option<i64>,
+    space: &str,
+    table: &str,
+) -> Result<ResolvedTable, CatalogError> {
+    let metadata = tbl.metadata();
+    let snapshot_id = pin.or_else(|| metadata.current_snapshot_id());
+
+    let (schema, files) = match snapshot_id {
+        None => (metadata.current_schema().clone(), Vec::new()),
+        Some(id) => {
+            let snapshot = metadata.snapshot_by_id(id).ok_or_else(|| {
+                CatalogError::Iceberg(format!(
+                    "snapshot {id} not found in table {}.{}",
+                    space, table
+                ))
+            })?;
+            let schema = snapshot.schema(metadata).map_err(iceberg_err)?;
+            let scan = tbl.scan().snapshot_id(id).build().map_err(iceberg_err)?;
+            let tasks: Vec<_> = scan
+                .plan_files()
+                .await
+                .map_err(iceberg_err)?
+                .try_collect()
+                .await
+                .map_err(iceberg_err)?;
+            let mut files: Vec<PathBuf> = tasks
+                .iter()
+                .map(|t| local_path(t.data_file_path()))
+                .collect();
+            files.sort();
+            files.dedup();
+            (schema, files)
+        }
+    };
+
+    let arrow = schema_to_arrow_schema(&schema).map_err(iceberg_err)?;
+    let arrow = strip_metadata_from_schema(&arrow).map_err(iceberg_err)?;
+    Ok(ResolvedTable {
+        ident: tbl.identifier().clone(),
+        snapshot_id,
+        files,
+        schema: Arc::new(arrow),
+    })
 }

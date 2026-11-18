@@ -27,6 +27,11 @@ test("Save To and public sharing work end to end without an owner session", asyn
     await page.getByRole("button", { name: "Share…", exact: true }).click();
     await page.getByRole("radio", { name: "Anyone with the link" }).click();
     const publish = page.getByRole("dialog", { name: "Share weekend-saved publicly" });
+    // Three choices only: what visitors get, for how long, and, with
+    // photos, their location. The node's request limits are not asked.
+    await expect(publish.getByLabel("Available for")).toHaveValue("30");
+    await expect(publish.getByText("Request limit per visitor")).toHaveCount(0);
+    await expect(publish.getByText("Remove location information from photos")).toHaveCount(0);
     await publish.getByLabel("Visitor access").selectOption("copy");
     await publish.getByRole("button", { name: "Publish", exact: true }).click();
     const reach = page.getByRole("dialog", { name: "Let people reach this computer from outside your network?" });

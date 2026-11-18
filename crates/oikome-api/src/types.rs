@@ -474,6 +474,84 @@ pub struct DatasetProfile {
     pub fingerprint: String,
 }
 
+/// Files of a folder collection Data Analysis can make one table of: a
+/// file, or a folder of files read as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisSource {
+    /// The table it makes.
+    pub name: String,
+    /// Its files' paths within the collection.
+    pub files: Vec<String>,
+}
+
+/// An analysis table of a folder collection: made from its files, kept in
+/// Iceberg, rebuilt when they change; queried as `<collection>.<name>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisTable {
+    pub name: String,
+    pub files: Vec<String>,
+    #[ts(type = "number")]
+    pub rows: u64,
+    /// Its columns, with what each is for, as proposed or as corrected.
+    pub fields: Vec<FieldProfile>,
+    #[ts(type = "number")]
+    pub built_at_ms: u64,
+    /// Why it could not be made from its files, if it could not.
+    pub problem: Option<String>,
+}
+
+/// `file_analysis`: what a folder collection's files can make and has made.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FileAnalysis {
+    pub space: String,
+    /// Tables its files can make that are not made yet.
+    pub sources: Vec<AnalysisSource>,
+    pub tables: Vec<AnalysisTable>,
+}
+
+/// `set_analysis_field`: correct what a column is for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAnalysisField {
+    pub space: String,
+    pub table: String,
+    pub field: String,
+    pub role: FieldRole,
+}
+
+/// One analysis table of a collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisTableRef {
+    pub space: String,
+    pub table: String,
+}
+
+/// A value of a summary: a month, or a category, and its total.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisPoint {
+    pub label: String,
+    pub value: f64,
+}
+
+/// `analysis_summary`: an analysis table's totals by month and by category,
+/// from the columns marked time, amount and category (rows are counted when
+/// no column is the amount).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisSummary {
+    pub table: String,
+    pub time: Option<String>,
+    pub amount: Option<String>,
+    pub category: Option<String>,
+    pub by_month: Vec<AnalysisPoint>,
+    pub by_category: Vec<AnalysisPoint>,
+}
+
 /// `analyze_dataset`: explicitly create a derived daily/category analysis.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -535,6 +613,10 @@ pub struct NewPublicShare {
     /// Whether strangers may reach live queries from outside this network.
     #[serde(default)]
     pub reach: Option<ReachChoice>,
+    /// When the share ends by itself, in milliseconds since the Unix epoch;
+    /// it lasts until revoked when left out.
+    #[serde(default)]
+    pub expires_at_ms: Option<u64>,
 }
 
 /// A file in a signed public manifest.
@@ -590,6 +672,9 @@ pub struct PublicShare {
     pub remove_location: bool,
     pub active: bool,
     pub created_at_ms: u64,
+    /// When it ends by itself; `None` until revoked.
+    #[serde(default)]
+    pub expires_at_ms: Option<u64>,
     #[serde(default)]
     pub snapshot: Option<PublicSnapshot>,
     /// Authenticated visitors, used to remove this share's isolated grants.

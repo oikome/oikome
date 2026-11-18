@@ -185,8 +185,8 @@ function Passage({ chunk, aside }: { chunk: KnowledgeChunk; aside?: ReactNode })
   );
 }
 
-/** What an index can be built for here; data analysis is shown beside
- * them, but is made from a table collection's own menu. */
+/** What an index is built for: search by words, or by words and meaning.
+ * Analysis has its own view beside Files and Index. */
 type Purpose = "words" | "meaning";
 
 /** Build a collection's index: what it is for (each purpose named and
@@ -284,14 +284,6 @@ export function KnowledgeDialog({
                 },
               ]
             : []),
-          {
-            value: "analysis",
-            title: k.purposes.analysis,
-            meta: k.purposes.analysisHelp,
-            leading: <Icon name="table" />,
-            disabled: true,
-            more: <p className="screen-help">{k.purposes.analysisNone}</p>,
-          },
         ]}
       />
       {installed && available && <p className="screen-help screen-knowledge-ready">{k.installed}</p>}
@@ -621,7 +613,13 @@ export function KnowledgeView({ space }: { space: string }) {
             </Button>
           }
         />
-        {preparing && <KnowledgeDialog space={space} onClose={() => setPreparing(false)} onPrepared={status.reload} />}
+        {preparing && (
+          <KnowledgeDialog
+            space={space}
+            onClose={() => setPreparing(false)}
+            onPrepared={status.reload}
+          />
+        )}
       </Card>
     );
   }

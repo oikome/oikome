@@ -341,6 +341,11 @@ impl Api {
         Ok(())
     }
 
+    /// A share visitors may still reach: not revoked, not past its end.
+    fn live(share: &PublicShare) -> bool {
+        share.active && share.expires_at_ms.is_none_or(|end| crate::now_ms() < end)
+    }
+
     fn public_share(&self, id: &str) -> Result<PublicShare, ApiError> {
         read_registry(&self.public_root())?
             .into_iter()
@@ -464,6 +469,9 @@ impl Api {
         }
         let remove_location = req.remove_location.unwrap_or(true);
         let allow_copy = req.allow_copy.unwrap_or(false);
+        if req.expires_at_ms.is_some_and(|end| end <= crate::now_ms()) {
+            return Err(ApiError::invalid("a public share must end in the future"));
+        }
         let batches = self
             .snapshot_rows(format!(
                 "SELECT * FROM {}.{}",
@@ -580,6 +588,7 @@ impl Api {
             remove_location,
             active: true,
             created_at_ms,
+            expires_at_ms: req.expires_at_ms,
             snapshot: Some(snapshot),
             visitors: Vec::new(),
         };
@@ -648,7 +657,7 @@ impl Api {
     /// A public share's signed manifest, verified again before it is returned.
     pub async fn public_manifest(&self, req: PublicShareRef) -> Result<PublicManifest, ApiError> {
         let share = self.public_share(&req.id)?;
-        if !share.active {
+        if !Self::live(&share) {
             return Err(ApiError::not_found("this public share has ended"));
         }
         let Some(snapshot) = share.snapshot else {
@@ -690,17 +699,21 @@ impl Api {
         Ok(bytes)
     }
 
-    /// One sanitized original from a copy-enabled public snapshot.
-    pub async fn public_file(&self, req: PublicFileRef) -> Result<Vec<u8>, ApiError> {
+    /// A file of a live public snapshot, checked against its signed manifest.
+    async fn snapshot_file(
+        &self,
+        req: &PublicFileRef,
+    ) -> Result<(PublicSnapshotFile, Vec<u8>), ApiError> {
         let manifest = self
             .public_manifest(PublicShareRef { id: req.id.clone() })
             .await?;
         let file = manifest
             .files
-            .iter()
+            .into_iter()
             .find(|file| file.path == req.path)
             .ok_or_else(|| ApiError::not_found("this public file does not exist"))?;
-        let bytes = self.public_snapshot(PublicShareRef { id: req.id }).await?;
+        let bytes = std::fs::read(snapshot_path(&self.public_root(), &req.id))
+            .map_err(ApiError::internal)?;
         let mut zip = ZipArchive::new(Cursor::new(bytes)).map_err(ApiError::internal)?;
         let mut content = Vec::new();
         zip.by_name(&file.path)
@@ -710,7 +723,35 @@ impl Api {
         if blake3::hash(&content).to_string() != file.hash {
             return Err(ApiError::invalid("the public file has changed"));
         }
-        Ok(content)
+        Ok((file, content))
+    }
+
+    /// One sanitized original from a copy-enabled public snapshot.
+    pub async fn public_file(&self, req: PublicFileRef) -> Result<Vec<u8>, ApiError> {
+        if !self.public_share(&req.id)?.allow_copy {
+            return Err(ApiError::permission_denied(
+                "this public share does not allow copying",
+            ));
+        }
+        Ok(self.snapshot_file(&req).await?.1)
+    }
+
+    /// A photo's preview, at most 512 pixels on its longest edge, re-encoded
+    /// as JPEG, so no metadata of the original goes with it. Every live
+    /// share has them, copying allowed or not: a visitor sees the pictures,
+    /// never the original files.
+    pub async fn public_preview(&self, req: PublicFileRef) -> Result<Vec<u8>, ApiError> {
+        let (file, content) = self.snapshot_file(&req).await?;
+        if file.kind != "image" {
+            return Err(ApiError::not_found("this public file has no preview"));
+        }
+        let preview =
+            tokio::task::spawn_blocking(move || oikome_node::inplace::thumbnail(&content))
+                .await
+                .map_err(ApiError::internal)?;
+        preview
+            .map(|(jpeg, _, _)| jpeg)
+            .ok_or_else(|| ApiError::not_found("this public file has no preview"))
     }
 
     /// Issue a one-time challenge for a visitor's DID.
@@ -719,7 +760,7 @@ impl Api {
         req: PublicAuthRequest,
     ) -> Result<PublicChallenge, ApiError> {
         let share = self.public_share(&req.id)?;
-        if !share.active {
+        if !Self::live(&share) {
             return Err(ApiError::not_found("this public share has ended"));
         }
         let (did, chain) = visitor_did(&req.did)?;
@@ -793,7 +834,7 @@ impl Api {
         .ok_or_else(|| ApiError::permission_denied("this sign-in challenge is not valid"))?;
         verify_visitor(&challenge.did, &challenge.message, &req.signature)?;
         let share = self.public_share(&req.id)?;
-        if !share.active {
+        if !Self::live(&share) {
             return Err(ApiError::not_found("this public share has ended"));
         }
         let principal = public_principal(&share.id, &did);
@@ -858,7 +899,7 @@ impl Api {
                 "sign in to this public share first",
             ));
         };
-        let Some(share) = share.filter(|share| share.active) else {
+        let Some(share) = share.filter(Self::live) else {
             return Err(ApiError::not_found("this public share has ended"));
         };
         let now = Instant::now();

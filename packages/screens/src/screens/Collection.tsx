@@ -58,6 +58,7 @@ import { ShareDialog } from "./ShareDialog";
 import { SaveDialog } from "./SaveDialog";
 import { DatasetAnalysisDialog } from "./DatasetAnalysisDialog";
 import { KnowledgeView } from "./Knowledge";
+import { AnalysisView } from "./Analysis";
 import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
@@ -87,7 +88,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   // A folder collection shows its files, or what an AI can read of them.
-  const [view, setView] = useState<"files" | "knowledge">("files");
+  const [view, setView] = useState<"files" | "knowledge" | "analysis">("files");
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();
@@ -396,10 +397,11 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           <Segmented
             label={strings.knowledge.viewLabel}
             value={view}
-            onChange={(value) => setView(value === "knowledge" ? "knowledge" : "files")}
+            onChange={(value) => setView(value === "knowledge" || value === "analysis" ? value : "files")}
             options={[
               { value: "files", label: strings.knowledge.views.files },
               { value: "knowledge", label: strings.knowledge.views.knowledge },
+              { value: "analysis", label: strings.knowledge.views.analysis },
             ]}
           />
         </div>
@@ -430,7 +432,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           keptOn,
           who: listNames([strings.common.you, ...names]),
         };
-        if (local && folder && view === "knowledge") return <KnowledgeView space={space.name} />;
+        if (local && folder && view === "knowledge")
+          return <KnowledgeView space={space.name} />;
+        if (local && folder && view === "analysis") return <AnalysisView space={space.name} />;
         return folder || saved ? (
           <FolderContents
             key={`${space.name}:${contentsKey}`}

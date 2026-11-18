@@ -79,7 +79,9 @@ export function PublicPage({ id }: { id: string }) {
   };
 
   const data = manifest.data as PublicManifest | undefined;
-  const fileUrl = (path: string) => `/public/${id}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
+  // A photo is shown by its preview: smaller, without its metadata, and
+  // there whether copying is allowed or not.
+  const previewUrl = (path: string) => `/public/${id}/previews/${path.split("/").map(encodeURIComponent).join("/")}`;
   return (
     <main className="screen-public">
       <ScreenHeader label={s.publicCollection} title={data?.title ?? s.loading} lede={data ? s.byOwner(data.owner) : undefined} />
@@ -119,7 +121,7 @@ export function PublicPage({ id }: { id: string }) {
             <div className="screen-public__grid">
               {data.files.map((file) => (
                 <Card key={file.path} className="screen-public__file">
-                  {data.allowCopy && file.kind === "image" && <img src={fileUrl(file.path)} alt={file.caption ?? file.name} />}
+                  {file.kind === "image" && <img src={previewUrl(file.path)} alt={file.caption ?? file.name} loading="lazy" />}
                   <h3>{file.caption ?? file.name}</h3>
                   <p className="oik-mono" translate="no">{file.path}</p>
                   {file.taken && <p>{file.taken}</p>}

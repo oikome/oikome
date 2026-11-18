@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button, Checkbox, CopyField, Dialog, ErrorText, InsetWell, Select, useToast } from "@oikome/ui";
 import type { PublicShare } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
+import { dateFromSeconds } from "../format";
 import { toastReach, useReachPrompt } from "../reach";
 import { strings } from "../strings";
 
@@ -26,10 +27,16 @@ export function PublicShareDialog({
   const shares = useLoad(() => client.listPublicShares(), []);
   const reach = useReachPrompt();
   const [access, setAccess] = useState<"view" | "copy">("view");
-  const [requests, setRequests] = useState("30");
-  const [rows, setRows] = useState("1000");
-  const [time, setTime] = useState("5000");
+  // How long the link works; the request, row and time limits keep the
+  // node's defaults and are not asked about.
+  const [days, setDays] = useState("30");
   const [privacy, setPrivacy] = useState(true);
+  // Location is only a question for a collection that holds photos.
+  const photos = useLoad(
+    async () =>
+      (await client.listFiles({ space: collection, deep: true, limit: 1000 })).files.some((file) => file.kind === "image"),
+    [collection],
+  );
   const [made, setMade] = useState<PublicShare>();
   const current = (shares.data ?? []).filter((share) => share.space === collection);
   const link = (share: PublicShare) => `${window.location.origin}/public/${share.id}`;
@@ -42,10 +49,8 @@ export function PublicShareDialog({
       client.createPublicShare({
         space: collection,
         allowCopy: access === "copy",
-        requestsPerMinute: Number(requests),
-        maxRows: Number(rows),
-        maxMs: Number(time),
         removeLocation: privacy,
+        expiresAtMs: days === "" ? undefined : Date.now() + Number(days) * 86_400_000,
         reach: choice,
       }),
     );
@@ -99,28 +104,17 @@ export function PublicShareDialog({
         />
         <p className="screen-help">{access === "copy" ? s.copyHelp : s.queryHelp}</p>
         <Select
-          label={s.requests}
-          value={requests}
-          onChange={setRequests}
-          options={["10", "30", "60", "120"].map((value) => ({ value, label: s.perMinute(value) }))}
-        />
-        <Select
-          label={s.rows}
-          value={rows}
-          onChange={setRows}
-          options={["100", "1000", "10000"].map((value) => ({ value, label: value }))}
-        />
-        <Select
-          label={s.time}
-          value={time}
-          onChange={setTime}
+          label={s.until}
+          value={days}
+          onChange={setDays}
           options={[
-            { value: "1000", label: s.seconds(1) },
-            { value: "5000", label: s.seconds(5) },
-            { value: "30000", label: s.seconds(30) },
+            { value: "7", label: s.untilWeek },
+            { value: "30", label: s.untilMonth },
+            { value: "365", label: s.untilYear },
+            { value: "", label: s.untilStopped },
           ]}
         />
-        <Checkbox label={s.privacy} checked={privacy} onChange={setPrivacy} />
+        {photos.data && <Checkbox label={s.privacy} checked={privacy} onChange={setPrivacy} />}
         {action.error && <ErrorText>{action.error}</ErrorText>}
         {current.length > 0 && (
           <section className="screen-share-access" aria-label={s.existing}>
@@ -132,7 +126,9 @@ export function PublicShareDialog({
                     <span className="screen-share-person__name">
                       {share.active ? (share.allowCopy ? s.allowCopy : s.queryOnly) : s.ended}
                     </span>
-                    <span className="screen-share-person__meta">{s.limits(share.requestsPerMinute, share.maxRows)}</span>
+                    <span className="screen-share-person__meta">
+                      {share.expiresAtMs != null ? s.endsOn(dateFromSeconds(share.expiresAtMs / 1000)) : s.noEnd}
+                    </span>
                   </span>
                   {share.active && (
                     <Button

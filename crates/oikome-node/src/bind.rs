@@ -132,8 +132,12 @@ pub async fn bind_space(
             // Boxed: scanning a folder is a large future, and every
             // statement binds its Spaces.
             let bound = Box::pin(crate::inplace::bound(catalog, engines, &location)).await?;
+            // Its analysis tables, made from its files and kept in Iceberg
+            // under its name; one stands in for the file table it was made of.
+            let analysis = catalog.tables_in(&space.name).await?;
             let mut names = vec![crate::inplace::FILES.to_string()];
             names.extend(bound.tables.iter().map(|(name, _)| name.clone()));
+            names.extend(analysis.iter().map(|(name, _)| name.clone()));
             for attached in engine.table_names(&space.name).await? {
                 if !names.contains(&attached) {
                     engine
@@ -151,8 +155,22 @@ pub async fn bind_space(
                 )
                 .await?;
             for (table, source) in bound.tables {
+                if analysis.iter().any(|(name, _)| *name == table) {
+                    continue;
+                }
                 engine
                     .attach(&QualifiedName::new(&space.name, &table), source)
+                    .await?;
+            }
+            for (table, resolved) in analysis {
+                engine
+                    .attach(
+                        &QualifiedName::new(&space.name, &table),
+                        TableSource::ParquetFiles {
+                            files: resolved.files,
+                            schema: resolved.schema,
+                        },
+                    )
                     .await?;
             }
         }

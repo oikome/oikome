@@ -105,28 +105,72 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Do not expose internal storage layouts as ordinary-user choices. Do not turn file viewing into an implicit analysis or write operation.
 - Validation: multiple source targets within one collection, known-schema inference, incorrect-inference correction, source changes, direct versus derived results, engine boundaries, grants and real-node acceptance.
 
-## PR 28: knowledge for AI, semantic indexes and RAW plugins
+## PR 28: data sources as plugins, analysis tables of files and the interface review
 
-The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](knowledge-schema.md). Delivered in steps, each with its real-node scenario on the acceptance workspace's `oikome-docs` collection (this project's own documents):
+- Every data source is a plugin's: File Import, RustFS and flomo are preinstalled; Sources lists what installed plugins offer. A folder chosen to add becomes a collection of its own by default, named in the dialog with a notice when the name or the folder is taken; folders on a storage are picked by browsing it.
+- Data Analysis over a folder collection's CSV, TSV, Parquet and JSON Lines files: a file, or a subfolder of files of one format, becomes an Iceberg analysis table of the collection (queried as `<collection>.<table>`, rows carrying their file), made again when its files change and dropped with them; an Analysis view with totals by month and by category and a role for each column (`docs/data-analysis.md`).
+- The rest of the 2026-11-17 interface review: one Add Contact (by ID or invite, with your own ID to copy), a phone tab bar (Home, Collections, Sharing, More), public shares that ask only access, an end date and photo location and show visitors photo previews, and the shares table fitting desktop widths.
+- Not yet: Excel sheets, other aggregations than sum and count and freer exploration of analysis tables, a RustFS folder joining an existing collection, and moving sources registered as CSV to files.
 
-- **K1 — documents to knowledge (done, landed with PR 27).** A per-collection control plane (assets, conversions as jobs, chunk overrides) and a Lance `chunks` dataset written through DuckDB's `lance` extension (the `lance` crate needs MPL-2.0 code). Markdown, text, code and PDF text become chunks with their place in the original; full-text search with the `ngram` tokenizer; a Build Index dialog that asks for the purpose, each explained (formats are not shown); per-original status; a chunk view and a retrieval test. MCP `search` and `read` return passages with their document, heading and lines, under the existing grants.
-- **K2 — meaning and skills (done, landed with PR 27).** Qwen3-Embedding-0.6B in the node through candle (a Mac's GPU through Metal, the CPU elsewhere), downloaded only when the owner chooses it, from a pinned revision checked against its SHA-256 digests; `vec_<model>` columns, hybrid search, model registry, embedding cache and background rebuild. Skill folders registered with SHA-256 digests and offered to assistants (MCP `list_skills` / `get_skill`), plus Oikome's own skill teaching assistants list → search → read with citations.
-- **K3 — tables as knowledge.** PR 27's profiles gain units, `measure`, `text` and `place` roles and column usage; text fields become `table_row` chunks; assistants get read-only `query_table`.
-- **K4 — media.** OCR, speech to text, captions and image vectors in a `media` dataset. Its runtime is decided when K4 starts; Vane is not integrated.
-- **RAW** parsing and preview through an external official plugin with a real host sandbox, one-file read grant, resource limits and preview provenance. No parser enters the core or Dashboard iframe.
-- Content is processed on this computer by default. A cloud model is used only with the owner's own key after being told that content leaves the computer, and not before K2 is complete. Never replace original media with thumbnails, embeddings or generated derivatives; no hidden model or plugin downloads.
-- Validation: chunk positions against real PDFs and Markdown, Chinese and English full text, retrieval-test scores and sources, grants and row policies on search hits, rebuild after an original or model change without mixing models, MCP search/read/skills from a real client, model download consent and resource use, real camera RAW samples, plugin failure isolation and package size.
+## Order after PR 28 (agreed 2026-11-18)
 
-## PR 29: dataset interoperability, backup and recovery
+D (finish file sources) → E (backup and restore, then read-only datasets) → C (media recognition, then RAW). A (freer analysis through a third-party library in a plugin) and B (tables as knowledge, K3) follow. The research behind each stage, with sources, is in [`research/next-phases.md`](research/next-phases.md). Each stage's open decisions are listed with it and are settled at the start of that PR.
 
-- Connect existing Iceberg, Lance and S3 datasets read-only first, with clear source identity, offline behavior and no implicit migration.
-- Add deliberately evaluated migrations and backup/recovery paths that preserve source identity, content hashes, grants and restore expectations. A migration is never a side effect of connecting or viewing a dataset.
-- Keep advanced dataset and migration options out of the ordinary interface until their real-node scenarios pass.
-- Validation: real read-only datasets, interrupted transfers, content integrity, repeated recovery, rollback/conflict behavior and destination compatibility.
+## PR 29: file sources across places, CSV sources as files, Excel (D)
+
+- **Folders from several places in one collection.** A RustFS folder (and a NAS or drive folder) joins an existing collection by reference, as a local folder does: `InPlaceSource` gains the storage it is on. Local roots keep their paths; each remote root appears as a top-level folder named after itself, numbered on a clash. Reads, the cache, previews, analysis and knowledge resolve the place per root; a remote root that cannot be reached shows its files unavailable while the rest keep working. The RustFS data source offers an existing collection as well as a new one.
+- **CSV sources to files.** A registered CSV source's page offers Convert to File: the file joins a file collection the owner chooses, by reference, its analysis table is made, and the source stops. The old table collection stays until the owner removes it; the dialog says its shares and grants do not move.
+- **Excel.** xlsx, xls, xlsb and ods files become analysis tables, one per sheet (`<file>_<sheet>`), read with calamine (MIT); the NOTICE and `cargo deny` record it.
+- Validation: a collection with a local folder and a RustFS folder (browse, open, search, analyze, one place offline), restart and re-index without moving existing paths, Convert to File with a shared CSV collection, real Excel files (dates, formulas' values, several sheets, an empty sheet), and the acceptance workspace.
+
+## PR 30: backup and restore (E1)
+
+- **Settings › Backup.** Where to (a folder on this computer or another disk, a NAS, RustFS), how often (daily by default, or on request), how many to keep, the last result, its size and Back Up Now and Check Backup. Progress, speed and the destination are shown as for every transfer.
+- **What is in it.** The data folder: registries, settings, collections' tables (Iceberg, SQLite), analysis and knowledge data, the access log. Not in it: what can be rebuilt (indexes, caches), what is downloaded again (extensions, models), the identity seed (it is the recovery key), keychain credentials, and the owner's original files, which Oikome only references; their paths and hashes are recorded so a restore lists any that are missing.
+- **How.** rustic_core (Apache-2.0 OR MIT) behind a small internal interface, writing a restic-format repository through the existing opendal places: encrypted, deduplicated, readable by the standard restic program if ever needed. A staging step makes a consistent copy (`VACUUM INTO` for every SQLite file; the catalog before the Iceberg and Lance files it names; compaction and cleanup paused) and writes a manifest with BLAKE3 hashes and row counts. The repository key is derived from the recovery key; an owner passphrase can be added as a second key.
+- **Restore.** From the first run (Restore from Backup: the recovery key and where the backup is) or into a new folder from Settings. Every restore goes to a scratch folder first and is checked (repository check, SQLite integrity, each table's current snapshot and each Lance dataset opened, hashes and counts against the manifest) before it is used. On another computer or folder, Iceberg tables are made again from their current snapshots (their absolute paths cannot move; older snapshots are only used to pin queries). Afterwards places and connectors are signed in again.
+- Validation: back up during writes and syncs, interrupted backups resumed, restore on the same and on another computer, a damaged repository found by Check Backup, retention, every destination, and an acceptance scenario that restores the acceptance workspace.
+- To settle at the start: the default schedule and retention, and whether a passphrase is offered in the first version.
+
+## PR 31: read-only datasets, then migration (E2)
+
+- A preinstalled data source plugin connects existing datasets to a collection as read-only tables: Lance datasets by path and on RustFS (latest version), Iceberg tables from an explicit `metadata.json` (pinned to the snapshot seen when connecting, refreshed when the owner asks), Parquet and CSV on RustFS. Only SELECT runs on them; credentials come from the keychain per session as temporary DuckDB secrets; an offline dataset keeps its last-known schema and shows unavailable.
+- Migration is a separate, deliberate action: an Iceberg table's current snapshot is copied into an Oikome table (history not kept), a Lance dataset's folder is copied with its versions; the source, its snapshot or version and the content hashes are recorded. Nothing migrates as a side effect of connecting.
+- REST catalogs come later. Moving from DuckDB 1.5 (supported until March 2027) to 2.0 is its own step.
+- Validation: real datasets of each kind locally and on RustFS (RustFS with `httpfs` is to be tested), offline behavior, snapshot pinning, grants on connected tables, and a migration checked against its source.
+
+## PR 32: media recognition (C1, knowledge K4)
+
+The schema is in [`knowledge-schema.md`](knowledge-schema.md) (`media` dataset; OCR and transcript chunks pointing into the media by box or time). Every model is chosen by the owner, downloaded with progress from a pinned revision checked against SHA-256, and runs on this computer.
+
+- **Speech to text** for audio and video: Whisper large-v3-turbo (MIT) in candle, on a Mac's GPU, with Whisper small as the faster choice without a GPU; candle's Whisper on Metal is measured before the default is fixed. Qwen3-ASR (Apache-2.0, better Chinese) is the later upgrade once it runs in candle.
+- **Text in images and scans:** Apple Vision on macOS (no download); PP-OCRv5 mobile (Apache-2.0, ~21 MB) through ONNX Runtime on Windows and Linux.
+- **Image search:** SigLIP 2 base (Apache-2.0) in candle; Qwen3-VL-Embedding-2B if Chinese queries need it.
+- Results join the collection's index: one search finds what is written on a photo and what is said in a recording, with the place in the original.
+- Validation: real Chinese and English recordings and scans, timing on a Mac and on a CPU-only computer, model download consent and resume, rebuild after a model change, MCP search over transcripts and OCR.
+- To settle at the start: the default speech model, and adding ONNX Runtime for OCR outside macOS.
+
+## PR 33: plugin sandbox and RAW previews (C2)
+
+- **A sandbox for plugin code:** wasmtime (Apache-2.0) with the component model; each call gets its own store with a memory limit and an epoch deadline, no network or environment, and reads exactly one granted file through a host interface. Preview declarations (PR 24) become executable through it.
+- **Plugin pages on origins of their own.** Each plugin's page is served from an origin of its own (a name per plugin on this computer; another port when the app is opened by address from another device) instead of an opaque sandbox origin, so module workers and modern libraries run, while it still cannot reach the app's cookies or API and its CSP still forbids the network. Plugins stay apart from each other.
+- **Where WebAssembly runs plugin code in the node:** format plugins that turn a file into rows, text or a preview (RAW first; app exports such as health or bank statements later); later, third-party data source connectors, with network access limited by the host to the hosts they declare; later still, functions a plugin adds to SQL and tasks lent to contacts beyond SQL (the open question in architecture §12). Not for AI models (they run natively on the GPU) and not for plugin pages (those are iframes).
+- **RAW previews** as an official plugin: most RAW files embed a full-size JPEG, extracted by a small permissively licensed reader (TIFF-based CR2, NEF, ARW, DNG, ORF, PEF; CR3; RAF). Every Rust RAW decoder found is LGPL or GPL, so none enters the core; a full decode, if ever needed, stays inside the plugin.
+- Validation: real RAW samples from several makers, resource limits and failure isolation, package size, and a plugin that tries to read another file or reach the network.
+
+## After PR 33
+
+- **A — BI on the node's DuckDB.** All analysis is SQL executed by Oikome's DuckDB behind one SQL gateway (the caller's principal, queries only, the semantic layer's grant and row-policy rewrite, only granted tables listed, time and memory limits, the access log); every way in is a door in front of it. First door: **Perspective as Oikome's own component in the Analysis view** (grid, pivot, filters, aggregates and charts), with an executor in the node that runs Perspective's generated SQL as single read-only queries (its temporary views kept per session, never created in DuckDB) — proven in the 2026-11-19 spike, see `research/next-phases.md` §5. Assistants make views over MCP as Perspective view configurations (JSON) that Oikome renders, so the expressive power of charts made for the owner is Perspective's. Later doors, each only after its own spike: Quack once Oikome and the client are on DuckDB 2.0 (Superset through duckdb-engine), or the PostgreSQL wire protocol for BI products that need it; Superset can then be a bundled companion. Starts with the app-CSP review (WebAssembly compilation, `blob:` workers) and a design for the owner. A and B can be one stage.
+- **B — tables as knowledge (K3).** Analysis tables gain units and `measure`, `text` and `place` roles; text columns become `table_row` chunks; assistants get read-only `query_table`.
+
+## Open decisions (2026-11-19)
+
+- **DuckDB 2.0.** Recommended before PR 30, so backups are made of the format Oikome keeps (2.0 files cannot be read by 1.5; 1.5 is supported until March 2027; Quack needs 2.0 on both sides). To confirm.
+- **Perspective built into the Analysis view** rather than shipped as a plugin. Recommended; to confirm with the app-CSP review.
 
 ## Later phases
 
-After PR 29, the existing architecture order continues with security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and serving over WebDAV (3.13). M5 payments and M10 third-party plugin distribution remain last. Security work remains deliberate and does not delay the content capabilities above unless a concrete threat requires reordering.
+After A and B, the existing architecture order continues with security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and serving over WebDAV (3.13). M5 payments and M10 third-party plugin distribution remain last. Security work remains deliberate and does not delay the content capabilities above unless a concrete threat requires reordering.
 
 ## Review gates
 

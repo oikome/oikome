@@ -1,6 +1,6 @@
 # Knowledge and Analysis Schema
 
-> **Status**: planned, 2026-11-17. Nothing here is implemented yet; the stages are in the roadmap (PR 28). It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
+> **Status**: K1 and K2 landed with PR 27 (2026-11-18); K3 and K4 are planned for PR 29 in the roadmap. It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
 
 ## 1. Goal
 

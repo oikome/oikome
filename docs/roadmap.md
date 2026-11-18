@@ -105,7 +105,14 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 - Do not expose internal storage layouts as ordinary-user choices. Do not turn file viewing into an implicit analysis or write operation.
 - Validation: multiple source targets within one collection, known-schema inference, incorrect-inference correction, source changes, direct versus derived results, engine boundaries, grants and real-node acceptance.
 
-## PR 28: knowledge for AI, semantic indexes and RAW plugins
+## PR 28: data sources as plugins, analysis tables of files and the interface review
+
+- Every data source is a plugin's: File Import, RustFS and flomo are preinstalled; Sources lists what installed plugins offer. A folder chosen to add becomes a collection of its own by default, named in the dialog with a notice when the name or the folder is taken; folders on a storage are picked by browsing it.
+- Data Analysis over a folder collection's CSV, TSV, Parquet and JSON Lines files: a file, or a subfolder of files of one format, becomes an Iceberg analysis table of the collection (queried as `<collection>.<table>`, rows carrying their file), made again when its files change and dropped with them; an Analysis view with totals by month and by category and a role for each column (`docs/data-analysis.md`).
+- The rest of the 2026-11-17 interface review: one Add Contact (by ID or invite, with your own ID to copy), a phone tab bar (Home, Collections, Sharing, More), public shares that ask only access, an end date and photo location and show visitors photo previews, and the shares table fitting desktop widths.
+- Not yet: Excel sheets, other aggregations than sum and count and freer exploration of analysis tables, a RustFS folder joining an existing collection, and moving sources registered as CSV to files.
+
+## PR 29: knowledge for AI, semantic indexes and RAW plugins
 
 The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](knowledge-schema.md). Delivered in steps, each with its real-node scenario on the acceptance workspace's `oikome-docs` collection (this project's own documents):
 
@@ -117,7 +124,7 @@ The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](k
 - Content is processed on this computer by default. A cloud model is used only with the owner's own key after being told that content leaves the computer, and not before K2 is complete. Never replace original media with thumbnails, embeddings or generated derivatives; no hidden model or plugin downloads.
 - Validation: chunk positions against real PDFs and Markdown, Chinese and English full text, retrieval-test scores and sources, grants and row policies on search hits, rebuild after an original or model change without mixing models, MCP search/read/skills from a real client, model download consent and resource use, real camera RAW samples, plugin failure isolation and package size.
 
-## PR 29: dataset interoperability, backup and recovery
+## PR 30: dataset interoperability, backup and recovery
 
 - Connect existing Iceberg, Lance and S3 datasets read-only first, with clear source identity, offline behavior and no implicit migration.
 - Add deliberately evaluated migrations and backup/recovery paths that preserve source identity, content hashes, grants and restore expectations. A migration is never a side effect of connecting or viewing a dataset.
@@ -126,7 +133,7 @@ The schema, conversions, app flow and decisions are in [`knowledge-schema.md`](k
 
 ## Later phases
 
-After PR 29, the existing architecture order continues with security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and serving over WebDAV (3.13). M5 payments and M10 third-party plugin distribution remain last. Security work remains deliberate and does not delay the content capabilities above unless a concrete threat requires reordering.
+After PR 30, the existing architecture order continues with security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and serving over WebDAV (3.13). M5 payments and M10 third-party plugin distribution remain last. Security work remains deliberate and does not delay the content capabilities above unless a concrete threat requires reordering.
 
 ## Review gates
 

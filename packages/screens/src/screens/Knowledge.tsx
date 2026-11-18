@@ -185,9 +185,9 @@ function Passage({ chunk, aside }: { chunk: KnowledgeChunk; aside?: ReactNode })
   );
 }
 
-/** What an index can be built for here; data analysis is shown beside
- * them, but is made from a table collection's own menu. */
-type Purpose = "words" | "meaning";
+/** What an index is built for: search by words, by words and meaning, or
+ * analysis tables made of the collection's table files. */
+type Purpose = "words" | "meaning" | "analysis";
 
 /** Build a collection's index: what it is for (each purpose named and
  * explained), the extension and model it needs with their downloads, and
@@ -196,10 +196,13 @@ export function KnowledgeDialog({
   space,
   onClose,
   onPrepared,
+  onAnalyze,
 }: {
   space: string;
   onClose: () => void;
   onPrepared: () => void;
+  /** Show the analysis tables made, once they are. */
+  onAnalyze?: () => void;
 }) {
   const client = useClient();
   const status = useLoad(() => client.knowledgeStatus({ space }), [space]);
@@ -208,6 +211,11 @@ export function KnowledgeDialog({
   const prepare = useAction();
   const models = useModels();
   const [purpose, setPurpose] = useState<Purpose>("words");
+  // The table files the collection holds, for Data Analysis.
+  const tables = useLoad(() => client.fileAnalysis({ space }), [space]);
+  const analyzable = (tables.data?.sources.length ?? 0) + (tables.data?.tables.length ?? 0) > 0;
+  const build = useAction();
+  const analyzing = purpose === "analysis";
   const [installed, setInstalled] = useState(false);
   const available = status.data?.available ?? false;
   const extension = status.data?.extension;
@@ -227,6 +235,12 @@ export function KnowledgeDialog({
     if (await install.run(() => client.installLance())) {
       setInstalled(true);
       status.reload();
+    }
+  };
+  const doAnalyze = async () => {
+    if (await build.run(() => client.buildAnalysis({ space }))) {
+      onAnalyze?.();
+      onClose();
     }
   };
   const doPrepare = async () => {
@@ -249,9 +263,15 @@ export function KnowledgeDialog({
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button variant="primary" disabled={!available || prepare.busy} onClick={() => void doPrepare()}>
-            {prepare.busy ? k.preparing : k.action}
-          </Button>
+          {analyzing ? (
+            <Button variant="primary" disabled={!analyzable || build.busy} onClick={() => void doAnalyze()}>
+              {build.busy ? strings.analysisView.making : strings.analysisView.make}
+            </Button>
+          ) : (
+            <Button variant="primary" disabled={!available || prepare.busy} onClick={() => void doPrepare()}>
+              {prepare.busy ? k.preparing : k.action}
+            </Button>
+          )}
         </>
       }
     >
@@ -260,7 +280,7 @@ export function KnowledgeDialog({
         label={k.purposeLabel}
         name="knowledge-purpose"
         value={purpose}
-        onChange={(value) => setPurpose(value === "meaning" ? "meaning" : "words")}
+        onChange={(value) => setPurpose(value === "meaning" || value === "analysis" ? value : "words")}
         choices={[
           { value: "words", title: k.purposes.words, meta: k.purposes.wordsHelp, leading: <Icon name="search" /> },
           ...(model
@@ -289,13 +309,28 @@ export function KnowledgeDialog({
             title: k.purposes.analysis,
             meta: k.purposes.analysisHelp,
             leading: <Icon name="table" />,
-            disabled: true,
-            more: <p className="screen-help">{k.purposes.analysisNone}</p>,
+            disabled: tables.data !== undefined && !analyzable,
+            more: !analyzable ? (
+              <p className="screen-help">{k.purposes.analysisNone}</p>
+            ) : (
+              <ul className="screen-analysis__sources" aria-label={strings.analysisView.willMake}>
+                {[...(tables.data?.sources ?? []), ...(tables.data?.tables ?? [])].map((source) => (
+                  <li key={source.name}>
+                    <span className="oik-mono" translate="no">
+                      {source.name}
+                    </span>
+                    <span className="screen-help" translate="no" title={source.files.join("\n")}>
+                      {source.files.length === 1 ? source.files[0] : strings.analysisView.files(source.files.length)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ),
           },
         ]}
       />
-      {installed && available && <p className="screen-help screen-knowledge-ready">{k.installed}</p>}
-      {status.data && extension && !available && (
+      {!analyzing && installed && available && <p className="screen-help screen-knowledge-ready">{k.installed}</p>}
+      {!analyzing && status.data && extension && !available && (
         <div className="screen-knowledge-install">
           <p>{extension.state === "failed" ? k.download.failed : k.install}</p>
           {installing ? (
@@ -326,6 +361,7 @@ export function KnowledgeDialog({
       {(status.error || preview.error) && <ErrorText>{status.error ?? preview.error}</ErrorText>}
       {install.error && <ErrorText>{install.error}</ErrorText>}
       {prepare.error && <ErrorText>{prepare.error}</ErrorText>}
+      {build.error && <ErrorText>{build.error}</ErrorText>}
     </Dialog>
   );
 }
@@ -587,7 +623,7 @@ export function ModelsSettings() {
 
 /** A prepared collection's knowledge: how it is searched, the retrieval
  * test, and each original with its passages. */
-export function KnowledgeView({ space }: { space: string }) {
+export function KnowledgeView({ space, onAnalyze }: { space: string; onAnalyze?: () => void }) {
   const client = useClient();
   const status = useLoad(() => client.knowledgeStatus({ space }), [space]);
   const retry = useAction();
@@ -621,7 +657,14 @@ export function KnowledgeView({ space }: { space: string }) {
             </Button>
           }
         />
-        {preparing && <KnowledgeDialog space={space} onClose={() => setPreparing(false)} onPrepared={status.reload} />}
+        {preparing && (
+          <KnowledgeDialog
+            space={space}
+            onClose={() => setPreparing(false)}
+            onPrepared={status.reload}
+            onAnalyze={onAnalyze}
+          />
+        )}
       </Card>
     );
   }

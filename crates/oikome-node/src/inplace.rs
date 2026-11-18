@@ -1224,6 +1224,80 @@ fn safe_for_sql(path: &Path) -> bool {
         .is_some_and(|p| !p.chars().any(|c| c.is_control() || c == '\'' || c == '\\'))
 }
 
+/// A data file of a folder viewed in place, anywhere in it, and where on
+/// this computer the engine reads it (a NAS's or a bucket's through the
+/// cache). `None` when it cannot be read now, or its name cannot go into SQL.
+#[derive(Debug, Clone)]
+pub struct DataFile {
+    /// Its path within the folder.
+    pub path: String,
+    pub size: u64,
+    pub modified_ms: i64,
+    pub format: FileFormat,
+    pub local: Option<PathBuf>,
+}
+
+/// Every readable data file (CSV, TSV, Parquet, JSON Lines) of a folder
+/// viewed in place, in every subfolder, captions files left out.
+pub async fn data_files(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    location: &Location,
+) -> Result<Vec<DataFile>, SessionError> {
+    let dir = catalog.index_dir(location);
+    let rows = tokio::task::spawn_blocking(move || {
+        let conn = open_index(&dir)?;
+        let mut stmt = conn
+            .prepare("SELECT path, size, modified_ms FROM files WHERE kind = ?1 AND state != ?2 ORDER BY path")
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(params![TABLE, INVALID_TABLE], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(sql)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sql)?;
+        Ok::<_, SessionError>(rows)
+    })
+    .await
+    .map_err(io)??;
+    let place = place_of(catalog, engines, location)?;
+    let reachable = place.reachable().await;
+    let mut out = Vec::new();
+    for (path, size, modified_ms) in rows {
+        if name_of(&path) == CAPTIONS {
+            continue;
+        }
+        let Some(format) = Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(FileFormat::of_extension)
+        else {
+            continue;
+        };
+        let local = match &place {
+            _ if !reachable => None,
+            Place::Local(root) => Some(root.join(&path)).filter(|file| safe_for_sql(file)),
+            Place::Remote { .. } => cached(catalog, location, &place, &path, size, modified_ms)
+                .await
+                .ok()
+                .filter(|file| safe_for_sql(file)),
+        };
+        out.push(DataFile {
+            path,
+            size,
+            modified_ms,
+            format,
+            local,
+        });
+    }
+    Ok(out)
+}
+
 /// The tables of a folder viewed in place, for its engine. The index is
 /// built first if it is missing (it is a cache).
 pub async fn bound(

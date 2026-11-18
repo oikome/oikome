@@ -57,15 +57,16 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, AnalyzeDataset, Api, ApiError,
-    AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant,
-    ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
-    ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
-    NewPublicShare, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
-    PluginFolder, PluginRead, PluginRef, PublicAuthRequest, PublicAuthVerification, PublicFileRef,
-    PublicQuery, PublicShareRef, ReadFileRows, ReadRow, ReadRows, RegistryPluginRef, Rows, RunSql,
-    Search, SetLending, SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult,
-    StorageRef, UseBorrowed, PLUGIN_SDK,
+    AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, AnalysisTableRef, AnalyzeDataset,
+    Api, ApiError, AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller,
+    ConnectAssistant, ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode,
+    FolderRef, HomeCards, ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef,
+    ListAccess, ListShares, NewPublicShare, NewSource, NewSpace, NewStorage, NodeName, PauseSource,
+    PluginCollections, PluginFolder, PluginRead, PluginRef, PublicAuthRequest,
+    PublicAuthVerification, PublicFileRef, PublicQuery, PublicShareRef, ReadFileRows, ReadRow,
+    ReadRows, RegistryPluginRef, Rows, RunSql, Search, SetAnalysisField, SetLending,
+    SetSourceEvery, ShareRef, ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed,
+    PLUGIN_SDK,
 };
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
@@ -467,6 +468,10 @@ impl WebState {
             "list_tables" => json_op!(list_tables, SpaceRef),
             "dataset_profile" => json_op!(boxed dataset_profile, SpaceRef),
             "analyze_dataset" => json_op!(boxed analyze_dataset, AnalyzeDataset),
+            "file_analysis" => json_op!(boxed file_analysis, SpaceRef),
+            "build_analysis" => json_op!(boxed build_analysis, SpaceRef),
+            "set_analysis_field" => json_op!(boxed set_analysis_field, SetAnalysisField),
+            "analysis_summary" => json_op!(boxed analysis_summary, AnalysisTableRef),
             "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
             "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),
             "prepare_knowledge" => json_op!(boxed prepare_knowledge, SpaceRef),

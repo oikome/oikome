@@ -179,6 +179,21 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     }
     await page.goto(`${running.base}/collections/household`);
     await expect(page.getByText("spending", { exact: true }).first()).toBeVisible();
+    // Data Analysis: the household's table files become its analysis tables
+    // (a folder of monthly files read as one), with totals by month and category.
+    await page.getByRole("radio", { name: "Analysis", exact: true }).click();
+    await expect(page.getByText("No Analysis Tables")).toBeVisible();
+    await page.getByRole("button", { name: "Make Analysis Tables" }).click();
+    for (const table of ["readings", "spending", "steps"]) {
+      await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
+    }
+    await page.getByRole("radio", { name: "spending", exact: true }).click();
+    await expect(page.getByText("household.spending")).toBeVisible();
+    const months = page.getByRole("list", { name: "By Month" });
+    await expect(months.getByText("2026-09")).toBeVisible();
+    await expect(months.getByText("2026-11")).toBeVisible();
+    await expect(page.getByRole("list", { name: "By Category" }).getByText("Groceries")).toBeVisible();
+    await expect(page.getByLabel("What category is for")).toHaveValue("category");
     await page.goto(`${running.base}/collections/notes`);
     await expect(page.getByText("Lisbon, slowly").first()).toBeVisible();
     // The project's own documents, as a knowledge base: the agent protocol

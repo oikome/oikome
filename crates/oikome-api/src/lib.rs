@@ -35,6 +35,7 @@ mod dropbox;
 mod editing;
 pub mod error;
 mod examples;
+mod file_analysis;
 mod google;
 mod in_place;
 mod invites;
@@ -762,6 +763,8 @@ impl Api {
         }
         self.note_removed_collection(&req.space)?;
         session.drop_space(&req.space).await?;
+        // The analysis tables made of its files go with it; its files stay.
+        self.forget_file_analysis(&req.space).await?;
         if self.settings()?.examples.contains(&req.space) {
             self.update_settings(|settings| settings.examples.retain(|name| name != &req.space))?;
         }

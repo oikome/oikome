@@ -14,6 +14,10 @@ import type {
   AddInPlaceFiles,
   AddInPlaceFolder,
   AnalyzeDataset,
+  AnalysisSummary,
+  AnalysisTableRef,
+  FileAnalysis,
+  SetAnalysisField,
   AnalysisProfile,
   DatasetAnalysis,
   DatasetProfile,
@@ -155,6 +159,14 @@ export interface NodeClient {
   listTables(request: SpaceRef): Promise<TableSummary[]>;
   datasetProfile(request: SpaceRef): Promise<DatasetProfile>;
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis>;
+  /** What a folder collection's data files can make for analysis, and the tables made. */
+  fileAnalysis(request: SpaceRef): Promise<FileAnalysis>;
+  /** Make every analysis table a folder collection's files can make. */
+  buildAnalysis(request: SpaceRef): Promise<FileAnalysis>;
+  /** Correct what a column of an analysis table is for. */
+  setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
+  /** An analysis table's totals by month and by category. */
+  analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary>;
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile>;
   /** What an AI can read of a collection: prepared or not, each original. */
   knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus>;
@@ -418,6 +430,22 @@ export class HttpClient implements NodeClient {
 
   datasetProfile(request: SpaceRef): Promise<DatasetProfile> {
     return this.#json("dataset_profile", request);
+  }
+
+  fileAnalysis(request: SpaceRef): Promise<FileAnalysis> {
+    return this.#json("file_analysis", request);
+  }
+
+  buildAnalysis(request: SpaceRef): Promise<FileAnalysis> {
+    return this.#json("build_analysis", request);
+  }
+
+  setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis> {
+    return this.#json("set_analysis_field", request);
+  }
+
+  analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary> {
+    return this.#json("analysis_summary", request);
   }
 
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis> {

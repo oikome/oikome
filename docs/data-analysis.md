@@ -72,6 +72,16 @@ Safe additive changes can be accepted automatically. Type widening is allowed wh
 - A directory of compatible tabular files may be treated as one logical dataset with per-file provenance and partition information. A mixed directory remains a file collection; eligible files are analyzed individually and failures are reported per file.
 - Images remain original files. Metadata can be analyzed separately. Thumbnails are caches. Embeddings require an explicit semantic-index action and a model/plugin choice; they are never backups or replacements for original images.
 
+## Analysis tables of a folder collection (PR 28)
+
+Delivered as the first concrete form of "Generate analysis data" for files:
+
+- **What becomes a table.** Every CSV, TSV, Parquet and JSON Lines file of a folder collection, at any depth (captions files excepted). A top-level file is a table of its own, named after the file; the files of one format in one subfolder are read as one table, named after the folder, with `UNION ALL BY NAME`. Names are made unique; top-level files keep their own.
+- **Where it is kept.** An Iceberg table in the node's catalog under the namespace named after the collection, whatever the collection's own location; binding a folder collection attaches these tables beside its file tables and lets one stand in for the file table of the same name. Each row carries `_source_file`.
+- **Following the files.** The size and modification time of each file are kept with the table (`.oikome/analysis/<collection>.json`, with the owner's role corrections). When the folder is read again and they differ, the table is made again whole; when its files are gone, it is dropped. Removing the collection drops its tables and the namespace.
+- **Roles.** Proposed from names and types (time, amount, category, title, key, other), corrected per column by the owner; the summary sums the Amount column by month and by category, or counts rows.
+- **Not yet.** Excel sheets, photo metadata and note front matter as tables; tables joining files across folders; aggregations other than sum and count.
+
 ## Delivery order
 
 1. **PR 21:** collection and data-source targets, source identity migration, built-in CSV/file flows, semantic declarations and source/destination validation.

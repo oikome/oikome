@@ -89,7 +89,9 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 3. **PR 26:** Save To and public sharing form one content-delivery item, with saved portfolios and deliberately published public snapshots.
 4. **PR 27:** precise source targets first, then internal analysis profiles as core computation: collection-contained files and tables, plugin capabilities, direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
 5. **PR 28:** data sources as plugins and analysis tables of a folder collection's files (above). K1 and K2 of knowledge landed with PR 27.
-6. **PR 29:** knowledge for AI in steps K3–K4 (tables as knowledge, then media; chunks, full text, a local embedding model and skills came first), plus real RAW plugin support, as planned in `knowledge-schema.md`. Models are chosen explicitly and never downloaded silently.
-7. **PR 30:** read-only Iceberg/Lance/S3 dataset interoperability, followed by deliberately evaluated migrations and backup/recovery paths with integrity and restore checks.
+6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
+7. **PR 30–31:** backup and restore, then read-only Iceberg/Lance/Parquet datasets and deliberate migration.
+8. **PR 32–33:** media recognition (knowledge K4), then the plugin sandbox and RAW previews.
+9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
 
 Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.

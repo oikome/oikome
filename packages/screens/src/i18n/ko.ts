@@ -447,6 +447,8 @@ export const ko: Strings = {
     addFiles: "파일 추가",
     addFilesBody: "컬렉션을 선택한 다음 원본 파일을 원래 위치에서 참조하거나 해당 컬렉션으로 복사해요.",
     rustfsBody: "버킷의 폴더를 선택하여 컬렉션으로 표시합니다. 파일은 RustFS에 그대로 유지됩니다.",
+    folderAlready: (name: string) => `이 폴더는 이미 ${name} 컬렉션으로 추가되어 있습니다. 다시 추가하면 내용이 같은 두 번째 컬렉션이 만들어집니다.`,
+    nameNumbered: (wanted: string, name: string) => `${wanted} 이름의 컬렉션이 이미 있어 ${name}(으)로 지정됩니다. 이름은 위에서 변경할 수 있습니다.`,
     wholePlace: "전체 스토리지",
     holdsFiles: (files: number, folders: number) => `파일 ${files}개, 폴더 ${folders}개`,
     noRustfs: "RustFS가 연결되어 있지 않습니다. 먼저 ‘설정 › 스토리지’에서 추가하세요.",

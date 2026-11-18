@@ -414,6 +414,8 @@ export const zhHant: Strings = {
     addFiles: "加入檔案",
     addFilesBody: "選擇資料庫，然後參照原處的檔案，或把檔案複製進去。",
     rustfsBody: "選擇儲存貯體中的資料夾，作為資料庫檢視。檔案保留在 RustFS 中。",
+    folderAlready: (name: string) => `此資料夾已加入為資料庫 ${name}。再次加入將建立內容相同的第二個資料庫。`,
+    nameNumbered: (wanted: string, name: string) => `已存在名為 ${wanted} 的資料庫，此資料庫將命名為 ${name}。可在上方修改名稱。`,
     wholePlace: "整個儲存空間",
     holdsFiles: (files: number, folders: number) => `此處有 ${files} 個檔案、${folders} 個資料夾`,
     noRustfs: "尚未連接 RustFS。請先在「設定 › 儲存」中新增。",

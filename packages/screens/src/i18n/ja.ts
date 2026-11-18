@@ -422,6 +422,8 @@ export const ja: Strings = {
     addFiles: "ファイルを追加",
     addFilesBody: "コレクションを選択し、元のファイルをその場所で参照するか、そのコレクションにコピーします。",
     rustfsBody: "バケット内のフォルダを選択し、コレクションとして表示します。ファイルは RustFS に残ります。",
+    folderAlready: (name: string) => `このフォルダは既にコレクション ${name} として追加されています。再度追加すると、同じ内容のコレクションがもう 1 つ作成されます。`,
+    nameNumbered: (wanted: string, name: string) => `${wanted} という名前のコレクションが既に存在するため、${name} という名前になります。名前は上で変更できます。`,
     wholePlace: "ストレージ全体",
     holdsFiles: (files: number, folders: number) => `ファイル ${files} 件、フォルダ ${folders} 件`,
     noRustfs: "RustFS が接続されていません。先に「設定 › ストレージ」で追加してください。",

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useState } from "react";
-import { Button, ChoiceList, Dialog, ErrorText, Icon, Select, TextField, useToast } from "@oikome/ui";
+import { Banner, Button, ChoiceList, Dialog, ErrorText, Icon, Select, TextField, useToast } from "@oikome/ui";
 import type { SpaceSummary } from "@oikome/client";
 import { forgetPreviews } from "./content";
+import { nameFromFolder } from "./covers";
 import { rawMessage, useAction, useClient, useLoad } from "./data";
 import { bytes, homeRelative } from "./format";
 import { Link, navigate } from "./router";
@@ -73,6 +74,8 @@ export function AddFiles({
   const [path, setPath] = useState<string>();
   const [within, setWithin] = useState("");
   const [browsing, setBrowsing] = useState<"files" | "folder" | "place">();
+  // The collection name typed over the one made from the folder's.
+  const [folderName, setFolderName] = useState<string>();
   const makingNew = !target && destination === NEW;
   const total = files.reduce((sum, file) => sum + file.size, 0);
   const duplicateNames = new Set(files.map((file) => file.name)).size !== files.length;
@@ -96,9 +99,34 @@ export function AddFiles({
     if (makingNew && !nameEdited && files[0]) setName(suggestedName(files[0]));
   }, [makingNew, nameEdited, files]);
 
+  // A folder that becomes a collection: the name it gets, free of the names
+  // taken, which the owner may change; and the collection that views this
+  // very folder already, if one does.
+  const becoming =
+    mode === "reference" && makingNew
+      ? currentPlace !== LOCAL
+        ? { place: currentPlace, path: within.trim().replace(/^\/+|\/+$/g, "") }
+        : whole && path
+          ? { place: LOCAL, path }
+          : undefined
+      : undefined;
+  const taken = new Set((spaces.data ?? []).map((space) => space.name));
+  const base = nameFromFolder(becoming?.path.split(/[\\/]/).filter(Boolean).pop() ?? remote?.label ?? "");
+  const free = [base, ...Array.from({ length: 98 }, (_, i) => `${base}-${i + 2}`)].find((x) => !taken.has(x)) ?? base;
+  const asName = folderName ?? free;
+  const already =
+    becoming &&
+    (spaces.data ?? []).find(
+      (space) =>
+        space.inPlace &&
+        (space.inPlace.place ?? LOCAL) === becoming.place &&
+        space.inPlace.path.replace(/[\\/]+$/, "") === becoming.path.replace(/[\\/]+$/, ""),
+    );
+  const nameOk = !becoming || (NAME.test(asName) && !taken.has(asName));
+
   const destinationReady = target !== undefined || destination !== "";
   const ready =
-    !destinationReady || duplicateNames
+    !destinationReady || duplicateNames || !nameOk
       ? false
       : mode === "copy"
         ? (!makingNew || NAME.test(name)) && files.length > 0 && total <= MAX_IMPORT_BYTES
@@ -123,8 +151,8 @@ export function AddFiles({
           ? client.addInPlaceFolder({ space: destination, path: path! })
           : client.addInPlaceFiles({ space: target?.space ?? destination, files: originals });
       }
-      if (currentPlace !== LOCAL) return client.viewInPlace({ place: currentPlace, path: within.trim() });
-      if (source === "folder") return client.viewInPlace({ path: path! });
+      if (currentPlace !== LOCAL) return client.viewInPlace({ place: currentPlace, path: within.trim(), name: asName });
+      if (source === "folder") return client.viewInPlace({ path: path!, name: asName });
       return client.viewInPlace({ path: "", files: originals });
     }, rawMessage);
     if (!added) return;
@@ -305,6 +333,26 @@ export function AddFiles({
             {total > MAX_IMPORT_BYTES && <ErrorText>{s.importLimit}</ErrorText>}
           </>
         )}
+        {becoming && (
+          <>
+            <TextField
+              name="folder-collection-name"
+              label={s.collectionNameLabel}
+              hint={s.importNameHint}
+              value={asName}
+              mono
+              onChange={(value) => {
+                setFolderName(value);
+                adding.clear();
+              }}
+            />
+            {taken.has(asName) && <ErrorText>{s.nameTaken(asName)}</ErrorText>}
+            {already && <Banner title={s.folderAlready(already.name)} />}
+            {!already && folderName === undefined && free !== base && (
+              <p className="screen-help">{s.nameNumbered(base, free)}</p>
+            )}
+          </>
+        )}
         {adding.busy && (
           <span className="screen-progress" role="progressbar" aria-label={s.adding}>
             <i />
@@ -333,6 +381,7 @@ export function AddFiles({
           onChoose={(picked) => {
             setWithin(picked);
             setBrowsing(undefined);
+            setFolderName(undefined);
             adding.clear();
           }}
         />
@@ -345,6 +394,7 @@ export function AddFiles({
           onChoose={(picked) => {
             setPath(picked);
             setBrowsing(undefined);
+            setFolderName(undefined);
             adding.clear();
           }}
         />

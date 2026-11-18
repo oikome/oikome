@@ -148,13 +148,30 @@ function Art({
   );
 }
 
+/** The collection name Oikome makes from a folder's own: `Trip Photos` → `trip-photos`. */
+export function nameFromFolder(folder: string): string {
+  const slug = folder
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return /^[a-z]/.test(slug) ? slug : slug ? `folder-${slug}` : "folder";
+}
+
 /**
  * What a collection is called: its name, or for a folder viewed in place
- * the folder's own name, in whatever script it is written.
+ * under the name made from the folder's the folder's own name, in whatever
+ * script it is written. A second folder of the same name keeps its number
+ * (`照片-2`), and a name the owner chose is shown as chosen, so two
+ * collections never read the same.
  */
 export function collectionTitle(space: SpaceSummary): string {
   const path = space.inPlace?.path.replace(/[\\/]+$/, "");
-  return (path && path.split(/[\\/]/).pop()) || space.name;
+  const folder = path && path.split(/[\\/]/).pop();
+  if (!folder) return space.name;
+  const made = nameFromFolder(folder);
+  if (space.name === made) return folder;
+  const again = space.name.startsWith(`${made}-`) ? space.name.slice(made.length + 1) : "";
+  return /^[0-9]+$/.test(again) ? `${folder}-${again}` : space.name;
 }
 
 /** Whom a collection shared with you is from: their contact name, else words for it. */

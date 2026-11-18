@@ -418,6 +418,8 @@ export const zhHans: Strings = {
     addFiles: "添加文件",
     addFilesBody: "选择资料库，然后引用原处的文件，或把文件复制进去。",
     rustfsBody: "选择存储桶中的文件夹，作为资料库查看。文件保留在 RustFS 中。",
+    folderAlready: (name: string) => `此文件夹已添加为资料库 ${name}。再次添加将创建内容相同的第二个资料库。`,
+    nameNumbered: (wanted: string, name: string) => `已存在名为 ${wanted} 的资料库，此资料库将命名为 ${name}。可在上方修改名称。`,
     wholePlace: "整个存储",
     holdsFiles: (files: number, folders: number) => `此处有 ${files} 个文件、${folders} 个文件夹`,
     noRustfs: "尚未连接 RustFS。请先在“设置 › 存储”中添加。",

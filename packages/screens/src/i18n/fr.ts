@@ -436,6 +436,8 @@ export const fr: Strings = {
     addFiles: "Ajouter des fichiers",
     addFilesBody: "Choisissez une collection, puis référencez les fichiers originaux à leur emplacement ou copiez-les dans celle-ci.",
     rustfsBody: "Choisissez un dossier du bucket à afficher comme collection. Ses fichiers restent sur RustFS.",
+    folderAlready: (name: string) => `Ce dossier est déjà ajouté comme collection ${name}. L’ajouter à nouveau crée une seconde collection des mêmes fichiers.`,
+    nameNumbered: (wanted: string, name: string) => `Une collection nommée ${wanted} existe déjà ; celle-ci sera nommée ${name}. Le nom peut être modifié ci-dessus.`,
     wholePlace: "Tout le stockage",
     holdsFiles: (files: number, folders: number) => `${files} fichiers et ${folders} dossiers ici`,
     noRustfs: "RustFS n’est pas connecté. Ajoutez-le d’abord dans Réglages › Stockage.",

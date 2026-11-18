@@ -120,11 +120,15 @@ export const zhHans: Strings = {
 
   plugins: {
     title: "插件",
-    lede: "首页上的卡片。插件只能看到你允许它读取的资料库，也不能联网。",
+    lede: "为 Oikome 增加数据源、首页卡片和 AI 客户端。安装插件不会授予任何资料库的访问权限。",
     addFromFolder: "从文件夹添加",
     chooseFolder: "选择插件文件夹",
     folderHint: "选择包含 oikome-plugin.json 的文件夹。",
     colPlugin: "插件",
+    groupSources: "数据源",
+    groupCards: "首页卡片",
+    groupClients: "AI 客户端",
+    colWhat: "说明",
     colReads: "读取",
     colInternet: "联网",
     colStatus: "状态",
@@ -413,6 +417,10 @@ export const zhHans: Strings = {
     newCollection: "新建资料库",
     addFiles: "添加文件",
     addFilesBody: "选择资料库，然后引用原处的文件，或把文件复制进去。",
+    rustfsBody: "选择存储桶中的文件夹，作为资料库查看。文件保留在 RustFS 中。",
+    wholePlace: "整个存储",
+    holdsFiles: (files: number, folders: number) => `此处有 ${files} 个文件、${folders} 个文件夹`,
+    noRustfs: "尚未连接 RustFS。请先在“设置 › 存储”中添加。",
     addFilesCurrent: "引用原处的文件，或复制到当前文件夹。",
     addTo: "添加到",
     chooseCollection: "选择资料库",
@@ -638,7 +646,8 @@ export const zhHans: Strings = {
       if (paused === count) return `${intro}${count === 1 ? "它已暂停。" : `全部 ${num(count)} 个都已暂停。`}`;
       return `${intro}${num(count - paused)} 个已是最新，${num(paused)} 个已暂停。`;
     },
-    none: "还没有添加任何数据源。添加一个照片或笔记文件夹，或者一个 CSV 文件。",
+    none: "尚未添加数据源。",
+    choose: "选择数据源",
     colSource: "数据源",
     colStatus: "状态",
     colWhen: "上次 · 下次",

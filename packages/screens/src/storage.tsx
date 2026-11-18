@@ -730,7 +730,10 @@ export function FolderBrowser({
   hint,
   csv = false,
   extensions,
+  place,
 }: {
+  /** A storage to browse instead of this computer; paths are then within it. */
+  place?: { name: string; label: string };
   onClose: () => void;
   onChoose?: (path: string) => void;
   onChooseFiles?: (paths: string[]) => void;
@@ -743,7 +746,10 @@ export function FolderBrowser({
   const client = useClient();
   const [path, setPath] = useState<string>();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const listing = useLoad(() => client.listFolders(path ? { path } : {}), [path]);
+  const listing = useLoad(
+    () => client.listFolders(place ? { path: path ?? "", place: place.name } : path ? { path } : {}),
+    [path, place?.name],
+  );
   const here = listing.data;
   const open = (next: string) => {
     setSelected(new Set());
@@ -784,11 +790,11 @@ export function FolderBrowser({
           <IconButton
             icon="back"
             label={s.up}
-            disabled={!here?.parent}
-            onClick={() => here?.parent && open(here.parent)}
+            disabled={here?.parent == null}
+            onClick={() => here && here.parent != null && open(here.parent)}
           />
           <span className="screen-path" translate="no" title={here?.path}>
-            {here ? homeRelative(here.path) : "…"}
+            {here ? (place ? [place.label, here.path].filter(Boolean).join(" / ") : homeRelative(here.path)) : "…"}
           </span>
         </div>
         {listing.error && <ErrorText>{listing.error}</ErrorText>}
@@ -796,7 +802,7 @@ export function FolderBrowser({
           {!here && !listing.error && <li className="screen-browser__empty oik-skel" aria-hidden="true" />}
           {here &&
             here.folders.length === 0 &&
-            (choosingFiles ? here.files.length === 0 : !singleFile || matchingFiles.length === 0) && (
+            (choosingFiles || place ? here.files.length === 0 : !singleFile || matchingFiles.length === 0) && (
               <li className="screen-browser__empty">{singleFile ? strings.sources.noFile : choosingFiles ? strings.collections.emptyFolder : s.noFolders}</li>
             )}
           {singleFile &&
@@ -838,6 +844,17 @@ export function FolderBrowser({
               </button>
             </li>
           ))}
+          {place &&
+            !choosingFiles &&
+            !singleFile &&
+            here?.files.map((file) => (
+              <li key={file.path}>
+                <span className="screen-browser__folder screen-browser__file">
+                  <Icon name="note" />
+                  <span translate="no">{file.name}</span>
+                </span>
+              </li>
+            ))}
         </ul>
         {here && <p className="screen-help">{hint ? hint(here) : s.willKeep(homeRelative(keptIn(here.path)))}</p>}
       </div>

@@ -4796,3 +4796,16 @@ tr.screen-source {
   color: var(--ink3);
   overflow-wrap: anywhere;
 }
+
+/* What a plugin is for, in the Plugins page's groups. */
+.screen-plugin-what {
+  color: var(--ink2);
+  font: var(--text-small);
+  max-width: 46ch;
+}
+
+/* A file in a storage's folder being browsed: shown, not chosen. */
+.screen-browser__file {
+  color: var(--ink3);
+  cursor: default;
+}

@@ -366,10 +366,12 @@ export type GoogleApp = { clientId: string | null, };
 export type GoogleSignIn = { url: string, };
 
 /**
- * What a source reads: a folder of photos, a folder of notes (Markdown
- * or text, such as a notes vault), a CSV file, or flomo.
+ * What a data source plugin brings in: folders and files of this computer
+ * (`Files`) or of a RustFS bucket (`Rustfs`), which go into a collection as
+ * its files, or flomo. `Photos`, `Notes` and `Csv` are sources registered
+ * before data sources were plugins; no plugin offers them.
  */
-export type SourceKind = "photos" | "notes" | "csv" | "flomo-export" | "flomo-mcp";
+export type SourceKind = "files" | "rustfs" | "photos" | "notes" | "csv" | "flomo-export" | "flomo-mcp";
 
 /**
  * A source: where a collection's data comes from, and how its last pull
@@ -479,7 +481,12 @@ label: string, type: StorageType, path: string, };
 /**
  * `list_folders`: a folder on this computer; the home folder when left out.
  */
-export type FolderRef = { path?: string, };
+export type FolderRef = { path?: string,
+/**
+ * A storage's name: `path` is then within it (`""` for its top), and so
+ * are the paths of the listing. This computer when left out.
+ */
+place?: string, };
 
 /**
  * The folders and files in one folder, hidden ones left out, and how many

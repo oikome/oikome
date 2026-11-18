@@ -128,11 +128,15 @@ export const fr: Strings = {
 
   plugins: {
     title: "Plugins",
-    lede: "Des cartes pour l’Accueil. Un plugin ne voit que les collections que vous l’autorisez à lire, et n’a pas accès à Internet.",
+    lede: "Ajoutent à Oikome des sources, des cartes d’Accueil et des clients IA. L’installation seule ne donne accès à aucune collection.",
     addFromFolder: "Ajouter depuis un dossier",
     chooseFolder: "Choisir le dossier d’un plugin",
     folderHint: "Choisissez le dossier qui contient son oikome-plugin.json.",
     colPlugin: "Plugin",
+    groupSources: "Sources",
+    groupCards: "Cartes d’Accueil",
+    groupClients: "Clients IA",
+    colWhat: "Description",
     colReads: "Lit",
     colInternet: "Internet",
     colStatus: "État",
@@ -431,6 +435,10 @@ export const fr: Strings = {
     newCollection: "Nouvelle collection",
     addFiles: "Ajouter des fichiers",
     addFilesBody: "Choisissez une collection, puis référencez les fichiers originaux à leur emplacement ou copiez-les dans celle-ci.",
+    rustfsBody: "Choisissez un dossier du bucket à afficher comme collection. Ses fichiers restent sur RustFS.",
+    wholePlace: "Tout le stockage",
+    holdsFiles: (files: number, folders: number) => `${files} fichiers et ${folders} dossiers ici`,
+    noRustfs: "RustFS n’est pas connecté. Ajoutez-le d’abord dans Réglages › Stockage.",
     addFilesCurrent: "Référencez les fichiers originaux à leur emplacement ou copiez-les dans le dossier actuel.",
     addTo: "Ajouter à",
     chooseCollection: "Choisir une collection",
@@ -680,7 +688,8 @@ export const fr: Strings = {
       const resting = pl(paused, { one: "est en pause", other: "sont en pause" });
       return `${lead} ${num(live)} ${upToDate} ; ${num(paused)} ${resting}.`;
     },
-    none: "Rien n’arrive encore. Ajoutez un dossier de photos ou de notes, ou un fichier CSV.",
+    none: "Aucune source n’a été ajoutée.",
+    choose: "Choisir une source",
     colSource: "Source",
     colStatus: "État",
     colWhen: "Dernière · prochaine",

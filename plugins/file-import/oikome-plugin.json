@@ -1,0 +1,81 @@
+{
+  "id": "file-import",
+  "name": "File Import",
+  "by": "Oikome",
+  "version": "1.0.0",
+  "description": "Add a folder or files to a collection. A folder can become a collection of its own.",
+  "capabilities": {
+    "sources": [
+      {
+        "id": "files",
+        "name": "File Import",
+        "kind": "files"
+      }
+    ]
+  },
+  "translations": {
+    "zh-Hans": {
+      "name": "文件导入",
+      "description": "将文件夹或文件添加到资料库。文件夹可单独作为一个资料库。",
+      "sources": {
+        "files": {
+          "name": "文件导入"
+        }
+      }
+    },
+    "zh-Hant": {
+      "name": "檔案匯入",
+      "description": "將資料夾或檔案加入資料庫。資料夾可單獨作為一個資料庫。",
+      "sources": {
+        "files": {
+          "name": "檔案匯入"
+        }
+      }
+    },
+    "ja": {
+      "name": "ファイルの取り込み",
+      "description": "フォルダまたはファイルをコレクションに追加します。フォルダは単独のコレクションにできます。",
+      "sources": {
+        "files": {
+          "name": "ファイルの取り込み"
+        }
+      }
+    },
+    "ko": {
+      "name": "파일 가져오기",
+      "description": "폴더나 파일을 컬렉션에 추가합니다. 폴더는 별도의 컬렉션으로 만들 수 있습니다.",
+      "sources": {
+        "files": {
+          "name": "파일 가져오기"
+        }
+      }
+    },
+    "fr": {
+      "name": "Import de fichiers",
+      "description": "Ajoute un dossier ou des fichiers à une collection. Un dossier peut devenir une collection à part entière.",
+      "sources": {
+        "files": {
+          "name": "Import de fichiers"
+        }
+      }
+    },
+    "de": {
+      "name": "Dateiimport",
+      "description": "Fügt einen Ordner oder Dateien einer Sammlung hinzu. Ein Ordner kann eine eigene Sammlung werden.",
+      "sources": {
+        "files": {
+          "name": "Dateiimport"
+        }
+      }
+    },
+    "ru": {
+      "name": "Импорт файлов",
+      "description": "Добавляет папку или файлы в коллекцию. Папка может стать отдельной коллекцией.",
+      "sources": {
+        "files": {
+          "name": "Импорт файлов"
+        }
+      }
+    }
+  }
+}

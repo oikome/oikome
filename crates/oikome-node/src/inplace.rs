@@ -277,6 +277,16 @@ pub fn place_of(
     let Some(storage) = place else {
         return Ok(Place::Local(PathBuf::from(path)));
     };
+    place_on(catalog, engines, storage, path)
+}
+
+/// The folder `path` on the storage `storage`, to view or to browse.
+pub fn place_on(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    storage: &str,
+    path: &str,
+) -> Result<Place, SessionError> {
     let def = catalog.get_storage(storage)?;
     let within = path.trim_matches('/');
     if !within.is_empty() {

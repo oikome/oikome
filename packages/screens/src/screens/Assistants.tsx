@@ -114,6 +114,20 @@ export function Assistants({ startConnecting = false }: { startConnecting?: bool
       <div className="screen-dash screen-dash--split screen-dash--rows">
         <Group title={s.connected} action={<span className="screen-group-count">{s.overMcp}</span>}>
           {assistants.data && list.length === 0 && <Row title={s.none} muted />}
+          {assistants.data &&
+            list.length === 0 &&
+            clients.map((choice) => (
+              <Row
+                key={choice.key}
+                leading={<Tile icon="ai" tone="stone" />}
+                title={choice.name}
+                trailing={
+                  <Button variant="quiet" aria-label={`${s.connect}: ${choice.name}`} onClick={() => setConnecting(true)}>
+                    {s.connect}
+                  </Button>
+                }
+              />
+            ))}
           {list.map((a) => (
             <Row
               key={a.id}

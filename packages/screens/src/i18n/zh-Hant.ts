@@ -117,11 +117,15 @@ export const zhHant: Strings = {
 
   plugins: {
     title: "外掛程式",
-    lede: "首頁上的卡片。外掛程式只能看到你允許它讀取的資料庫，也無法連上網路。",
+    lede: "為 Oikome 增加來源、首頁卡片和 AI 用戶端。安裝外掛程式不會授予任何資料庫的存取權限。",
     addFromFolder: "從資料夾新增",
     chooseFolder: "選擇外掛程式的資料夾",
     folderHint: "選擇含有 oikome-plugin.json 的資料夾。",
     colPlugin: "外掛程式",
+    groupSources: "來源",
+    groupCards: "首頁卡片",
+    groupClients: "AI 用戶端",
+    colWhat: "說明",
     colReads: "讀取",
     colInternet: "網路",
     colStatus: "狀態",
@@ -409,6 +413,10 @@ export const zhHant: Strings = {
     newCollection: "新增資料庫",
     addFiles: "加入檔案",
     addFilesBody: "選擇資料庫，然後參照原處的檔案，或把檔案複製進去。",
+    rustfsBody: "選擇儲存貯體中的資料夾，作為資料庫檢視。檔案保留在 RustFS 中。",
+    wholePlace: "整個儲存空間",
+    holdsFiles: (files: number, folders: number) => `此處有 ${files} 個檔案、${folders} 個資料夾`,
+    noRustfs: "尚未連接 RustFS。請先在「設定 › 儲存」中新增。",
     addFilesCurrent: "參照原處的檔案，或複製到目前資料夾。",
     addTo: "加入到",
     chooseCollection: "選擇資料庫",
@@ -634,7 +642,8 @@ export const zhHant: Strings = {
       const live = count - paused;
       return `${lead}${num(live)} 個已是最新，${num(paused)} 個已暫停。`;
     },
-    none: "還沒有匯入任何資料。新增一個照片或筆記資料夾，或一個 CSV 檔案。",
+    none: "尚未新增來源。",
+    choose: "選擇來源",
     colSource: "來源",
     colStatus: "狀態",
     colWhen: "上次 · 下次",

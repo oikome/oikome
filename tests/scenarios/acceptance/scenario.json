@@ -6,6 +6,6 @@
     { "action": "viewInPlace", "name": "notes", "path": "notes" },
     { "action": "viewInPlace", "name": "content-files", "path": "content-files" },
     { "action": "viewInPlace", "name": "oikome-docs", "path": "oikome-docs" },
-    { "action": "addCsvSource", "path": "tables/readings.csv" }
+    { "action": "viewInPlace", "name": "household", "path": "household" }
   ]
 }

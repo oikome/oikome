@@ -126,11 +126,15 @@ export const de: Strings = {
 
   plugins: {
     title: "Plugins",
-    lede: "Karten für die Startseite. Ein Plugin sieht nur die Sammlungen, die du es lesen lässt, und kommt nicht ins Internet.",
+    lede: "Erweitern Oikome um Quellen, Karten für die Startseite und KI-Clients. Die Installation allein gewährt keinen Zugriff auf Sammlungen.",
     addFromFolder: "Aus Ordner hinzufügen",
     chooseFolder: "Plugin-Ordner auswählen",
     folderHint: "Wähle den Ordner, in dem seine oikome-plugin.json liegt.",
     colPlugin: "Plugin",
+    groupSources: "Quellen",
+    groupCards: "Karten der Startseite",
+    groupClients: "KI-Clients",
+    colWhat: "Beschreibung",
     colReads: "Liest",
     colInternet: "Internet",
     colStatus: "Status",
@@ -429,6 +433,10 @@ export const de: Strings = {
     newCollection: "Neue Sammlung",
     addFiles: "Dateien hinzufügen",
     addFilesBody: "Wähle eine Sammlung und verweise dann auf Originaldateien an ihrem Ort oder kopiere sie in diese Sammlung.",
+    rustfsBody: "Wähle einen Ordner im Bucket, der als Sammlung angezeigt wird. Seine Dateien bleiben auf RustFS.",
+    wholePlace: "Der gesamte Speicher",
+    holdsFiles: (files: number, folders: number) => `${files} Dateien und ${folders} Ordner hier`,
+    noRustfs: "RustFS ist nicht verbunden. Füge es zuerst unter Einstellungen › Speicher hinzu.",
     addFilesCurrent: "Verweise auf Originaldateien an ihrem Ort oder kopiere sie in den aktuellen Ordner.",
     addTo: "Hinzufügen zu",
     chooseCollection: "Sammlung auswählen",
@@ -665,7 +673,8 @@ export const de: Strings = {
       const live = count - paused;
       return `${lead} ${num(live)} ${live === 1 ? "ist" : "sind"} aktuell, ${num(paused)} ${paused === 1 ? "ist" : "sind"} pausiert.`;
     },
-    none: "Noch kommt nichts herein. Füge einen Ordner mit Fotos oder Notizen hinzu oder eine CSV-Datei.",
+    none: "Es wurde noch keine Quelle hinzugefügt.",
+    choose: "Quelle auswählen",
     colSource: "Quelle",
     colStatus: "Status",
     colWhen: "Zuletzt · nächste",

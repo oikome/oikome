@@ -287,9 +287,10 @@ impl Api {
             .map(table_name)
             .unwrap_or_else(|| table_name(&stem));
         let config = match req.kind {
-            SourceKind::Photos | SourceKind::Notes => {
+            SourceKind::Files | SourceKind::Rustfs | SourceKind::Photos | SourceKind::Notes => {
                 return Err(ApiError::invalid(
-                    "a folder of photos or notes is viewed where it is: use view_in_place",
+                    "folders and files go into a collection as its files: use view_in_place, \
+                     add_in_place_folder or add_in_place_files",
                 ));
             }
             SourceKind::Csv => {

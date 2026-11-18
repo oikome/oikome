@@ -880,11 +880,15 @@ pub struct DefaultStorage {
     pub storage: Option<String>,
 }
 
-/// What a source reads: a folder of photos, a folder of notes (Markdown
-/// or text, such as a notes vault), a CSV file, or flomo.
+/// What a data source plugin brings in: folders and files of this computer
+/// (`Files`) or of a RustFS bucket (`Rustfs`), which go into a collection as
+/// its files, or flomo. `Photos`, `Notes` and `Csv` are sources registered
+/// before data sources were plugins; no plugin offers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceKind {
+    Files,
+    Rustfs,
     Photos,
     Notes,
     Csv,
@@ -1176,6 +1180,10 @@ pub struct FoundPlace {
 pub struct FolderRef {
     #[serde(default)]
     pub path: Option<String>,
+    /// A storage's name: `path` is then within it (`""` for its top), and so
+    /// are the paths of the listing. This computer when left out.
+    #[serde(default)]
+    pub place: Option<String>,
 }
 
 /// The folders and files in one folder, hidden ones left out, and how many

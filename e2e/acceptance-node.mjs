@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import { BIN, ENV, oikome } from "./node.mjs";
-import { createBucket, startRustfs } from "./rustfs.mjs";
+import { createBucket, putObject, startRustfs } from "./rustfs.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const MARKER = ".oikome-scenario.json";
@@ -208,13 +208,46 @@ function generateFiles(root) {
   write(root, "content-files/External.pdf", validPdf());
   write(root, "content-files/Broken.pdf", "%PDF-1.4\nthis is not a complete document\n");
   write(root, "content-files/Portfolio.psd", validPsd());
-  const readings = ["id,recorded_at,living_room_celsius"];
+  // A household's own records, as files in one folder: what Data Analysis
+  // is tried on. Everything is made the way an owner would have it.
+  const readings = ["recorded_at,room,celsius"];
   for (let hour = 0; hour < 72; hour++) {
     const recordedAt = new Date(Date.UTC(2026, 10, 1, hour)).toISOString().replace("T", " ").replace(".000Z", "");
-    const temperature = (21.2 + Math.sin(hour / 7) * 1.4 + Math.cos(hour / 13) * 0.4).toFixed(1);
-    readings.push(`${hour + 1},${recordedAt},${temperature}`);
+    for (const [room, base] of [["Living room", 21.2], ["Bedroom", 19.6]]) {
+      readings.push(`${recordedAt},${room},${(base + Math.sin(hour / 7) * 1.4 + Math.cos(hour / 13) * 0.4).toFixed(1)}`);
+    }
   }
-  write(root, "tables/readings.csv", readings.join("\n") + "\n");
+  write(root, "household/readings.csv", readings.join("\n") + "\n");
+  const spends = [["Groceries", 38], ["Transport", 12], ["Eating out", 27], ["Utilities", 64], ["Books", 19], ["Health", 22]];
+  for (const month of [9, 10, 11]) {
+    const rows = ["date,category,amount,note"];
+    for (let day = 1; day <= 28; day++) {
+      const [category, base] = spends[(day * 5 + month) % spends.length];
+      const amount = (base + ((day * 37 + month * 11) % 23) - 8 + ((day * 13) % 100) / 100).toFixed(2);
+      rows.push(`2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")},${category},${amount},${category === "Books" ? "Bertrand" : ""}`);
+    }
+    write(root, `household/spending/2026-${String(month).padStart(2, "0")}.csv`, rows.join("\n") + "\n");
+  }
+  const steps = [];
+  for (let day = 1; day <= 30; day++) {
+    steps.push(JSON.stringify({ date: `2026-11-${String(day).padStart(2, "0")}`, steps: 5200 + ((day * 977) % 6400), city: day % 6 === 0 ? "Porto" : "Lisbon" }));
+  }
+  write(root, "household/steps.jsonl", steps.join("\n") + "\n");
+  // A reading list kept in the folder a cloud drive's client syncs.
+  write(root, "drive-sync/Oikome/reading-list/books.csv", "title,author,status,finished\nThe Book of Disquiet,Fernando Pessoa,Reading,\nBlindness,José Saramago,Read,2026-08-14\nPereira Maintains,Antonio Tabucchi,Next,\n");
+}
+
+/** What the acceptance bucket holds before Oikome sees it: a folder with
+ * subfolders and mixed files, put there as any S3 client would. */
+async function fillBucket(rustfs) {
+  const files = {
+    "archive/documents.csv": "id,title,year,kind\n1,Lisbon tram tickets,2024,ticket\n2,Porto photo contact sheet,2025,photo\n3,Family recipes scanned,2026,scan\n",
+    "archive/scans/Family recipes.pdf": validPdf(),
+    "archive/tickets/2024/Tram 28E.txt": "Carris · Tram 28E · Martim Moniz → Campo de Ourique · 2024-05-11 · EUR 3.10\n",
+    "archive/tickets/2024/prices.csv": "date,line,price\n2024-05-11,28E,3.10\n2024-05-12,15E,3.10\n2024-05-13,Metro,1.85\n",
+    "archive/README.md": "# Archive\n\nScans and tickets kept on RustFS. Oikome views this folder where it is.\n",
+  };
+  for (const [key, contents] of Object.entries(files)) await putObject(rustfs, "acceptance", key, contents);
 }
 
 async function startNode(root, port, home, environment) {
@@ -271,9 +304,6 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     for (const collection of config.collections) {
       if (collection.action === "viewInPlace") {
         await call("view_in_place", { path: join(files, collection.path), name: collection.name });
-      } else if (collection.action === "addCsvSource") {
-        await call("create_space", { name: "readings", kind: "transactional" });
-        await call("add_source", { kind: "csv", path: join(files, collection.path), space: "readings", table: "readings" });
       } else {
         throw new Error(`Unknown acceptance action ${collection.action}`);
       }
@@ -293,10 +323,7 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
       address: join(files, "drive-sync"),
       encrypted: true,
     });
-    await call("create_space", { name: "reading-list", storage: drive.name });
-    await call("run_sql", {
-      sql: 'CREATE TABLE "reading-list".books (id BIGINT, title VARCHAR, status VARCHAR); INSERT INTO "reading-list".books VALUES (1, \'The Book of Disquiet\', \'Reading\'), (2, \'Blindness\', \'Read\'), (3, \'Pereira Maintains\', \'Next\');',
-    });
+    await call("view_in_place", { place: drive.name, path: "reading-list", name: "reading-list" });
 
     const object = await call("add_storage", {
       label: "RustFS Acceptance",
@@ -307,10 +334,8 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
       password: rustfs.secretKey,
       encrypted: true,
     });
-    await call("create_space", { name: "rustfs-archive", storage: object.name });
-    await call("run_sql", {
-      sql: 'CREATE TABLE "rustfs-archive".documents (id BIGINT, title VARCHAR, year BIGINT); INSERT INTO "rustfs-archive".documents VALUES (1, \'Lisbon tram tickets\', 2024), (2, \'Porto photo contact sheet\', 2025), (3, \'Family recipes scanned\', 2026);',
-    });
+    // The folder in the bucket, as the RustFS data source adds it.
+    await call("view_in_place", { place: object.name, path: "archive", name: "rustfs-archive" });
 
     await call("add_contact", { did: peerDid, name: "Acceptance Peer" });
     return call("share_space", { space: "photos", did: peerDid });
@@ -369,6 +394,7 @@ export async function launchAcceptance({ root, port = 0, env, firstRun = false }
 
     rustfs = await startRustfs({ root: join(scenarioRoot, "services", "rustfs") });
     await createBucket(rustfs, "acceptance");
+    await fillBucket(rustfs);
     const peerRoot = join(scenarioRoot, "peer");
     peer = await startNode(peerRoot, 0, join(scenarioRoot, "peer-home"), env);
     const peerDid = oikome(peerRoot, "identity").trim();

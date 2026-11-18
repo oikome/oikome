@@ -143,7 +143,7 @@ Publisher signing, network permissions, third-party node/host execution, automat
 
 | Plugin | What it imports | Behaviour |
 | --- | --- | --- |
-| File Import | A folder or files on this computer | Goes into a collection the owner chooses, at the current folder. When a folder is chosen, Oikome asks whether it becomes a collection of its own (named after the folder) or goes into an existing collection as a subfolder. Replaces the Photos Folder, Notes Folder and CSV File sources: a CSV is a file in a collection, not a source |
+| File Import | A folder or files, on this computer or a connected place other than RustFS | Goes into a collection the owner chooses, at the current folder. When a folder is chosen, Oikome asks whether it becomes a collection of its own (named after the folder) or goes into an existing collection as a subfolder. Replaces the Photos Folder, Notes Folder and CSV File sources: a CSV is a file in a collection, not a source |
 | RustFS | A folder or files in a bucket | The same as File Import in every respect (destination, the folder question, how the files then appear and behave); only where they come from differs. The bucket's folder structure is kept |
 | flomo | flomo notes | As today |
 

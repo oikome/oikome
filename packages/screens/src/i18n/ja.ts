@@ -118,11 +118,15 @@ export const ja: Strings = {
 
   plugins: {
     title: "プラグイン",
-    lede: "ホームに置くカードです。プラグインが見られるのは読み取りを許可したコレクションだけで、インターネットには接続できません。",
+    lede: "Oikome にソース、ホームのカード、AI クライアントを追加します。インストールしただけでは、コレクションへのアクセス権は付与されません。",
     addFromFolder: "フォルダから追加",
     chooseFolder: "プラグインのフォルダを選択",
     folderHint: "oikome-plugin.json が入っているフォルダを選んでください。",
     colPlugin: "プラグイン",
+    groupSources: "ソース",
+    groupCards: "ホームのカード",
+    groupClients: "AI クライアント",
+    colWhat: "説明",
     colReads: "読み取り",
     colInternet: "インターネット",
     colStatus: "状態",
@@ -417,6 +421,10 @@ export const ja: Strings = {
     newCollection: "新規コレクション",
     addFiles: "ファイルを追加",
     addFilesBody: "コレクションを選択し、元のファイルをその場所で参照するか、そのコレクションにコピーします。",
+    rustfsBody: "バケット内のフォルダを選択し、コレクションとして表示します。ファイルは RustFS に残ります。",
+    wholePlace: "ストレージ全体",
+    holdsFiles: (files: number, folders: number) => `ファイル ${files} 件、フォルダ ${folders} 件`,
+    noRustfs: "RustFS が接続されていません。先に「設定 › ストレージ」で追加してください。",
     addFilesCurrent: "元のファイルをその場所で参照するか、現在のフォルダーにコピーします。",
     addTo: "追加先",
     chooseCollection: "コレクションを選択",
@@ -644,7 +652,8 @@ export const ja: Strings = {
       if (paused === count) return `${lead}${count === 1 ? "一時停止中です。" : `${num(count)} 個すべてが一時停止中です。`}`;
       return `${lead}${num(count - paused)} 個は最新、${num(paused)} 個は一時停止中です。`;
     },
-    none: "まだ何も取り込んでいません。写真やメモのフォルダ、または CSV ファイルを追加してください。",
+    none: "ソースはまだ追加されていません。",
+    choose: "ソースを選択",
     colSource: "ソース",
     colStatus: "状態",
     colWhen: "前回 · 次回",

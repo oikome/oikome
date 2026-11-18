@@ -146,11 +146,15 @@ export const ko: Strings = {
 
   plugins: {
     title: "플러그인",
-    lede: "홈에 놓는 카드예요. 플러그인은 내가 허용한 컬렉션만 읽고, 인터넷에 연결할 수 없어요.",
+    lede: "Oikome에 소스, 홈 카드, AI 클라이언트를 추가합니다. 설치만으로는 컬렉션 접근 권한이 부여되지 않습니다.",
     addFromFolder: "폴더에서 추가",
     chooseFolder: "플러그인 폴더 선택",
     folderHint: "oikome-plugin.json이 들어 있는 폴더를 고르세요.",
     colPlugin: "플러그인",
+    groupSources: "소스",
+    groupCards: "홈 카드",
+    groupClients: "AI 클라이언트",
+    colWhat: "설명",
     colReads: "읽기",
     colInternet: "인터넷",
     colStatus: "상태",
@@ -442,6 +446,10 @@ export const ko: Strings = {
     newCollection: "새 컬렉션",
     addFiles: "파일 추가",
     addFilesBody: "컬렉션을 선택한 다음 원본 파일을 원래 위치에서 참조하거나 해당 컬렉션으로 복사해요.",
+    rustfsBody: "버킷의 폴더를 선택하여 컬렉션으로 표시합니다. 파일은 RustFS에 그대로 유지됩니다.",
+    wholePlace: "전체 스토리지",
+    holdsFiles: (files: number, folders: number) => `파일 ${files}개, 폴더 ${folders}개`,
+    noRustfs: "RustFS가 연결되어 있지 않습니다. 먼저 ‘설정 › 스토리지’에서 추가하세요.",
     addFilesCurrent: "원본 파일을 원래 위치에서 참조하거나 현재 폴터로 복사해요.",
     addTo: "추가 대상",
     chooseCollection: "컬렉션 선택",
@@ -671,7 +679,8 @@ export const ko: Strings = {
       const live = count - paused;
       return `${lead} ${num(live)}개는 최신 상태이고, ${num(paused)}개는 일시 정지되어 있어요.`;
     },
-    none: "아직 가져오는 데이터가 없어요. 사진이나 메모가 든 폴더, 또는 CSV 파일을 추가하세요.",
+    none: "추가된 소스가 없습니다.",
+    choose: "소스 선택",
     colSource: "소스",
     colStatus: "상태",
     colWhen: "최근 · 다음",

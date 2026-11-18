@@ -1259,6 +1259,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
             &OWNER,
             FolderRef {
                 path: Some(picked.path().to_str().unwrap().into()),
+                place: None,
             },
         )
         .await
@@ -1431,7 +1432,14 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     assert!(offered
         .iter()
         .any(|p| p.id == "spending-by-category" && p.built_in && p.installed));
-    for id in ["kimi-code", "codex", "claude-code", "flomo"] {
+    for id in [
+        "file-import",
+        "rustfs",
+        "kimi-code",
+        "codex",
+        "claude-code",
+        "flomo",
+    ] {
         assert!(offered.iter().any(|p| p.id == id), "{id}");
     }
     // Oikome's own come with their words in the app's languages.

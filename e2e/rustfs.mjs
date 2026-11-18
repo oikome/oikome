@@ -72,15 +72,17 @@ export async function startRustfs({ root } = {}) {
 const sha256 = (data) => createHash("sha256").update(data).digest("hex");
 const hmac = (key, data) => createHmac("sha256", key).update(data).digest();
 
-/** Make the bucket `name`, as the storage's owner does, with a request signed with AWS Signature Version 4. */
-export async function createBucket({ endpoint, accessKey, secretKey }, name) {
+/** One PUT signed with AWS Signature Version 4, as the storage's owner sends it. */
+async function put({ endpoint, accessKey, secretKey }, path, body) {
   const amzDate = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const date = amzDate.slice(0, 8);
   const host = new URL(endpoint).host;
-  const payload = sha256("");
+  const payload = sha256(body);
+  // Each path segment is encoded once, as S3 canonical requests want.
+  const encoded = path.split("/").map(encodeURIComponent).join("/");
   const canonical = [
     "PUT",
-    `/${name}`,
+    encoded,
     "",
     `host:${host}`,
     `x-amz-content-sha256:${payload}`,
@@ -94,13 +96,25 @@ export async function createBucket({ endpoint, accessKey, secretKey }, name) {
   let key = hmac(`AWS4${secretKey}`, date);
   for (const part of [REGION, "s3", "aws4_request"]) key = hmac(key, part);
   const signature = createHmac("sha256", key).update(toSign).digest("hex");
-  const response = await fetch(`${endpoint}/${name}`, {
+  return fetch(`${endpoint}${encoded}`, {
     method: "PUT",
     headers: {
       "x-amz-date": amzDate,
       "x-amz-content-sha256": payload,
       authorization: `AWS4-HMAC-SHA256 Credential=${accessKey}/${scope}, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=${signature}`,
     },
+    ...(body.length > 0 ? { body } : {}),
   });
+}
+
+/** Make the bucket `name`, as the storage's owner does. */
+export async function createBucket(rustfs, name) {
+  const response = await put(rustfs, `/${name}`, "");
   if (!response.ok) throw new Error(`making the bucket: ${response.status}`);
+}
+
+/** Put a file in `bucket` at `key` (`archive/scans/a.pdf`), as any S3 client would. */
+export async function putObject(rustfs, bucket, key, contents) {
+  const response = await put(rustfs, `/${bucket}/${key}`, Buffer.from(contents));
+  if (!response.ok) throw new Error(`putting ${key}: ${response.status}`);
 }

@@ -7,7 +7,7 @@ import type { SpaceSummary } from "@oikome/client";
 import { forgetPreviews } from "./content";
 import { rawMessage, useAction, useClient, useLoad } from "./data";
 import { bytes, homeRelative } from "./format";
-import { navigate } from "./router";
+import { Link, navigate } from "./router";
 import { FolderBrowser } from "./storage";
 import { strings } from "./strings";
 
@@ -39,12 +39,20 @@ function suggestedName(file: File): string {
   return (/^[A-Za-z_]/.test(base) ? base : `import-${base}`).slice(0, 64);
 }
 
+/** Add folders or files to a collection. `origin` is the data source it
+ * was opened from: File Import adds from this computer; RustFS adds a
+ * folder of a bucket, viewed where it is as a collection of its own. With
+ * none (Add Files in Collections) every place that can be viewed is offered. */
 export function AddFiles({
   target,
+  origin,
+  title,
   onClose,
   onAdded,
 }: {
   target?: { space: string; folder?: string; label: string };
+  origin?: "local" | "rustfs";
+  title?: string;
   onClose: () => void;
   onAdded?: (space: SpaceSummary) => void;
 }) {
@@ -53,7 +61,8 @@ export function AddFiles({
   const adding = useAction();
   const storages = useLoad(() => client.listStorages(), []);
   const spaces = useLoad(() => client.listSpaces(), []);
-  const [destination, setDestination] = useState("");
+  const fromBucket = origin === "rustfs";
+  const [destination, setDestination] = useState(fromBucket ? NEW : "");
   const [mode, setMode] = useState<"reference" | "copy">("reference");
   const [source, setSource] = useState<"files" | "folder">("files");
   const [place, setPlace] = useState(LOCAL);
@@ -63,16 +72,25 @@ export function AddFiles({
   const [originals, setOriginals] = useState<string[]>([]);
   const [path, setPath] = useState<string>();
   const [within, setWithin] = useState("");
-  const [browsing, setBrowsing] = useState<"files" | "folder">();
+  const [browsing, setBrowsing] = useState<"files" | "folder" | "place">();
   const makingNew = !target && destination === NEW;
-  const currentPlace = makingNew ? place : LOCAL;
   const total = files.reduce((sum, file) => sum + file.size, 0);
   const duplicateNames = new Set(files.map((file) => file.name)).size !== files.length;
   const collections = (spaces.data ?? []).filter(
     (space) => space.kind !== "remote" && ((space.inPlace && !space.inPlace.place) || (!space.inPlace && space.kind === "analytical")),
   );
-  const places = (storages.data ?? []).filter((storage) => storage.viewsInPlace && storage.name !== null);
+  const places = (storages.data ?? []).filter(
+    (storage) =>
+      storage.viewsInPlace &&
+      storage.name !== null &&
+      (origin === undefined || (storage.type === "s3") === fromBucket),
+  );
+  // From a bucket, the first RustFS is chosen until another is.
+  const currentPlace = !makingNew ? LOCAL : fromBucket ? (place || (places[0]?.name ?? LOCAL)) : place;
   const remote = places.find((storage) => storage.name === currentPlace);
+  const noBucket = fromBucket && storages.data !== undefined && places.length === 0;
+  // A whole folder joins a collection as files do.
+  const whole = source === "folder" && !target;
 
   useEffect(() => {
     if (makingNew && !nameEdited && files[0]) setName(suggestedName(files[0]));
@@ -84,11 +102,13 @@ export function AddFiles({
       ? false
       : mode === "copy"
         ? (!makingNew || NAME.test(name)) && files.length > 0 && total <= MAX_IMPORT_BYTES
-        : makingNew && currentPlace !== LOCAL
-          ? true
-          : makingNew && source === "folder"
-            ? path !== undefined
-            : originals.length > 0;
+        : fromBucket
+          ? currentPlace !== LOCAL
+          : makingNew && currentPlace !== LOCAL
+            ? true
+            : whole
+              ? path !== undefined
+              : originals.length > 0;
 
   const add = async () => {
     const added = await adding.run(async () => {
@@ -99,7 +119,9 @@ export function AddFiles({
         });
       }
       if (!makingNew) {
-        return client.addInPlaceFiles({ space: target?.space ?? destination, files: originals });
+        return whole
+          ? client.addInPlaceFolder({ space: destination, path: path! })
+          : client.addInPlaceFiles({ space: target?.space ?? destination, files: originals });
       }
       if (currentPlace !== LOCAL) return client.viewInPlace({ place: currentPlace, path: within.trim() });
       if (source === "folder") return client.viewInPlace({ path: path! });
@@ -116,7 +138,7 @@ export function AddFiles({
   return (
     <>
       <Dialog
-        title={s.addFiles}
+        title={title ?? s.addFiles}
         closeLabel={strings.common.close}
         onClose={onClose}
         footer={
@@ -128,8 +150,13 @@ export function AddFiles({
           </>
         }
       >
-        <p className="oik-dialog__text">{target ? s.addFilesCurrent : s.addFilesBody}</p>
-        {target ? (
+        <p className="oik-dialog__text">{fromBucket ? s.rustfsBody : target ? s.addFilesCurrent : s.addFilesBody}</p>
+        {noBucket && (
+          <p className="screen-help">
+            {s.noRustfs} <Link to="/settings">{strings.nav.settings}</Link>
+          </p>
+        )}
+        {fromBucket ? null : target ? (
           <p className="screen-path" translate="no">
             {target.label}
           </p>
@@ -148,6 +175,7 @@ export function AddFiles({
             ]}
           />
         )}
+        {!fromBucket && (
         <ChoiceList
           label={s.addHow}
           name="add-files-mode"
@@ -161,31 +189,34 @@ export function AddFiles({
             { value: "copy", title: s.copyToOikome, meta: s.copyToOikomeBody, leading: <Icon name="download" /> },
           ]}
         />
-        {mode === "reference" && makingNew && places.length > 0 && (
+        )}
+        {mode === "reference" && makingNew && places.length > (fromBucket ? 1 : 0) && (
           <Select
             label={s.viewOn}
-            value={place}
+            value={currentPlace}
             onChange={(value) => {
               setPlace(value);
               adding.clear();
             }}
             options={[
-              { value: LOCAL, label: s.thisComputerPlace },
+              ...(fromBucket ? [] : [{ value: LOCAL, label: s.thisComputerPlace }]),
               ...places.map((storage) => ({ value: storage.name!, label: storage.label })),
             ]}
           />
         )}
         {mode === "reference" && makingNew && currentPlace !== LOCAL ? (
-          <TextField
-            name="folder-on-place"
-            label={s.folderOn(remote?.label ?? currentPlace)}
-            hint={s.folderOnHint}
-            value={within}
-            onChange={setWithin}
-          />
-        ) : mode === "reference" ? (
+          <div className="oik-field">
+            <span className="oik-field__label">{s.folderOn(remote?.label ?? currentPlace)}</span>
+            <div className="screen-source-pick">
+              <span className="screen-path" translate="no" title={within}>
+                {within || s.wholePlace}
+              </span>
+              <Button onClick={() => setBrowsing("place")}>{s.chooseFolder}</Button>
+            </div>
+          </div>
+        ) : fromBucket ? null : mode === "reference" ? (
           <>
-            {makingNew && (
+            {!target && (
               <Select
                 label={s.addWhat}
                 value={source}
@@ -199,7 +230,7 @@ export function AddFiles({
                 ]}
               />
             )}
-            {(!makingNew || source === "files") && (
+            {!whole && (
               <>
                 <div className="screen-source-pick">
                   <span className="screen-path">{originals.length === 0 ? s.noFilesYet : s.selectedPaths(originals.length)}</span>
@@ -218,7 +249,7 @@ export function AddFiles({
                 )}
               </>
             )}
-            {makingNew && source === "folder" && (
+            {whole && (
               <div className="screen-source-pick">
                 <span className="screen-path" translate="no" title={path}>
                   {path ? homeRelative(path) : s.noFolderYet}
@@ -288,6 +319,19 @@ export function AddFiles({
           onClose={() => setBrowsing(undefined)}
           onChooseFiles={(paths) => {
             setOriginals(paths);
+            setBrowsing(undefined);
+            adding.clear();
+          }}
+        />
+      )}
+      {browsing === "place" && remote && (
+        <FolderBrowser
+          title={s.chooseFolder.replace("…", "")}
+          place={{ name: remote.name!, label: remote.label }}
+          hint={(here) => s.holdsFiles(here.files.length, here.folders.length)}
+          onClose={() => setBrowsing(undefined)}
+          onChoose={(picked) => {
+            setWithin(picked);
             setBrowsing(undefined);
             adding.clear();
           }}

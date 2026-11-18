@@ -21,9 +21,10 @@
 //!   API's assistant calls, so its grants decide what it reads. A request
 //!   with an `Origin` is refused (a web page has no business here: DNS
 //!   rebinding), as is one whose `Host` isn't this server (checked before).
-//! - **What.** Four tools: `list_collections`, `search`, `read` (a passage
-//!   or lines of a document prepared for AI) and `read_row`. None of the
-//!   owner's own operations is offered.
+//! - **What.** Six tools: `list_collections`, `search`, `read` (a passage
+//!   or lines of a document prepared for AI), `read_row`, and `list_skills`
+//!   and `get_skill` (Oikome's own skill and those in its collections). None
+//!   of the owner's own operations is offered.
 //! - **Which protocol.** Both eras on one endpoint: a request carrying
 //!   per-request `_meta` is served as revision 2026-07-28 (its headers
 //!   checked against its body, `server/discover` answered); `initialize`
@@ -45,7 +46,9 @@ use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use oikome_api::{Api, ApiError, Caller, ErrorCode, ReadKnowledge, ReadRow, Search};
+use oikome_api::{
+    Api, ApiError, Caller, ErrorCode, GetSkill, ListSkills, ReadKnowledge, ReadRow, Search,
+};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -68,6 +71,8 @@ You may read only the collections the owner gave you. Call list_collections to s
 search to find rows and passages of documents by their words, read_row to open a row by its key, \
 and read to open a passage with what is around it, or lines of its document. \
 When you answer from a passage, name its document and lines. \
+list_skills and get_skill give skills: instructions for tasks, Oikome's own first; \
+a skill's scripts are files to read, not run here. \
 Every search and read shows up in the owner's Activity.";
 
 // JSON-RPC and MCP error codes.
@@ -503,6 +508,35 @@ fn tools() -> Value {
                 "additionalProperties": false
             },
             "annotations": read_only,
+        },
+        {
+            "name": "list_skills",
+            "title": "List skills",
+            "description": "Skills you may use: Oikome's own (how to answer from this data center and cite it), then folders with SKILL.md in your collections prepared for AI. Each has its collection, name, description and files with SHA-256 digests. Read one with get_skill when its description fits the task.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string", "description": "Only this collection's skills." }
+                },
+                "additionalProperties": false
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "get_skill",
+            "title": "Get a skill",
+            "description": "A skill's SKILL.md (its instructions), or another of its files by path, as text with its SHA-256. Leave collection out for Oikome's own skill. Scripts are returned as files; nothing is run.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string" },
+                    "name": { "type": "string" },
+                    "file": { "type": "string", "description": "A path from the skill's files; SKILL.md when left out." }
+                },
+                "required": ["name"],
+                "additionalProperties": false
+            },
+            "annotations": read_only,
         }
     ])
 }
@@ -533,6 +567,20 @@ struct ReadArgs {
     page: Option<u32>,
     lines: Option<(u32, u32)>,
     chars: Option<(u64, u64)>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListSkillsArgs {
+    collection: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GetSkillArgs {
+    collection: Option<String>,
+    name: String,
+    file: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -602,6 +650,32 @@ async fn call(api: &Api, caller: &Caller, name: &str, arguments: Value) -> Optio
                 )
                 .await
                 .map(|text| structured(json!(text))),
+            Err(e) => Err(e),
+        },
+        "list_skills" => match args::<ListSkillsArgs>(arguments) {
+            Ok(a) => api
+                .assistant_list_skills(
+                    caller,
+                    ListSkills {
+                        collection: a.collection,
+                    },
+                )
+                .await
+                .map(|skills| structured(json!({ "skills": skills }))),
+            Err(e) => Err(e),
+        },
+        "get_skill" => match args::<GetSkillArgs>(arguments) {
+            Ok(a) => api
+                .assistant_get_skill(
+                    caller,
+                    GetSkill {
+                        collection: a.collection,
+                        name: a.name,
+                        file: a.file,
+                    },
+                )
+                .await
+                .map(|skill| structured(json!(skill))),
             Err(e) => Err(e),
         },
         "read_row" => match args::<ReadRowArgs>(arguments) {
@@ -844,7 +918,17 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(names, ["list_collections", "search", "read", "read_row"]);
+        assert_eq!(
+            names,
+            [
+                "list_collections",
+                "search",
+                "read",
+                "read_row",
+                "list_skills",
+                "get_skill"
+            ]
+        );
         assert!(tools()
             .as_array()
             .unwrap()

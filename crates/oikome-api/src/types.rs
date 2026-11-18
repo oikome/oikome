@@ -2481,6 +2481,69 @@ pub struct EmbeddingModel {
     pub used_by: Vec<String>,
 }
 
+/// One file of a skill, with its digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFileInfo {
+    /// Its path within the skill's folder.
+    pub path: String,
+    pub size: u64,
+    /// SHA-256, hex; `None` for a file too large to digest.
+    pub sha256: Option<String>,
+}
+
+/// `knowledge_skills`, an assistant's `list_skills`: a skill, a folder with
+/// `SKILL.md` in a collection prepared for AI (or Oikome's own).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInfo {
+    /// Its collection; `None` for Oikome's own skill.
+    pub collection: Option<String>,
+    pub name: String,
+    pub description: String,
+    pub license: Option<String>,
+    /// Its folder within the collection; empty at the top.
+    pub dir: String,
+    /// `skill://<collection>/<name>/SKILL.md`.
+    pub uri: String,
+    pub files: Vec<SkillFileInfo>,
+    /// Why assistants are not offered it (shown to the owner only).
+    pub problem: Option<String>,
+}
+
+/// An assistant's `list_skills`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSkills {
+    /// Only this collection's.
+    #[serde(default)]
+    pub collection: Option<String>,
+}
+
+/// An assistant's `get_skill`: a skill's `SKILL.md`, or another of its files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSkill {
+    /// `None` for Oikome's own skill.
+    #[serde(default)]
+    pub collection: Option<String>,
+    pub name: String,
+    /// A path from its files; `SKILL.md` when left out.
+    #[serde(default)]
+    pub file: Option<String>,
+}
+
+/// What `get_skill` returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillContent {
+    pub collection: Option<String>,
+    pub name: String,
+    pub path: String,
+    pub sha256: String,
+    pub text: String,
+}
+
 /// `download_model`, `remove_model`: a model by id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

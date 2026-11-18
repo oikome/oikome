@@ -20,13 +20,41 @@
 use std::time::Duration;
 
 use oikome_core::validate_space_name;
-use oikome_node::knowledge::{self as node, model, Stage, StoredChunk};
+use oikome_node::knowledge::{self as node, model, skills::Skill, Stage, StoredChunk};
 
 use crate::{
     Api, ApiError, Caller, EmbeddingModel, Empty, FoundBy, KnowledgeChunk, KnowledgeChunksRequest,
     KnowledgeFile, KnowledgeStage, KnowledgeStatus, LanceInstalled, ModelRef, ModelState,
-    RetrievalResults, RetrievalTest, SearchMode, SetKnowledgeChunk, SetKnowledgeModel, SpaceRef,
+    RetrievalResults, RetrievalTest, SearchMode, SetKnowledgeChunk, SetKnowledgeModel,
+    SkillFileInfo, SkillInfo, SpaceRef,
 };
+
+/// A skill as the apps and assistants see it; `collection` is `None` for
+/// Oikome's own.
+pub(crate) fn skill_info(collection: Option<&str>, s: Skill) -> SkillInfo {
+    SkillInfo {
+        uri: format!(
+            "skill://{}/{}/SKILL.md",
+            collection.unwrap_or("oikome"),
+            s.name
+        ),
+        collection: collection.map(str::to_string),
+        name: s.name,
+        description: s.description,
+        license: s.license,
+        dir: s.dir,
+        files: s
+            .files
+            .into_iter()
+            .map(|f| SkillFileInfo {
+                path: f.path,
+                size: f.size,
+                sha256: f.sha256,
+            })
+            .collect(),
+        problem: s.problem,
+    }
+}
 
 /// How long one round of preparing runs in the background after Prepare;
 /// what is left is taken by the node's minute-by-minute refresh.
@@ -361,6 +389,25 @@ impl Api {
         caller.require_owner()?;
         self.session(None).remove_embedding_model(&req.id).await?;
         Ok(Empty {})
+    }
+
+    /// The skills of a collection prepared for AI, each with its files and
+    /// digests, and any problem that keeps it from assistants.
+    pub async fn knowledge_skills(
+        &self,
+        caller: &Caller,
+        req: SpaceRef,
+    ) -> Result<Vec<SkillInfo>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        validate_space_name(&req.space)?;
+        Ok(self
+            .session(None)
+            .knowledge_skills(&req.space)
+            .await?
+            .into_iter()
+            .map(|s| skill_info(Some(&req.space), s))
+            .collect())
     }
 
     /// Download DuckDB's Lance support (signed by DuckDB) to this computer.

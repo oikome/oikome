@@ -1535,6 +1535,41 @@ usedBy: Array<string>, };
 export type ModelRef = { id: string, };
 
 /**
+ * One file of a skill, with its digest.
+ */
+export type SkillFileInfo = {
+/**
+ * Its path within the skill's folder.
+ */
+path: string, size: number,
+/**
+ * SHA-256, hex; `None` for a file too large to digest.
+ */
+sha256: string | null, };
+
+/**
+ * `knowledge_skills`, an assistant's `list_skills`: a skill, a folder with
+ * `SKILL.md` in a collection prepared for AI (or Oikome's own).
+ */
+export type SkillInfo = {
+/**
+ * Its collection; `None` for Oikome's own skill.
+ */
+collection: string | null, name: string, description: string, license: string | null,
+/**
+ * Its folder within the collection; empty at the top.
+ */
+dir: string,
+/**
+ * `skill://<collection>/<name>/SKILL.md`.
+ */
+uri: string, files: Array<SkillFileInfo>,
+/**
+ * Why assistants are not offered it (shown to the owner only).
+ */
+problem: string | null, };
+
+/**
  * `create_public_share`: publish a detached collection with live-query and
  * snapshot limits chosen by the owner.
  */

@@ -1060,7 +1060,7 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   expect(hello.body.result.protocolVersion).toBe("2025-06-18");
   expect((await mcp(endpoint, token, "notifications/initialized", {}, { modern: false, id: false })).status).toBe(202);
   const legacy = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
-  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read", "read_row"]);
+  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read", "read_row", "list_skills", "get_skill"]);
   // The page sees it arrive.
   await expect(dialog).toContainText("Claude Code is connected", { timeout: 10_000 });
   await dialog.getByRole("button", { name: "Done" }).click();
@@ -1153,7 +1153,7 @@ test("Kimi Code and Codex get their own working MCP configuration", async () => 
     const hello = await mcp(endpoint, token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } }, { modern: false });
     expect(hello.status).toBe(200);
     const tools = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
-    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read", "read_row"]);
+    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read", "read_row", "list_skills", "get_skill"]);
     await expect(dialog).toContainText(`${app} is connected`, { timeout: 10_000 });
     await dialog.getByRole("button", { name: "Done" }).click();
     await page.getByRole("button", { name: `Edit ${app}` }).click();

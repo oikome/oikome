@@ -36,11 +36,11 @@ use crate::invites::read_private;
 use crate::search::{hits_wanted, terms_of, MAX_KEY_COLUMNS};
 use crate::{
     encode_rows, first_count, now_ms, Api, ApiError, Assistant, AssistantApp, AssistantCollections,
-    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, InstallAssistant,
-    KnowledgePassage, KnowledgeText, ReadKnowledge, ReadRow, ReadableCollection, ReadableTable,
-    Rows, Search, SearchResults,
+    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, GetSkill,
+    InstallAssistant, KnowledgePassage, KnowledgeText, ListSkills, ReadKnowledge, ReadRow,
+    ReadableCollection, ReadableTable, Rows, Search, SearchResults, SkillContent, SkillInfo,
 };
-use oikome_node::knowledge::KnowledgeRange;
+use oikome_node::knowledge::{skills, KnowledgeRange};
 
 const ASSISTANTS_FILE: &str = "assistants.json";
 /// Tokens start so, to be told from other secrets in a config file.
@@ -588,6 +588,134 @@ impl Api {
             });
         }
         Ok(found)
+    }
+
+    /// The skills the calling assistant may use: Oikome's own, then those of
+    /// its collections prepared for AI (or one of them). A skill with a
+    /// problem is left out.
+    pub async fn assistant_list_skills(
+        &self,
+        caller: &Caller,
+        req: ListSkills,
+    ) -> Result<Vec<SkillInfo>, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let names = match &req.collection {
+            Some(name) => {
+                validate_space_name(name)?;
+                if !me.collections.contains(name) {
+                    return Err(no_collection(name));
+                }
+                vec![name.clone()]
+            }
+            None => me.collections.clone(),
+        };
+        let owner = self.session(None);
+        let mut found = Vec::new();
+        if req.collection.is_none() {
+            found.push(crate::knowledge::skill_info(None, skills::oikome_skill()));
+        }
+        let mut listed = Vec::new();
+        for name in &names {
+            match owner.knowledge_skills(name).await {
+                Ok(list) => {
+                    let valid: Vec<_> = list.into_iter().filter(|s| s.problem.is_none()).collect();
+                    if !valid.is_empty() {
+                        listed.push(name.clone());
+                    }
+                    found.extend(
+                        valid
+                            .into_iter()
+                            .map(|s| crate::knowledge::skill_info(Some(name), s)),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(collection = %name, error = %e, "listing skills failed");
+                }
+            }
+        }
+        if !listed.is_empty() {
+            self.record(AccessEntry {
+                detail: Some("skills".to_string()),
+                merge: true,
+                ..entry(&me, READ_METHOD, listed)
+            });
+        }
+        Ok(found)
+    }
+
+    /// A file of a skill for the calling assistant: its `SKILL.md`, or
+    /// another file it lists, as text with its SHA-256. Oikome never runs it.
+    pub async fn assistant_get_skill(
+        &self,
+        caller: &Caller,
+        req: GetSkill,
+    ) -> Result<SkillContent, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let Some(collection) = req.collection.clone() else {
+            if req.name != skills::OIKOME_SKILL_NAME
+                || req.file.as_deref().is_some_and(|f| f != skills::SKILL_FILE)
+            {
+                return Err(ApiError::not_found(format!(
+                    "there is no skill {}",
+                    req.name
+                )));
+            }
+            let t = skills::oikome_skill_text();
+            return Ok(SkillContent {
+                collection: None,
+                name: req.name,
+                path: t.path,
+                sha256: t.sha256,
+                text: t.text,
+            });
+        };
+        validate_space_name(&collection)?;
+        let read = AccessEntry {
+            detail: Some(format!(
+                "{}/{}",
+                req.name,
+                req.file.as_deref().unwrap_or(skills::SKILL_FILE)
+            )),
+            ..entry(&me, READ_METHOD, vec![collection.clone()])
+        };
+        if !me.collections.contains(&collection) {
+            self.record(AccessEntry {
+                outcome: Outcome::Denied,
+                reason: Some("not one of its collections".to_string()),
+                ..read
+            });
+            return Err(no_collection(&collection));
+        }
+        match self
+            .session(None)
+            .read_skill(&collection, &req.name, req.file.as_deref())
+            .await
+        {
+            Ok(t) => {
+                self.record(AccessEntry {
+                    merge: true,
+                    ..read
+                });
+                Ok(SkillContent {
+                    collection: Some(collection),
+                    name: req.name,
+                    path: t.path,
+                    sha256: t.sha256,
+                    text: t.text,
+                })
+            }
+            Err(e) => {
+                let e = ApiError::from(e);
+                self.record(AccessEntry {
+                    outcome: Outcome::Failed,
+                    reason: Some(e.message.clone()),
+                    ..read
+                });
+                Err(e)
+            }
+        }
     }
 
     /// A passage of a prepared document and what is around it, or a range

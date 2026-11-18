@@ -1351,11 +1351,17 @@ export const en = {
     foundBy: { words: "Matched words", meaning: "Matched meaning", both: "Matched words and meaning" },
     modelsTitle: "AI Models",
     modelsFootnote: "Models run on this computer. They are downloaded only when you choose, and checked before use.",
+    modelPurpose: "Used to search collections by meaning.",
     modelMeta: (size: string, license: string) => `${size} · ${license} · Runs on this computer`,
     modelUsedBy: (names: string) => `Used by ${names}`,
     modelRemove: "Remove",
     modelRemoveTitle: (name: string) => `Remove ${name}?`,
     modelRemoveBody: "Collections that use it are searched by their words until it is downloaded again.",
+    skillsTitle: "Skills",
+    skillsFootnote: "Folders with SKILL.md in this collection. Connected AI assistants read them through MCP; their scripts are never run here.",
+    skillFiles: (n: number) => `${n} files`,
+    skillOff: "Not offered to assistants",
+    skillProblems: { no_front_matter: "SKILL.md has no front matter", bad_name: "Its name must be lowercase letters, digits and hyphens", name_mismatch: "Its name must match its folder", bad_description: "Its description must be 1 to 1024 characters", too_many_files: "It has more than 64 files", too_large: "SKILL.md is larger than 256 KB", unreadable: "SKILL.md could not be read" } as Record<string, string>,
   },
 
   save: {

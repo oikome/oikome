@@ -23,6 +23,7 @@
 //!   chunks turned off), `.oikome/knowledge/<space>/catalog.sqlite`;
 //! - `split.rs`: how an original becomes chunks;
 //! - `store.rs`: the chunks in Lance, through DuckDB's `lance` extension;
+//! - `skills.rs`: skills (folders with `SKILL.md`) assistants may read;
 //! - `model.rs` and `embed.rs` (feature `embedding`, K2): a local embedding
 //!   model, downloaded when the owner asks, that gives chunks vectors so a
 //!   collection can be searched by meaning as well as by words.
@@ -35,6 +36,7 @@ mod catalog;
 mod embed;
 #[cfg(feature = "embedding")]
 pub mod model;
+pub mod skills;
 mod split;
 mod store;
 
@@ -65,6 +67,9 @@ const MAX_TEXT: u64 = 8 << 20;
 const MAX_PDF: u64 = 64 << 20;
 /// A read returns at most this many characters.
 const MAX_READ: usize = 20_000;
+/// Chunks embedded and kept together.
+#[cfg(feature = "embedding")]
+const EMBED_BATCH: usize = 16;
 
 /// Collections whose queue is being worked now, by knowledge directory: one
 /// worker at a time, so no conversion is taken twice.
@@ -947,18 +952,23 @@ async fn vectors_of(cat: &Catalog, v: &Vectors, pieces: &[Piece]) -> Result<Vec<
         .collect();
     if !missing.is_empty() {
         let embedder = embed::embedder(&model::dir(&v.root, v.info), v.info).await?;
-        let texts: Vec<String> = missing.iter().map(|&i| inputs[i].clone()).collect();
-        let made = tokio::task::spawn_blocking(move || {
-            texts
-                .iter()
-                .map(|t| embedder.document(t))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .await
-        .map_err(|e| SessionError::Unsupported(format!("embedding: {e}")))??;
-        for (&i, vector) in missing.iter().zip(made) {
-            cat.cache_vector(&tag, &hashes[i], &vector)?;
-            found.insert(hashes[i].clone(), vector);
+        // A few at a time, each kept as it is made, so a long original
+        // interrupted half way does not start again from nothing.
+        for batch in missing.chunks(EMBED_BATCH) {
+            let texts: Vec<String> = batch.iter().map(|&i| inputs[i].clone()).collect();
+            let model = embedder.clone();
+            let made = tokio::task::spawn_blocking(move || {
+                texts
+                    .iter()
+                    .map(|t| model.document(t))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .await
+            .map_err(|e| SessionError::Unsupported(format!("embedding: {e}")))??;
+            for (&i, vector) in batch.iter().zip(made) {
+                cat.cache_vector(&tag, &hashes[i], &vector)?;
+                found.insert(hashes[i].clone(), vector);
+            }
         }
     }
     Ok(hashes.iter().map(|h| vector_text(&found[h])).collect())

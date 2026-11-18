@@ -480,6 +480,7 @@ impl WebState {
             "list_models" => json_op!(boxed list_models, Empty),
             "download_model" => json_op!(boxed download_model, ModelRef),
             "remove_model" => json_op!(boxed remove_model, ModelRef),
+            "knowledge_skills" => json_op!(boxed knowledge_skills, SpaceRef),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),

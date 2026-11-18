@@ -103,7 +103,7 @@ One row per asset and target. The previous version keeps serving until a new one
 | `column` | The Lance column that holds its vectors, `vec_<slug>` |
 | `state` | `active`, `building`, `retired` |
 
-In K2 the node knows one model and runs it with candle on the CPU, in 32-bit floats (about 2.4 GB of memory while loaded, let go after five idle minutes). It is downloaded only when the owner asks, from Hugging Face at a pinned revision, resuming an interrupted download, and every file is checked against its published SHA-256 before use. A document is embedded as its heading path and text; a query after `Instruct: … Query:`; the vector is the hidden state at the closing `<|endoftext|>`, normalized.
+In K2 the node knows one model and runs it with candle in 32-bit floats: on a Mac's GPU through Metal when a first text runs there, on the CPU otherwise (about 2.4 GB of memory while loaded, let go after five idle minutes). On the CPU a 900-character chunk takes seconds, too slow for a collection of hundreds of documents, which is why the GPU is used where there is one. Vectors are kept 16 chunks at a time, so a long original interrupted half way resumes. It is downloaded only when the owner asks, from Hugging Face at a pinned revision, resuming an interrupted download, and every file is checked against its published SHA-256 before use. A document is embedded as its heading path and text; a query after `Instruct: … Query:`; the vector is the hidden state at the closing `<|endoftext|>`, normalized.
 
 ### 4.4 `embedding_cache`
 
@@ -183,6 +183,8 @@ A skill is a folder with `SKILL.md` and optional `scripts/`, `references/`, `ass
 - **Delivery.** Assistants list and read skills through MCP (§9). A skill's scripts are delivered as files and never run by Oikome.
 - **Trust.** A skill is instructions for an AI. Only the owner adds one to a collection, it is shared with the same grants as any file, and the apps show its source before an assistant can use it.
 
+In K2 skills come with Prepare: in a collection prepared for AI, every folder holding `SKILL.md` is a skill, read from the in-place index when asked (no registry table yet). Its front matter's `name` (1–64 of `a-z`, `0-9` and single hyphens, its folder's name) and `description` (1–1024 characters) are checked; a skill that fails is shown to the owner with why (a code the apps put in words) and never offered to an assistant. Its files, at most 64, are listed with their SHA-256; an assistant reads `SKILL.md` or a file the skill lists, by exact path, as text up to 1 MB. Oikome's own skill, `oikome-knowledge`, is served by the node and listed first. Listing and reading skills is in Activity.
+
 ## 8. Conversions
 
 | Original | Converter | Produces | Where it runs first |
@@ -227,7 +229,7 @@ Today assistants have `list_collections`, `search` (full text) and `read_row`. T
 | `read` | A chunk with up to five neighbours, or a range of a document's text by characters or lines (at most 20,000 characters at a time), so an assistant can quote and cite the document and lines |
 | `grep` | Exact words or a pattern within one document or collection, with line numbers, for what meaning-based search misses (after K1) |
 | `query_table` | Read-only SQL over analysis tables the assistant may read, with row and time limits |
-| `list_skills`, `get_skill` | Or the MCP Skills extension where a client supports it |
+| `list_skills`, `get_skill` | Oikome's own skill, then the skills of the assistant's collections, each with its files and SHA-256 digests; a skill's `SKILL.md` or a file it lists, as text. The MCP Skills extension can be offered as well where a client supports it |
 
 The tools follow the order list → search → read, as Cherry Studio's and Open WebUI's do. Citations are the document and lines in the tool results; `resource_link` is left until clients use it. Oikome ships one skill of its own that teaches assistants that order and to cite the original for every answer. No tool changes knowledge; preparing and editing stay the owner's.
 
@@ -274,7 +276,7 @@ Still open:
 | Step | Delivers | Owner can |
 |------|----------|-----------|
 | K1 (done) | `assets`, `conversions` as jobs, `chunk_overrides`; Markdown, text, code and PDF text to `chunks`; full-text search over chunks; retrieval test; MCP `search` and `read` over chunks | Prepare a collection of documents and let an assistant read it with sources |
-| K2 (meaning done) | Qwen3-Embedding-0.6B in the node, `vec_<model>`, hybrid search, model download and rebuild; skills registry and MCP skills next | Search by meaning; give assistants skills |
+| K2 (done) | Qwen3-Embedding-0.6B in the node, `vec_<model>`, hybrid search, model download and rebuild; skills in prepared collections and Oikome's own, MCP `list_skills` and `get_skill` | Search by meaning; give assistants skills |
 | K3 | Table profiles (PR 27) extended with units and column usage; `table_row` chunks; `query_table` | Analyze a spreadsheet as a table and ask about it |
 | K4 | OCR, speech to text, captions, image vectors; `media` (runtime decided when it starts) | Find what is written on photos and said in recordings |
 

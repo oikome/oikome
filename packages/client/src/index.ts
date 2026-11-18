@@ -27,6 +27,7 @@ import type {
   SetKnowledgeModel,
   EmbeddingModel,
   ModelRef,
+  SkillInfo,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -174,6 +175,8 @@ export interface NodeClient {
   /** Start downloading a model; it runs on this computer. */
   downloadModel(request: ModelRef): Promise<EmbeddingModel>;
   removeModel(request: ModelRef): Promise<Empty>;
+  /** The skills (folders with SKILL.md) of a collection prepared for AI. */
+  knowledgeSkills(request: SpaceRef): Promise<SkillInfo[]>;
   /** Once, on a new data center: the examples, in `language` when they are written in it. */
   addExamples(request?: AddExamples): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
@@ -467,6 +470,10 @@ export class HttpClient implements NodeClient {
 
   removeModel(request: ModelRef): Promise<Empty> {
     return this.#json("remove_model", request);
+  }
+
+  knowledgeSkills(request: SpaceRef): Promise<SkillInfo[]> {
+    return this.#json("knowledge_skills", request);
   }
 
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile> {

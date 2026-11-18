@@ -174,6 +174,8 @@ fn bindings() -> String {
         ModelState,
         EmbeddingModel,
         ModelRef,
+        SkillFileInfo,
+        SkillInfo,
         NewPublicShare,
         PublicSnapshotFile,
         PublicManifest,

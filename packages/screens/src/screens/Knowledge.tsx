@@ -76,7 +76,16 @@ function useModels() {
 }
 
 /** A model's download: the button, how far it is, or that it is ready. */
-function ModelDownload({ model, onChange }: { model: EmbeddingModel; onChange: () => void }) {
+function ModelDownload({
+  model,
+  onChange,
+  help,
+}: {
+  model: EmbeddingModel;
+  onChange: () => void;
+  /** What the model is for, where the page has not said it already. */
+  help?: string;
+}) {
   const client = useClient();
   const download = useAction();
   const start = async () => {
@@ -94,7 +103,7 @@ function ModelDownload({ model, onChange }: { model: EmbeddingModel; onChange: (
   }
   return (
     <div className="screen-knowledge-install">
-      <p>{model.state === "failed" ? k.modelFailed : k.searchMeaningHelp(model.name, bytes(model.size))}</p>
+      <p>{model.state === "failed" ? k.modelFailed : (help ?? k.searchMeaningHelp(model.name, bytes(model.size)))}</p>
       <Button icon="download" disabled={download.busy} onClick={() => void start()}>
         {k.modelDownload}
       </Button>
@@ -206,7 +215,7 @@ export function KnowledgeDialog({
         />
       )}
       {installed && available && <p className="screen-help screen-knowledge-ready">{k.installed}</p>}
-      {status.data && !available && (
+      {status.data && !available && !installed && (
         <div className="screen-knowledge-install">
           <p>{k.install}</p>
           <Button icon="download" disabled={install.busy} onClick={() => void doInstall()}>
@@ -379,6 +388,36 @@ function MeaningSetting({ status, onChange }: { status: KnowledgeStatus; onChang
   );
 }
 
+/** The skills found in a prepared collection, for the owner to see what
+ * assistants are offered and why one is not. */
+function Skills({ space }: { space: string }) {
+  const client = useClient();
+  const skills = useLoad(() => client.knowledgeSkills({ space }), [space]);
+  if (!skills.data?.length && !skills.error) return null;
+  return (
+    <Group title={k.skillsTitle} footnote={k.skillsFootnote}>
+      {skills.error && <Row title={skills.error} muted />}
+      {skills.data?.map((skill) => (
+        <Row
+          key={skill.dir || skill.name}
+          leading={<Icon name="note" />}
+          title={<span translate="no">{skill.name || skill.dir}</span>}
+          meta={
+            skill.problem
+              ? `${k.skillOff}: ${k.skillProblems[skill.problem] ?? skill.problem}`
+              : `${skill.description} · ${k.skillFiles(skill.files.length)}`
+          }
+          trailing={
+            <span className="screen-skill-dir" translate="no">
+              {skill.dir ? `${skill.dir}/` : "/"}
+            </span>
+          }
+        />
+      ))}
+    </Group>
+  );
+}
+
 /** Settings › AI Models: each model, its size and license, what uses it,
  * and downloading or removing it. */
 export function ModelsSettings() {
@@ -409,7 +448,7 @@ export function ModelsSettings() {
           />
           {model.state !== "ready" && (
             <li className="oik-group__item screen-model-row">
-              <ModelDownload model={model} onChange={models.reload} />
+              <ModelDownload model={model} onChange={models.reload} help={k.modelPurpose} />
             </li>
           )}
         </Fragment>
@@ -512,6 +551,7 @@ export function KnowledgeView({ space }: { space: string }) {
           </Fragment>
         ))}
       </Group>
+      <Skills space={space} />
       {retry.error && <ErrorText>{retry.error}</ErrorText>}
     </div>
   );

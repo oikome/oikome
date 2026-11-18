@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Text to vectors with a downloaded model, on this computer's CPU (K2).
+//! Text to vectors with a downloaded model, on this computer: on a Mac's
+//! GPU (Metal) when it answers, on the CPU otherwise (K2).
 //!
 //! Qwen3-Embedding reads a text followed by `<|endoftext|>` (its tokenizer
 //! adds it) and the vector is the last position's hidden state, normalized.
@@ -47,20 +48,37 @@ fn err(e: impl std::fmt::Display) -> SessionError {
 
 pub(crate) struct Embedder {
     model: Model,
+    device: Device,
     tokenizer: Tokenizer,
     eos: u32,
     dims: usize,
     query_task: &'static str,
-    /// One text at a time: the CPU's threads are already all in use.
+    /// One text at a time: one text already uses every core (or the GPU).
     busy: Mutex<()>,
 }
 
 impl Embedder {
+    /// The model in `dir`, on the GPU when there is one that runs it, on
+    /// the CPU otherwise.
     fn load(dir: &Path, info: &ModelInfo) -> Result<Self, SessionError> {
+        #[cfg(target_os = "macos")]
+        if let Ok(metal) = Device::new_metal(0) {
+            match Self::load_on(dir, info, metal) {
+                // A first text proves the GPU runs every operation.
+                Ok(e) if e.embed("Oikome").is_ok() => return Ok(e),
+                Ok(_) => tracing::warn!("the embedding model failed on the GPU; using the CPU"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "the embedding model failed on the GPU; using the CPU")
+                }
+            }
+        }
+        Self::load_on(dir, info, Device::Cpu)
+    }
+
+    fn load_on(dir: &Path, info: &ModelInfo, device: Device) -> Result<Self, SessionError> {
         let config: Config =
             serde_json::from_slice(&std::fs::read(dir.join("config.json")).map_err(err)?)
                 .map_err(err)?;
-        let device = Device::Cpu;
         // The weights are published without the `model.` prefix candle's
         // Qwen3 reads them under.
         let tensors: HashMap<String, Tensor> =
@@ -80,6 +98,7 @@ impl Embedder {
             .ok_or_else(|| err("the tokenizer has no <|endoftext|>"))?;
         Ok(Self {
             model,
+            device,
             tokenizer,
             eos,
             dims: info.dims,
@@ -108,7 +127,7 @@ impl Embedder {
             ids.push(self.eos);
         }
         let _one = self.busy.lock().unwrap_or_else(|p| p.into_inner());
-        let input = Tensor::new(ids.as_slice(), &Device::Cpu)
+        let input = Tensor::new(ids.as_slice(), &self.device)
             .and_then(|t| t.unsqueeze(0))
             .map_err(err)?;
         // A fresh copy each time: the model keeps a key-value cache across

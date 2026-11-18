@@ -10,7 +10,7 @@ description = "Oikome node runtime: session, engine registry and statement routi
 default = ["engine-duckdb", "engine-sqlite", "knowledge", "embedding"]
 engine-duckdb = ["dep:oikome-engine-duckdb"]
 # Knowledge an AI can read (docs/knowledge-schema.md): chunks in Lance.
-knowledge = ["engine-duckdb", "dep:pdf-extract"]
+knowledge = ["engine-duckdb", "dep:pdf-extract", "dep:sha2"]
 # Meaning search: a local embedding model, downloaded only when the owner asks.
 embedding = [
     "knowledge",
@@ -19,7 +19,6 @@ embedding = [
     "dep:candle-transformers",
     "dep:tokenizers",
     "dep:reqwest",
-    "dep:sha2",
 ]
 engine-sqlite = ["dep:oikome-engine-sqlite"]
 
@@ -68,6 +67,10 @@ sha2 = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }
+# On a Mac the embedding model runs on the GPU (Metal); elsewhere on the CPU.
+candle-core = { workspace = true, optional = true, features = ["metal"] }
+candle-nn = { workspace = true, optional = true, features = ["metal"] }
+candle-transformers = { workspace = true, optional = true, features = ["metal"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-native-keyring-store = { version = "=1.1.0", default-features = false }

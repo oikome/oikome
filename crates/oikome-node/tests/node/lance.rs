@@ -766,3 +766,74 @@ async fn knowledge_is_found_by_meaning() {
         SearchMode::Words
     );
 }
+
+/// Skills (docs/knowledge-schema.md §7, K2): folders with SKILL.md in a
+/// prepared collection are listed with each file's SHA-256, a broken one
+/// with why; only the files a skill lists are read, as text; Oikome's own
+/// skill is valid.
+#[tokio::test]
+#[ignore = "downloads the DuckDB lance extension"]
+async fn skills_are_listed_with_digests_and_read_as_files() {
+    use oikome_node::knowledge::skills::{oikome_skill, problem};
+    let n = lance_node();
+    let folder = tempfile::Builder::new().prefix("kit-").tempdir().unwrap();
+    let root = folder.path();
+    let pdf = root.join("pdf-tools");
+    std::fs::create_dir_all(pdf.join("scripts")).unwrap();
+    std::fs::write(
+        pdf.join("SKILL.md"),
+        "---\nname: pdf-tools\ndescription: Fill PDF forms and merge PDF files.\nlicense: Apache-2.0\n---\n# PDF tools\n\nRun scripts/merge.py to merge.\n",
+    )
+    .unwrap();
+    std::fs::write(pdf.join("scripts/merge.py"), "print('merge')\n").unwrap();
+    let broken = root.join("Broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("SKILL.md"), "# No front matter\n").unwrap();
+    std::fs::write(root.join("notes.md"), "# Notes\n\nNothing here.\n").unwrap();
+    n.sql(&format!(
+        "CREATE SPACE kit WITH PLACE = 'local', PATH = '{}'",
+        root.display()
+    ))
+    .await;
+    n.owner.refresh_in_place("kit").await.unwrap();
+
+    // Skills come with Prepare.
+    assert!(n.owner.knowledge_skills("kit").await.unwrap().is_empty());
+    n.owner.prepare_knowledge("kit").await.unwrap();
+    let skills = n.owner.knowledge_skills("kit").await.unwrap();
+    assert_eq!(skills.len(), 2, "{skills:?}");
+    let good = skills.iter().find(|s| s.name == "pdf-tools").unwrap();
+    assert_eq!(good.problem, None);
+    assert_eq!(good.dir, "pdf-tools");
+    assert_eq!(good.license.as_deref(), Some("Apache-2.0"));
+    let paths: Vec<_> = good.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec!["SKILL.md", "scripts/merge.py"]);
+    assert!(good
+        .files
+        .iter()
+        .all(|f| f.sha256.as_ref().is_some_and(|d| d.len() == 64)));
+    let bad = skills.iter().find(|s| s.dir == "Broken").unwrap();
+    assert_eq!(bad.problem.as_deref(), Some(problem::NO_FRONT_MATTER));
+
+    // SKILL.md and the files it lists, nothing else.
+    let md = n.owner.read_skill("kit", "pdf-tools", None).await.unwrap();
+    assert!(md.text.contains("# PDF tools"));
+    assert_eq!(Some(&md.sha256), good.files[0].sha256.as_ref());
+    let script = n
+        .owner
+        .read_skill("kit", "pdf-tools", Some("scripts/merge.py"))
+        .await
+        .unwrap();
+    assert_eq!(script.text, "print('merge')\n");
+    for refused in ["../notes.md", "/etc/passwd", "scripts/../../notes.md"] {
+        assert!(
+            n.owner
+                .read_skill("kit", "pdf-tools", Some(refused))
+                .await
+                .is_err(),
+            "{refused}"
+        );
+    }
+    assert!(n.owner.read_skill("kit", "Broken", None).await.is_err());
+    assert!(oikome_skill().problem.is_none());
+}

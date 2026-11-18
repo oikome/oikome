@@ -4744,3 +4744,10 @@ tr.screen-source {
   height: 6px;
   accent-color: var(--ink);
 }
+
+/* A skill's folder, beside it. */
+.screen-skill-dir {
+  font: var(--text-meta);
+  color: var(--ink3);
+  overflow-wrap: anywhere;
+}

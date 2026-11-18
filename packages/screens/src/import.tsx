@@ -250,6 +250,8 @@ export function AddFiles({
                 value={source}
                 onChange={(value) => {
                   setSource(value as "files" | "folder");
+                  // A folder becomes a collection of its own unless another is chosen.
+                  if (value === "folder" && destination === "") setDestination(NEW);
                   adding.clear();
                 }}
                 options={[
@@ -353,6 +355,9 @@ export function AddFiles({
             )}
           </>
         )}
+        {!destinationReady && (path !== undefined || originals.length > 0 || files.length > 0) && (
+          <ErrorText>{s.chooseCollection}</ErrorText>
+        )}
         {adding.busy && (
           <span className="screen-progress" role="progressbar" aria-label={s.adding}>
             <i />
@@ -389,7 +394,7 @@ export function AddFiles({
       {browsing === "folder" && (
         <FolderBrowser
           title={s.chooseFolder.replace("…", "")}
-          hint={(here) => s.holds(here.photos, here.notes)}
+          hint={(here) => s.holdsFiles(here.files.length, here.folders.length)}
           onClose={() => setBrowsing(undefined)}
           onChoose={(picked) => {
             setPath(picked);

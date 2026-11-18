@@ -802,8 +802,8 @@ export function FolderBrowser({
           {!here && !listing.error && <li className="screen-browser__empty oik-skel" aria-hidden="true" />}
           {here &&
             here.folders.length === 0 &&
-            (choosingFiles || place ? here.files.length === 0 : !singleFile || matchingFiles.length === 0) && (
-              <li className="screen-browser__empty">{singleFile ? strings.sources.noFile : choosingFiles ? strings.collections.emptyFolder : s.noFolders}</li>
+            (singleFile ? matchingFiles.length === 0 : here.files.length === 0) && (
+              <li className="screen-browser__empty">{singleFile ? strings.sources.noFile : strings.collections.emptyFolder}</li>
             )}
           {singleFile &&
             matchingFiles.map((file) => (
@@ -844,8 +844,7 @@ export function FolderBrowser({
               </button>
             </li>
           ))}
-          {place &&
-            !choosingFiles &&
+          {!choosingFiles &&
             !singleFile &&
             here?.files.map((file) => (
               <li key={file.path}>

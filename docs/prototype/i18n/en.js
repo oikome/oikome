@@ -1160,4 +1160,7 @@
   'publicLimits': '30 requests/minute · 1,000 rows · 5 seconds per visitor',
   'publicPrivacy': 'Remove photo location metadata',
   'publish': 'Publish',
+  'analyze': 'Analyze…', 'analysisBody': 'Review the fields and create a derived analysis. The source stays unchanged.',
+  'analysisName': 'Analysis name', 'dateField': 'Date field', 'amountField': 'Amount field', 'categoryField': 'Category field',
+  'createAnalysis': 'Create analysis', 'analysisDone': 'Analysis created without changing the source.',
 };

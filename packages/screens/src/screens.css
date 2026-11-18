@@ -4146,6 +4146,34 @@ tr.screen-source {
   padding: 0;
   list-style: none;
 }
+/* Choosing every file, or none, above the list; with how many are chosen. */
+.screen-save-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 46px;
+  border-bottom: 1px solid var(--line2);
+}
+.screen-save-all__count {
+  font: var(--text-meta);
+  color: var(--ink3);
+  font-variant-numeric: tabular-nums;
+}
+.screen-save-all + .screen-help {
+  margin-top: var(--space-2);
+}
+/* A chosen file's caption goes under its name, in line with it. */
+.screen-share-person.screen-save-file {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+.screen-save-file > .oik-field {
+  margin: 0 0 var(--space-1) 24px;
+}
 .screen-share-person {
   display: flex;
   align-items: center;
@@ -4615,4 +4643,169 @@ tr.screen-source {
     width: min(100% - 28px, 1120px);
     padding-top: 24px;
   }
+}
+
+/* Knowledge an AI can read (PR 28 K1): which view of a folder collection,
+   its passages with where each is in the original, and a retrieval test. */
+.screen-view-switch {
+  margin: 0 0 var(--space-4);
+}
+.screen-knowledge {
+  display: grid;
+  gap: var(--space-5);
+}
+.screen-knowledge-install {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-card);
+  background: var(--sunk);
+}
+.screen-knowledge-install p {
+  flex: 1 1 240px;
+  margin: 0;
+  font: var(--text-small);
+  color: var(--ink2);
+}
+.screen-knowledge-ready {
+  margin: var(--space-4) 0 0;
+}
+.screen-knowledge-preview {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+}
+.screen-knowledge-preview h3 {
+  margin: 0;
+}
+.screen-knowledge-chunks {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4) var(--space-4);
+}
+.screen-passage {
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-field);
+  background: var(--raised);
+}
+.screen-passage.is-off {
+  opacity: 0.55;
+}
+.screen-passage__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.screen-passage__where {
+  min-width: 0;
+  font: var(--text-meta);
+  color: var(--ink3);
+  overflow-wrap: anywhere;
+}
+.screen-passage__text {
+  display: -webkit-box;
+  margin: var(--space-2) 0 0;
+  overflow: hidden;
+  font: var(--text-small);
+  color: var(--ink2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+}
+.screen-retrieval {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.screen-retrieval .oik-field {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.screen-retrieval__results {
+  padding: 0 var(--space-4) var(--space-4);
+}
+.screen-retrieval__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-retrieval__rank {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: var(--space-1) var(--space-3);
+  overflow-wrap: anywhere;
+  font: var(--text-meta);
+  color: var(--ink3);
+}
+
+/* Embedding models (K2): a download's progress, and a row holding it. */
+.screen-model-row {
+  padding: 0 var(--space-4) var(--space-3);
+}
+.screen-model-row .screen-knowledge-install {
+  margin: 0;
+}
+.screen-download {
+  display: grid;
+  flex: 1 1 100%;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.screen-download__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.screen-download__bar progress {
+  flex: 1 1 auto;
+  height: 6px;
+  accent-color: var(--ink);
+}
+.screen-download__pct,
+.screen-download__line {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+}
+.screen-download__path {
+  flex: 1 1 100%;
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--ink3);
+  overflow-wrap: anywhere;
+}
+
+/* A skill's folder, beside it. */
+.screen-skill-dir {
+  font: var(--text-meta);
+  color: var(--ink3);
+  overflow-wrap: anywhere;
+}
+
+/* What a plugin is for, in the Plugins page's groups. */
+.screen-plugin-what {
+  color: var(--ink2);
+  font: var(--text-small);
+  max-width: 46ch;
+}
+
+/* A file in a storage's folder being browsed: shown, not chosen. */
+.screen-browser__file {
+  color: var(--ink3);
+  cursor: default;
 }

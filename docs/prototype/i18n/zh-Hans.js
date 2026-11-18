@@ -1112,4 +1112,7 @@
   'publicBody': '访客必须签名验证，每次实时查询都会受限并留下记录。',
   'queryOnly': '仅查询', 'queryOnlyBody': '不能下载原始字节或快照。', 'queryAndCopy': '查询和复制', 'queryCopyBody': '允许原始字节和签名快照。',
   'publicLimits': '每位访客每分钟 30 次 · 1000 行 · 5 秒', 'publicPrivacy': '移除照片位置元数据', 'publish': '发布',
+  'analyze': '分析…', 'analysisBody': '确认字段并创建派生分析，源内容保持不变。',
+  'analysisName': '分析名称', 'dateField': '日期字段', 'amountField': '金额字段', 'categoryField': '分类字段',
+  'createAnalysis': '创建分析', 'analysisDone': '分析已创建，源内容未改变。',
 };

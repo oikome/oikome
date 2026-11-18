@@ -13,6 +13,21 @@ import type {
   AddExamples,
   AddInPlaceFiles,
   AddInPlaceFolder,
+  AnalyzeDataset,
+  AnalysisProfile,
+  DatasetAnalysis,
+  DatasetProfile,
+  KnowledgeChunk,
+  KnowledgeChunksRequest,
+  KnowledgeStatus,
+  ExtensionDownload,
+  RetrievalResults,
+  RetrievalTest,
+  SetKnowledgeChunk,
+  SetKnowledgeModel,
+  EmbeddingModel,
+  ModelRef,
+  SkillInfo,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -138,6 +153,30 @@ export interface NodeClient {
   createSpace(request: NewSpace): Promise<SpaceSummary>;
   dropSpace(request: SpaceRef): Promise<Empty>;
   listTables(request: SpaceRef): Promise<TableSummary[]>;
+  datasetProfile(request: SpaceRef): Promise<DatasetProfile>;
+  analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis>;
+  analysisProfile(request: SpaceRef): Promise<AnalysisProfile>;
+  /** What an AI can read of a collection: prepared or not, each original. */
+  knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus>;
+  /** Prepare a collection's documents for AI; it continues in the background. */
+  prepareKnowledge(request: SpaceRef): Promise<KnowledgeStatus>;
+  retryKnowledge(request: SpaceRef): Promise<KnowledgeStatus>;
+  /** The first chunks Prepare would make, without writing anything. */
+  knowledgePreview(request: SpaceRef): Promise<KnowledgeChunk[]>;
+  knowledgeChunks(request: KnowledgeChunksRequest): Promise<KnowledgeChunk[]>;
+  setKnowledgeChunk(request: SetKnowledgeChunk): Promise<Empty>;
+  retrievalTest(request: RetrievalTest): Promise<RetrievalResults>;
+  /** Start downloading and installing the DuckDB extension knowledge needs; `knowledgeStatus` says how far it is. */
+  installLance(): Promise<ExtensionDownload>;
+  /** Search a collection by meaning with a model as well as by words, or by words only. */
+  setKnowledgeModel(request: SetKnowledgeModel): Promise<KnowledgeStatus>;
+  /** The embedding models, where each is, and the collections using it. */
+  listModels(): Promise<EmbeddingModel[]>;
+  /** Start downloading a model; it runs on this computer. */
+  downloadModel(request: ModelRef): Promise<EmbeddingModel>;
+  removeModel(request: ModelRef): Promise<Empty>;
+  /** The skills (folders with SKILL.md) of a collection prepared for AI. */
+  knowledgeSkills(request: SpaceRef): Promise<SkillInfo[]>;
   /** Once, on a new data center: the examples, in `language` when they are written in it. */
   addExamples(request?: AddExamples): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
@@ -375,6 +414,70 @@ export class HttpClient implements NodeClient {
 
   listTables(request: SpaceRef): Promise<TableSummary[]> {
     return this.#json("list_tables", request);
+  }
+
+  datasetProfile(request: SpaceRef): Promise<DatasetProfile> {
+    return this.#json("dataset_profile", request);
+  }
+
+  analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis> {
+    return this.#json("analyze_dataset", request);
+  }
+
+  knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus> {
+    return this.#json("knowledge_status", request);
+  }
+
+  prepareKnowledge(request: SpaceRef): Promise<KnowledgeStatus> {
+    return this.#json("prepare_knowledge", request);
+  }
+
+  retryKnowledge(request: SpaceRef): Promise<KnowledgeStatus> {
+    return this.#json("retry_knowledge", request);
+  }
+
+  knowledgePreview(request: SpaceRef): Promise<KnowledgeChunk[]> {
+    return this.#json("knowledge_preview", request);
+  }
+
+  knowledgeChunks(request: KnowledgeChunksRequest): Promise<KnowledgeChunk[]> {
+    return this.#json("knowledge_chunks", request);
+  }
+
+  setKnowledgeChunk(request: SetKnowledgeChunk): Promise<Empty> {
+    return this.#json("set_knowledge_chunk", request);
+  }
+
+  retrievalTest(request: RetrievalTest): Promise<RetrievalResults> {
+    return this.#json("retrieval_test", request);
+  }
+
+  installLance(): Promise<ExtensionDownload> {
+    return this.#json("install_lance", {});
+  }
+
+  setKnowledgeModel(request: SetKnowledgeModel): Promise<KnowledgeStatus> {
+    return this.#json("set_knowledge_model", request);
+  }
+
+  listModels(): Promise<EmbeddingModel[]> {
+    return this.#json("list_models", {});
+  }
+
+  downloadModel(request: ModelRef): Promise<EmbeddingModel> {
+    return this.#json("download_model", request);
+  }
+
+  removeModel(request: ModelRef): Promise<Empty> {
+    return this.#json("remove_model", request);
+  }
+
+  knowledgeSkills(request: SpaceRef): Promise<SkillInfo[]> {
+    return this.#json("knowledge_skills", request);
+  }
+
+  analysisProfile(request: SpaceRef): Promise<AnalysisProfile> {
+    return this.#json("analysis_profile", request);
   }
 
   addExamples(request: AddExamples = {}): Promise<SpaceSummary[]> {

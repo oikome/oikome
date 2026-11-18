@@ -27,6 +27,7 @@
 //! the catalog and the operations call the node directly. Only `run_sql`
 //! runs SQL, the owner's own; `add_examples` runs this crate's constants.
 
+mod analysis;
 mod assistant_config;
 mod assistants;
 mod borrowing;
@@ -37,6 +38,7 @@ mod examples;
 mod google;
 mod in_place;
 mod invites;
+mod knowledge;
 mod lending;
 mod network;
 mod places;
@@ -1181,7 +1183,73 @@ impl Api {
         req: FolderRef,
     ) -> Result<FolderListing, ApiError> {
         caller.require_owner()?;
-        places::list_folders(req.path.as_deref())
+        let Some(storage) = req.place.as_deref() else {
+            return places::list_folders(req.path.as_deref());
+        };
+        self.refresh()?;
+        let within = req
+            .path
+            .as_deref()
+            .unwrap_or("")
+            .trim_matches('/')
+            .to_string();
+        let place = oikome_node::inplace::place_on(&self.catalog, &self.engines, storage, &within)?;
+        // Names and whether each is a folder, from the disk or the storage.
+        let mut entries: Vec<(String, bool)> = match &place {
+            oikome_node::inplace::Place::Local(dir) => std::fs::read_dir(dir)
+                .map_err(|e| ApiError::not_found(format!("'{within}' can't be opened: {e}")))?
+                .flatten()
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_str()?.to_string();
+                    Some((name, entry.path().is_dir()))
+                })
+                .collect(),
+            oikome_node::inplace::Place::Remote { store, .. } => store
+                .list("")
+                .await
+                .map_err(|e| ApiError::invalid(e.to_string()))?
+                .into_iter()
+                .map(|entry| (entry.name, entry.is_dir))
+                .collect(),
+        };
+        entries.retain(|(name, _)| !name.starts_with('.') && !name.is_empty());
+        entries.sort_by_key(|(name, _)| name.to_lowercase());
+        entries.truncate(1000);
+        let entry = |name: &String| FolderEntry {
+            name: name.clone(),
+            path: if within.is_empty() {
+                name.clone()
+            } else {
+                format!("{within}/{name}")
+            },
+        };
+        let kind = |name: &String| oikome_node::inplace::kind_of(name);
+        let files = || entries.iter().filter(|(_, dir)| !dir).map(|(name, _)| name);
+        Ok(FolderListing {
+            parent: (!within.is_empty()).then(|| {
+                within
+                    .rsplit_once('/')
+                    .map(|(up, _)| up.to_string())
+                    .unwrap_or_default()
+            }),
+            folders: entries
+                .iter()
+                .filter(|(_, dir)| *dir)
+                .map(|(name, _)| entry(name))
+                .collect(),
+            files: files().map(entry).collect(),
+            csv_files: files()
+                .filter(|name| name.to_ascii_lowercase().ends_with(".csv"))
+                .map(entry)
+                .collect(),
+            photos: files()
+                .filter(|name| kind(name) == oikome_node::inplace::IMAGE)
+                .count() as u32,
+            notes: files()
+                .filter(|name| kind(name) == oikome_node::inplace::NOTE)
+                .count() as u32,
+            path: within.clone(),
+        })
     }
 
     /// Tables and views of a Space.

@@ -55,6 +55,9 @@ pub struct NodeConfig {
     /// keychain where there is one, otherwise a private file under
     /// `.oikome/identity/`.
     pub secret_backend: Option<Arc<dyn SecretBackend>>,
+    /// Where downloaded AI models are kept; `<catalog root>/.oikome/models`
+    /// by default.
+    pub models_dir: Option<PathBuf>,
 }
 
 /// A remote Space's engine and the binding (peer, Space, owner, token id)
@@ -69,6 +72,10 @@ type RemoteEngine = (String, Arc<dyn QueryEngine>);
 pub struct EngineRegistry {
     catalog: Arc<OikomeCatalog>,
     duckdb: Option<Arc<dyn QueryEngine>>,
+    /// How the shared DuckDB was opened, to install an extension into the
+    /// same directory.
+    #[cfg(feature = "engine-duckdb")]
+    duckdb_config: oikome_engine_duckdb::DuckDbConfig,
     sqlite: RwLock<HashMap<String, Arc<dyn QueryEngine>>>,
     /// Flight engines of remote Spaces, keyed by Space name, with the
     /// binding they were built for (so a re-created Space gets a new one).
@@ -85,6 +92,8 @@ pub struct EngineRegistry {
     secret_backend: OnceLock<Arc<dyn SecretBackend>>,
     /// Peers' compute tasks on this node (§12).
     compute: ComputeScheduler,
+    /// Where downloaded AI models are kept.
+    models_dir: PathBuf,
     /// The serving process's peer-to-peer connections (3.12); other
     /// processes of the node borrow them through its socket.
     dialer: OnceLock<Arc<dyn PeerDialer>>,
@@ -120,6 +129,10 @@ impl EngineRegistry {
         #[cfg(not(feature = "engine-duckdb"))]
         let duckdb: Option<Arc<dyn QueryEngine>> = None;
 
+        let models_dir = config
+            .models_dir
+            .clone()
+            .unwrap_or_else(|| catalog.oikome_dir().join("models"));
         let identity = OnceLock::new();
         if let Some(id) = config.identity {
             let _ = identity.set(id);
@@ -127,6 +140,8 @@ impl EngineRegistry {
         Ok(Self {
             catalog,
             duckdb,
+            #[cfg(feature = "engine-duckdb")]
+            duckdb_config: config.duckdb.clone(),
             sqlite: RwLock::new(HashMap::new()),
             remote: RwLock::new(HashMap::new()),
             identity,
@@ -141,6 +156,7 @@ impl EngineRegistry {
                 .map(OnceLock::from)
                 .unwrap_or_default(),
             compute: ComputeScheduler::default(),
+            models_dir,
         })
     }
 
@@ -336,11 +352,60 @@ impl EngineRegistry {
         &self.temp_dir
     }
 
+    /// Where downloaded AI models are kept (knowledge K2).
+    pub fn models_dir(&self) -> PathBuf {
+        self.models_dir.clone()
+    }
+
     /// The shared analytical engine.
     pub fn duckdb(&self) -> Result<Arc<dyn QueryEngine>, SessionError> {
         self.duckdb
             .clone()
             .ok_or(SessionError::EngineNotRegistered(EngineKind::DuckDb))
+    }
+
+    /// Download DuckDB's `lance` extension (signed by DuckDB) into this
+    /// node's extension directory, as `oikome extensions install` does, and
+    /// return its version. Only ever on the owner's explicit request.
+    #[cfg(feature = "engine-duckdb")]
+    pub async fn install_lance(&self) -> Result<String, SessionError> {
+        let installer =
+            oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
+        Ok(installer
+            .install_extension(oikome_engine_duckdb::Extension::Lance)
+            .await?)
+    }
+
+    /// Install DuckDB's `lance` extension from a file the node downloaded
+    /// (knowledge shows the download's progress), into the node's extension
+    /// directory. DuckDB checks its signature when it loads it.
+    #[cfg(feature = "engine-duckdb")]
+    pub async fn install_lance_file(&self, file: &Path) -> Result<String, SessionError> {
+        let installer =
+            oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
+        Ok(installer
+            .install_extension_file(oikome_engine_duckdb::Extension::Lance, file)
+            .await?)
+    }
+
+    /// DuckDB's version and platform, which name where its extensions are.
+    #[cfg(feature = "engine-duckdb")]
+    pub async fn duckdb_version_and_platform(&self) -> Result<(String, String), SessionError> {
+        let probe = oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
+        Ok(probe.version_and_platform().await?)
+    }
+
+    /// Where DuckDB keeps extensions for this node: its own directory, or
+    /// DuckDB's default under the home folder.
+    #[cfg(feature = "engine-duckdb")]
+    pub fn extension_dir(&self) -> PathBuf {
+        self.duckdb_config.extension_dir.clone().unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join(".duckdb")
+                .join("extensions")
+        })
     }
 
     /// The SQLite engine serving `space`'s Location, opened on first use.

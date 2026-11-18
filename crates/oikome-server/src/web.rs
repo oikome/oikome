@@ -57,7 +57,7 @@ use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use oikome_api::{
-    AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, Api, ApiError,
+    AcceptInvite, AddExamples, AddInPlaceFiles, AddInPlaceFolder, AnalyzeDataset, Api, ApiError,
     AssistantCollections, AssistantRef, BorrowedJobsOf, BorrowedRef, Caller, ConnectAssistant,
     ContactInput, DailyTotalsOf, DefaultStorage, DidRef, Empty, ErrorCode, FolderRef, HomeCards,
     ImportFiles, InstallAssistant, InstallPlugin, InviteCode, InviteRef, ListAccess, ListShares,
@@ -70,6 +70,9 @@ use oikome_api::{
 use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
     SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
+};
+use oikome_api::{
+    KnowledgeChunksRequest, ModelRef, RetrievalTest, SetKnowledgeChunk, SetKnowledgeModel,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -420,6 +423,12 @@ impl WebState {
                     Err(e) => error(e),
                 }
             };
+            (boxed $method:ident, $request:ty) => {
+                match parse::<$request>(&body) {
+                    Ok(request) => json(Box::pin(api.$method(&caller, request)).await),
+                    Err(e) => error(e),
+                }
+            };
         }
         match op {
             "node_info" => json_op!(node_info, Empty),
@@ -456,6 +465,22 @@ impl WebState {
             "show_folder" => json_op!(show_folder, ShowFolder),
             "open_with" => json_op!(open_with, FileRef),
             "list_tables" => json_op!(list_tables, SpaceRef),
+            "dataset_profile" => json_op!(boxed dataset_profile, SpaceRef),
+            "analyze_dataset" => json_op!(boxed analyze_dataset, AnalyzeDataset),
+            "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
+            "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),
+            "prepare_knowledge" => json_op!(boxed prepare_knowledge, SpaceRef),
+            "retry_knowledge" => json_op!(boxed retry_knowledge, SpaceRef),
+            "knowledge_preview" => json_op!(boxed knowledge_preview, SpaceRef),
+            "knowledge_chunks" => json_op!(boxed knowledge_chunks, KnowledgeChunksRequest),
+            "set_knowledge_chunk" => json_op!(set_knowledge_chunk, SetKnowledgeChunk),
+            "retrieval_test" => json_op!(boxed retrieval_test, RetrievalTest),
+            "install_lance" => json_op!(boxed install_lance, Empty),
+            "set_knowledge_model" => json_op!(boxed set_knowledge_model, SetKnowledgeModel),
+            "list_models" => json_op!(boxed list_models, Empty),
+            "download_model" => json_op!(boxed download_model, ModelRef),
+            "remove_model" => json_op!(boxed remove_model, ModelRef),
+            "knowledge_skills" => json_op!(boxed knowledge_skills, SpaceRef),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),

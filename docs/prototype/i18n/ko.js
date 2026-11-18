@@ -1112,4 +1112,7 @@
   'publicBody': '방문자는 서명으로 인증하며 실시간 쿼리는 제한되고 기록돼요.',
   'queryOnly': '쿼리만', 'queryOnlyBody': '원본 바이트와 스냅숏을 받을 수 없어요.', 'queryAndCopy': '쿼리와 복사', 'queryCopyBody': '원본 바이트와 서명된 스냅숏을 허용해요.',
   'publicLimits': '방문자별 분당 30회 · 1,000행 · 5초', 'publicPrivacy': '사진 위치 메타데이터 제거', 'publish': '게시',
+  'analyze': '분석…', 'analysisBody': '필드를 검토하고 파생 분석을 만들어요. 원본은 바꾸지 않아요.',
+  'analysisName': '분석 이름', 'dateField': '날짜 필드', 'amountField': '금액 필드', 'categoryField': '분류 필드',
+  'createAnalysis': '분석 만들기', 'analysisDone': '원본을 바꾸지 않고 분석을 만들었어요.',
 };

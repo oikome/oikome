@@ -412,48 +412,42 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await api("add_source", { kind: "csv", path: readings, space: "home-climate" });
 });
 
-test("sources write into chosen collections, and folders join an empty file collection", async () => {
+test("every data source is a plugin's, and File Import puts a folder into a chosen collection", async () => {
   const dir = mkdtempSync(join(homedir(), "oikome-source-target-"));
-  const csvDir = join(dir, "csv");
   const vault = join(dir, "vault");
-  mkdirSync(csvDir);
   mkdirSync(vault);
   try {
-    await api("create_space", { name: "finance", kind: "transactional" });
     await api("create_space", { name: "file-library", kind: "analytical" });
-    writeFileSync(join(csvDir, "ledger.csv"), "id,day,amount\n1,2026-01-01,12.50\n2,2026-01-02,18.25\n");
     writeFileSync(join(vault, "trip.md"), "# Lisbon, slowly\n\nTake the tram to Graça.\n");
     await page.goto(`${base}/sources`);
+    // The page offers what the installed plugins do, and nothing of its own.
+    for (const name of ["File Import", "RustFS"]) {
+      await expect(page.locator(".screen-source__name").getByText(name, { exact: true })).toBeVisible();
+    }
+    await expect(page.locator(".screen-source__name").getByText("CSV file", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Add Source" }).click();
-    const add = page.getByRole("dialog", { name: "Add Source" });
-    await add.getByRole("radio", { name: /CSV file/ }).check();
-    await add.getByLabel("Target collection").selectOption("finance");
-    await add.getByLabel("Target table").fill("entries");
-    await add.getByRole("button", { name: "Choose File…" }).click();
-    await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
-    await page.locator(".screen-browser__folder", { hasText: "csv" }).click();
-    await page.getByRole("button", { name: "ledger.csv", exact: true }).click();
-    await add.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(add).toHaveCount(0);
-    const added = (await api("list_sources")).find((source) => source.space === "finance");
-    expect(added.table).toBe("entries");
-    expect(added.name).toBe("ledger");
-    expect((await api("list_spaces")).some((space) => space.name === "ledger")).toBe(false);
-    expect((await api("list_tables", { space: "finance" })).find((table) => table.name === "entries").rows).toBe(2);
-    await api("drop_space", { space: "finance" });
-
-    await page.getByRole("button", { name: "Add Source" }).click();
-    const folderAdd = page.getByRole("dialog", { name: "Add Source" });
-    await folderAdd.getByRole("radio", { name: /Notes folder/ }).check();
-    await folderAdd.getByLabel("Target collection").selectOption("file-library");
-    await folderAdd.getByRole("button", { name: "Choose Folder…" }).click();
+    const choose = page.getByRole("dialog", { name: "Add Source" });
+    await choose.getByRole("radio", { name: /^File Import/ }).check();
+    await choose.getByRole("button", { name: "Continue", exact: true }).click();
+    const add = page.getByRole("dialog", { name: "File Import" });
+    await add.getByLabel("Add To").selectOption("file-library");
+    await add.getByLabel("What to Add").selectOption({ label: "A whole folder" });
+    await add.getByRole("button", { name: "Choose Folder…" }).click();
     await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
     await page.getByRole("button", { name: "vault", exact: true }).click();
     await page.getByRole("button", { name: "Choose This Folder", exact: true }).click();
-    await folderAdd.getByRole("button", { name: "Add", exact: true }).click();
+    await add.getByRole("button", { name: "Add Files", exact: true }).click();
     await expect(page).toHaveURL(/\/collections\/file-library$/);
     await expect(page.locator("a.screen-ftile", { hasText: "trip.md" })).toBeVisible();
     await api("drop_space", { space: "file-library" });
+
+    // RustFS adds a folder of a bucket; with none connected it says where to add one.
+    await page.goto(`${base}/sources`);
+    await page.locator(".screen-source-kind", { hasText: "RustFS" }).click();
+    const bucket = page.getByRole("dialog", { name: "RustFS" });
+    await expect(bucket.getByText("RustFS is not connected.")).toBeVisible();
+    await expect(bucket.getByRole("button", { name: "Add Files", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -471,9 +465,8 @@ test("the flomo package configures its source and Home card separately", async (
     await api("install_plugin", { builtIn: "flomo" });
     await page.goto(`${base}/sources`);
     await expect(page.locator(".screen-source-kind", { hasText: "flomo HTML export" })).toBeVisible();
-    await page.getByRole("button", { name: "Add Source" }).click();
-    const add = page.getByRole("dialog", { name: "Add Source" });
-    await add.getByRole("radio", { name: /flomo HTML export/ }).check();
+    await page.locator(".screen-source-kind", { hasText: "flomo HTML export" }).click();
+    const add = page.getByRole("dialog", { name: "flomo HTML export" });
     await add.getByLabel("Target collection").selectOption("imported-memos");
     await add.getByRole("button", { name: "Choose File…" }).click();
     await page.locator(".screen-browser__folder", { hasText: dir.split(/[\\/]/).pop() }).click();
@@ -1040,8 +1033,8 @@ async function mcp(endpoint, token, method, params = {}, { modern = true, header
 test("an AI assistant connects over MCP, reads only what it is given, and is cut off at once", async () => {
   await page.goto(`${base}/assistants`);
   await expect(page.getByRole("heading", { name: "MCP Access", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "Connect MCP Client" }).click();
-  const dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await page.getByRole("button", { name: "Connect MCP Client", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Connect MCP Client", exact: true });
   await dialog.getByRole("button", { name: "Next", exact: true }).click();
   await dialog.getByRole("checkbox", { name: "oikome-guide" }).check();
   await dialog.getByRole("button", { name: "Next: Connect" }).click();
@@ -1060,7 +1053,7 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   expect(hello.body.result.protocolVersion).toBe("2025-06-18");
   expect((await mcp(endpoint, token, "notifications/initialized", {}, { modern: false, id: false })).status).toBe(202);
   const legacy = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
-  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read_row"]);
+  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read", "read_row", "list_skills", "get_skill"]);
   // The page sees it arrive.
   await expect(dialog).toContainText("Claude Code is connected", { timeout: 10_000 });
   await dialog.getByRole("button", { name: "Done" }).click();
@@ -1127,8 +1120,8 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
 test("Kimi Code and Codex get their own working MCP configuration", async () => {
   for (const app of ["Kimi Code", "Codex"]) {
     await page.goto(`${base}/assistants`);
-    await page.getByRole("button", { name: "Connect MCP Client" }).click();
-    const dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+    await page.getByRole("button", { name: "Connect MCP Client", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Connect MCP Client", exact: true });
     await dialog.getByRole("radio", { name: new RegExp(app) }).check();
     await dialog.getByRole("button", { name: "Next", exact: true }).click();
     await dialog.getByRole("checkbox", { name: "oikome-guide" }).check();
@@ -1153,7 +1146,7 @@ test("Kimi Code and Codex get their own working MCP configuration", async () => 
     const hello = await mcp(endpoint, token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } }, { modern: false });
     expect(hello.status).toBe(200);
     const tools = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
-    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read_row"]);
+    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read", "read_row", "list_skills", "get_skill"]);
     await expect(dialog).toContainText(`${app} is connected`, { timeout: 10_000 });
     await dialog.getByRole("button", { name: "Done" }).click();
     await page.getByRole("button", { name: `Edit ${app}` }).click();
@@ -1172,8 +1165,8 @@ test("one-click MCP setup configures isolated Kimi Code and Codex homes safely",
   const localBase = new URL(readFileSync(join(root, ".oikome", "web", "login"), "utf8").trim()).origin;
   const connect = async (app) => {
     await local.goto(`${localBase}/assistants`);
-    await local.getByRole("button", { name: "Connect MCP Client" }).click();
-    const dialog = local.getByRole("dialog", { name: "Connect MCP Client" });
+    await local.getByRole("button", { name: "Connect MCP Client", exact: true }).click();
+    const dialog = local.getByRole("dialog", { name: "Connect MCP Client", exact: true });
     await dialog.getByRole("radio", { name: new RegExp(app) }).check();
     await dialog.getByRole("button", { name: "Next", exact: true }).click();
     await dialog.getByRole("button", { name: "Next: Connect" }).click();
@@ -1238,8 +1231,8 @@ test("one-click MCP setup configures isolated Kimi Code and Codex homes safely",
 
 test("removing an MCP plugin hides its client until the owner restores it", async () => {
   await page.goto(`${base}/assistants`);
-  await page.getByRole("button", { name: "Connect MCP Client" }).click();
-  let dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await page.getByRole("button", { name: "Connect MCP Client", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "Connect MCP Client", exact: true });
   await expect(dialog.getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Another app/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -1249,17 +1242,19 @@ test("removing an MCP plugin hides its client until the owner restores it", asyn
   await page.getByRole("dialog", { name: "Kimi Code" }).getByRole("button", { name: "Remove Plugin" }).click();
   await page.getByRole("dialog", { name: "Remove Kimi Code?" }).getByRole("button", { name: "Remove" }).click();
   await page.goto(`${base}/assistants`);
-  await page.getByRole("button", { name: "Connect MCP Client" }).click();
-  dialog = page.getByRole("dialog", { name: "Connect MCP Client" });
+  await page.getByRole("button", { name: "Connect MCP Client", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Connect MCP Client", exact: true });
   await expect(dialog.getByRole("radio", { name: "Kimi Code", exact: true })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel" }).click();
 
   await page.goto(`${base}/plugins`);
   await page.getByRole("button", { name: "Add Kimi Code", exact: true }).click();
+  const installed = page.waitForResponse((response) => response.url().endsWith("/api/install_plugin") && response.ok());
   await page.getByRole("dialog", { name: "Add Kimi Code" }).getByRole("button", { name: "Add", exact: true }).click();
+  await installed;
   await page.goto(`${base}/assistants`);
-  await page.getByRole("button", { name: "Connect MCP Client" }).click();
-  await expect(page.getByRole("dialog", { name: "Connect MCP Client" }).getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Connect MCP Client", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Connect MCP Client", exact: true }).getByRole("radio", { name: "Kimi Code", exact: true })).toBeVisible();
 });
 
 test("Home is arranged in place: a card is dragged, widened, taken off and put back", async () => {
@@ -1928,7 +1923,9 @@ test("Bob lends Home his computer: big summaries of what he may see go there, th
   await expect(bobs).toContainText("In use");
 
   const card = page.getByRole("region", { name: "ledger · last 14 days" });
+  const totals = page.waitForResponse((response) => response.url().endsWith("/api/daily_totals") && response.ok());
   await page.goto(base);
+  await totals;
   await expect(card).toContainText("Worked out here: it isn't shared with Bob");
   await expect(card).toContainText("100,000 in all");
 
@@ -2006,7 +2003,7 @@ test("the persistent Network entry shows the real listen address and opens Netwo
     ),
   );
   expect(settingsOrder).toEqual([
-    ["Storage", "Network"],
+    ["Storage", "Network", "Embedding Models"],
     ["Appearance", "File Editing Confirmations", "Data Center Details", "Recovery Key"],
   ]);
   const fullDid = (await api("node_info")).did;

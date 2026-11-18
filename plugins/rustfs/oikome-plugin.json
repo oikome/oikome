@@ -1,0 +1,81 @@
+{
+  "id": "rustfs",
+  "name": "RustFS",
+  "by": "Oikome",
+  "version": "1.0.0",
+  "description": "Add a folder or files from a RustFS bucket to a collection, the same way as File Import.",
+  "capabilities": {
+    "sources": [
+      {
+        "id": "rustfs-folder",
+        "name": "RustFS",
+        "kind": "rustfs"
+      }
+    ]
+  },
+  "translations": {
+    "zh-Hans": {
+      "name": "RustFS",
+      "description": "将 RustFS 存储桶中的文件夹或文件添加到资料库，方式与文件导入一致。",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    },
+    "zh-Hant": {
+      "name": "RustFS",
+      "description": "將 RustFS 儲存桶中的資料夾或檔案加入資料庫，方式與檔案匯入一致。",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    },
+    "ja": {
+      "name": "RustFS",
+      "description": "RustFS バケット内のフォルダまたはファイルを、ファイルの取り込みと同じ方法でコレクションに追加します。",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    },
+    "ko": {
+      "name": "RustFS",
+      "description": "RustFS 버킷의 폴더나 파일을 파일 가져오기와 같은 방식으로 컬렉션에 추가합니다.",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    },
+    "fr": {
+      "name": "RustFS",
+      "description": "Ajoute un dossier ou des fichiers d’un bucket RustFS à une collection, comme l’import de fichiers.",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    },
+    "de": {
+      "name": "RustFS",
+      "description": "Fügt einen Ordner oder Dateien aus einem RustFS-Bucket einer Sammlung hinzu, wie beim Dateiimport.",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    },
+    "ru": {
+      "name": "RustFS",
+      "description": "Добавляет папку или файлы из бакета RustFS в коллекцию так же, как импорт файлов.",
+      "sources": {
+        "rustfs-folder": {
+          "name": "RustFS"
+        }
+      }
+    }
+  }
+}

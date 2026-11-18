@@ -1142,4 +1142,7 @@
   'publicBody': 'Besucher müssen sich per Signatur anmelden. Jede Live-Abfrage wird begrenzt und protokolliert.',
   'queryOnly': 'Nur Abfragen', 'queryOnlyBody': 'Keine Originalbytes oder Snapshot-Downloads.', 'queryAndCopy': 'Abfragen und Kopieren', 'queryCopyBody': 'Originalbytes und signierter Snapshot sind erlaubt.',
   'publicLimits': '30 Anfragen/Minute · 1.000 Zeilen · 5 Sekunden pro Besucher', 'publicPrivacy': 'Standortmetadaten der Fotos entfernen', 'publish': 'Veröffentlichen',
+  'analyze': 'Analysieren…', 'analysisBody': 'Prüfe die Felder und erstelle eine abgeleitete Analyse. Die Quelle bleibt unverändert.',
+  'analysisName': 'Name der Analyse', 'dateField': 'Datumsfeld', 'amountField': 'Betragsfeld', 'categoryField': 'Kategoriefeld',
+  'createAnalysis': 'Analyse erstellen', 'analysisDone': 'Analyse erstellt, ohne die Quelle zu ändern.',
 };

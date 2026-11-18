@@ -1259,6 +1259,7 @@ async fn a_folder_the_owner_picks_keeps_new_collections() {
             &OWNER,
             FolderRef {
                 path: Some(picked.path().to_str().unwrap().into()),
+                place: None,
             },
         )
         .await
@@ -1431,7 +1432,14 @@ async fn a_plugin_reads_only_what_its_owner_let_it() {
     assert!(offered
         .iter()
         .any(|p| p.id == "spending-by-category" && p.built_in && p.installed));
-    for id in ["kimi-code", "codex", "claude-code", "flomo"] {
+    for id in [
+        "file-import",
+        "rustfs",
+        "kimi-code",
+        "codex",
+        "claude-code",
+        "flomo",
+    ] {
         assert!(offered.iter().any(|p| p.id == id), "{id}");
     }
     // Oikome's own come with their words in the app's languages.
@@ -1946,6 +1954,20 @@ async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinatio
         .unwrap();
     let entries = tables.iter().find(|table| table.name == "entries").unwrap();
     assert_eq!(entries.rows, Some(2));
+    let second = n
+        .api
+        .add_source(
+            &OWNER,
+            request(Some("finance"), Some("other"), Some("second-import")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.space, "finance");
+    assert_eq!(second.table.as_deref(), Some("other"));
+    assert_eq!(second.plugin, None);
+    assert_eq!(second.capability, None);
+    let registered = n.catalog.get_source("bank-import").unwrap();
+    assert_eq!(registered.target.table.as_deref(), Some("entries"));
     assert!(n
         .api
         .add_source(
@@ -1976,6 +1998,60 @@ async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinatio
         .unwrap();
     assert_eq!(legacy.space, "legacy");
     assert!(n.catalog.get_source("legacy").unwrap().space.is_none());
+}
+
+#[tokio::test]
+async fn a_plugin_source_records_its_collection_table_and_capability() {
+    let n = node();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "library".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("flomo".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let html = root.join("memos.html");
+    std::fs::write(
+        &html,
+        "<html><body><div class=\"memo\"><div class=\"time\">2026-01-01 10:00:00</div><div class=\"content\"><p>hello</p></div></div></body></html>",
+    )
+    .unwrap();
+    let source = n
+        .api
+        .add_source(
+            &OWNER,
+            NewSource {
+                kind: SourceKind::FlomoExport,
+                path: html.to_string_lossy().into_owned(),
+                space: Some("library".into()),
+                table: None,
+                name: Some("flomo-export".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(source.space, "library");
+    assert_eq!(source.table.as_deref(), Some("memos"));
+    assert_eq!(source.plugin.as_deref(), Some("flomo"));
+    assert_eq!(source.capability.as_deref(), Some("flomo-export"));
+    assert!(n.catalog.get_space("flomo-export").is_err());
+    let registered = n.catalog.get_source("flomo-export").unwrap();
+    assert_eq!(registered.target.table.as_deref(), Some("memos"));
 }
 
 /// A source can be paused and resumed; removed, its collection stays, and
@@ -4682,6 +4758,110 @@ async fn save_to_space_detaches_connector_tables() {
     }
 }
 
+#[tokio::test]
+async fn analysis_profiles_drive_explicit_derived_results_and_source_review() {
+    let n = node();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "spending".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(&n, "CREATE TABLE spending.entries (id BIGINT, day DATE, amount DOUBLE, category VARCHAR, title VARCHAR)").await;
+    sql(&n, "INSERT INTO spending.entries VALUES (1, '2026-01-01', 12.5, 'food', 'lunch'), (2, '2026-01-01', 17.5, 'food', 'dinner'), (3, '2026-01-02', 8, 'travel', 'metro')").await;
+    let profile = n
+        .api
+        .dataset_profile(
+            &OWNER,
+            SpaceRef {
+                space: "spending.entries".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(profile.fields[0].role, FieldRole::Key);
+    assert_eq!(profile.fields[1].role, FieldRole::Time);
+    assert_eq!(profile.fields[2].role, FieldRole::Amount);
+    assert_eq!(profile.fields[3].role, FieldRole::Category);
+    assert_eq!(profile.fields[4].role, FieldRole::Title);
+    let analysis = n
+        .api
+        .analyze_dataset(
+            &OWNER,
+            AnalyzeDataset {
+                space: "spending".into(),
+                table: "entries".into(),
+                name: "spending-analysis".into(),
+                time_field: "day".into(),
+                amount_field: "amount".into(),
+                category_field: "category".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(analysis.space.name, "spending-analysis");
+    assert!(!analysis.profile.source_changed);
+    let rows = n
+        .api
+        .read_rows(
+            &OWNER,
+            ReadRows {
+                space: "spending-analysis".into(),
+                table: "_analysis_daily".into(),
+                limit: Some(10),
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+    let batches = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .map(|batch| batch.unwrap())
+        .collect::<Vec<_>>();
+    let totals = batches[0]
+        .column(2)
+        .as_any()
+        .downcast_ref::<arrow_array::Float64Array>()
+        .unwrap();
+    assert_eq!(totals.value(0), 30.0);
+    assert_eq!(totals.value(1), 8.0);
+    assert_eq!(
+        row_count(
+            &n.api
+                .read_rows(
+                    &OWNER,
+                    ReadRows {
+                        space: "spending".into(),
+                        table: "entries".into(),
+                        limit: Some(10),
+                        offset: None,
+                    }
+                )
+                .await
+                .unwrap()
+        ),
+        3
+    );
+    sql(&n, "ALTER TABLE spending.entries ADD COLUMN note VARCHAR").await;
+    let changed = n
+        .api
+        .analysis_profile(
+            &OWNER,
+            SpaceRef {
+                space: "spending-analysis".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(changed.source_changed);
+}
+
 async fn saved_files(n: &Node, name: &str) -> tempfile::TempDir {
     let source = tempfile::tempdir().unwrap();
     let root = source.path().join("source");
@@ -5545,4 +5725,120 @@ async fn removed_official_plugins_stay_removed_and_hide_mcp_clients() {
         )
         .await
         .unwrap();
+}
+
+/// Knowledge (docs/knowledge-schema.md, K1) is the owner's: a contact may
+/// neither look at nor prepare it, a request is checked before the node
+/// runs it, and a preview reads the documents without writing anything.
+#[tokio::test]
+async fn knowledge_is_the_owners_and_its_requests_are_checked() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let docs = root.join("docs");
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(
+        docs.join("architecture.md"),
+        "# Architecture\n\n## Federation\n\nDataFusion coordinates and never reads files.\n",
+    )
+    .unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: docs.to_string_lossy().into_owned(),
+                name: Some("docs".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    let docs_ref = || SpaceRef {
+        space: "docs".into(),
+    };
+
+    let contact = Caller::Principal { did: did(9) };
+    let e = n
+        .api
+        .knowledge_status(&contact, docs_ref())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n
+        .api
+        .prepare_knowledge(&contact, docs_ref())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n.api.install_lance(&contact, Empty {}).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+
+    // Not prepared: nothing to show, and nothing is found.
+    let status = n.api.knowledge_status(&OWNER, docs_ref()).await.unwrap();
+    assert!(status.prepared_ms.is_none());
+    assert!(status.files.is_empty());
+    let none = n
+        .api
+        .retrieval_test(
+            &OWNER,
+            RetrievalTest {
+                space: "docs".into(),
+                query: "DataFusion".into(),
+                limit: None,
+                mode: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(none.hits.is_empty());
+
+    // The preview: the first passages with their places, nothing written.
+    let preview = n.api.knowledge_preview(&OWNER, docs_ref()).await.unwrap();
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].path, "architecture.md");
+    assert_eq!(preview[0].heading, vec!["Architecture", "Federation"]);
+    assert_eq!((preview[0].line_start, preview[0].line_end), (3, 5));
+    let status = n.api.knowledge_status(&OWNER, docs_ref()).await.unwrap();
+    assert!(status.prepared_ms.is_none());
+
+    let e = n
+        .api
+        .set_knowledge_chunk(
+            &OWNER,
+            SetKnowledgeChunk {
+                space: "docs".into(),
+                chunk_id: "'; DROP TABLE x; --".into(),
+                enabled: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    let e = n
+        .api
+        .retrieval_test(
+            &OWNER,
+            RetrievalTest {
+                space: "docs".into(),
+                query: "x".repeat(201),
+                limit: None,
+                mode: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // A collection of tables holds no documents to prepare yet.
+    notes(&n).await;
+    assert!(n
+        .api
+        .knowledge_preview(
+            &OWNER,
+            SpaceRef {
+                space: "notes".into()
+            }
+        )
+        .await
+        .is_err());
 }

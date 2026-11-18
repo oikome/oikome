@@ -1,9 +1,10 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Sources: the folders and files a collection's data comes from, like a
-// notes app's vault. They stay the owner's, editable with any app; the node
-// reads them again every minute, and Sync Now reads one at once.
+// Sources: where a collection's data comes from. Every data source is
+// offered by an installed plugin; the page has none of its own. File Import
+// and RustFS put folders and files into a collection as its files; the
+// others fill a table, which the node reads again on a schedule.
 
 import { useEffect, useState } from "react";
 import {
@@ -30,12 +31,15 @@ import { homeRelative } from "../format";
 import { ScreenHeader } from "../parts";
 import { Link, navigate } from "../router";
 import { FolderBrowser } from "../storage";
+import { AddFiles } from "../import";
 import { strings } from "../strings";
 import { locale } from "../i18n/languages";
 
 const s = strings.sources;
 
 export const SOURCE_ICONS: Record<SourceKind, IconName> = {
+  files: "folder",
+  rustfs: "bucket",
   photos: "photo",
   notes: "note",
   csv: "table",
@@ -211,11 +215,8 @@ function Row({
   );
 }
 
-const KINDS: { kind: SourceKind; icon: IconName }[] = [
-  { kind: "photos", icon: "photo" },
-  { kind: "notes", icon: "note" },
-  { kind: "csv", icon: "table" },
-];
+/** A data source an installed plugin offers. */
+type Offer = PluginSourceCapability & { pluginName: string; pluginId: string; description: string };
 
 function tableName(path: string | undefined): string {
   const stem = path?.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "";
@@ -223,22 +224,53 @@ function tableName(path: string | undefined): string {
   return /^[a-z_][a-z0-9_]*$/.test(name) ? name : "rows";
 }
 
-/** Bring in a folder of photos or notes, or a CSV file. */
+/** Which of the installed data sources to add. */
+function ChooseSource({ offers, onClose, onChoose }: { offers: Offer[]; onClose: () => void; onChoose: (offer: Offer) => void }) {
+  const [chosen, setChosen] = useState(offers[0] ? `${offers[0].pluginId}:${offers[0].id}` : "");
+  const offer = offers.find((x) => `${x.pluginId}:${x.id}` === chosen);
+  return (
+    <Dialog
+      title={s.addTitle}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" disabled={!offer} onClick={() => offer && onChoose(offer)}>
+            {strings.onboarding.continue}
+          </Button>
+        </>
+      }
+    >
+      <ChoiceList
+        label={s.choose}
+        name="source-offer"
+        value={chosen}
+        onChange={setChosen}
+        choices={offers.map((x) => ({
+          value: `${x.pluginId}:${x.id}`,
+          title: x.name,
+          meta: x.description,
+          leading: <Icon name={SOURCE_ICONS[x.kind]} />,
+        }))}
+      />
+    </Dialog>
+  );
+}
+
+/** Bring in what a plugin's source reads into a table: a file it knows. */
 export function AddSource({
-  start,
-  offers,
+  offer,
   onClose,
   onAdded,
 }: {
-  start: SourceKind;
-  offers: (PluginSourceCapability & { pluginName: string })[];
+  offer: Offer;
   onClose: () => void;
   onAdded: (source: SourceSummary) => void;
 }) {
   const client = useClient();
-  const toast = useToast();
   const spaces = useLoad(() => client.listSpaces(), []);
-  const [kind, setKind] = useState<SourceKind>(start);
+  const kind = offer.kind;
   const [path, setPath] = useState<string>();
   const [space, setSpace] = useState<string>();
   const [table, setTable] = useState("");
@@ -254,7 +286,7 @@ export function AddSource({
   return (
     <>
       <Dialog
-        title={s.addTitle}
+        title={offer.name}
         closeLabel={strings.common.close}
         onClose={onClose}
         footer={
@@ -265,14 +297,6 @@ export function AddSource({
               disabled={!path || !destination || add.busy}
               onClick={async () => {
                 if (!path || !destination) return;
-                if (!file) {
-                  const viewed = await add.run(() => client.addInPlaceFolder({ space: destination, path }));
-                  if (!viewed) return;
-                  forgetPreviews(viewed.name);
-                  toast(strings.collections.viewed(viewed.name));
-                  navigate(`/collections/${encodeURIComponent(viewed.name)}`);
-                  return;
-                }
                 const added = await add.run(() => client.addSource({ kind, path, space: destination, table: destinationTable }));
                 if (added) {
                   forgetPreviews(added.space);
@@ -285,31 +309,7 @@ export function AddSource({
           </>
         }
       >
-        <ChoiceList
-          label={s.addWhat}
-          name="source-kind"
-          value={kind}
-          onChange={(value) => {
-            setKind(value as SourceKind);
-            setPath(undefined);
-            setTable("");
-            add.clear();
-          }}
-          choices={[
-            ...KINDS.map(({ kind: k, icon }) => ({
-              value: k,
-              title: s.kinds[k],
-              meta: s.kindHelp[k],
-              leading: <Icon name={icon} />,
-            })),
-            ...offers.map((offer) => ({
-              value: offer.kind,
-              title: offer.name,
-              meta: strings.plugins.by(offer.pluginName),
-              leading: <Icon name={SOURCE_ICONS[offer.kind]} />,
-            })),
-          ]}
-        />
+        <p className="oik-dialog__text">{offer.description}</p>
         <Select
           label={s.targetCollection}
           value={destination ?? ""}
@@ -348,7 +348,7 @@ export function AddSource({
           csv={csv}
           extensions={kind === "flomo-export" ? ["html", "zip"] : undefined}
           hint={(here) =>
-            csv ? s.pickCsv : file ? s.addHelp : kind === "photos" ? s.holdsPhotos(here.photos) : s.holdsNotes(here.notes)
+            csv ? s.pickCsv : file ? s.addHelp : s.holdsNotes(here.notes)
           }
           onClose={() => setBrowsing(false)}
           onChoose={(picked) => {
@@ -368,7 +368,7 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   const sources = useLoad(() => client.listSources(), []);
   const spaces = useLoad(() => client.listSpaces(), []);
   const plugins = useLoad(async () => (await client.listPlugins()).map(inLanguage), []);
-  const [adding, setAdding] = useState<SourceKind | undefined>(startAdding ? "photos" : undefined);
+  const [adding, setAdding] = useState<Offer | "choose" | undefined>(startAdding ? "choose" : undefined);
   useEffect(() => {
     if (startAdding) navigate("/sources", { replace: true });
   }, [startAdding]);
@@ -384,10 +384,15 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   );
   const paused = list.filter((x) => x.paused).length;
   const failing = list.filter((x) => !x.paused && x.failedAtMs != null).length;
-  const offers = (plugins.data ?? [])
+  const offers: Offer[] = (plugins.data ?? [])
     .filter((plugin) => plugin.installed)
     .flatMap((plugin) =>
-      plugin.capabilities.sources.map((source) => ({ ...source, pluginName: plugin.name, pluginId: plugin.id })),
+      plugin.capabilities.sources.map((source) => ({
+        ...source,
+        pluginName: plugin.name,
+        pluginId: plugin.id,
+        description: plugin.description,
+      })),
     );
   const reload = () => {
     sources.reload();
@@ -397,7 +402,7 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
   return (
     <>
       <ScreenHeader title={s.title} lede={sources.data ? s.lede(list.length, failing, paused) : s.ledeShort}>
-        <Button variant="primary" icon="plus" onClick={() => setAdding("photos")}>
+        <Button variant="primary" icon="plus" disabled={offers.length === 0} onClick={() => setAdding("choose")}>
           {s.addTitle}
         </Button>
       </ScreenHeader>
@@ -433,39 +438,38 @@ export function Sources({ startAdding = false }: { startAdding?: boolean }) {
 
       <h2 className="oik-label screen-section-label">{s.more}</h2>
       <div className="screen-source-kinds">
-        {KINDS.map(({ kind, icon }) => (
-          <button key={kind} type="button" className="screen-source-kind" onClick={() => setAdding(kind)}>
-            <span className="oik-tile">
-              <Icon name={icon} />
-            </span>
-            <span className="screen-source__text">
-              <span className="screen-source__name">{s.kinds[kind]}</span>
-              <span className="screen-source__meta">{s.kindHelp[kind]}</span>
-            </span>
-          </button>
-        ))}
         {offers.map((offer) => (
           <button
             key={`${offer.pluginId}:${offer.id}`}
             type="button"
             className="screen-source-kind"
-            onClick={() => setAdding(offer.kind)}
+            onClick={() => setAdding(offer)}
           >
             <span className="oik-tile">
               <Icon name={SOURCE_ICONS[offer.kind]} />
             </span>
             <span className="screen-source__text">
               <span className="screen-source__name">{offer.name}</span>
-              <span className="screen-source__meta">{strings.plugins.by(offer.pluginName)}</span>
+              <span className="screen-source__meta">{offer.description}</span>
             </span>
           </button>
         ))}
       </div>
 
-      {adding && (
+      {adding === "choose" && (
+        <ChooseSource offers={offers} onClose={() => setAdding(undefined)} onChoose={setAdding} />
+      )}
+      {adding && adding !== "choose" && (adding.kind === "files" || adding.kind === "rustfs") && (
+        <AddFiles
+          origin={adding.kind === "files" ? "local" : "rustfs"}
+          title={adding.name}
+          onClose={() => setAdding(undefined)}
+          onAdded={reload}
+        />
+      )}
+      {adding && adding !== "choose" && adding.kind !== "files" && adding.kind !== "rustfs" && (
         <AddSource
-          start={adding}
-          offers={offers}
+          offer={adding}
           onClose={() => setAdding(undefined)}
           onAdded={(added) => {
             setAdding(undefined);

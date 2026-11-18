@@ -1112,4 +1112,7 @@
   'publicBody': '訪客必須簽名驗證，每次即時查詢都會受限並留下記錄。',
   'queryOnly': '僅查詢', 'queryOnlyBody': '不能下載原始位元組或快照。', 'queryAndCopy': '查詢和複製', 'queryCopyBody': '允許原始位元組和簽名快照。',
   'publicLimits': '每位訪客每分鐘 30 次 · 1000 列 · 5 秒', 'publicPrivacy': '移除照片位置中繼資料', 'publish': '發佈',
+  'analyze': '分析…', 'analysisBody': '確認欄位並建立衍生分析，來源內容保持不變。',
+  'analysisName': '分析名稱', 'dateField': '日期欄位', 'amountField': '金額欄位', 'categoryField': '分類欄位',
+  'createAnalysis': '建立分析', 'analysisDone': '分析已建立，來源內容未改變。',
 };

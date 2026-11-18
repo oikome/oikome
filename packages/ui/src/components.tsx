@@ -613,15 +613,23 @@ export function Checkbox({
   checked,
   onChange,
   disabled,
+  indeterminate = false,
 }: {
   label: ReactNode;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  /** Some of what it stands for is chosen, not all (a dash); choosing it chooses all. */
+  indeterminate?: boolean;
 }) {
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = indeterminate;
+  }, [indeterminate]);
   return (
     <label className="oik-checkbox">
       <input
+        ref={box}
         type="checkbox"
         checked={checked}
         disabled={disabled}
@@ -639,8 +647,11 @@ export interface Choice {
   leading?: ReactNode;
   /** Beside the choice, such as a Change… button. */
   aside?: ReactNode;
-  /** Shown under the choice while it is chosen: the fields it needs. */
+  /** Shown under the choice while it is chosen: the fields it needs; for a
+   * disabled choice, shown always: why it cannot be chosen. */
   more?: ReactNode;
+  /** Shown, but not to be chosen here. */
+  disabled?: boolean;
 }
 
 /** One of a few choices, as cards with a radio each; the chosen one in crimson. */
@@ -663,13 +674,14 @@ export function ChoiceList({
       {choices.map((choice) => {
         const on = choice.value === value;
         return (
-          <div key={choice.value} className={cx("oik-choice", on && "oik-choice--on")}>
+          <div key={choice.value} className={cx("oik-choice", on && "oik-choice--on", choice.disabled && "oik-choice--off")}>
             <label className="oik-choice__row">
               <input
                 type="radio"
                 name={name}
                 value={choice.value}
                 checked={on}
+                disabled={choice.disabled}
                 onChange={() => onChange(choice.value)}
               />
               {choice.leading && <span className="oik-tile oik-choice__tile">{choice.leading}</span>}
@@ -679,7 +691,7 @@ export function ChoiceList({
               </span>
             </label>
             {choice.aside && <span className="oik-choice__aside">{choice.aside}</span>}
-            {on && choice.more && <div className="oik-choice__more">{choice.more}</div>}
+            {(on || choice.disabled) && choice.more && <div className="oik-choice__more">{choice.more}</div>}
           </div>
         );
       })}

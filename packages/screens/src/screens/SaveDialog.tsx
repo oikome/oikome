@@ -55,6 +55,7 @@ export function SaveDialog({
   }, [listing.data]);
 
   const chosen = files.filter((file) => selected.has(file.path));
+  const all = files.length > 0 && chosen.length === files.length;
   const ready = destination === "space" ? NAME.test(name) && title.trim().length > 0 : path.trim().length > 0;
   const submit = async () => {
     const saved = await action.run(() =>
@@ -153,10 +154,21 @@ export function SaveDialog({
       {space.inPlace !== null && (
         <section className="screen-share-access" aria-label={s.selection}>
           <h3 className="screen-share-access__title">{s.selection}</h3>
+          {files.length > 1 && (
+            <div className="screen-save-all">
+              <Checkbox
+                label={s.selectAll}
+                checked={all}
+                indeterminate={chosen.length > 0 && !all}
+                onChange={(checked) => setSelected(checked ? new Set(files.map((file) => file.path)) : new Set())}
+              />
+              <span className="screen-save-all__count">{s.chosen(chosen.length, files.length)}</span>
+            </div>
+          )}
           {chosen.length === 0 && <p className="screen-help">{s.noFiles}</p>}
           <ul className="screen-share-access__list">
             {files.map((file) => (
-              <li key={file.path} className="screen-share-person">
+              <li key={file.path} className="screen-share-person screen-save-file">
                 <Checkbox
                   label={file.path}
                   checked={selected.has(file.path)}

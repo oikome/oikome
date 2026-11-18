@@ -36,9 +36,11 @@ use crate::invites::read_private;
 use crate::search::{hits_wanted, terms_of, MAX_KEY_COLUMNS};
 use crate::{
     encode_rows, first_count, now_ms, Api, ApiError, Assistant, AssistantApp, AssistantCollections,
-    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, InstallAssistant,
-    ReadRow, ReadableCollection, ReadableTable, Rows, Search, SearchResults,
+    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, GetSkill,
+    InstallAssistant, KnowledgePassage, KnowledgeText, ListSkills, ReadKnowledge, ReadRow,
+    ReadableCollection, ReadableTable, Rows, Search, SearchResults, SkillContent, SkillInfo,
 };
+use oikome_node::knowledge::{skills, KnowledgeRange};
 
 const ASSISTANTS_FILE: &str = "assistants.json";
 /// Tokens start so, to be told from other secrets in a config file.
@@ -514,6 +516,286 @@ impl Api {
             }),
         }
         rows
+    }
+
+    /// Passages of the prepared documents of the calling assistant's
+    /// collections (or one of them) matching `req.query` by words, and by
+    /// meaning where a collection has a model, best first. An assistant is given whole collections, so it reads their
+    /// knowledge as the owner keeps it. A search that finds passages is in
+    /// Activity with the search it came with.
+    pub async fn assistant_search_knowledge(
+        &self,
+        caller: &Caller,
+        req: Search,
+    ) -> Result<Vec<KnowledgePassage>, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let names = match &req.collection {
+            Some(name) => {
+                validate_space_name(name)?;
+                if !me.collections.contains(name) {
+                    return Err(no_collection(name));
+                }
+                vec![name.clone()]
+            }
+            None => me.collections.clone(),
+        };
+        let query = req.query.trim().to_string();
+        let limit = req.limit.unwrap_or(10).clamp(1, 100);
+        let owner = self.session(None);
+        // Each collection's hits in its own order; scores of different
+        // collections may come from different searches, so they are merged
+        // by rank, not by score.
+        let mut found: Vec<(usize, KnowledgePassage)> = Vec::new();
+        for name in &names {
+            let hits = match owner.search_knowledge(name, &query, limit).await {
+                Ok(found) => found.hits,
+                Err(e) => {
+                    tracing::warn!(collection = %name, error = %e, "searching knowledge failed");
+                    continue;
+                }
+            };
+            found.extend(hits.into_iter().enumerate().map(|(rank, c)| {
+                let chunk = crate::knowledge::chunk_of(c, true);
+                let passage = KnowledgePassage {
+                    collection: name.clone(),
+                    excerpt: chunk.text.chars().take(600).collect(),
+                    path: chunk.path,
+                    chunk_id: chunk.chunk_id,
+                    heading: chunk.heading,
+                    page: chunk.page,
+                    line_start: chunk.line_start,
+                    line_end: chunk.line_end,
+                    score: chunk.score,
+                    found_by: chunk.found_by,
+                };
+                (rank, passage)
+            }));
+        }
+        found.sort_by_key(|(rank, _)| *rank);
+        let mut found: Vec<KnowledgePassage> = found.into_iter().map(|(_, p)| p).collect();
+        found.truncate(limit as usize);
+        if !found.is_empty() {
+            let collections: Vec<String> = names
+                .iter()
+                .filter(|n| found.iter().any(|p| &p.collection == *n))
+                .cloned()
+                .collect();
+            self.record(AccessEntry {
+                detail: Some(query),
+                merge: true,
+                ..entry(&me, SEARCH_METHOD, collections)
+            });
+        }
+        Ok(found)
+    }
+
+    /// The skills the calling assistant may use: Oikome's own, then those of
+    /// its collections prepared for AI (or one of them). A skill with a
+    /// problem is left out.
+    pub async fn assistant_list_skills(
+        &self,
+        caller: &Caller,
+        req: ListSkills,
+    ) -> Result<Vec<SkillInfo>, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let names = match &req.collection {
+            Some(name) => {
+                validate_space_name(name)?;
+                if !me.collections.contains(name) {
+                    return Err(no_collection(name));
+                }
+                vec![name.clone()]
+            }
+            None => me.collections.clone(),
+        };
+        let owner = self.session(None);
+        let mut found = Vec::new();
+        if req.collection.is_none() {
+            found.push(crate::knowledge::skill_info(None, skills::oikome_skill()));
+        }
+        let mut listed = Vec::new();
+        for name in &names {
+            match owner.knowledge_skills(name).await {
+                Ok(list) => {
+                    let valid: Vec<_> = list.into_iter().filter(|s| s.problem.is_none()).collect();
+                    if !valid.is_empty() {
+                        listed.push(name.clone());
+                    }
+                    found.extend(
+                        valid
+                            .into_iter()
+                            .map(|s| crate::knowledge::skill_info(Some(name), s)),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(collection = %name, error = %e, "listing skills failed");
+                }
+            }
+        }
+        if !listed.is_empty() {
+            self.record(AccessEntry {
+                detail: Some("skills".to_string()),
+                merge: true,
+                ..entry(&me, READ_METHOD, listed)
+            });
+        }
+        Ok(found)
+    }
+
+    /// A file of a skill for the calling assistant: its `SKILL.md`, or
+    /// another file it lists, as text with its SHA-256. Oikome never runs it.
+    pub async fn assistant_get_skill(
+        &self,
+        caller: &Caller,
+        req: GetSkill,
+    ) -> Result<SkillContent, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let Some(collection) = req.collection.clone() else {
+            if req.name != skills::OIKOME_SKILL_NAME
+                || req.file.as_deref().is_some_and(|f| f != skills::SKILL_FILE)
+            {
+                return Err(ApiError::not_found(format!(
+                    "there is no skill {}",
+                    req.name
+                )));
+            }
+            let t = skills::oikome_skill_text();
+            return Ok(SkillContent {
+                collection: None,
+                name: req.name,
+                path: t.path,
+                sha256: t.sha256,
+                text: t.text,
+            });
+        };
+        validate_space_name(&collection)?;
+        let read = AccessEntry {
+            detail: Some(format!(
+                "{}/{}",
+                req.name,
+                req.file.as_deref().unwrap_or(skills::SKILL_FILE)
+            )),
+            ..entry(&me, READ_METHOD, vec![collection.clone()])
+        };
+        if !me.collections.contains(&collection) {
+            self.record(AccessEntry {
+                outcome: Outcome::Denied,
+                reason: Some("not one of its collections".to_string()),
+                ..read
+            });
+            return Err(no_collection(&collection));
+        }
+        match self
+            .session(None)
+            .read_skill(&collection, &req.name, req.file.as_deref())
+            .await
+        {
+            Ok(t) => {
+                self.record(AccessEntry {
+                    merge: true,
+                    ..read
+                });
+                Ok(SkillContent {
+                    collection: Some(collection),
+                    name: req.name,
+                    path: t.path,
+                    sha256: t.sha256,
+                    text: t.text,
+                })
+            }
+            Err(e) => {
+                let e = ApiError::from(e);
+                self.record(AccessEntry {
+                    outcome: Outcome::Failed,
+                    reason: Some(e.message.clone()),
+                    ..read
+                });
+                Err(e)
+            }
+        }
+    }
+
+    /// A passage of a prepared document and what is around it, or a range
+    /// of its lines or characters, for the calling assistant.
+    pub async fn assistant_read_knowledge(
+        &self,
+        caller: &Caller,
+        req: ReadKnowledge,
+    ) -> Result<KnowledgeText, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        validate_space_name(&req.collection)?;
+        let read = AccessEntry {
+            detail: Some(req.path.clone()),
+            ..entry(&me, READ_METHOD, vec![req.collection.clone()])
+        };
+        if !me.collections.contains(&req.collection) {
+            self.record(AccessEntry {
+                outcome: Outcome::Denied,
+                reason: Some("not one of its collections".to_string()),
+                ..read
+            });
+            return Err(no_collection(&req.collection));
+        }
+        let range = match (&req.chunk_id, req.lines, req.chars) {
+            (Some(chunk_id), None, None) => KnowledgeRange::Chunk {
+                chunk_id: chunk_id.clone(),
+                around: req.around.unwrap_or(1),
+            },
+            (None, Some((start, end)), None) => KnowledgeRange::Lines {
+                page: req.page,
+                start,
+                end,
+            },
+            (None, None, Some((start, end))) => KnowledgeRange::Chars {
+                page: req.page,
+                start,
+                end,
+            },
+            (None, None, None) => KnowledgeRange::Lines {
+                page: req.page,
+                start: 1,
+                end: u32::MAX,
+            },
+            _ => {
+                return Err(ApiError::invalid(
+                    "name a chunk, or lines, or characters, not more than one",
+                ))
+            }
+        };
+        let text = self
+            .session(None)
+            .read_knowledge(&req.collection, &req.path, range)
+            .await;
+        match text {
+            Ok(t) => {
+                self.record(AccessEntry {
+                    merge: true,
+                    ..read
+                });
+                Ok(KnowledgeText {
+                    collection: req.collection,
+                    path: t.path,
+                    page: t.page,
+                    char_start: t.char_start,
+                    char_end: t.char_end,
+                    total_chars: t.total_chars,
+                    text: t.text,
+                })
+            }
+            Err(e) => {
+                let e = ApiError::from(e);
+                self.record(AccessEntry {
+                    outcome: Outcome::Failed,
+                    reason: Some(e.message.clone()),
+                    ..read
+                });
+                Err(e)
+            }
+        }
     }
 
     /// The connected assistant `caller` is; anyone else is refused.

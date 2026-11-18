@@ -26,6 +26,17 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::OikomeCatalog;
 use crate::registry::now_ms;
 
+/// The collection-contained object a source writes and the capability that produced it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceTarget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability: Option<String>,
+}
+
 /// A registered source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceDef {
@@ -35,6 +46,8 @@ pub struct SourceDef {
     /// from `name`; old registries keep working without a rewrite.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space: Option<String>,
+    #[serde(default, flatten)]
+    pub target: SourceTarget,
     /// The connector's settings (`oikome_connect::SourceConfig`).
     pub config: serde_json::Value,
     /// Pull every this many seconds while the node serves; `None` pulls only
@@ -93,7 +106,7 @@ impl OikomeCatalog {
         config: serde_json::Value,
         every_secs: Option<u64>,
     ) -> Result<SourceDef, CatalogError> {
-        self.register_source(name, None, config, every_secs)
+        self.register_source(name, None, SourceTarget::default(), config, every_secs)
     }
 
     /// Register the source `name` with an explicit destination Space.
@@ -104,14 +117,26 @@ impl OikomeCatalog {
         config: serde_json::Value,
         every_secs: Option<u64>,
     ) -> Result<SourceDef, CatalogError> {
+        self.add_source_to_target(name, space, SourceTarget::default(), config, every_secs)
+    }
+
+    pub fn add_source_to_target(
+        &self,
+        name: &str,
+        space: &str,
+        target: SourceTarget,
+        config: serde_json::Value,
+        every_secs: Option<u64>,
+    ) -> Result<SourceDef, CatalogError> {
         validate_space_name(space)?;
-        self.register_source(name, Some(space.to_string()), config, every_secs)
+        self.register_source(name, Some(space.to_string()), target, config, every_secs)
     }
 
     fn register_source(
         &self,
         name: &str,
         space: Option<String>,
+        target: SourceTarget,
         config: serde_json::Value,
         every_secs: Option<u64>,
     ) -> Result<SourceDef, CatalogError> {
@@ -119,6 +144,7 @@ impl OikomeCatalog {
         let def = SourceDef {
             name: name.to_string(),
             space,
+            target,
             config,
             every_secs,
             paused: false,

@@ -442,6 +442,74 @@ pub struct Saved {
     pub space: Option<SpaceSummary>,
 }
 
+/// A field's meaning inferred from its name and Arrow type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldRole {
+    Time,
+    Amount,
+    Category,
+    Title,
+    Key,
+    Other,
+}
+
+/// One source field in a dataset profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldProfile {
+    pub name: String,
+    pub data_type: String,
+    pub role: FieldRole,
+    pub inferred: bool,
+}
+
+/// `dataset_profile`: inferred roles the owner can correct before analysis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetProfile {
+    pub space: String,
+    pub table: String,
+    pub fields: Vec<FieldProfile>,
+    pub fingerprint: String,
+}
+
+/// `analyze_dataset`: explicitly create a derived daily/category analysis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzeDataset {
+    pub space: String,
+    pub table: String,
+    pub name: String,
+    pub time_field: String,
+    pub amount_field: String,
+    pub category_field: String,
+}
+
+/// Why a derived analysis can be rebuilt, and whether its source shape changed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisProfile {
+    pub name: String,
+    pub source_space: String,
+    pub source_table: String,
+    pub time_field: String,
+    pub amount_field: String,
+    pub category_field: String,
+    pub query: String,
+    pub source_fingerprint: String,
+    pub source_changed: bool,
+    pub created_at_ms: u64,
+}
+
+/// A derived analysis and its source profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetAnalysis {
+    pub space: SpaceSummary,
+    pub profile: AnalysisProfile,
+}
+
 /// `create_public_share`: publish a detached collection with live-query and
 /// snapshot limits chosen by the owner.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -812,11 +880,15 @@ pub struct DefaultStorage {
     pub storage: Option<String>,
 }
 
-/// What a source reads: a folder of photos, a folder of notes (Markdown
-/// or text, such as a notes vault), a CSV file, or flomo.
+/// What a data source plugin brings in: folders and files of this computer
+/// (`Files`) or of a RustFS bucket (`Rustfs`), which go into a collection as
+/// its files, or flomo. `Photos`, `Notes` and `Csv` are sources registered
+/// before data sources were plugins; no plugin offers them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceKind {
+    Files,
+    Rustfs,
     Photos,
     Notes,
     Csv,
@@ -835,6 +907,13 @@ pub struct SourceSummary {
     pub space: String,
     /// The table it writes, when the connector has one main table.
     pub table: Option<String>,
+    /// The package and capability that produced this target, when plugin-driven.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub capability: Option<String>,
     pub kind: SourceKind,
     /// The folder or file it reads, or the service it asks.
     pub place: String,
@@ -1101,6 +1180,10 @@ pub struct FoundPlace {
 pub struct FolderRef {
     #[serde(default)]
     pub path: Option<String>,
+    /// A storage's name: `path` is then within it (`""` for its top), and so
+    /// are the paths of the listing. This computer when left out.
+    #[serde(default)]
+    pub place: Option<String>,
 }
 
 /// The folders and files in one folder, hidden ones left out, and how many
@@ -2217,4 +2300,347 @@ pub struct AccessItem {
     pub count: u64,
     /// What it asked for, where that says more: an assistant's search words.
     pub detail: Option<String>,
+}
+
+/// Where one original of a collection is in being prepared as knowledge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum KnowledgeStage {
+    Waiting,
+    Reading,
+    Splitting,
+    /// Its chunks' vectors are being made (searched by meaning).
+    Embedding,
+    Ready,
+    Failed,
+}
+
+/// One original of a collection prepared as knowledge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeFile {
+    /// Its path within the collection.
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub stage: KnowledgeStage,
+    /// Chunks of its current version (the previous one's while it is
+    /// prepared again).
+    pub chunks: u64,
+    /// Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF),
+    /// `unreadable` or `no_model` (its model was removed).
+    pub reason: Option<String>,
+    pub updated_ms: i64,
+}
+
+/// `knowledge_status`, `prepare_knowledge`, `retry_knowledge`: what an AI
+/// can read of a collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeStatus {
+    pub space: String,
+    /// When the owner prepared it; `None` when never.
+    pub prepared_ms: Option<i64>,
+    /// Whether this computer has the DuckDB extension knowledge needs.
+    pub available: bool,
+    /// Its download and installation (`install_lance`), while there is one.
+    pub extension: ExtensionDownload,
+    /// The model it is searched by meaning with (`set_knowledge_model`).
+    pub model: Option<String>,
+    /// Whether it is searched by meaning now: it has a model and the
+    /// model's files are on this computer.
+    pub meaning: bool,
+    pub files: Vec<KnowledgeFile>,
+    pub ready: u32,
+    /// Waiting or in progress.
+    pub waiting: u32,
+    pub failed: u32,
+    pub chunks: u64,
+}
+
+/// A chunk: a slice of an original's text, and where it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeChunk {
+    /// Empty in a preview, before anything is written.
+    pub chunk_id: String,
+    pub path: String,
+    pub seq: i32,
+    /// Headings above it, outermost first.
+    pub heading: Vec<String>,
+    pub text: String,
+    /// The PDF page, from 1.
+    pub page: Option<u32>,
+    /// Characters of the original's text (of the page's for a PDF), end
+    /// exclusive.
+    pub char_start: u64,
+    pub char_end: u64,
+    /// Lines from 1, both inclusive.
+    pub line_start: u32,
+    pub line_end: u32,
+    pub enabled: bool,
+    /// Its score, for a hit: BM25 by words, cosine similarity by meaning,
+    /// the fused rank score for both.
+    pub score: Option<f64>,
+    /// How a hit was found.
+    pub found_by: Option<FoundBy>,
+}
+
+/// How a search hit was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FoundBy {
+    Words,
+    Meaning,
+    Both,
+}
+
+/// How knowledge is searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchMode {
+    /// Passages holding every word.
+    Words,
+    /// Passages nearest in meaning.
+    Meaning,
+    /// Both, fused by rank.
+    Hybrid,
+}
+
+/// `knowledge_chunks`: the chunks of one original.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeChunksRequest {
+    pub space: String,
+    pub path: String,
+}
+
+/// `set_knowledge_chunk`: turn a chunk off (kept, never returned) or on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetKnowledgeChunk {
+    pub space: String,
+    pub chunk_id: String,
+    pub enabled: bool,
+}
+
+/// `retrieval_test`: search a collection's knowledge as an assistant would.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalTest {
+    pub space: String,
+    pub query: String,
+    /// Most hits, 1 to 100; default 10.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// How to search; both words and meaning when the collection is
+    /// searched by meaning, words otherwise.
+    #[serde(default)]
+    pub mode: Option<SearchMode>,
+}
+
+/// What a retrieval test found, best first, how it searched and how long
+/// it took.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalResults {
+    pub hits: Vec<KnowledgeChunk>,
+    pub mode: SearchMode,
+    pub took_ms: u64,
+}
+
+/// `set_knowledge_model`: search a collection by meaning with a model, or
+/// by words only (`None`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetKnowledgeModel {
+    pub space: String,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// Where an embedding model is on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelState {
+    Absent,
+    Downloading,
+    Ready,
+    /// The last download failed; downloading again resumes it.
+    Failed,
+}
+
+/// `list_models`, `download_model`: an embedding model knowledge can be
+/// searched by meaning with. It runs on this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingModel {
+    pub id: String,
+    pub name: String,
+    pub license: String,
+    /// Bytes to download.
+    pub size: u64,
+    /// Length of its vectors.
+    pub dims: u32,
+    pub state: ModelState,
+    /// Bytes downloaded so far, while downloading.
+    pub done: u64,
+    /// Why the last download failed.
+    pub error: Option<String>,
+    /// Collections searched by meaning with it.
+    pub used_by: Vec<String>,
+    /// The directory its files are saved in.
+    pub path: String,
+}
+
+/// One file of a skill, with its digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFileInfo {
+    /// Its path within the skill's folder.
+    pub path: String,
+    pub size: u64,
+    /// SHA-256, hex; `None` for a file too large to digest.
+    pub sha256: Option<String>,
+}
+
+/// `knowledge_skills`, an assistant's `list_skills`: a skill, a folder with
+/// `SKILL.md` in a collection prepared for AI (or Oikome's own).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInfo {
+    /// Its collection; `None` for Oikome's own skill.
+    pub collection: Option<String>,
+    pub name: String,
+    pub description: String,
+    pub license: Option<String>,
+    /// Its folder within the collection; empty at the top.
+    pub dir: String,
+    /// `skill://<collection>/<name>/SKILL.md`.
+    pub uri: String,
+    pub files: Vec<SkillFileInfo>,
+    /// Why assistants are not offered it (shown to the owner only).
+    pub problem: Option<String>,
+}
+
+/// An assistant's `list_skills`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSkills {
+    /// Only this collection's.
+    #[serde(default)]
+    pub collection: Option<String>,
+}
+
+/// An assistant's `get_skill`: a skill's `SKILL.md`, or another of its files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct GetSkill {
+    /// `None` for Oikome's own skill.
+    #[serde(default)]
+    pub collection: Option<String>,
+    pub name: String,
+    /// A path from its files; `SKILL.md` when left out.
+    #[serde(default)]
+    pub file: Option<String>,
+}
+
+/// What `get_skill` returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillContent {
+    pub collection: Option<String>,
+    pub name: String,
+    pub path: String,
+    pub sha256: String,
+    pub text: String,
+}
+
+/// `download_model`, `remove_model`: a model by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRef {
+    pub id: String,
+}
+
+/// Where a download the owner started is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadState {
+    /// None running.
+    Idle,
+    Downloading,
+    Installing,
+    /// The last try failed; trying again resumes it.
+    Failed,
+}
+
+/// `install_lance`, and in `knowledge_status`: the download and
+/// installation of the DuckDB extension knowledge needs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionDownload {
+    pub state: DownloadState,
+    /// Bytes downloaded so far.
+    pub done: u64,
+    /// The whole download, once the server said.
+    pub total: Option<u64>,
+    pub error: Option<String>,
+    /// The directory DuckDB keeps extensions in.
+    pub path: String,
+}
+
+/// A passage of a prepared document an assistant's search found.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgePassage {
+    pub collection: String,
+    pub path: String,
+    /// To open it, with what is around it, with `read`.
+    pub chunk_id: String,
+    pub heading: Vec<String>,
+    pub page: Option<u32>,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub excerpt: String,
+    pub score: Option<f64>,
+    /// How it was found: by words, by meaning or both.
+    pub found_by: Option<FoundBy>,
+}
+
+/// An assistant's `read`: a passage and what is around it, or a range of a
+/// prepared document's lines or characters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadKnowledge {
+    pub collection: String,
+    pub path: String,
+    #[serde(default)]
+    pub chunk_id: Option<String>,
+    /// Passages on either side of the chunk, 0 to 5.
+    #[serde(default)]
+    pub around: Option<u32>,
+    /// The PDF page lines or characters are counted on.
+    #[serde(default)]
+    pub page: Option<u32>,
+    /// Lines from 1, both inclusive.
+    #[serde(default)]
+    pub lines: Option<(u32, u32)>,
+    /// Characters, end exclusive.
+    #[serde(default)]
+    pub chars: Option<(u64, u64)>,
+}
+
+/// What `read` returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeText {
+    pub collection: String,
+    pub path: String,
+    pub page: Option<u32>,
+    pub char_start: u64,
+    pub char_end: u64,
+    /// Characters of the whole text, to say what was left out.
+    pub total_chars: u64,
+    pub text: String,
 }

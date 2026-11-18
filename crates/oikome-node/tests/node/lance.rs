@@ -47,6 +47,8 @@ fn node_with(duckdb: DuckDbConfig) -> Node {
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
     let config = NodeConfig {
         duckdb,
+        // Models are shared by the tests that need one, downloaded once.
+        models_dir: Some(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("models")),
         ..Default::default()
     };
     let engines = Arc::new(EngineRegistry::new(catalog.clone(), config).unwrap());
@@ -398,4 +400,435 @@ async fn writes_by_another_process_are_seen() {
     assert_eq!(count().await, vec![300]);
     n.sql("DELETE FROM notes.items WHERE id < 10").await;
     assert_eq!(count().await, vec![290]);
+}
+
+/// Words found in `docs`: each hit as `path:first line`, best first.
+async fn found(n: &Node, query: &str) -> Vec<String> {
+    n.owner
+        .search_knowledge("docs", query, 5)
+        .await
+        .unwrap()
+        .hits
+        .iter()
+        .map(|c| format!("{}:{}", c.path, c.line_start))
+        .collect()
+}
+
+/// Knowledge (docs/knowledge-schema.md, K1): a folder's Markdown and text
+/// split into chunks that keep their places, found in Chinese and English
+/// through the `ngram` full-text index, read back by chunk and by lines,
+/// turned off and on, and replaced or removed as the originals change.
+#[tokio::test]
+#[ignore = "downloads the DuckDB lance extension"]
+async fn knowledge_is_prepared_found_read_and_kept_up_to_date() {
+    use oikome_node::knowledge::{KnowledgeRange, Stage};
+    let n = lance_node();
+    let folder = tempfile::Builder::new().prefix("docs-").tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(
+        root.join("architecture.md"),
+        "# 架构\n\n## 联邦层\n\nDataFusion 是协调者，从不直接读取文件。\n\n## 多模态\n\n向量检索走 Lance，全文检索也走 Lance。\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("sharing.txt"),
+        "A public share is the owner's explicit grant to anyone.\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("spending.csv"), "day,euros\n2025-01-01,3.5\n").unwrap();
+    n.sql(&format!(
+        "CREATE SPACE docs WITH PLACE = 'local', PATH = '{}'",
+        root.display()
+    ))
+    .await;
+    n.owner.refresh_in_place("docs").await.unwrap();
+
+    // Before Prepare there is nothing, and a preview writes nothing.
+    assert!(n
+        .owner
+        .knowledge_status("docs")
+        .unwrap()
+        .prepared_ms
+        .is_none());
+    let preview = n.owner.preview_knowledge("docs", 5).await.unwrap();
+    assert!(!preview.is_empty());
+    assert!(n
+        .owner
+        .knowledge_status("docs")
+        .unwrap()
+        .prepared_ms
+        .is_none());
+
+    // Prepare queues the Markdown and the text; a table is not a document.
+    let status = n.owner.prepare_knowledge("docs").await.unwrap();
+    assert!(status.prepared_ms.is_some());
+    let mut paths: Vec<_> = status.assets.iter().map(|a| a.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, vec!["architecture.md", "sharing.txt"]);
+    assert!(status.assets.iter().all(|a| a.stage == Stage::Queued));
+
+    let done = n
+        .owner
+        .work_knowledge("docs", std::time::Duration::from_secs(120))
+        .await
+        .unwrap();
+    assert_eq!(
+        done,
+        2,
+        "{:?}",
+        n.owner.knowledge_status("docs").unwrap().assets
+    );
+    let status = n.owner.knowledge_status("docs").unwrap();
+    assert!(
+        status.assets.iter().all(|a| a.stage == Stage::Ready),
+        "{:?}",
+        status.assets
+    );
+
+    // Two-character Chinese words, English words, each with its place.
+    assert_eq!(found(&n, "协调者").await, vec!["architecture.md:3"]);
+    assert_eq!(found(&n, "向量").await, vec!["architecture.md:7"]);
+    assert_eq!(found(&n, "DataFusion").await, vec!["architecture.md:3"]);
+    assert_eq!(found(&n, "grant").await, vec!["sharing.txt:1"]);
+    assert_eq!(found(&n, "public GRANT").await, vec!["sharing.txt:1"]);
+    assert!(found(&n, "public 协调者").await.is_empty());
+    assert!(found(&n, "euros").await.is_empty());
+
+    let hit = n
+        .owner
+        .search_knowledge("docs", "协调者", 1)
+        .await
+        .unwrap()
+        .hits
+        .remove(0);
+    assert_eq!(hit.heading, vec!["架构", "联邦层"]);
+    assert!(hit.score.is_some());
+
+    // Read back: the chunk itself, and the original by lines.
+    let read = n
+        .owner
+        .read_knowledge(
+            "docs",
+            "architecture.md",
+            KnowledgeRange::Chunk {
+                chunk_id: hit.chunk_id.clone(),
+                around: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(read.text, hit.text);
+    let line = n
+        .owner
+        .read_knowledge(
+            "docs",
+            "architecture.md",
+            KnowledgeRange::Lines {
+                page: None,
+                start: 5,
+                end: 5,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        line.text.trim_end(),
+        "DataFusion 是协调者，从不直接读取文件。"
+    );
+
+    // A chunk turned off is kept but never returned, nor read by its id.
+    n.owner
+        .set_knowledge_chunk("docs", &hit.chunk_id, false)
+        .unwrap();
+    assert!(found(&n, "协调者").await.is_empty());
+    let chunks = n
+        .owner
+        .knowledge_chunks("docs", "architecture.md")
+        .await
+        .unwrap();
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks.iter().filter(|(_, on)| !on).count(), 1);
+    assert!(n
+        .owner
+        .read_knowledge(
+            "docs",
+            "architecture.md",
+            KnowledgeRange::Chunk {
+                chunk_id: hit.chunk_id.clone(),
+                around: 0,
+            },
+        )
+        .await
+        .is_err());
+    n.owner
+        .set_knowledge_chunk("docs", &hit.chunk_id, true)
+        .unwrap();
+    assert_eq!(found(&n, "协调者").await, vec!["architecture.md:3"]);
+
+    // An original changed: its old chunks go, its new ones are found.
+    // One removed: its chunks go with it.
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    std::fs::write(
+        root.join("architecture.md"),
+        "# 架构\n\n协调者只合并 Arrow 流。\n",
+    )
+    .unwrap();
+    std::fs::remove_file(root.join("sharing.txt")).unwrap();
+    n.owner.refresh_in_place("docs").await.unwrap();
+    n.owner
+        .refresh_knowledge(std::time::Duration::from_secs(120))
+        .await;
+    assert_eq!(found(&n, "协调者").await, vec!["architecture.md:1"]);
+    assert!(found(&n, "向量").await.is_empty());
+    assert!(found(&n, "grant").await.is_empty());
+    let status = n.owner.knowledge_status("docs").unwrap();
+    assert_eq!(status.assets.len(), 1);
+
+    // Removing the collection forgets its knowledge; the folder stays.
+    n.sql("DROP SPACE docs").await;
+    assert!(root.join("architecture.md").exists());
+    assert!(!n
+        .catalog
+        .oikome_dir()
+        .join("knowledge")
+        .join("docs")
+        .exists());
+}
+
+/// Knowledge searched by meaning (docs/knowledge-schema.md, K2): the owner
+/// downloads Qwen3-Embedding-0.6B, turns it on for a prepared collection,
+/// its originals are converted again with vectors while the old chunks keep
+/// serving, and a query finds passages by meaning, in any language, alone
+/// or fused with words. A chunk turned off stays off.
+#[tokio::test]
+#[ignore = "downloads the DuckDB lance extension and a 1.2 GB embedding model"]
+async fn knowledge_is_found_by_meaning() {
+    use oikome_node::knowledge::{model, FoundBy, SearchMode, Stage};
+    use std::time::Duration;
+    let n = lance_node();
+    let folder = tempfile::Builder::new().prefix("notes-").tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(
+        root.join("cat.md"),
+        "# 猫\n\n家里的猫喜欢在午后的阳光下睡觉。\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("budget.md"),
+        "# Budget\n\nIn March we paid 300 euros for groceries and 80 for the train.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("engines.md"),
+        "# Engines\n\nDuckDB runs the analytical queries over Parquet files.\n",
+    )
+    .unwrap();
+    n.sql(&format!(
+        "CREATE SPACE docs WITH PLACE = 'local', PATH = '{}'",
+        root.display()
+    ))
+    .await;
+    n.owner.refresh_in_place("docs").await.unwrap();
+    n.owner.prepare_knowledge("docs").await.unwrap();
+    n.owner
+        .work_knowledge("docs", Duration::from_secs(120))
+        .await
+        .unwrap();
+    // A chunk turned off before meaning is turned on.
+    let engines = n
+        .owner
+        .search_knowledge("docs", "DuckDB", 1)
+        .await
+        .unwrap()
+        .hits
+        .remove(0);
+    n.owner
+        .set_knowledge_chunk("docs", &engines.chunk_id, false)
+        .unwrap();
+
+    // Choosing a model not yet here starts its download; the collection
+    // is searched by words until it arrives.
+    let id = model::MODELS[0].id;
+    let status = n.owner.set_knowledge_model("docs", Some(id)).await.unwrap();
+    assert_eq!(status.model.as_deref(), Some(id));
+    let started = std::time::Instant::now();
+    loop {
+        match n.owner.download_embedding_model(id).unwrap() {
+            model::ModelState::Ready => break,
+            model::ModelState::Failed(e) => panic!("download failed: {e}"),
+            _ => {}
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(1800),
+            "download took too long"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+
+    let status = n.owner.set_knowledge_model("docs", Some(id)).await.unwrap();
+    assert_eq!(status.model.as_deref(), Some(id));
+    assert!(status.assets.iter().all(|a| a.stage == Stage::Queued));
+    // Until the originals are converted again, words still find them, and
+    // meaning finds nothing (they have no vectors yet).
+    let words = n
+        .owner
+        .search_knowledge_by("docs", "groceries", 5, Some(SearchMode::Words))
+        .await
+        .unwrap();
+    assert_eq!(words.hits.len(), 1);
+    let meaning = n
+        .owner
+        .search_knowledge_by("docs", "pets napping", 5, Some(SearchMode::Meaning))
+        .await
+        .unwrap();
+    assert!(meaning.hits.is_empty());
+
+    let done = n
+        .owner
+        .work_knowledge("docs", Duration::from_secs(600))
+        .await
+        .unwrap();
+    assert_eq!(done, 3);
+    let status = n.owner.knowledge_status("docs").unwrap();
+    assert!(
+        status.assets.iter().all(|a| a.stage == Stage::Ready),
+        "{:?}",
+        status.assets
+    );
+
+    let first = |hits: &[oikome_node::knowledge::StoredChunk]| {
+        hits.first().map(|c| c.path.clone()).unwrap_or_default()
+    };
+    // No word in common, in another language: found by meaning.
+    let pets = n
+        .owner
+        .search_knowledge_by(
+            "docs",
+            "where does the cat like to sleep",
+            3,
+            Some(SearchMode::Meaning),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first(&pets.hits), "cat.md", "{:?}", pets.hits);
+    assert!(
+        pets.hits[0].score.unwrap() > 0.3,
+        "{:?}",
+        pets.hits[0].score
+    );
+    let money = n
+        .owner
+        .search_knowledge_by("docs", "how much did food cost", 3, None)
+        .await
+        .unwrap();
+    assert_eq!(money.mode, SearchMode::Hybrid);
+    assert_eq!(first(&money.hits), "budget.md", "{:?}", money.hits);
+    assert_eq!(money.hits[0].found_by, Some(FoundBy::Meaning));
+    // Words and meaning together.
+    let both = n
+        .owner
+        .search_knowledge("docs", "groceries", 3)
+        .await
+        .unwrap();
+    assert_eq!(first(&both.hits), "budget.md");
+    assert_eq!(both.hits[0].found_by, Some(FoundBy::Both));
+    // The chunk turned off kept its id through the new conversion.
+    let engines_now = n
+        .owner
+        .search_knowledge_by(
+            "docs",
+            "query engine for Parquet",
+            3,
+            Some(SearchMode::Meaning),
+        )
+        .await
+        .unwrap();
+    assert!(engines_now.hits.iter().all(|c| c.path != "engines.md"));
+
+    // Back to words only: meaning is refused, words still work.
+    n.owner.set_knowledge_model("docs", None).await.unwrap();
+    assert!(n
+        .owner
+        .search_knowledge_by("docs", "cat", 3, Some(SearchMode::Meaning))
+        .await
+        .is_err());
+    assert_eq!(
+        n.owner
+            .search_knowledge("docs", "groceries", 3)
+            .await
+            .unwrap()
+            .mode,
+        SearchMode::Words
+    );
+}
+
+/// Skills (docs/knowledge-schema.md §7, K2): folders with SKILL.md in a
+/// prepared collection are listed with each file's SHA-256, a broken one
+/// with why; only the files a skill lists are read, as text; Oikome's own
+/// skill is valid.
+#[tokio::test]
+#[ignore = "downloads the DuckDB lance extension"]
+async fn skills_are_listed_with_digests_and_read_as_files() {
+    use oikome_node::knowledge::skills::{oikome_skill, problem};
+    let n = lance_node();
+    let folder = tempfile::Builder::new().prefix("kit-").tempdir().unwrap();
+    let root = folder.path();
+    let pdf = root.join("pdf-tools");
+    std::fs::create_dir_all(pdf.join("scripts")).unwrap();
+    std::fs::write(
+        pdf.join("SKILL.md"),
+        "---\nname: pdf-tools\ndescription: Fill PDF forms and merge PDF files.\nlicense: Apache-2.0\n---\n# PDF tools\n\nRun scripts/merge.py to merge.\n",
+    )
+    .unwrap();
+    std::fs::write(pdf.join("scripts/merge.py"), "print('merge')\n").unwrap();
+    let broken = root.join("Broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("SKILL.md"), "# No front matter\n").unwrap();
+    std::fs::write(root.join("notes.md"), "# Notes\n\nNothing here.\n").unwrap();
+    n.sql(&format!(
+        "CREATE SPACE kit WITH PLACE = 'local', PATH = '{}'",
+        root.display()
+    ))
+    .await;
+    n.owner.refresh_in_place("kit").await.unwrap();
+
+    // Skills come with Prepare.
+    assert!(n.owner.knowledge_skills("kit").await.unwrap().is_empty());
+    n.owner.prepare_knowledge("kit").await.unwrap();
+    let skills = n.owner.knowledge_skills("kit").await.unwrap();
+    assert_eq!(skills.len(), 2, "{skills:?}");
+    let good = skills.iter().find(|s| s.name == "pdf-tools").unwrap();
+    assert_eq!(good.problem, None);
+    assert_eq!(good.dir, "pdf-tools");
+    assert_eq!(good.license.as_deref(), Some("Apache-2.0"));
+    let paths: Vec<_> = good.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, vec!["SKILL.md", "scripts/merge.py"]);
+    assert!(good
+        .files
+        .iter()
+        .all(|f| f.sha256.as_ref().is_some_and(|d| d.len() == 64)));
+    let bad = skills.iter().find(|s| s.dir == "Broken").unwrap();
+    assert_eq!(bad.problem.as_deref(), Some(problem::NO_FRONT_MATTER));
+
+    // SKILL.md and the files it lists, nothing else.
+    let md = n.owner.read_skill("kit", "pdf-tools", None).await.unwrap();
+    assert!(md.text.contains("# PDF tools"));
+    assert_eq!(Some(&md.sha256), good.files[0].sha256.as_ref());
+    let script = n
+        .owner
+        .read_skill("kit", "pdf-tools", Some("scripts/merge.py"))
+        .await
+        .unwrap();
+    assert_eq!(script.text, "print('merge')\n");
+    for refused in ["../notes.md", "/etc/passwd", "scripts/../../notes.md"] {
+        assert!(
+            n.owner
+                .read_skill("kit", "pdf-tools", Some(refused))
+                .await
+                .is_err(),
+            "{refused}"
+        );
+    }
+    assert!(n.owner.read_skill("kit", "Broken", None).await.is_err());
+    assert!(oikome_skill().problem.is_none());
 }

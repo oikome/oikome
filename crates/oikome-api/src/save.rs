@@ -264,7 +264,7 @@ impl Api {
         Ok(Saved { files, space: None })
     }
 
-    async fn write_saved_table(
+    pub(crate) async fn write_saved_table(
         &self,
         space: &str,
         table: &str,

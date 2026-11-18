@@ -349,6 +349,16 @@ async fn attach_arrow_batches_creates_table() {
         ids(&collect(&engine, "SELECT id FROM remote.peers ORDER BY id DESC").await),
         vec![3, 2, 1]
     );
+
+    // Detached, the table is gone (a table, not a view, is dropped).
+    engine
+        .detach(&QualifiedName::new("remote", "peers"))
+        .await
+        .unwrap();
+    assert!(engine
+        .query("SELECT id FROM remote.peers", &[])
+        .await
+        .is_err());
 }
 
 #[tokio::test]

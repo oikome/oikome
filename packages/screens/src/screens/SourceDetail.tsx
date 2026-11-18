@@ -68,7 +68,7 @@ export function SourceDetail({ name }: { name: string }) {
   const title = placeName(source.place);
   const into = (
     <Link to={`/collections/${encodeURIComponent(source.space)}`} className="oik-link screen-link-mono">
-      {source.space}
+      {source.space}{source.table ? ` / ${source.table}` : ""}
     </Link>
   );
   // The collection's link goes where the language puts it in the sentence.
@@ -130,6 +130,7 @@ export function SourceDetail({ name }: { name: string }) {
           <dt className="oik-label">{s.reads}</dt>
           <dd translate="no" title={source.place}>
             {source.kind === "photos" || source.kind === "notes" ? s.readsFolder(homeRelative(source.place)) : s.readsFile(homeRelative(source.place))}
+            {source.plugin && <span className="screen-facts__note"> · {source.plugin} / {source.capability}</span>}
           </dd>
         </div>
       </dl>

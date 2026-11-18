@@ -6,10 +6,26 @@
 
 - Original content is the source of truth. Analysis produces derived, rebuildable data and never silently rewrites or removes the original.
 - Adding content, querying it directly, generating analysis data and archiving a copy are different actions.
-- Ordinary people work with content and goals, not database engines or file formats. Iceberg, Lance, Parquet, SQLite, vectors and storage layouts stay out of the ordinary flow; technical details remain available under Info.
+- Ordinary people work with content and goals, not database engines. A format may appear where it is a real choice, preselected and explained in one sentence (Knowledge in Lance for search and AI assistants, Analysis tables in Iceberg for totals and charts; see `knowledge-schema.md`). Engines, storage layouts and other technical details stay under Info.
 - One analysis dataset has one primary physical layout selected by the system. Do not duplicate the same table across Iceberg and Lance to provide different capabilities.
 - Every derived row, chunk, vector or preview retains its source path, content version, parser/model version and enough location information to open the original and rebuild after a change.
 - External datasets are read-only by default. Oikome and an external system must never become silent write masters of the same dataset.
+
+## Collections and source targets
+
+A collection is a container, not a source's implicit destination. It can hold original files, ordinary tables and views, connector-synchronized tables, and derived analysis tables or indexes at the same time. A source belongs to one of those data objects, not implicitly to the whole collection.
+
+Every source registration identifies a target object precisely:
+
+- collection and relative file path or table name;
+- plugin id and capability id, with the connector's declared input and output shape;
+- origin file, application or external dataset, independent of the storage the collection lives on;
+- direct-query versus continuing-sync behavior, primary key and conflict policy;
+- content version and links to derived artifacts.
+
+A file connector may target `reading-list/books.csv` or `reading-list/books`; it must not create a `drive-reading` collection merely to demonstrate Drive access. An application connector may produce one or more named tables in an existing collection. New collections are created only by an explicit owner choice, never as a side effect of connecting a plugin.
+
+The ordinary interface presents this as "reading-list / books comes from Drive". Storage and provenance are separate facts: Drive may be where the collection is kept, the CSV plugin may be how the file is read, and an analysis action may be why a derived table exists.
 
 ## Two kinds of source, plus migration
 
@@ -30,7 +46,8 @@ Migration is not connection. It copies a dataset and its metadata into Oikome, i
 The system, not the ordinary owner, maintains a versioned dataset profile:
 
 - source kind: `content`, `external_dataset`, `migration` or `derived_index`;
-- source identity, path and content version;
+- target collection and relative file or table, plus the plugin and capability that produced it;
+- source identity, path and content version, distinct from the target's storage identity;
 - parser and inference-rule versions;
 - physical fields and types, with raw content retained when inference is uncertain;
 - field roles such as title, time, place, amount and primary key;
@@ -60,8 +77,8 @@ Safe additive changes can be accepted automatically. Type widening is allowed wh
 1. **PR 21:** collection and data-source targets, source identity migration, built-in CSV/file flows, semantic declarations and source/destination validation.
 2. **PR 22:** safe local UTF-8 text editing, including code, configuration and text tables, with original-versus-derived behavior clear.
 3. **PR 26:** Save To and public sharing form one content-delivery item, with saved portfolios and deliberately published public snapshots.
-4. **PR 27:** internal analysis profiles as core computation: direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
-5. **PR 28:** read-only Iceberg/Lance/S3 dataset interoperability, followed by deliberately evaluated migrations and backup/recovery paths with integrity and restore checks.
-6. **PR 29:** media metadata, semantic/vector indexes and queries, plus real RAW plugin support. Model and RAW capabilities belong in plugins with independent grants and no hidden downloads.
+4. **PR 27:** precise source targets first, then internal analysis profiles as core computation: collection-contained files and tables, plugin capabilities, direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
+5. **PR 28:** knowledge for AI in steps K1–K4 (chunks and full text, a local embedding model and skills, tables as knowledge, then media), plus real RAW plugin support, as planned in `knowledge-schema.md`. Models are chosen explicitly and never downloaded silently.
+6. **PR 29:** read-only Iceberg/Lance/S3 dataset interoperability, followed by deliberately evaluated migrations and backup/recovery paths with integrity and restore checks.
 
 Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.

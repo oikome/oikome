@@ -34,7 +34,7 @@ use std::time::Duration;
 use arrow_array::{Array, ArrayRef, Int64Array, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
-use oikome_catalog::{SourceDef, SourceFailure};
+use oikome_catalog::{SourceDef, SourceFailure, SourceTarget};
 use oikome_connect::{ConnectError, Connector, Pull, SourceConfig, TableDef, Value};
 use oikome_core::{CatalogError, CreateSpaceRequest, SpaceKind};
 use oikome_engine::name::quote_ident;
@@ -479,7 +479,7 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
-        self.add_source_inner(name, name, config, every, token, true)
+        self.add_source_inner(name, name, config, every, token, None)
             .await
     }
 
@@ -492,7 +492,27 @@ impl OikomeSession {
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
     ) -> Result<PullReport, SessionError> {
-        self.add_source_inner(name, space, config, every, token, false)
+        self.add_source_inner(
+            name,
+            space,
+            config,
+            every,
+            token,
+            Some(SourceTarget::default()),
+        )
+        .await
+    }
+
+    pub async fn add_source_to_target(
+        &self,
+        name: &str,
+        space: &str,
+        target: SourceTarget,
+        config: SourceConfig,
+        every: Option<Duration>,
+        token: Option<Zeroizing<String>>,
+    ) -> Result<PullReport, SessionError> {
+        self.add_source_inner(name, space, config, every, token, Some(target))
             .await
     }
 
@@ -503,21 +523,23 @@ impl OikomeSession {
         config: SourceConfig,
         every: Option<Duration>,
         token: Option<Zeroizing<String>>,
-        create_space: bool,
+        target: Option<SourceTarget>,
     ) -> Result<PullReport, SessionError> {
         self.deny_principal("adding a source")?;
         let settings = serde_json::to_value(&config)
             .map_err(|e| CatalogError::Registry(format!("source settings: {e}")))?;
-        if create_space {
-            self.catalog
-                .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
-        } else {
-            self.catalog.add_source_to(
+        let create_space = target.is_none();
+        if let Some(target) = target {
+            self.catalog.add_source_to_target(
                 name,
                 space,
+                target,
                 settings,
                 every.map(|e| e.as_secs().max(60)),
             )?;
+        } else {
+            self.catalog
+                .add_source(name, settings, every.map(|e| e.as_secs().max(60)))?;
         }
         let mut created_space = false;
         let added = async {
@@ -833,6 +855,9 @@ pub fn spawn_source_sync(session: Arc<OikomeSession>, check_every: Duration) -> 
             session.pull_due_sources().await;
             // Folders viewed in place are scanned on the same schedule.
             session.refresh_places(Duration::from_secs(20)).await;
+            // So are prepared collections' knowledge (knowledge/mod.rs).
+            #[cfg(feature = "knowledge")]
+            session.refresh_knowledge(Duration::from_secs(20)).await;
         }
     })
 }

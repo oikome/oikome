@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use arrow_schema::SchemaRef;
@@ -269,6 +269,48 @@ impl DuckDbEngine {
             .await
     }
 
+    /// Install `ext` from a file this node downloaded itself, to show the
+    /// download's progress. DuckDB checks its signature when it loads it.
+    pub async fn install_extension_file(
+        &self,
+        ext: Extension,
+        file: &Path,
+    ) -> Result<String, EngineError> {
+        let sql = format!("INSTALL {};", quote_literal(&file.to_string_lossy()));
+        self.worker
+            .run(move |conn| {
+                let conn = &fresh(conn)?;
+                conn.execute_batch(&sql).map_err(|e| {
+                    EngineError::ExtensionUnavailable(ext.name().to_string(), e.to_string())
+                })?;
+                conn.query_row(
+                    "SELECT extension_version FROM duckdb_extensions() \
+                     WHERE extension_name = $1 OR list_contains(aliases, $1)",
+                    [ext.name()],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(sql_err)
+            })
+            .await
+    }
+
+    /// DuckDB's version (`v1.5.6`) and platform (`osx_arm64`), which name
+    /// where its extensions are published.
+    pub async fn version_and_platform(&self) -> Result<(String, String), EngineError> {
+        self.worker
+            .run(move |conn| {
+                let conn = &fresh(conn)?;
+                conn.query_row(
+                    "SELECT (SELECT library_version FROM pragma_version()), \
+                     (SELECT platform FROM pragma_platform())",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .map_err(sql_err)
+            })
+            .await
+    }
+
     fn view_over_parquet(
         name: &QualifiedName,
         files: &[PathBuf],
@@ -454,10 +496,18 @@ impl QueryEngine for DuckDbEngine {
     }
 
     async fn detach(&self, name: &QualifiedName) -> Result<(), EngineError> {
-        let sql = format!(
-            "DROP VIEW IF EXISTS {n}; DROP TABLE IF EXISTS {n};",
-            n = name.quoted()
-        );
+        // Arrow batches are loaded into a table, everything else is a view,
+        // and DuckDB refuses DROP VIEW on a table: drop what was attached.
+        let table = self
+            .attached
+            .lock()
+            .map(|m| matches!(m.get(name), Some(Attached::Arrow)))
+            .unwrap_or(false);
+        let sql = if table {
+            format!("DROP TABLE IF EXISTS {};", name.quoted())
+        } else {
+            format!("DROP VIEW IF EXISTS {};", name.quoted())
+        };
         self.run_batch(sql).await?;
         if let Ok(mut m) = self.attached.lock() {
             m.remove(name);

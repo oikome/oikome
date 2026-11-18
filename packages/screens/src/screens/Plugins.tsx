@@ -87,6 +87,14 @@ export function Plugins() {
 
   const installed = (plugins.data ?? []).filter((p) => p.installed);
   const offered = (plugins.data ?? []).filter((p) => !p.installed && p.builtIn);
+  // What is installed, by what it offers; a package offering several is in each.
+  const groups = (
+    [
+      { key: "sources", title: s.groupSources, icon: "download", plugins: installed.filter((p) => p.capabilities.sources.length > 0) },
+      { key: "cards", title: s.groupCards, icon: "home", plugins: installed.filter((p) => p.capabilities.cards.length > 0) },
+      { key: "clients", title: s.groupClients, icon: "ai", plugins: installed.filter((p) => p.capabilities.mcpClients.length > 0) },
+    ] as const
+  ).filter((group) => group.plugins.length > 0);
   const registryOffered = (registry.data ?? []).filter(
     (entry) => !(plugins.data ?? []).some((plugin) => plugin.builtIn && plugin.id === entry.plugin.id),
   );
@@ -101,55 +109,72 @@ export function Plugins() {
       {(plugins.error ?? inspect.error) && <ErrorText>{plugins.error ?? inspect.error}</ErrorText>}
 
       {plugins.data && installed.length === 0 && <p className="screen-panel__empty">{s.none}</p>}
-      {installed.length > 0 && (
-        <div className="oik-table-wrap screen-table-in-card">
-          <table className="oik-table screen-plugins" aria-label={s.title}>
-            <thead>
-              <tr>
-                <th scope="col">{s.colPlugin}</th>
-                <th scope="col">{s.colReads}</th>
-                <th scope="col">{s.colInternet}</th>
-                <th scope="col">{s.colStatus}</th>
-                <th scope="col">
-                  <span className="oik-visually-hidden">{s.colActions}</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {installed.map((plugin) => (
-                <tr key={plugin.id}>
-                  <td>
-                    <span className="screen-plugin-name">
-                      <Tile icon="plugin" tone="stone" />
-                      <span className="screen-plugin-name__text">
-                        <span className="screen-plugin-name__name">{plugin.name}</span>
-                        <span className="screen-plugin-name__by">{s.by(plugin.by)}</span>
-                      </span>
-                    </span>
-                  </td>
-                  <td className="screen-cell-mono" translate="no">
-                    {plugin.collections.length > 0 ? listNames(plugin.collections) : s.nothing}
-                  </td>
-                  <td>
-                    <span className="screen-plugin-net">
-                      <Icon name="lock" />
-                      {s.noInternet}
-                    </span>
-                  </td>
-                  <td>
-                    <Status kind="ok">{s.installed}</Status>
-                  </td>
-                  <td className="screen-cell-action">
-                    <Button variant="quiet" aria-label={s.settingsFor(plugin.name)} onClick={() => setEditing(plugin)}>
-                      {s.settings}
-                    </Button>
-                  </td>
+      {groups.map((group) => (
+        <section key={group.key} className="screen-section" aria-labelledby={`plugins-${group.key}`}>
+          <h2 id={`plugins-${group.key}`} className="oik-label screen-section-label">
+            {group.title}
+          </h2>
+          <div className="oik-table-wrap screen-table-in-card">
+            <table className="oik-table screen-plugins" aria-labelledby={`plugins-${group.key}`}>
+              <thead>
+                <tr>
+                  <th scope="col">{s.colPlugin}</th>
+                  {group.key === "cards" ? (
+                    <>
+                      <th scope="col">{s.colReads}</th>
+                      <th scope="col">{s.colInternet}</th>
+                    </>
+                  ) : (
+                    <th scope="col">{s.colWhat}</th>
+                  )}
+                  <th scope="col">{s.colStatus}</th>
+                  <th scope="col">
+                    <span className="oik-visually-hidden">{s.colActions}</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {group.plugins.map((plugin) => (
+                  <tr key={plugin.id}>
+                    <td>
+                      <span className="screen-plugin-name">
+                        <Tile icon={group.icon} tone="stone" />
+                        <span className="screen-plugin-name__text">
+                          <span className="screen-plugin-name__name">{plugin.name}</span>
+                          <span className="screen-plugin-name__by">{s.by(plugin.by)}</span>
+                        </span>
+                      </span>
+                    </td>
+                    {group.key === "cards" ? (
+                      <>
+                        <td className="screen-cell-mono" translate="no">
+                          {plugin.collections.length > 0 ? listNames(plugin.collections) : s.nothing}
+                        </td>
+                        <td>
+                          <span className="screen-plugin-net">
+                            <Icon name="lock" />
+                            {s.noInternet}
+                          </span>
+                        </td>
+                      </>
+                    ) : (
+                      <td className="screen-plugin-what">{plugin.description}</td>
+                    )}
+                    <td>
+                      <Status kind="ok">{s.installed}</Status>
+                    </td>
+                    <td className="screen-cell-action">
+                      <Button variant="quiet" aria-label={s.settingsFor(plugin.name)} onClick={() => setEditing(plugin)}>
+                        {s.settings}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
 
       {offered.length > 0 && (
         <section className="screen-section" aria-labelledby="from-oikome">

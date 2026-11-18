@@ -56,6 +56,8 @@ import { Link, navigate, plainClick, previousPage } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
 import { SaveDialog } from "./SaveDialog";
+import { DatasetAnalysisDialog } from "./DatasetAnalysisDialog";
+import { KnowledgeView } from "./Knowledge";
 import { placeOf, storageLabel } from "./Collections";
 import { placePath } from "./Place";
 
@@ -83,6 +85,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const sync = useAction();
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  // A folder collection shows its files, or what an AI can read of them.
+  const [view, setView] = useState<"files" | "knowledge">("files");
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();
@@ -216,6 +221,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
                   ]
                 : []),
               { label: strings.save.menu, onSelect: () => setSaving(true) },
+              ...(!folder && !saved && preview.data?.table ? [{ label: strings.analysis.menu, onSelect: () => setAnalyzing(true) }] : []),
               { label: s.remove, destructive: true, onSelect: () => setConfirming(true) },
             ]}
           />
@@ -340,6 +346,9 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           }}
         />
       )}
+      {analyzing && preview.data?.table && (
+        <DatasetAnalysisDialog space={space.name} table={preview.data.table.name} onClose={() => setAnalyzing(false)} />
+      )}
       {confirming && (
         <ConfirmDialog
           title={local ? s.removeTitle(space.name) : s.leaveTitle(space.name)}
@@ -382,6 +391,19 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
       )}
 
       {sync.error && <ErrorText>{sync.error}</ErrorText>}
+      {local && folder && (
+        <div className="screen-toolbar screen-view-switch">
+          <Segmented
+            label={strings.knowledge.viewLabel}
+            value={view}
+            onChange={(value) => setView(value === "knowledge" ? "knowledge" : "files")}
+            options={[
+              { value: "files", label: strings.knowledge.views.files },
+              { value: "knowledge", label: strings.knowledge.views.knowledge },
+            ]}
+          />
+        </div>
+      )}
       {(() => {
         const facts = {
           cameFrom: source
@@ -408,6 +430,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           keptOn,
           who: listNames([strings.common.you, ...names]),
         };
+        if (local && folder && view === "knowledge") return <KnowledgeView space={space.name} />;
         return folder || saved ? (
           <FolderContents
             key={`${space.name}:${contentsKey}`}

@@ -277,6 +277,16 @@ pub fn place_of(
     let Some(storage) = place else {
         return Ok(Place::Local(PathBuf::from(path)));
     };
+    place_on(catalog, engines, storage, path)
+}
+
+/// The folder `path` on the storage `storage`, to view or to browse.
+pub fn place_on(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    storage: &str,
+    path: &str,
+) -> Result<Place, SessionError> {
     let def = catalog.get_storage(storage)?;
     let within = path.trim_matches('/');
     if !within.is_empty() {
@@ -1814,6 +1824,39 @@ pub fn list_deep(
         files,
         total: u64::try_from(total).unwrap_or(0),
     })
+}
+
+/// A file of a folder viewed in place, as knowledge preparation sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IndexedFile {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub modified_ms: i64,
+}
+
+/// Every file the index of a folder viewed in place lists, by path.
+pub(crate) fn indexed_files(
+    catalog: &OikomeCatalog,
+    location: &Location,
+) -> Result<Vec<IndexedFile>, SessionError> {
+    let conn = open_index(&catalog.index_dir(location))?;
+    let mut stmt = conn
+        .prepare("SELECT path, name, size, modified_ms FROM files ORDER BY path")
+        .map_err(sql)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(IndexedFile {
+                path: r.get(0)?,
+                name: r.get(1)?,
+                size: u64::try_from(r.get::<_, i64>(2)?).unwrap_or(0),
+                modified_ms: r.get(3)?,
+            })
+        })
+        .map_err(sql)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sql)?;
+    Ok(rows)
 }
 
 /// One file of a folder viewed in place, with all of a note's text.

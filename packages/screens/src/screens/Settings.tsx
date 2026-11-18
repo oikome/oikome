@@ -33,6 +33,7 @@ import { AddStorage, googleMessage } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
 import { navigate } from "../router";
+import { ModelsSettings } from "./Knowledge";
 import { strings } from "../strings";
 
 const s = strings.settings;
@@ -417,6 +418,7 @@ export function Settings({
           <div id="network-settings">
             <NetworkSettings reveal={network} />
           </div>
+          <ModelsSettings />
         </div>
         <div>
           <Appearance />

@@ -366,10 +366,12 @@ export type GoogleApp = { clientId: string | null, };
 export type GoogleSignIn = { url: string, };
 
 /**
- * What a source reads: a folder of photos, a folder of notes (Markdown
- * or text, such as a notes vault), a CSV file, or flomo.
+ * What a data source plugin brings in: folders and files of this computer
+ * (`Files`) or of a RustFS bucket (`Rustfs`), which go into a collection as
+ * its files, or flomo. `Photos`, `Notes` and `Csv` are sources registered
+ * before data sources were plugins; no plugin offers them.
  */
-export type SourceKind = "photos" | "notes" | "csv" | "flomo-export" | "flomo-mcp";
+export type SourceKind = "files" | "rustfs" | "photos" | "notes" | "csv" | "flomo-export" | "flomo-mcp";
 
 /**
  * A source: where a collection's data comes from, and how its last pull
@@ -387,7 +389,11 @@ space: string,
 /**
  * The table it writes, when the connector has one main table.
  */
-table: string | null, kind: SourceKind,
+table: string | null,
+/**
+ * The package and capability that produced this target, when plugin-driven.
+ */
+plugin?: string, capability?: string, kind: SourceKind,
 /**
  * The folder or file it reads, or the service it asks.
  */
@@ -475,7 +481,12 @@ label: string, type: StorageType, path: string, };
 /**
  * `list_folders`: a folder on this computer; the home folder when left out.
  */
-export type FolderRef = { path?: string, };
+export type FolderRef = { path?: string,
+/**
+ * A storage's name: `path` is then within it (`""` for its top), and so
+ * are the paths of the listing. This computer when left out.
+ */
+place?: string, };
 
 /**
  * The folders and files in one folder, hidden ones left out, and how many
@@ -1326,6 +1337,270 @@ export type Saved = { files: Array<SavedFile>,
  * The new collection, when the destination was a Space.
  */
 space: SpaceSummary | null, };
+
+/**
+ * A field's meaning inferred from its name and Arrow type.
+ */
+export type FieldRole = "time" | "amount" | "category" | "title" | "key" | "other";
+
+/**
+ * One source field in a dataset profile.
+ */
+export type FieldProfile = { name: string, dataType: string, role: FieldRole, inferred: boolean, };
+
+/**
+ * `dataset_profile`: inferred roles the owner can correct before analysis.
+ */
+export type DatasetProfile = { space: string, table: string, fields: Array<FieldProfile>, fingerprint: string, };
+
+/**
+ * `analyze_dataset`: explicitly create a derived daily/category analysis.
+ */
+export type AnalyzeDataset = { space: string, table: string, name: string, timeField: string, amountField: string, categoryField: string, };
+
+/**
+ * Why a derived analysis can be rebuilt, and whether its source shape changed.
+ */
+export type AnalysisProfile = { name: string, sourceSpace: string, sourceTable: string, timeField: string, amountField: string, categoryField: string, query: string, sourceFingerprint: string, sourceChanged: boolean, createdAtMs: number, };
+
+/**
+ * A derived analysis and its source profile.
+ */
+export type DatasetAnalysis = { space: SpaceSummary, profile: AnalysisProfile, };
+
+/**
+ * Where one original of a collection is in being prepared as knowledge.
+ */
+export type KnowledgeStage = "waiting" | "reading" | "splitting" | "embedding" | "ready" | "failed";
+
+/**
+ * One original of a collection prepared as knowledge.
+ */
+export type KnowledgeFile = {
+/**
+ * Its path within the collection.
+ */
+path: string, name: string, size: number, stage: KnowledgeStage,
+/**
+ * Chunks of its current version (the previous one's while it is
+ * prepared again).
+ */
+chunks: number,
+/**
+ * Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF),
+ * `unreadable` or `no_model` (its model was removed).
+ */
+reason: string | null, updatedMs: number, };
+
+/**
+ * `knowledge_status`, `prepare_knowledge`, `retry_knowledge`: what an AI
+ * can read of a collection.
+ */
+export type KnowledgeStatus = { space: string,
+/**
+ * When the owner prepared it; `None` when never.
+ */
+preparedMs: number | null,
+/**
+ * Whether this computer has the DuckDB extension knowledge needs.
+ */
+available: boolean,
+/**
+ * Its download and installation (`install_lance`), while there is one.
+ */
+extension: ExtensionDownload,
+/**
+ * The model it is searched by meaning with (`set_knowledge_model`).
+ */
+model: string | null,
+/**
+ * Whether it is searched by meaning now: it has a model and the
+ * model's files are on this computer.
+ */
+meaning: boolean, files: Array<KnowledgeFile>, ready: number,
+/**
+ * Waiting or in progress.
+ */
+waiting: number, failed: number, chunks: number, };
+
+/**
+ * A chunk: a slice of an original's text, and where it is.
+ */
+export type KnowledgeChunk = {
+/**
+ * Empty in a preview, before anything is written.
+ */
+chunkId: string, path: string, seq: number,
+/**
+ * Headings above it, outermost first.
+ */
+heading: Array<string>, text: string,
+/**
+ * The PDF page, from 1.
+ */
+page: number | null,
+/**
+ * Characters of the original's text (of the page's for a PDF), end
+ * exclusive.
+ */
+charStart: number, charEnd: number,
+/**
+ * Lines from 1, both inclusive.
+ */
+lineStart: number, lineEnd: number, enabled: boolean,
+/**
+ * Its score, for a hit: BM25 by words, cosine similarity by meaning,
+ * the fused rank score for both.
+ */
+score: number | null,
+/**
+ * How a hit was found.
+ */
+foundBy: FoundBy | null, };
+
+/**
+ * `knowledge_chunks`: the chunks of one original.
+ */
+export type KnowledgeChunksRequest = { space: string, path: string, };
+
+/**
+ * `set_knowledge_chunk`: turn a chunk off (kept, never returned) or on.
+ */
+export type SetKnowledgeChunk = { space: string, chunkId: string, enabled: boolean, };
+
+/**
+ * `retrieval_test`: search a collection's knowledge as an assistant would.
+ */
+export type RetrievalTest = { space: string, query: string,
+/**
+ * Most hits, 1 to 100; default 10.
+ */
+limit: number | null,
+/**
+ * How to search; both words and meaning when the collection is
+ * searched by meaning, words otherwise.
+ */
+mode: SearchMode | null, };
+
+/**
+ * What a retrieval test found, best first, how it searched and how long
+ * it took.
+ */
+export type RetrievalResults = { hits: Array<KnowledgeChunk>, mode: SearchMode, tookMs: number, };
+
+/**
+ * Where a download the owner started is.
+ */
+export type DownloadState = "idle" | "downloading" | "installing" | "failed";
+
+/**
+ * `install_lance`, and in `knowledge_status`: the download and
+ * installation of the DuckDB extension knowledge needs.
+ */
+export type ExtensionDownload = { state: DownloadState,
+/**
+ * Bytes downloaded so far.
+ */
+done: number,
+/**
+ * The whole download, once the server said.
+ */
+total: number | null, error: string | null,
+/**
+ * The directory DuckDB keeps extensions in.
+ */
+path: string, };
+
+/**
+ * How a search hit was found.
+ */
+export type FoundBy = "words" | "meaning" | "both";
+
+/**
+ * How knowledge is searched.
+ */
+export type SearchMode = "words" | "meaning" | "hybrid";
+
+/**
+ * `set_knowledge_model`: search a collection by meaning with a model, or
+ * by words only (`None`).
+ */
+export type SetKnowledgeModel = { space: string, model: string | null, };
+
+/**
+ * Where an embedding model is on this computer.
+ */
+export type ModelState = "absent" | "downloading" | "ready" | "failed";
+
+/**
+ * `list_models`, `download_model`: an embedding model knowledge can be
+ * searched by meaning with. It runs on this computer.
+ */
+export type EmbeddingModel = { id: string, name: string, license: string,
+/**
+ * Bytes to download.
+ */
+size: number,
+/**
+ * Length of its vectors.
+ */
+dims: number, state: ModelState,
+/**
+ * Bytes downloaded so far, while downloading.
+ */
+done: number,
+/**
+ * Why the last download failed.
+ */
+error: string | null,
+/**
+ * Collections searched by meaning with it.
+ */
+usedBy: Array<string>,
+/**
+ * The directory its files are saved in.
+ */
+path: string, };
+
+/**
+ * `download_model`, `remove_model`: a model by id.
+ */
+export type ModelRef = { id: string, };
+
+/**
+ * One file of a skill, with its digest.
+ */
+export type SkillFileInfo = {
+/**
+ * Its path within the skill's folder.
+ */
+path: string, size: number,
+/**
+ * SHA-256, hex; `None` for a file too large to digest.
+ */
+sha256: string | null, };
+
+/**
+ * `knowledge_skills`, an assistant's `list_skills`: a skill, a folder with
+ * `SKILL.md` in a collection prepared for AI (or Oikome's own).
+ */
+export type SkillInfo = {
+/**
+ * Its collection; `None` for Oikome's own skill.
+ */
+collection: string | null, name: string, description: string, license: string | null,
+/**
+ * Its folder within the collection; empty at the top.
+ */
+dir: string,
+/**
+ * `skill://<collection>/<name>/SKILL.md`.
+ */
+uri: string, files: Array<SkillFileInfo>,
+/**
+ * Why assistants are not offered it (shown to the owner only).
+ */
+problem: string | null, };
 
 /**
  * `create_public_share`: publish a detached collection with live-query and

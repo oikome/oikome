@@ -519,8 +519,8 @@ impl Api {
     }
 
     /// Passages of the prepared documents of the calling assistant's
-    /// collections (or one of them) matching `req.query` by full text, best
-    /// first. An assistant is given whole collections, so it reads their
+    /// collections (or one of them) matching `req.query` by words, and by
+    /// meaning where a collection has a model, best first. An assistant is given whole collections, so it reads their
     /// knowledge as the owner keeps it. A search that finds passages is in
     /// Activity with the search it came with.
     pub async fn assistant_search_knowledge(
@@ -543,7 +543,10 @@ impl Api {
         let query = req.query.trim().to_string();
         let limit = req.limit.unwrap_or(10).clamp(1, 100);
         let owner = self.session(None);
-        let mut found: Vec<KnowledgePassage> = Vec::new();
+        // Each collection's hits in its own order; scores of different
+        // collections may come from different searches, so they are merged
+        // by rank, not by score.
+        let mut found: Vec<(usize, KnowledgePassage)> = Vec::new();
         for name in &names {
             let hits = match owner.search_knowledge(name, &query, limit).await {
                 Ok(found) => found.hits,
@@ -552,9 +555,9 @@ impl Api {
                     continue;
                 }
             };
-            found.extend(hits.into_iter().map(|c| {
+            found.extend(hits.into_iter().enumerate().map(|(rank, c)| {
                 let chunk = crate::knowledge::chunk_of(c, true);
-                KnowledgePassage {
+                let passage = KnowledgePassage {
                     collection: name.clone(),
                     excerpt: chunk.text.chars().take(600).collect(),
                     path: chunk.path,
@@ -564,14 +567,13 @@ impl Api {
                     line_start: chunk.line_start,
                     line_end: chunk.line_end,
                     score: chunk.score,
-                }
+                    found_by: chunk.found_by,
+                };
+                (rank, passage)
             }));
         }
-        found.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        found.sort_by_key(|(rank, _)| *rank);
+        let mut found: Vec<KnowledgePassage> = found.into_iter().map(|(_, p)| p).collect();
         found.truncate(limit as usize);
         if !found.is_empty() {
             let collections: Vec<String> = names

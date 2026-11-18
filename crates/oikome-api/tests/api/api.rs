@@ -5777,6 +5777,7 @@ async fn knowledge_is_the_owners_and_its_requests_are_checked() {
                 space: "docs".into(),
                 query: "DataFusion".into(),
                 limit: None,
+                mode: None,
             },
         )
         .await
@@ -5813,6 +5814,7 @@ async fn knowledge_is_the_owners_and_its_requests_are_checked() {
                 space: "docs".into(),
                 query: "x".repeat(201),
                 limit: None,
+                mode: None,
             },
         )
         .await

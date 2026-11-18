@@ -54,8 +54,29 @@ pub struct StoredChunk {
     pub char_end: i64,
     pub line_start: i32,
     pub line_end: i32,
-    /// Its full-text score, for a search hit.
+    /// Its score, for a search hit: BM25 for words, cosine similarity for
+    /// meaning, the fused rank score for both.
     pub score: Option<f64>,
+    /// How a search hit was found.
+    pub found_by: Option<FoundBy>,
+}
+
+/// How a search hit was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FoundBy {
+    Words,
+    Meaning,
+    Both,
+}
+
+/// What a search score column holds.
+#[derive(Clone, Copy)]
+enum Scored {
+    No,
+    /// `_score`, larger is better.
+    Words,
+    /// `_distance` between unit vectors (squared L2), smaller is better.
+    Meaning,
 }
 
 pub(crate) fn schema() -> SchemaRef {
@@ -84,6 +105,10 @@ const COLUMNS: &str = "chunk_id VARCHAR, asset_id VARCHAR, asset_blake3 VARCHAR,
     conversion_id VARCHAR, channel VARCHAR, path VARCHAR, seq INTEGER, heading VARCHAR, \
     text VARCHAR, content_hash VARCHAR, page INTEGER, char_start BIGINT, char_end BIGINT, \
     line_start INTEGER, line_end INTEGER";
+
+/// The columns a conversion writes, in order (vectors aside).
+const NAMES: &str = "chunk_id, asset_id, asset_blake3, conversion_id, channel, path, seq, \
+    heading, text, content_hash, page, char_start, char_end, line_start, line_end";
 
 const SELECT: &str = "chunk_id, asset_id, conversion_id, path, seq, heading, text, page, \
     char_start, char_end, line_start, line_end";
@@ -145,13 +170,42 @@ impl Store {
         quote_literal(&self.dataset.to_string_lossy())
     }
 
+    /// Make `column` hold vectors of `dims` numbers, if it does not yet.
+    /// Rows written before it have none.
+    #[cfg_attr(not(feature = "embedding"), allow(dead_code))]
+    pub(crate) async fn ensure_vectors(
+        &self,
+        column: &str,
+        dims: usize,
+    ) -> Result<(), SessionError> {
+        let schema = self
+            .engine
+            .table_schema(&QualifiedName::new(self.namespace.clone(), TABLE))
+            .await?;
+        if schema.field_with_name(column).is_err() {
+            self.engine
+                .execute(
+                    &format!(
+                        "ALTER TABLE {} ADD COLUMN {} FLOAT[{dims}]",
+                        self.table(),
+                        quote_ident(column)
+                    ),
+                    &[],
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Add `batch` as the rows of `conversion_id`, then remove the asset's
-    /// rows of any other conversion.
+    /// rows of any other conversion. With `vectors` (its column and length),
+    /// the batch's `vector` column holds each row's vector as text.
     pub(crate) async fn replace(
         &self,
         asset_id: &str,
         conversion_id: &str,
         batch: RecordBatch,
+        vectors: Option<(&str, usize)>,
     ) -> Result<(), SessionError> {
         if batch.num_rows() > 0 {
             let load = QualifiedName::new("oikome_knowledge_load", conversion_id);
@@ -164,17 +218,20 @@ impl Store {
                     },
                 )
                 .await?;
-            let added = self
-                .engine
-                .execute(
-                    &format!(
-                        "INSERT INTO {} SELECT * FROM {}",
-                        self.table(),
-                        load.quoted()
-                    ),
-                    &[],
-                )
-                .await;
+            let sql = match vectors {
+                Some((column, dims)) => format!(
+                    "INSERT INTO {} ({NAMES}, {}) SELECT {NAMES}, CAST(vector AS FLOAT[{dims}]) FROM {}",
+                    self.table(),
+                    quote_ident(column),
+                    load.quoted()
+                ),
+                None => format!(
+                    "INSERT INTO {} ({NAMES}) SELECT {NAMES} FROM {}",
+                    self.table(),
+                    load.quoted()
+                ),
+            };
+            let added = self.engine.execute(&sql, &[]).await;
             self.engine.detach(&load).await?;
             added?;
         }
@@ -263,7 +320,44 @@ impl Store {
                 &[Value::Text(query.into())],
             )
             .await?;
-        chunks_of(&batches, true)
+        chunks_of(&batches, Scored::Words)
+    }
+
+    /// Up to `k` chunks whose vectors in `column` are nearest `query`,
+    /// nearest first; rows without a vector are left out.
+    #[cfg_attr(not(feature = "embedding"), allow(dead_code))]
+    pub(crate) async fn nearest(
+        &self,
+        column: &str,
+        query: &[f32],
+        k: u32,
+    ) -> Result<Vec<StoredChunk>, SessionError> {
+        if query.iter().any(|x| !x.is_finite()) {
+            return Err(engine_err("a query vector must be finite"));
+        }
+        let literal = format!(
+            "[{}]",
+            query
+                .iter()
+                .map(|x| format!("{x:?}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let batches = self
+            .query(
+                &format!(
+                    "SELECT {SELECT}, _distance FROM lance_vector_search({}, {}, \
+                     CAST(? AS FLOAT[{}]), k => {k}) WHERE {} IS NOT NULL \
+                     ORDER BY _distance, chunk_id",
+                    self.dataset_literal(),
+                    quote_literal(column),
+                    query.len(),
+                    quote_ident(column)
+                ),
+                &[Value::Text(literal)],
+            )
+            .await?;
+        chunks_of(&batches, Scored::Meaning)
     }
 
     /// The chunks of one conversion, in order.
@@ -280,7 +374,7 @@ impl Store {
                 &[Value::Text(conversion_id.into())],
             )
             .await?;
-        chunks_of(&batches, false)
+        chunks_of(&batches, Scored::No)
     }
 
     /// One chunk, by id.
@@ -291,7 +385,7 @@ impl Store {
                 &[Value::Text(chunk_id.into())],
             )
             .await?;
-        Ok(chunks_of(&batches, false)?.into_iter().next())
+        Ok(chunks_of(&batches, Scored::No)?.into_iter().next())
     }
 }
 
@@ -314,7 +408,7 @@ fn ints(batch: &RecordBatch, name: &str, ty: DataType) -> Result<ArrayRef, Sessi
     Ok(arrow_cast::cast(array, &ty)?)
 }
 
-fn chunks_of(batches: &[RecordBatch], scored: bool) -> Result<Vec<StoredChunk>, SessionError> {
+fn chunks_of(batches: &[RecordBatch], scored: Scored) -> Result<Vec<StoredChunk>, SessionError> {
     let mut out = Vec::new();
     for batch in batches {
         let ids = strings(batch, "chunk_id")?;
@@ -341,13 +435,19 @@ fn chunks_of(batches: &[RecordBatch], scored: bool) -> Result<Vec<StoredChunk>, 
             i64s(&char_start).ok_or_else(|| engine_err("char_start"))?,
             i64s(&char_end).ok_or_else(|| engine_err("char_end"))?,
         );
-        let scores = if scored {
-            let array = batch
-                .column_by_name("_score")
-                .ok_or_else(|| engine_err("a search returned no _score"))?;
-            Some(arrow_cast::cast(array, &DataType::Float64)?)
-        } else {
-            None
+        let column = match scored {
+            Scored::No => None,
+            Scored::Words => Some("_score"),
+            Scored::Meaning => Some("_distance"),
+        };
+        let scores = match column {
+            Some(name) => {
+                let array = batch
+                    .column_by_name(name)
+                    .ok_or_else(|| engine_err(format!("a search returned no {name}")))?;
+                Some(arrow_cast::cast(array, &DataType::Float64)?)
+            }
+            None => None,
         };
         let scores = scores
             .as_ref()
@@ -366,7 +466,16 @@ fn chunks_of(batches: &[RecordBatch], scored: bool) -> Result<Vec<StoredChunk>, 
                 char_end: char_end.value(i),
                 line_start: line_start.value(i),
                 line_end: line_end.value(i),
-                score: scores.map(|s| s.value(i)),
+                score: scores.map(|s| match scored {
+                    // Squared distance between unit vectors: 2 - 2 cos.
+                    Scored::Meaning => 1.0 - s.value(i) / 2.0,
+                    _ => s.value(i),
+                }),
+                found_by: match scored {
+                    Scored::No => None,
+                    Scored::Words => Some(FoundBy::Words),
+                    Scored::Meaning => Some(FoundBy::Meaning),
+                },
             });
         }
     }

@@ -47,6 +47,8 @@ fn node_with(duckdb: DuckDbConfig) -> Node {
         Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
     let config = NodeConfig {
         duckdb,
+        // Models are shared by the tests that need one, downloaded once.
+        models_dir: Some(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("models")),
         ..Default::default()
     };
     let engines = Arc::new(EngineRegistry::new(catalog.clone(), config).unwrap());
@@ -591,4 +593,176 @@ async fn knowledge_is_prepared_found_read_and_kept_up_to_date() {
         .join("knowledge")
         .join("docs")
         .exists());
+}
+
+/// Knowledge searched by meaning (docs/knowledge-schema.md, K2): the owner
+/// downloads Qwen3-Embedding-0.6B, turns it on for a prepared collection,
+/// its originals are converted again with vectors while the old chunks keep
+/// serving, and a query finds passages by meaning, in any language, alone
+/// or fused with words. A chunk turned off stays off.
+#[tokio::test]
+#[ignore = "downloads the DuckDB lance extension and a 1.2 GB embedding model"]
+async fn knowledge_is_found_by_meaning() {
+    use oikome_node::knowledge::{model, FoundBy, SearchMode, Stage};
+    use std::time::Duration;
+    let n = lance_node();
+    let folder = tempfile::Builder::new().prefix("notes-").tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(
+        root.join("cat.md"),
+        "# 猫\n\n家里的猫喜欢在午后的阳光下睡觉。\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("budget.md"),
+        "# Budget\n\nIn March we paid 300 euros for groceries and 80 for the train.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("engines.md"),
+        "# Engines\n\nDuckDB runs the analytical queries over Parquet files.\n",
+    )
+    .unwrap();
+    n.sql(&format!(
+        "CREATE SPACE docs WITH PLACE = 'local', PATH = '{}'",
+        root.display()
+    ))
+    .await;
+    n.owner.refresh_in_place("docs").await.unwrap();
+    n.owner.prepare_knowledge("docs").await.unwrap();
+    n.owner
+        .work_knowledge("docs", Duration::from_secs(120))
+        .await
+        .unwrap();
+    // A chunk turned off before meaning is turned on.
+    let engines = n
+        .owner
+        .search_knowledge("docs", "DuckDB", 1)
+        .await
+        .unwrap()
+        .hits
+        .remove(0);
+    n.owner
+        .set_knowledge_chunk("docs", &engines.chunk_id, false)
+        .unwrap();
+
+    // Meaning needs the model here.
+    let id = model::MODELS[0].id;
+    let here = n
+        .owner
+        .embedding_models()
+        .iter()
+        .any(|(m, state)| m.id == id && *state == model::ModelState::Ready);
+    if !here {
+        assert!(n.owner.set_knowledge_model("docs", Some(id)).await.is_err());
+    }
+    let started = std::time::Instant::now();
+    loop {
+        match n.owner.download_embedding_model(id).unwrap() {
+            model::ModelState::Ready => break,
+            model::ModelState::Failed(e) => panic!("download failed: {e}"),
+            _ => {}
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(1800),
+            "download took too long"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+
+    let status = n.owner.set_knowledge_model("docs", Some(id)).await.unwrap();
+    assert_eq!(status.model.as_deref(), Some(id));
+    assert!(status.assets.iter().all(|a| a.stage == Stage::Queued));
+    // Until the originals are converted again, words still find them, and
+    // meaning finds nothing (they have no vectors yet).
+    let words = n
+        .owner
+        .search_knowledge_by("docs", "groceries", 5, Some(SearchMode::Words))
+        .await
+        .unwrap();
+    assert_eq!(words.hits.len(), 1);
+    let meaning = n
+        .owner
+        .search_knowledge_by("docs", "pets napping", 5, Some(SearchMode::Meaning))
+        .await
+        .unwrap();
+    assert!(meaning.hits.is_empty());
+
+    let done = n
+        .owner
+        .work_knowledge("docs", Duration::from_secs(600))
+        .await
+        .unwrap();
+    assert_eq!(done, 3);
+    let status = n.owner.knowledge_status("docs").unwrap();
+    assert!(
+        status.assets.iter().all(|a| a.stage == Stage::Ready),
+        "{:?}",
+        status.assets
+    );
+
+    let first = |hits: &[oikome_node::knowledge::StoredChunk]| {
+        hits.first().map(|c| c.path.clone()).unwrap_or_default()
+    };
+    // No word in common, in another language: found by meaning.
+    let pets = n
+        .owner
+        .search_knowledge_by(
+            "docs",
+            "where does the cat like to sleep",
+            3,
+            Some(SearchMode::Meaning),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first(&pets.hits), "cat.md", "{:?}", pets.hits);
+    assert!(
+        pets.hits[0].score.unwrap() > 0.3,
+        "{:?}",
+        pets.hits[0].score
+    );
+    let money = n
+        .owner
+        .search_knowledge_by("docs", "how much did food cost", 3, None)
+        .await
+        .unwrap();
+    assert_eq!(money.mode, SearchMode::Hybrid);
+    assert_eq!(first(&money.hits), "budget.md", "{:?}", money.hits);
+    assert_eq!(money.hits[0].found_by, Some(FoundBy::Meaning));
+    // Words and meaning together.
+    let both = n
+        .owner
+        .search_knowledge("docs", "groceries", 3)
+        .await
+        .unwrap();
+    assert_eq!(first(&both.hits), "budget.md");
+    assert_eq!(both.hits[0].found_by, Some(FoundBy::Both));
+    // The chunk turned off kept its id through the new conversion.
+    let engines_now = n
+        .owner
+        .search_knowledge_by(
+            "docs",
+            "query engine for Parquet",
+            3,
+            Some(SearchMode::Meaning),
+        )
+        .await
+        .unwrap();
+    assert!(engines_now.hits.iter().all(|c| c.path != "engines.md"));
+
+    // Back to words only: meaning is refused, words still work.
+    n.owner.set_knowledge_model("docs", None).await.unwrap();
+    assert!(n
+        .owner
+        .search_knowledge_by("docs", "cat", 3, Some(SearchMode::Meaning))
+        .await
+        .is_err());
+    assert_eq!(
+        n.owner
+            .search_knowledge("docs", "groceries", 3)
+            .await
+            .unwrap()
+            .mode,
+        SearchMode::Words
+    );
 }

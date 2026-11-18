@@ -1,16 +1,40 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Knowledge an AI can read (docs/knowledge-schema.md, PR 28 K1): Prepare,
-// where each original is, its passages, and a retrieval test that searches
-// the way an assistant does.
+// Knowledge an AI can read (docs/knowledge-schema.md, PR 28 K1–K2):
+// Prepare, where each original is, its passages, search by meaning with a
+// model that runs on this computer, and a retrieval test that searches the
+// way an assistant does.
 
 import { Fragment, useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Button, Card, ChoiceList, Dialog, EmptyState, ErrorText, Group, Icon, Row, Status, TextField } from "@oikome/ui";
+import {
+  Button,
+  Card,
+  ChoiceList,
+  ConfirmDialog,
+  Dialog,
+  EmptyState,
+  ErrorText,
+  Group,
+  Icon,
+  Row,
+  Segmented,
+  Status,
+  TextField,
+} from "@oikome/ui";
 import type { StatusKind } from "@oikome/ui";
-import type { KnowledgeChunk, KnowledgeFile, KnowledgeStage, RetrievalResults } from "@oikome/client";
+import type {
+  EmbeddingModel,
+  KnowledgeChunk,
+  KnowledgeFile,
+  KnowledgeStage,
+  KnowledgeStatus,
+  RetrievalResults,
+  SearchMode,
+} from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
+import { bytes } from "../format";
 import { strings } from "../strings";
 
 const k = strings.knowledge;
@@ -19,6 +43,7 @@ const KINDS: Record<KnowledgeStage, StatusKind> = {
   waiting: "idle",
   reading: "run",
   splitting: "run",
+  embedding: "run",
   ready: "ok",
   failed: "bad",
 };
@@ -35,6 +60,47 @@ function where(chunk: KnowledgeChunk): string {
   if (chunk.page != null) parts.push(k.page(chunk.page));
   parts.push(k.lines(chunk.lineStart, chunk.lineEnd));
   return parts.join(" › ");
+}
+
+/** The embedding models, looked at again while one downloads. */
+function useModels() {
+  const client = useClient();
+  const models = useLoad(() => client.listModels(), []);
+  const downloading = models.data?.some((m) => m.state === "downloading") ?? false;
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setTimeout(models.reload, 1500);
+    return () => clearTimeout(timer);
+  }, [models.data, downloading, models.reload]);
+  return models;
+}
+
+/** A model's download: the button, how far it is, or that it is ready. */
+function ModelDownload({ model, onChange }: { model: EmbeddingModel; onChange: () => void }) {
+  const client = useClient();
+  const download = useAction();
+  const start = async () => {
+    if (await download.run(() => client.downloadModel({ id: model.id }))) onChange();
+  };
+  if (model.state === "ready") return <p className="screen-help">{k.modelReady}</p>;
+  if (model.state === "downloading") {
+    const pct = model.size ? Math.floor((model.done / model.size) * 100) : 0;
+    return (
+      <div className="screen-model-progress" role="status">
+        <progress max={100} value={pct} aria-label={model.name} />
+        <span>{k.modelDownloading(pct)}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="screen-knowledge-install">
+      <p>{model.state === "failed" ? k.modelFailed : k.searchMeaningHelp(model.name, bytes(model.size))}</p>
+      <Button icon="download" disabled={download.busy} onClick={() => void start()}>
+        {k.modelDownload}
+      </Button>
+      {download.error && <ErrorText>{download.error}</ErrorText>}
+    </div>
+  );
 }
 
 function Passage({ chunk, aside }: { chunk: KnowledgeChunk; aside?: ReactNode }) {
@@ -67,9 +133,13 @@ export function KnowledgeDialog({
   const preview = useLoad(() => client.knowledgePreview({ space }), [space]);
   const install = useAction();
   const prepare = useAction();
+  const models = useModels();
   const [format, setFormat] = useState("lance");
+  const [search, setSearch] = useState<"words" | "meaning">("words");
   const [installed, setInstalled] = useState(false);
   const available = status.data?.available ?? false;
+  const model = models.data?.[0];
+  const ready = search === "words" || model?.state === "ready";
 
   const doInstall = async () => {
     if (await install.run(() => client.installLance())) {
@@ -78,7 +148,11 @@ export function KnowledgeDialog({
     }
   };
   const doPrepare = async () => {
-    if (await prepare.run(() => client.prepareKnowledge({ space }))) {
+    const done = await prepare.run(async () => {
+      await client.setKnowledgeModel({ space, model: search === "meaning" && model ? model.id : null });
+      return client.prepareKnowledge({ space });
+    });
+    if (done) {
       onPrepared();
       onClose();
     }
@@ -95,7 +169,7 @@ export function KnowledgeDialog({
           <Button onClick={onClose}>{strings.common.cancel}</Button>
           <Button
             variant="primary"
-            disabled={!available || format !== "lance" || prepare.busy}
+            disabled={!available || format !== "lance" || !ready || prepare.busy}
             onClick={() => void doPrepare()}
           >
             {prepare.busy ? k.preparing : k.action}
@@ -114,6 +188,23 @@ export function KnowledgeDialog({
           { value: "iceberg", title: k.formats.iceberg, meta: k.formats.icebergHelp, leading: <Icon name="table" /> },
         ]}
       />
+      {model && (
+        <ChoiceList
+          label={k.searchLabel}
+          name="knowledge-search"
+          value={search}
+          onChange={(value) => setSearch(value === "meaning" ? "meaning" : "words")}
+          choices={[
+            { value: "words", title: k.searchWords, meta: k.searchWordsHelp },
+            {
+              value: "meaning",
+              title: k.searchMeaning,
+              meta: k.searchMeaningHelp(model.name, bytes(model.size)),
+              more: model.state === "ready" ? undefined : <ModelDownload model={model} onChange={models.reload} />,
+            },
+          ]}
+        />
+      )}
       {installed && available && <p className="screen-help screen-knowledge-ready">{k.installed}</p>}
       {status.data && !available && (
         <div className="screen-knowledge-install">
@@ -163,21 +254,48 @@ function Chunks({ space, path }: { space: string; path: string }) {
   );
 }
 
-function RetrievalTest({ space }: { space: string }) {
+function RetrievalTest({ space, meaning }: { space: string; meaning: boolean }) {
   const client = useClient();
   const search = useAction();
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<SearchMode>("hybrid");
   const [results, setResults] = useState<RetrievalResults>();
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const run = async (how: SearchMode) => {
     if (!query.trim()) return;
-    const found = await search.run(() => client.retrievalTest({ space, query: query.trim(), limit: 10 }));
+    const found = await search.run(() =>
+      client.retrievalTest({ space, query: query.trim(), limit: 10, mode: meaning ? how : "words" }),
+    );
     if (found) setResults(found);
   };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void run(mode);
+  };
   return (
-    <Group title={k.test} footnote={k.testHelp}>
+    <Group
+      title={k.test}
+      action={
+        meaning ? (
+          <Segmented
+            label={k.searchLabel}
+            value={mode}
+            onChange={(value) => {
+              const how: SearchMode = value === "words" || value === "meaning" ? value : "hybrid";
+              setMode(how);
+              if (results) void run(how);
+            }}
+            options={[
+              { value: "hybrid", label: k.modes.hybrid },
+              { value: "words", label: k.modes.words },
+              { value: "meaning", label: k.modes.meaning },
+            ]}
+          />
+        ) : undefined
+      }
+      footnote={k.testHelp}
+    >
       <li className="oik-group__item">
-        <form className="screen-retrieval" onSubmit={(e) => void submit(e)}>
+        <form className="screen-retrieval" onSubmit={submit}>
           <TextField name="retrieval-query" label={k.testPlaceholder} value={query} onChange={setQuery} />
           <Button type="submit" variant="primary" disabled={!query.trim() || search.busy}>
             {k.testAction}
@@ -197,7 +315,10 @@ function RetrievalTest({ space }: { space: string }) {
                     aside={
                       <span className="screen-retrieval__rank">
                         <span translate="no">{`#${i + 1} ${hit.path}`}</span>
-                        {hit.score != null && <span>{k.score(hit.score.toFixed(2))}</span>}
+                        {hit.foundBy && <span>{k.foundBy[hit.foundBy]}</span>}
+                        {hit.score != null && (
+                          <span>{k.score(hit.score.toFixed(results.mode === "hybrid" ? 3 : 2))}</span>
+                        )}
                       </span>
                     }
                   />
@@ -211,8 +332,114 @@ function RetrievalTest({ space }: { space: string }) {
   );
 }
 
-/** A prepared collection's knowledge: progress, each original and its
- * passages, and the retrieval test. */
+/** Whether a collection is searched by meaning, and turning it on or off. */
+function MeaningSetting({ status, onChange }: { status: KnowledgeStatus; onChange: () => void }) {
+  const client = useClient();
+  const models = useModels();
+  const change = useAction();
+  const model = models.data?.find((m) => m.id === status.model) ?? models.data?.[0];
+  if (!model) return null;
+  const set = async (on: boolean) => {
+    const done = await change.run(() => client.setKnowledgeModel({ space: status.space, model: on ? model.id : null }));
+    if (done) onChange();
+  };
+  const meta = !status.model
+    ? k.meaningOff
+    : !status.meaning
+      ? k.meaningNoModel(model.name)
+      : status.files.some((f) => f.stage === "embedding" || f.stage === "waiting")
+        ? k.meaningPending
+        : k.meaningOn(model.name);
+  return (
+    <Group title={k.searchLabel}>
+      <Row
+        title={k.meaning}
+        meta={meta}
+        trailing={
+          <Button
+            variant={status.model ? "quiet" : "secondary"}
+            disabled={change.busy || (!status.model && model.state !== "ready")}
+            onClick={() => void set(!status.model)}
+          >
+            {status.model ? k.turnOff : k.turnOn}
+          </Button>
+        }
+      />
+      {model.state !== "ready" && (
+        <li className="oik-group__item screen-model-row">
+          <ModelDownload model={model} onChange={models.reload} />
+        </li>
+      )}
+      {change.error && (
+        <li className="oik-group__item screen-model-row">
+          <ErrorText>{change.error}</ErrorText>
+        </li>
+      )}
+    </Group>
+  );
+}
+
+/** Settings › AI Models: each model, its size and license, what uses it,
+ * and downloading or removing it. */
+export function ModelsSettings() {
+  const client = useClient();
+  const models = useModels();
+  const remove = useAction();
+  const [removing, setRemoving] = useState<EmbeddingModel>();
+  if (models.error) return <Group title={k.modelsTitle}><Row title={models.error} muted /></Group>;
+  if (!models.data) return null;
+  return (
+    <Group title={k.modelsTitle} footnote={k.modelsFootnote}>
+      {models.data.map((model) => (
+        <Fragment key={model.id}>
+          <Row
+            title={<span translate="no">{model.name}</span>}
+            meta={
+              model.usedBy.length
+                ? `${k.modelMeta(bytes(model.size), model.license)} · ${k.modelUsedBy(model.usedBy.join(", "))}`
+                : k.modelMeta(bytes(model.size), model.license)
+            }
+            trailing={
+              model.state === "ready" ? (
+                <Button variant="quiet" onClick={() => setRemoving(model)}>
+                  {k.modelRemove}
+                </Button>
+              ) : undefined
+            }
+          />
+          {model.state !== "ready" && (
+            <li className="oik-group__item screen-model-row">
+              <ModelDownload model={model} onChange={models.reload} />
+            </li>
+          )}
+        </Fragment>
+      ))}
+      {removing && (
+        <ConfirmDialog
+          title={k.modelRemoveTitle(removing.name)}
+          body={k.modelRemoveBody}
+          confirmLabel={k.modelRemove}
+          cancelLabel={strings.common.cancel}
+          busy={remove.busy}
+          error={remove.error}
+          onConfirm={async () => {
+            if (await remove.run(() => client.removeModel({ id: removing.id }))) {
+              setRemoving(undefined);
+              models.reload();
+            }
+          }}
+          onCancel={() => {
+            setRemoving(undefined);
+            remove.clear();
+          }}
+        />
+      )}
+    </Group>
+  );
+}
+
+/** A prepared collection's knowledge: how it is searched, the retrieval
+ * test, and each original with its passages. */
 export function KnowledgeView({ space }: { space: string }) {
   const client = useClient();
   const status = useLoad(() => client.knowledgeStatus({ space }), [space]);
@@ -254,7 +481,8 @@ export function KnowledgeView({ space }: { space: string }) {
 
   return (
     <div className="screen-knowledge">
-      <RetrievalTest space={space} />
+      <MeaningSetting status={data} onChange={status.reload} />
+      <RetrievalTest space={space} meaning={data.meaning} />
       <Group
         title={k.passages}
         action={

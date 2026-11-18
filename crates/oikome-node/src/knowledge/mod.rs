@@ -22,16 +22,23 @@
 //! - `catalog.rs`: the control plane (assets, conversions as the queue,
 //!   chunks turned off), `.oikome/knowledge/<space>/catalog.sqlite`;
 //! - `split.rs`: how an original becomes chunks;
-//! - `store.rs`: the chunks in Lance, through DuckDB's `lance` extension.
+//! - `store.rs`: the chunks in Lance, through DuckDB's `lance` extension;
+//! - `model.rs` and `embed.rs` (feature `embedding`, K2): a local embedding
+//!   model, downloaded when the owner asks, that gives chunks vectors so a
+//!   collection can be searched by meaning as well as by words.
 //!
 //! A prepared collection is kept up to date while the node serves: changed
 //! files are converted again, files that went lose their chunks.
 
 mod catalog;
+#[cfg(feature = "embedding")]
+mod embed;
+#[cfg(feature = "embedding")]
+pub mod model;
 mod split;
 mod store;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -41,7 +48,7 @@ use oikome_catalog::Location;
 use oikome_engine::Capabilities;
 
 pub use catalog::{AssetState, Stage};
-pub use store::StoredChunk;
+pub use store::{FoundBy, StoredChunk};
 
 use crate::error::SessionError;
 use crate::inplace::{self, Place};
@@ -93,12 +100,17 @@ pub mod reason {
     pub const NO_TEXT: &str = "no_text";
     /// The file could not be read or parsed.
     pub const UNREADABLE: &str = "unreadable";
+    /// The collection is searched by meaning, but its model is not on this
+    /// computer (it was removed): download it again, then retry.
+    pub const NO_MODEL: &str = "no_model";
 }
 
 /// A collection's knowledge: whether it was prepared, and each original.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnowledgeStatus {
     pub prepared_ms: Option<i64>,
+    /// The model it is searched by meaning with, if any.
+    pub model: Option<String>,
     pub assets: Vec<AssetState>,
 }
 
@@ -136,11 +148,56 @@ pub enum KnowledgeRange {
     },
 }
 
-/// A search's hits, best first, and how long it took.
+/// How knowledge is searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMode {
+    /// Chunks holding every word of the query.
+    Words,
+    /// Chunks nearest the query's meaning (K2).
+    Meaning,
+    /// Both, fused by rank.
+    Hybrid,
+}
+
+/// A search's hits, best first, how it searched and how long it took.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KnowledgeSearch {
     pub hits: Vec<StoredChunk>,
+    pub mode: SearchMode,
     pub took_ms: u64,
+}
+
+/// The model a collection's chunks get vectors from, and where models are.
+#[cfg(feature = "embedding")]
+struct Vectors {
+    info: &'static model::ModelInfo,
+    root: PathBuf,
+}
+
+/// Without the `embedding` feature there are none.
+#[cfg(not(feature = "embedding"))]
+enum Vectors {}
+
+impl Vectors {
+    /// Its Lance column and the length of its vectors.
+    fn column(&self) -> (&'static str, usize) {
+        #[cfg(feature = "embedding")]
+        return (self.info.column, self.info.dims);
+        #[cfg(not(feature = "embedding"))]
+        match *self {}
+    }
+}
+
+/// The conversion version: splitting's, and the model's when there is one,
+/// so choosing or changing a model converts every original again.
+fn knowledge_version(model: Option<&str>) -> String {
+    #[cfg(feature = "embedding")]
+    if let Some(m) = model.and_then(model::model) {
+        return format!("{VERSION}+{}", m.tag());
+    }
+    #[cfg(not(feature = "embedding"))]
+    let _ = model;
+    VERSION.to_string()
 }
 
 impl OikomeSession {
@@ -208,7 +265,7 @@ impl OikomeSession {
             space,
             &files,
             |name| Kind::of(name).map(Kind::converter),
-            VERSION,
+            &knowledge_version(cat.model()?.as_deref()),
         )?;
         if !gone.is_empty() {
             let store = self.knowledge_store(space).await?;
@@ -219,18 +276,81 @@ impl OikomeSession {
         Ok(())
     }
 
+    /// Search `space` by meaning with `model` as well as by words, or by
+    /// words only (`None`). Its originals are converted again, the chunks
+    /// they have now serving until then. The model must be on this computer.
+    /// Owner only.
+    #[cfg(feature = "embedding")]
+    pub async fn set_knowledge_model(
+        &self,
+        space: &str,
+        model: Option<&str>,
+    ) -> Result<KnowledgeStatus, SessionError> {
+        self.deny_principal("changing knowledge")?;
+        let location = self.knowledge_location(space)?;
+        if let Some(id) = model {
+            let info = model::model(id)
+                .ok_or_else(|| SessionError::Unsupported(format!("no model {id}")))?;
+            if model::state(&self.engines().models_dir(), info) != model::ModelState::Ready {
+                return Err(SessionError::Unsupported(format!(
+                    "{} is not on this computer; download it first",
+                    info.name
+                )));
+            }
+        }
+        let cat = self.knowledge_catalog(space)?;
+        cat.set_model(model)?;
+        if cat.prepared_ms()?.is_some() {
+            self.reconcile_knowledge(space, &location, &cat).await?;
+        }
+        self.knowledge_status(space)
+    }
+
+    /// The embedding models this node knows and where each is.
+    #[cfg(feature = "embedding")]
+    pub fn embedding_models(&self) -> Vec<(&'static model::ModelInfo, model::ModelState)> {
+        let root = self.engines().models_dir();
+        model::MODELS
+            .iter()
+            .map(|m| (m, model::state(&root, m)))
+            .collect()
+    }
+
+    /// Start downloading model `id` in the background. Owner only.
+    #[cfg(feature = "embedding")]
+    pub fn download_embedding_model(&self, id: &str) -> Result<model::ModelState, SessionError> {
+        self.deny_principal("downloading a model")?;
+        let info =
+            model::model(id).ok_or_else(|| SessionError::Unsupported(format!("no model {id}")))?;
+        Ok(model::start(&self.engines().models_dir(), info))
+    }
+
+    /// Remove model `id`'s files. Collections searched by meaning with it
+    /// keep their vectors but are searched by words until it is back. Owner
+    /// only.
+    #[cfg(feature = "embedding")]
+    pub async fn remove_embedding_model(&self, id: &str) -> Result<(), SessionError> {
+        self.deny_principal("removing a model")?;
+        let info =
+            model::model(id).ok_or_else(|| SessionError::Unsupported(format!("no model {id}")))?;
+        embed::unload().await;
+        model::remove(&self.engines().models_dir(), info)
+    }
+
     /// Where `space`'s knowledge is: prepared or not, and each original.
     pub fn knowledge_status(&self, space: &str) -> Result<KnowledgeStatus, SessionError> {
         self.space(space)?;
         if !self.knowledge_dir(space).join("catalog.sqlite").exists() {
             return Ok(KnowledgeStatus {
                 prepared_ms: None,
+                model: None,
                 assets: Vec::new(),
             });
         }
         let cat = self.knowledge_catalog(space)?;
         Ok(KnowledgeStatus {
             prepared_ms: cat.prepared_ms()?,
+            model: cat.model()?,
             assets: cat.states()?,
         })
     }
@@ -238,7 +358,37 @@ impl OikomeSession {
     /// Queue every original that failed again. Owner only.
     pub fn retry_knowledge(&self, space: &str) -> Result<u64, SessionError> {
         self.deny_principal("preparing knowledge")?;
-        self.knowledge_catalog(space)?.retry_failed(VERSION)
+        let cat = self.knowledge_catalog(space)?;
+        cat.retry_failed(&knowledge_version(cat.model()?.as_deref()))
+    }
+
+    /// The model `space`'s chunks get vectors from, whether or not its
+    /// files are on this computer yet.
+    fn knowledge_vectors(&self, cat: &Catalog) -> Result<Option<Vectors>, SessionError> {
+        #[cfg(feature = "embedding")]
+        return Ok(cat
+            .model()?
+            .as_deref()
+            .and_then(model::model)
+            .map(|info| Vectors {
+                info,
+                root: self.engines().models_dir(),
+            }));
+        #[cfg(not(feature = "embedding"))]
+        {
+            let _ = cat;
+            Ok(None)
+        }
+    }
+
+    /// The model `space` is searched by meaning with, when its files are here.
+    fn knowledge_meaning(&self, cat: &Catalog) -> Result<Option<Vectors>, SessionError> {
+        #[cfg(feature = "embedding")]
+        return Ok(self
+            .knowledge_vectors(cat)?
+            .filter(|v| model::state(&v.root, v.info) == model::ModelState::Ready));
+        #[cfg(not(feature = "embedding"))]
+        self.knowledge_vectors(cat)
     }
 
     /// Run `space`'s queued conversions for at most `budget`, then index
@@ -256,6 +406,7 @@ impl OikomeSession {
             return Ok(0);
         }
         let cat = self.knowledge_catalog(space)?;
+        let vectors = self.knowledge_vectors(&cat)?;
         let started = Instant::now();
         let mut store = None;
         let mut done = 0;
@@ -264,10 +415,15 @@ impl OikomeSession {
                 break;
             };
             if store.is_none() {
-                store = Some(self.knowledge_store(space).await?);
+                let opened = self.knowledge_store(space).await?;
+                if let Some(v) = &vectors {
+                    let (column, dims) = v.column();
+                    opened.ensure_vectors(column, dims).await?;
+                }
+                store = Some(opened);
             }
             let store = store.as_ref().expect("opened above");
-            match convert(&cat, store, &place, &job).await {
+            match convert(&cat, store, &place, &job, vectors.as_ref()).await {
                 Ok(()) => done += 1,
                 Err(Failure::Reason(reason)) => cat.fail(&job, reason)?,
                 Err(Failure::Error(e)) => {
@@ -352,48 +508,98 @@ impl OikomeSession {
             .set_enabled(chunk_id, enabled)
     }
 
-    /// Up to `limit` current, turned-on chunks of `space` matching `query`
-    /// by full text, best first.
+    /// Up to `limit` current, turned-on chunks of `space` matching `query`,
+    /// best first: by words and meaning when the collection has a model
+    /// whose files are here, by words otherwise.
     pub async fn search_knowledge(
         &self,
         space: &str,
         query: &str,
         limit: u32,
     ) -> Result<KnowledgeSearch, SessionError> {
+        self.search_knowledge_by(space, query, limit, None).await
+    }
+
+    /// [`OikomeSession::search_knowledge`] the way `mode` says; meaning needs
+    /// the collection's model.
+    pub async fn search_knowledge_by(
+        &self,
+        space: &str,
+        query: &str,
+        limit: u32,
+        mode: Option<SearchMode>,
+    ) -> Result<KnowledgeSearch, SessionError> {
         let started = Instant::now();
         let status = self.knowledge_status(space)?;
-        if status.prepared_ms.is_none() || query.trim().is_empty() {
+        let cat = self.knowledge_catalog(space)?;
+        let meaning = self.knowledge_meaning(&cat)?;
+        let mode = match (mode, meaning.is_some()) {
+            (Some(SearchMode::Words), _) | (None, false) => SearchMode::Words,
+            (None, true) => SearchMode::Hybrid,
+            (Some(m), true) => m,
+            (Some(_), false) => {
+                return Err(SessionError::Unsupported(format!(
+                    "{space} is not searched by meaning; turn it on with a model first"
+                )))
+            }
+        };
+        let query = query.trim();
+        if status.prepared_ms.is_none() || query.is_empty() {
             return Ok(KnowledgeSearch {
                 hits: Vec::new(),
+                mode,
                 took_ms: 0,
             });
         }
-        let cat = self.knowledge_catalog(space)?;
         let current = cat.current()?;
         let off = cat.disabled()?;
+        let keep = |c: &StoredChunk| {
+            current.get(&c.asset_id) == Some(&c.conversion_id) && !off.contains(&c.chunk_id)
+        };
         // Rows of replaced versions and turned-off chunks are dropped, so
         // ask for more than are wanted.
         let wanted = limit.clamp(1, 100);
-        let found = self
-            .knowledge_store(space)
-            .await?
-            .search(query.trim(), wanted * 3 + off.len().min(300) as u32)
-            .await?;
-        // The ngram index also scores chunks that share only a few letters
-        // with the query; full text means each word is there.
-        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        let hits = found
-            .into_iter()
-            .filter(|c| current.get(&c.asset_id) == Some(&c.conversion_id))
-            .filter(|c| !off.contains(&c.chunk_id))
-            .filter(|c| {
-                let text = c.text.to_lowercase();
-                words.iter().all(|w| text.contains(w.as_str()))
-            })
-            .take(wanted as usize)
-            .collect();
+        let ask = wanted * 3 + off.len().min(300) as u32;
+        let store = self.knowledge_store(space).await?;
+        let by_words = if mode == SearchMode::Meaning {
+            Vec::new()
+        } else {
+            // The ngram index also scores chunks that share only a few
+            // letters with the query; by words means each word is there.
+            let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+            store
+                .search(query, ask)
+                .await?
+                .into_iter()
+                .filter(|c| keep(c))
+                .filter(|c| {
+                    let text = c.text.to_lowercase();
+                    words.iter().all(|w| text.contains(w.as_str()))
+                })
+                .collect()
+        };
+        let by_meaning = match (&meaning, mode) {
+            (Some(v), SearchMode::Meaning | SearchMode::Hybrid) => {
+                let (column, dims) = v.column();
+                store.ensure_vectors(column, dims).await?;
+                let vector = query_vector(v, query).await?;
+                store
+                    .nearest(column, &vector, ask)
+                    .await?
+                    .into_iter()
+                    .filter(|c| keep(c))
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        let hits = match mode {
+            SearchMode::Words => by_words.into_iter().take(wanted as usize).collect(),
+            SearchMode::Meaning => by_meaning.into_iter().take(wanted as usize).collect(),
+            SearchMode::Hybrid => fuse(by_words, by_meaning, wanted as usize),
+        };
         Ok(KnowledgeSearch {
             hits,
+            mode,
             took_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         })
     }
@@ -655,11 +861,19 @@ fn stored(path: &str, seq: i32, p: Piece) -> StoredChunk {
         line_start: i32::try_from(p.line_start).unwrap_or(i32::MAX),
         line_end: i32::try_from(p.line_end).unwrap_or(i32::MAX),
         score: None,
+        found_by: None,
     }
 }
 
-/// Convert one original: read it, split it, commit its chunks.
-async fn convert(cat: &Catalog, store: &Store, place: &Place, job: &Job) -> Result<(), Failure> {
+/// Convert one original: read it, split it, give its chunks vectors when
+/// the collection has a model, commit them.
+async fn convert(
+    cat: &Catalog,
+    store: &Store,
+    place: &Place,
+    job: &Job,
+    vectors: Option<&Vectors>,
+) -> Result<(), Failure> {
     cat.stage(&job.conversion_id, Stage::Reading)?;
     let kind = Kind::of(&job.name).ok_or(Failure::Reason(reason::NOT_TEXT))?;
     let max = max_size(kind);
@@ -675,16 +889,152 @@ async fn convert(cat: &Catalog, store: &Store, place: &Place, job: &Job) -> Resu
         .iter()
         .flat_map(|(page, text)| split::split(text, kind, *page))
         .collect();
-    let batch = batch_of(job, &version, &pieces)?;
+    let made = match vectors {
+        Some(v) => {
+            cat.stage(&job.conversion_id, Stage::Embedding)?;
+            Some(vectors_of(cat, v, &pieces).await?)
+        }
+        None => None,
+    };
+    let batch = batch_of(job, &version, &pieces, made)?;
     let n = batch.num_rows() as u64;
     store
-        .replace(&job.asset_id, &job.conversion_id, batch)
+        .replace(
+            &job.asset_id,
+            &job.conversion_id,
+            batch,
+            vectors.map(Vectors::column),
+        )
         .await?;
     cat.finish(job, n)?;
     Ok(())
 }
 
-fn batch_of(job: &Job, version: &str, pieces: &[Piece]) -> Result<RecordBatch, SessionError> {
+/// What a chunk's vector is made from: its headings, then its text (as
+/// RAGFlow and FastGPT do), so a passage is found by what it is under.
+#[cfg_attr(not(feature = "embedding"), allow(dead_code))]
+fn embedding_input(p: &Piece) -> String {
+    if p.heading.is_empty() {
+        p.text.clone()
+    } else {
+        format!("{}\n{}", p.heading.join(" > "), p.text)
+    }
+}
+
+/// A vector as the text DuckDB casts to `FLOAT[n]`.
+#[cfg_attr(not(feature = "embedding"), allow(dead_code))]
+fn vector_text(v: &[f32]) -> String {
+    let numbers: Vec<String> = v.iter().map(|x| format!("{x:?}")).collect();
+    format!("[{}]", numbers.join(","))
+}
+
+/// Each piece's vector, as text: from the cache when the same input was
+/// embedded before, otherwise made now and kept.
+#[cfg(feature = "embedding")]
+async fn vectors_of(cat: &Catalog, v: &Vectors, pieces: &[Piece]) -> Result<Vec<String>, Failure> {
+    if model::state(&v.root, v.info) != model::ModelState::Ready {
+        return Err(Failure::Reason(reason::NO_MODEL));
+    }
+    let tag = v.info.tag();
+    let inputs: Vec<String> = pieces.iter().map(embedding_input).collect();
+    let hashes: Vec<String> = inputs
+        .iter()
+        .map(|t| blake3::hash(t.as_bytes()).to_hex().to_string())
+        .collect();
+    let mut found = cat.cached_vectors(&tag, &hashes)?;
+    let missing: Vec<usize> = (0..inputs.len())
+        .filter(|&i| !found.contains_key(&hashes[i]))
+        .collect();
+    if !missing.is_empty() {
+        let embedder = embed::embedder(&model::dir(&v.root, v.info), v.info).await?;
+        let texts: Vec<String> = missing.iter().map(|&i| inputs[i].clone()).collect();
+        let made = tokio::task::spawn_blocking(move || {
+            texts
+                .iter()
+                .map(|t| embedder.document(t))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await
+        .map_err(|e| SessionError::Unsupported(format!("embedding: {e}")))??;
+        for (&i, vector) in missing.iter().zip(made) {
+            cat.cache_vector(&tag, &hashes[i], &vector)?;
+            found.insert(hashes[i].clone(), vector);
+        }
+    }
+    Ok(hashes.iter().map(|h| vector_text(&found[h])).collect())
+}
+
+#[cfg(not(feature = "embedding"))]
+async fn vectors_of(_: &Catalog, v: &Vectors, _: &[Piece]) -> Result<Vec<String>, Failure> {
+    match *v {}
+}
+
+/// The vector of a query, with the model that made the collection's.
+#[cfg(feature = "embedding")]
+async fn query_vector(v: &Vectors, query: &str) -> Result<Vec<f32>, SessionError> {
+    let embedder = embed::embedder(&model::dir(&v.root, v.info), v.info).await?;
+    let query = query.to_string();
+    tokio::task::spawn_blocking(move || embedder.query(&query))
+        .await
+        .map_err(|e| SessionError::Unsupported(format!("embedding: {e}")))?
+}
+
+#[cfg(not(feature = "embedding"))]
+async fn query_vector(v: &Vectors, _: &str) -> Result<Vec<f32>, SessionError> {
+    match *v {}
+}
+
+/// Hits by words and by meaning in one list, by reciprocal rank fusion:
+/// each list adds 1 / (60 + rank), so a chunk both find comes first.
+fn fuse(
+    by_words: Vec<StoredChunk>,
+    by_meaning: Vec<StoredChunk>,
+    wanted: usize,
+) -> Vec<StoredChunk> {
+    const K: f64 = 60.0;
+    let mut fused: HashMap<String, (StoredChunk, f64, bool, bool)> = HashMap::new();
+    for (meaning, list) in [(false, by_words), (true, by_meaning)] {
+        for (rank, chunk) in list.into_iter().enumerate() {
+            let add = 1.0 / (K + rank as f64 + 1.0);
+            let entry = fused
+                .entry(chunk.chunk_id.clone())
+                .or_insert_with(|| (chunk, 0.0, false, false));
+            entry.1 += add;
+            if meaning {
+                entry.3 = true;
+            } else {
+                entry.2 = true;
+            }
+        }
+    }
+    let mut hits: Vec<_> = fused
+        .into_values()
+        .map(|(mut chunk, score, words, meaning)| {
+            chunk.score = Some(score);
+            chunk.found_by = Some(match (words, meaning) {
+                (true, true) => FoundBy::Both,
+                (false, true) => FoundBy::Meaning,
+                _ => FoundBy::Words,
+            });
+            chunk
+        })
+        .collect();
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.chunk_id.cmp(&b.chunk_id))
+    });
+    hits.truncate(wanted);
+    hits
+}
+
+fn batch_of(
+    job: &Job,
+    version: &str,
+    pieces: &[Piece],
+    vectors: Option<Vec<String>>,
+) -> Result<RecordBatch, SessionError> {
     let n = pieces.len();
     let same = |v: &str| StringArray::from(vec![v; n]);
     let ids: Vec<String> = pieces
@@ -756,7 +1106,23 @@ fn batch_of(job: &Job, version: &str, pieces: &[Piece]) -> Result<RecordBatch, S
         std::sync::Arc::new(int32(&|p| i64::from(p.line_start))),
         std::sync::Arc::new(int32(&|p| i64::from(p.line_end))),
     ];
-    Ok(RecordBatch::try_new(store::schema(), columns)?)
+    match vectors {
+        None => Ok(RecordBatch::try_new(store::schema(), columns)?),
+        Some(vectors) => {
+            let mut fields: Vec<_> = store::schema().fields().iter().cloned().collect();
+            fields.push(std::sync::Arc::new(arrow_schema::Field::new(
+                "vector",
+                arrow_schema::DataType::Utf8,
+                false,
+            )));
+            let mut columns = columns;
+            columns.push(std::sync::Arc::new(StringArray::from(vectors)));
+            Ok(RecordBatch::try_new(
+                std::sync::Arc::new(arrow_schema::Schema::new(fields)),
+                columns,
+            )?)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -781,5 +1147,55 @@ mod tests {
             decode(Kind::Text, vec![0xff, 0xfe, 0x00]).await,
             Err(Failure::Reason(reason::NOT_TEXT))
         ));
+    }
+
+    fn hit(id: &str) -> StoredChunk {
+        StoredChunk {
+            chunk_id: id.into(),
+            asset_id: "a".into(),
+            conversion_id: "c".into(),
+            path: "p.md".into(),
+            seq: 0,
+            heading: Vec::new(),
+            text: String::new(),
+            page: None,
+            char_start: 0,
+            char_end: 0,
+            line_start: 1,
+            line_end: 1,
+            score: Some(1.0),
+            found_by: None,
+        }
+    }
+
+    #[test]
+    fn words_and_meaning_are_fused_by_rank() {
+        let fused = fuse(
+            vec![hit("w1"), hit("both"), hit("w3")],
+            vec![hit("both"), hit("m2")],
+            3,
+        );
+        let ids: Vec<_> = fused.iter().map(|c| c.chunk_id.as_str()).collect();
+        // Found both ways first; then the best of each list by rank.
+        assert_eq!(ids, vec!["both", "w1", "m2"]);
+        assert_eq!(fused[0].found_by, Some(FoundBy::Both));
+        assert_eq!(fused[1].found_by, Some(FoundBy::Words));
+        assert_eq!(fused[2].found_by, Some(FoundBy::Meaning));
+        assert!(fused[0].score > fused[1].score);
+    }
+
+    #[test]
+    fn a_chunk_is_embedded_under_its_headings() {
+        let piece = Piece {
+            text: "Body.".into(),
+            heading: vec!["Guide".into(), "Setup".into()],
+            page: None,
+            char_start: 0,
+            char_end: 5,
+            line_start: 1,
+            line_end: 1,
+        };
+        assert_eq!(embedding_input(&piece), "Guide > Setup\nBody.");
+        assert_eq!(vector_text(&[0.5, -1.0, 1e-8]), "[0.5,-1.0,1e-8]");
     }
 }

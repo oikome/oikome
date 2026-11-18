@@ -1364,7 +1364,7 @@ export type DatasetAnalysis = { space: SpaceSummary, profile: AnalysisProfile, }
 /**
  * Where one original of a collection is in being prepared as knowledge.
  */
-export type KnowledgeStage = "waiting" | "reading" | "splitting" | "ready" | "failed";
+export type KnowledgeStage = "waiting" | "reading" | "splitting" | "embedding" | "ready" | "failed";
 
 /**
  * One original of a collection prepared as knowledge.
@@ -1380,8 +1380,8 @@ path: string, name: string, size: number, stage: KnowledgeStage,
  */
 chunks: number,
 /**
- * Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF) or
- * `unreadable`.
+ * Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF),
+ * `unreadable` or `no_model` (its model was removed).
  */
 reason: string | null, updatedMs: number, };
 
@@ -1397,7 +1397,16 @@ preparedMs: number | null,
 /**
  * Whether this computer has Lance support (`install_lance`).
  */
-available: boolean, files: Array<KnowledgeFile>, ready: number,
+available: boolean,
+/**
+ * The model it is searched by meaning with (`set_knowledge_model`).
+ */
+model: string | null,
+/**
+ * Whether it is searched by meaning now: it has a model and the
+ * model's files are on this computer.
+ */
+meaning: boolean, files: Array<KnowledgeFile>, ready: number,
 /**
  * Waiting or in progress.
  */
@@ -1429,9 +1438,14 @@ charStart: number, charEnd: number,
  */
 lineStart: number, lineEnd: number, enabled: boolean,
 /**
- * Its full-text score, for a hit.
+ * Its score, for a hit: BM25 by words, cosine similarity by meaning,
+ * the fused rank score for both.
  */
-score: number | null, };
+score: number | null,
+/**
+ * How a hit was found.
+ */
+foundBy: FoundBy | null, };
 
 /**
  * `knowledge_chunks`: the chunks of one original.
@@ -1450,17 +1464,75 @@ export type RetrievalTest = { space: string, query: string,
 /**
  * Most hits, 1 to 100; default 10.
  */
-limit: number | null, };
+limit: number | null,
+/**
+ * How to search; both words and meaning when the collection is
+ * searched by meaning, words otherwise.
+ */
+mode: SearchMode | null, };
 
 /**
- * What a retrieval test found, best first, and how long it took.
+ * What a retrieval test found, best first, how it searched and how long
+ * it took.
  */
-export type RetrievalResults = { hits: Array<KnowledgeChunk>, tookMs: number, };
+export type RetrievalResults = { hits: Array<KnowledgeChunk>, mode: SearchMode, tookMs: number, };
 
 /**
  * `install_lance`: DuckDB's Lance support, now on this computer.
  */
 export type LanceInstalled = { version: string, };
+
+/**
+ * How a search hit was found.
+ */
+export type FoundBy = "words" | "meaning" | "both";
+
+/**
+ * How knowledge is searched.
+ */
+export type SearchMode = "words" | "meaning" | "hybrid";
+
+/**
+ * `set_knowledge_model`: search a collection by meaning with a model, or
+ * by words only (`None`).
+ */
+export type SetKnowledgeModel = { space: string, model: string | null, };
+
+/**
+ * Where an embedding model is on this computer.
+ */
+export type ModelState = "absent" | "downloading" | "ready" | "failed";
+
+/**
+ * `list_models`, `download_model`: an embedding model knowledge can be
+ * searched by meaning with. It runs on this computer.
+ */
+export type EmbeddingModel = { id: string, name: string, license: string,
+/**
+ * Bytes to download.
+ */
+size: number,
+/**
+ * Length of its vectors.
+ */
+dims: number, state: ModelState,
+/**
+ * Bytes downloaded so far, while downloading.
+ */
+done: number,
+/**
+ * Why the last download failed.
+ */
+error: string | null,
+/**
+ * Collections searched by meaning with it.
+ */
+usedBy: Array<string>, };
+
+/**
+ * `download_model`, `remove_model`: a model by id.
+ */
+export type ModelRef = { id: string, };
 
 /**
  * `create_public_share`: publish a detached collection with live-query and

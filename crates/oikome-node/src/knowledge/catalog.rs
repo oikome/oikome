@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS chunk_overrides(
   enabled INTEGER NOT NULL,
   updated_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS embedding_cache(
+  input_hash TEXT NOT NULL,
+  model TEXT NOT NULL,
+  vector BLOB NOT NULL,
+  PRIMARY KEY(input_hash, model)
+);
 ";
 
 /// A conversion is tried this many times before it stays `failed`.
@@ -70,6 +76,11 @@ pub(crate) const ATTEMPTS: i64 = 3;
 
 fn sql(e: rusqlite::Error) -> SessionError {
     SessionError::Unsupported(format!("knowledge catalog: {e}"))
+}
+
+fn floats(bytes: &[u8]) -> Vec<f32> {
+    let (whole, _) = bytes.as_chunks::<4>();
+    whole.iter().map(|b| f32::from_le_bytes(*b)).collect()
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -85,6 +96,8 @@ pub enum Stage {
     Queued,
     Reading,
     Splitting,
+    /// Its chunks' vectors are being made (meaning search, K2).
+    Embedding,
     Ready,
     Failed,
 }
@@ -95,6 +108,7 @@ impl Stage {
             Stage::Queued => "queued",
             Stage::Reading => "reading",
             Stage::Splitting => "splitting",
+            Stage::Embedding => "embedding",
             Stage::Ready => "ready",
             Stage::Failed => "failed",
         }
@@ -104,6 +118,7 @@ impl Stage {
         match s {
             "reading" => Stage::Reading,
             "splitting" => Stage::Splitting,
+            "embedding" => Stage::Embedding,
             "ready" => Stage::Ready,
             "failed" => Stage::Failed,
             _ => Stage::Queued,
@@ -186,6 +201,70 @@ impl Catalog {
         Ok(())
     }
 
+    /// The model the collection is searched by meaning with, if any.
+    pub(crate) fn model(&self) -> Result<Option<String>, SessionError> {
+        self.conn()
+            .query_row("SELECT value FROM facts WHERE key = 'model'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()
+            .map_err(sql)
+    }
+
+    pub(crate) fn set_model(&self, model: Option<&str>) -> Result<(), SessionError> {
+        let conn = self.conn();
+        match model {
+            Some(m) => conn.execute(
+                "INSERT INTO facts(key, value) VALUES ('model', ?1) \
+                 ON CONFLICT(key) DO UPDATE SET value = ?1",
+                [m],
+            ),
+            None => conn.execute("DELETE FROM facts WHERE key = 'model'", []),
+        }
+        .map_err(sql)?;
+        Ok(())
+    }
+
+    /// Vectors already made by `model` for these inputs, by input hash.
+    pub(crate) fn cached_vectors(
+        &self,
+        model: &str,
+        hashes: &[String],
+    ) -> Result<HashMap<String, Vec<f32>>, SessionError> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare("SELECT vector FROM embedding_cache WHERE input_hash = ?1 AND model = ?2")
+            .map_err(sql)?;
+        let mut out = HashMap::new();
+        for hash in hashes {
+            let found: Option<Vec<u8>> = stmt
+                .query_row(params![hash, model], |r| r.get(0))
+                .optional()
+                .map_err(sql)?;
+            if let Some(bytes) = found {
+                out.insert(hash.clone(), floats(&bytes));
+            }
+        }
+        Ok(out)
+    }
+
+    pub(crate) fn cache_vector(
+        &self,
+        model: &str,
+        hash: &str,
+        vector: &[f32],
+    ) -> Result<(), SessionError> {
+        let bytes: Vec<u8> = vector.iter().flat_map(|x| x.to_le_bytes()).collect();
+        self.conn()
+            .execute(
+                "INSERT INTO embedding_cache(input_hash, model, vector) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT DO NOTHING",
+                params![hash, model, bytes],
+            )
+            .map_err(sql)?;
+        Ok(())
+    }
+
     /// Bring the assets in line with the files listed now: a new or changed
     /// file is queued, a file that went is `missing`. Returns the assets
     /// that went missing, whose chunks must go.
@@ -245,7 +324,7 @@ impl Catalog {
             let waiting: bool = tx
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM conversions WHERE asset_id = ?1 \
-                     AND status IN ('queued', 'reading', 'splitting'))",
+                     AND status IN ('queued', 'reading', 'splitting', 'embedding'))",
                     [&asset_id],
                     |r| r.get(0),
                 )
@@ -622,5 +701,26 @@ mod tests {
         assert!(cat.disabled().unwrap().contains("c1"));
         cat.set_enabled("c1", true).unwrap();
         assert!(cat.disabled().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_model_is_chosen_and_its_vectors_are_kept_by_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let cat = Catalog::open(dir.path()).unwrap();
+        assert_eq!(cat.model().unwrap(), None);
+        cat.set_model(Some("m")).unwrap();
+        assert_eq!(cat.model().unwrap().as_deref(), Some("m"));
+        cat.cache_vector("m", "h1", &[0.5, -1.25]).unwrap();
+        let found = cat
+            .cached_vectors("m", &["h1".into(), "h2".into()])
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found["h1"], vec![0.5, -1.25]);
+        assert!(cat
+            .cached_vectors("other", &["h1".into()])
+            .unwrap()
+            .is_empty());
+        cat.set_model(None).unwrap();
+        assert_eq!(cat.model().unwrap(), None);
     }
 }

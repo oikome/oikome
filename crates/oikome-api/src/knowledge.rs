@@ -20,12 +20,12 @@
 use std::time::Duration;
 
 use oikome_core::validate_space_name;
-use oikome_node::knowledge::{Stage, StoredChunk};
+use oikome_node::knowledge::{self as node, model, Stage, StoredChunk};
 
 use crate::{
-    Api, ApiError, Caller, Empty, KnowledgeChunk, KnowledgeChunksRequest, KnowledgeFile,
-    KnowledgeStage, KnowledgeStatus, LanceInstalled, RetrievalResults, RetrievalTest,
-    SetKnowledgeChunk, SpaceRef,
+    Api, ApiError, Caller, EmbeddingModel, Empty, FoundBy, KnowledgeChunk, KnowledgeChunksRequest,
+    KnowledgeFile, KnowledgeStage, KnowledgeStatus, LanceInstalled, ModelRef, ModelState,
+    RetrievalResults, RetrievalTest, SearchMode, SetKnowledgeChunk, SetKnowledgeModel, SpaceRef,
 };
 
 /// How long one round of preparing runs in the background after Prepare;
@@ -50,6 +50,47 @@ pub(crate) fn chunk_of(c: StoredChunk, enabled: bool) -> KnowledgeChunk {
         line_end: u32::try_from(c.line_end).unwrap_or(0),
         enabled,
         score: c.score,
+        found_by: c.found_by.map(|f| match f {
+            node::FoundBy::Words => FoundBy::Words,
+            node::FoundBy::Meaning => FoundBy::Meaning,
+            node::FoundBy::Both => FoundBy::Both,
+        }),
+    }
+}
+
+fn mode_of(mode: node::SearchMode) -> SearchMode {
+    match mode {
+        node::SearchMode::Words => SearchMode::Words,
+        node::SearchMode::Meaning => SearchMode::Meaning,
+        node::SearchMode::Hybrid => SearchMode::Hybrid,
+    }
+}
+
+fn model_of(
+    info: &model::ModelInfo,
+    state: model::ModelState,
+    used: &[(String, String)],
+) -> EmbeddingModel {
+    let (state, done, error) = match state {
+        model::ModelState::Absent => (ModelState::Absent, 0, None),
+        model::ModelState::Downloading { done, .. } => (ModelState::Downloading, done, None),
+        model::ModelState::Ready => (ModelState::Ready, info.size(), None),
+        model::ModelState::Failed(e) => (ModelState::Failed, 0, Some(e)),
+    };
+    EmbeddingModel {
+        id: info.id.to_string(),
+        name: info.name.to_string(),
+        license: info.license.to_string(),
+        size: info.size(),
+        dims: u32::try_from(info.dims).unwrap_or(u32::MAX),
+        state,
+        done,
+        error,
+        used_by: used
+            .iter()
+            .filter(|(m, _)| m == info.id)
+            .map(|(_, space)| space.clone())
+            .collect(),
     }
 }
 
@@ -58,6 +99,7 @@ fn stage_of(stage: Stage) -> KnowledgeStage {
         Stage::Queued => KnowledgeStage::Waiting,
         Stage::Reading => KnowledgeStage::Reading,
         Stage::Splitting => KnowledgeStage::Splitting,
+        Stage::Embedding => KnowledgeStage::Embedding,
         Stage::Ready => KnowledgeStage::Ready,
         Stage::Failed => KnowledgeStage::Failed,
     }
@@ -69,6 +111,12 @@ impl Api {
         let session = self.session(None);
         let status = session.knowledge_status(space)?;
         let available = session.knowledge_available().await.is_ok();
+        let meaning = status.model.as_deref().is_some_and(|id| {
+            session
+                .embedding_models()
+                .iter()
+                .any(|(m, state)| m.id == id && *state == model::ModelState::Ready)
+        });
         let files: Vec<KnowledgeFile> = status
             .assets
             .into_iter()
@@ -93,12 +141,17 @@ impl Api {
             space: space.to_string(),
             prepared_ms: status.prepared_ms,
             available,
+            model: status.model,
+            meaning,
             ready: count(|f| f.stage == KnowledgeStage::Ready),
             failed: count(|f| f.stage == KnowledgeStage::Failed),
             waiting: count(|f| {
                 matches!(
                     f.stage,
-                    KnowledgeStage::Waiting | KnowledgeStage::Reading | KnowledgeStage::Splitting
+                    KnowledgeStage::Waiting
+                        | KnowledgeStage::Reading
+                        | KnowledgeStage::Splitting
+                        | KnowledgeStage::Embedding
                 )
             }),
             chunks: files.iter().map(|f| f.chunks).sum(),
@@ -228,14 +281,86 @@ impl Api {
                 "a query has at most {MAX_QUERY_CHARS} characters"
             )));
         }
+        let mode = req.mode.map(|m| match m {
+            SearchMode::Words => node::SearchMode::Words,
+            SearchMode::Meaning => node::SearchMode::Meaning,
+            SearchMode::Hybrid => node::SearchMode::Hybrid,
+        });
         let found = self
             .session(None)
-            .search_knowledge(&req.space, query, req.limit.unwrap_or(10))
+            .search_knowledge_by(&req.space, query, req.limit.unwrap_or(10), mode)
             .await?;
         Ok(RetrievalResults {
             hits: found.hits.into_iter().map(|c| chunk_of(c, true)).collect(),
+            mode: mode_of(found.mode),
             took_ms: found.took_ms,
         })
+    }
+
+    /// Search `space` by meaning with a model as well as by words, or by
+    /// words only. Its originals are prepared again in the background; the
+    /// passages they have now serve until then.
+    pub async fn set_knowledge_model(
+        &self,
+        caller: &Caller,
+        req: SetKnowledgeModel,
+    ) -> Result<KnowledgeStatus, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        validate_space_name(&req.space)?;
+        let status = self
+            .session(None)
+            .set_knowledge_model(&req.space, req.model.as_deref())
+            .await?;
+        if status.prepared_ms.is_some() {
+            self.work_in_background(&req.space);
+        }
+        self.knowledge_view(&req.space).await
+    }
+
+    /// The embedding models, where each is, and the collections using it.
+    pub async fn list_models(
+        &self,
+        caller: &Caller,
+        _: Empty,
+    ) -> Result<Vec<EmbeddingModel>, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let session = self.session(None);
+        let mut used: Vec<(String, String)> = Vec::new();
+        for space in self.catalog.list_spaces() {
+            if let Ok(status) = session.knowledge_status(&space.name) {
+                if let Some(m) = status.model {
+                    used.push((m, space.name.clone()));
+                }
+            }
+        }
+        Ok(session
+            .embedding_models()
+            .into_iter()
+            .map(|(info, state)| model_of(info, state, &used))
+            .collect())
+    }
+
+    /// Start downloading a model, from its pinned revision, checked against
+    /// its published digests. It runs on this computer.
+    pub async fn download_model(
+        &self,
+        caller: &Caller,
+        req: ModelRef,
+    ) -> Result<EmbeddingModel, ApiError> {
+        caller.require_owner()?;
+        let state = self.session(None).download_embedding_model(&req.id)?;
+        let info = model::model(&req.id).ok_or_else(|| ApiError::invalid("no such model"))?;
+        Ok(model_of(info, state, &[]))
+    }
+
+    /// Remove a model's files. Collections searched by meaning with it are
+    /// searched by words until it is downloaded again.
+    pub async fn remove_model(&self, caller: &Caller, req: ModelRef) -> Result<Empty, ApiError> {
+        caller.require_owner()?;
+        self.session(None).remove_embedding_model(&req.id).await?;
+        Ok(Empty {})
     }
 
     /// Download DuckDB's Lance support (signed by DuckDB) to this computer.

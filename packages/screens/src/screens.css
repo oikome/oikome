@@ -4723,3 +4723,24 @@ tr.screen-source {
   font: var(--text-meta);
   color: var(--ink3);
 }
+
+/* Embedding models (K2): a download's progress, and a row holding it. */
+.screen-model-row {
+  padding: 0 var(--space-4) var(--space-3);
+}
+.screen-model-row .screen-knowledge-install {
+  margin: 0;
+}
+.screen-model-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+  font: var(--text-meta);
+  color: var(--ink2);
+}
+.screen-model-progress progress {
+  flex: 1 1 auto;
+  height: 6px;
+  accent-color: var(--ink);
+}

@@ -2301,6 +2301,8 @@ pub enum KnowledgeStage {
     Waiting,
     Reading,
     Splitting,
+    /// Its chunks' vectors are being made (searched by meaning).
+    Embedding,
     Ready,
     Failed,
 }
@@ -2317,8 +2319,8 @@ pub struct KnowledgeFile {
     /// Chunks of its current version (the previous one's while it is
     /// prepared again).
     pub chunks: u64,
-    /// Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF) or
-    /// `unreadable`.
+    /// Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF),
+    /// `unreadable` or `no_model` (its model was removed).
     pub reason: Option<String>,
     pub updated_ms: i64,
 }
@@ -2333,6 +2335,11 @@ pub struct KnowledgeStatus {
     pub prepared_ms: Option<i64>,
     /// Whether this computer has Lance support (`install_lance`).
     pub available: bool,
+    /// The model it is searched by meaning with (`set_knowledge_model`).
+    pub model: Option<String>,
+    /// Whether it is searched by meaning now: it has a model and the
+    /// model's files are on this computer.
+    pub meaning: bool,
     pub files: Vec<KnowledgeFile>,
     pub ready: u32,
     /// Waiting or in progress.
@@ -2362,8 +2369,32 @@ pub struct KnowledgeChunk {
     pub line_start: u32,
     pub line_end: u32,
     pub enabled: bool,
-    /// Its full-text score, for a hit.
+    /// Its score, for a hit: BM25 by words, cosine similarity by meaning,
+    /// the fused rank score for both.
     pub score: Option<f64>,
+    /// How a hit was found.
+    pub found_by: Option<FoundBy>,
+}
+
+/// How a search hit was found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum FoundBy {
+    Words,
+    Meaning,
+    Both,
+}
+
+/// How knowledge is searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchMode {
+    /// Passages holding every word.
+    Words,
+    /// Passages nearest in meaning.
+    Meaning,
+    /// Both, fused by rank.
+    Hybrid,
 }
 
 /// `knowledge_chunks`: the chunks of one original.
@@ -2392,14 +2423,69 @@ pub struct RetrievalTest {
     /// Most hits, 1 to 100; default 10.
     #[serde(default)]
     pub limit: Option<u32>,
+    /// How to search; both words and meaning when the collection is
+    /// searched by meaning, words otherwise.
+    #[serde(default)]
+    pub mode: Option<SearchMode>,
 }
 
-/// What a retrieval test found, best first, and how long it took.
+/// What a retrieval test found, best first, how it searched and how long
+/// it took.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrievalResults {
     pub hits: Vec<KnowledgeChunk>,
+    pub mode: SearchMode,
     pub took_ms: u64,
+}
+
+/// `set_knowledge_model`: search a collection by meaning with a model, or
+/// by words only (`None`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetKnowledgeModel {
+    pub space: String,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// Where an embedding model is on this computer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelState {
+    Absent,
+    Downloading,
+    Ready,
+    /// The last download failed; downloading again resumes it.
+    Failed,
+}
+
+/// `list_models`, `download_model`: an embedding model knowledge can be
+/// searched by meaning with. It runs on this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingModel {
+    pub id: String,
+    pub name: String,
+    pub license: String,
+    /// Bytes to download.
+    pub size: u64,
+    /// Length of its vectors.
+    pub dims: u32,
+    pub state: ModelState,
+    /// Bytes downloaded so far, while downloading.
+    pub done: u64,
+    /// Why the last download failed.
+    pub error: Option<String>,
+    /// Collections searched by meaning with it.
+    pub used_by: Vec<String>,
+}
+
+/// `download_model`, `remove_model`: a model by id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRef {
+    pub id: String,
 }
 
 /// `install_lance`: DuckDB's Lance support, now on this computer.
@@ -2423,6 +2509,8 @@ pub struct KnowledgePassage {
     pub line_end: u32,
     pub excerpt: String,
     pub score: Option<f64>,
+    /// How it was found: by words, by meaning or both.
+    pub found_by: Option<FoundBy>,
 }
 
 /// An assistant's `read`: a passage and what is around it, or a range of a

@@ -55,6 +55,9 @@ pub struct NodeConfig {
     /// keychain where there is one, otherwise a private file under
     /// `.oikome/identity/`.
     pub secret_backend: Option<Arc<dyn SecretBackend>>,
+    /// Where downloaded AI models are kept; `<catalog root>/.oikome/models`
+    /// by default.
+    pub models_dir: Option<PathBuf>,
 }
 
 /// A remote Space's engine and the binding (peer, Space, owner, token id)
@@ -89,6 +92,8 @@ pub struct EngineRegistry {
     secret_backend: OnceLock<Arc<dyn SecretBackend>>,
     /// Peers' compute tasks on this node (§12).
     compute: ComputeScheduler,
+    /// Where downloaded AI models are kept.
+    models_dir: PathBuf,
     /// The serving process's peer-to-peer connections (3.12); other
     /// processes of the node borrow them through its socket.
     dialer: OnceLock<Arc<dyn PeerDialer>>,
@@ -124,6 +129,10 @@ impl EngineRegistry {
         #[cfg(not(feature = "engine-duckdb"))]
         let duckdb: Option<Arc<dyn QueryEngine>> = None;
 
+        let models_dir = config
+            .models_dir
+            .clone()
+            .unwrap_or_else(|| catalog.oikome_dir().join("models"));
         let identity = OnceLock::new();
         if let Some(id) = config.identity {
             let _ = identity.set(id);
@@ -147,6 +156,7 @@ impl EngineRegistry {
                 .map(OnceLock::from)
                 .unwrap_or_default(),
             compute: ComputeScheduler::default(),
+            models_dir,
         })
     }
 
@@ -340,6 +350,11 @@ impl EngineRegistry {
     /// Directory for staging files before they are committed to a table.
     pub fn temp_dir(&self) -> &PathBuf {
         &self.temp_dir
+    }
+
+    /// Where downloaded AI models are kept (knowledge K2).
+    pub fn models_dir(&self) -> PathBuf {
+        self.models_dir.clone()
     }
 
     /// The shared analytical engine.

@@ -24,6 +24,9 @@ import type {
   RetrievalResults,
   RetrievalTest,
   SetKnowledgeChunk,
+  SetKnowledgeModel,
+  EmbeddingModel,
+  ModelRef,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -164,6 +167,13 @@ export interface NodeClient {
   retrievalTest(request: RetrievalTest): Promise<RetrievalResults>;
   /** Download DuckDB's Lance support to this computer. */
   installLance(): Promise<LanceInstalled>;
+  /** Search a collection by meaning with a model as well as by words, or by words only. */
+  setKnowledgeModel(request: SetKnowledgeModel): Promise<KnowledgeStatus>;
+  /** The embedding models, where each is, and the collections using it. */
+  listModels(): Promise<EmbeddingModel[]>;
+  /** Start downloading a model; it runs on this computer. */
+  downloadModel(request: ModelRef): Promise<EmbeddingModel>;
+  removeModel(request: ModelRef): Promise<Empty>;
   /** Once, on a new data center: the examples, in `language` when they are written in it. */
   addExamples(request?: AddExamples): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
@@ -441,6 +451,22 @@ export class HttpClient implements NodeClient {
 
   installLance(): Promise<LanceInstalled> {
     return this.#json("install_lance", {});
+  }
+
+  setKnowledgeModel(request: SetKnowledgeModel): Promise<KnowledgeStatus> {
+    return this.#json("set_knowledge_model", request);
+  }
+
+  listModels(): Promise<EmbeddingModel[]> {
+    return this.#json("list_models", {});
+  }
+
+  downloadModel(request: ModelRef): Promise<EmbeddingModel> {
+    return this.#json("download_model", request);
+  }
+
+  removeModel(request: ModelRef): Promise<Empty> {
+    return this.#json("remove_model", request);
   }
 
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile> {

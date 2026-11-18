@@ -433,7 +433,7 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
           who: listNames([strings.common.you, ...names]),
         };
         if (local && folder && view === "knowledge")
-          return <KnowledgeView space={space.name} onAnalyze={() => setView("analysis")} />;
+          return <KnowledgeView space={space.name} />;
         if (local && folder && view === "analysis") return <AnalysisView space={space.name} />;
         return folder || saved ? (
           <FolderContents

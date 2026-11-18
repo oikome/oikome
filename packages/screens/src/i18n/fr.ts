@@ -1315,9 +1315,6 @@ export const fr: Strings = {
       meaning: "Recherche plein texte et sémantique",
       meaningHelp: (name: string, size: string) =>
         `Recherche par mots-clés et par sens, y compris des passages formulés autrement ou dans une autre langue. Nécessite le modèle d’embedding ${name} (${size}), exécuté sur cet ordinateur.`,
-      analysis: "Analyse de données",
-      analysisHelp: "Transforme les fichiers de tableau de cette collection (CSV, TSV, Parquet, JSON Lines) en tables d’analyse pour les totaux, les regroupements et les tendances.",
-      analysisNone: "Cette collection ne contient aucun fichier de tableau à analyser.",
       meaningLater: "Le modèle d’embedding se télécharge en arrière-plan après la création de l’index. D’ici là, seule la recherche plein texte est utilisée ; les vecteurs sont ensuite calculés automatiquement.",
     },
     preview: "Aperçu des passages",

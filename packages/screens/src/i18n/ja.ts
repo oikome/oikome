@@ -1266,9 +1266,6 @@ export const ja: Strings = {
       meaning: "全文検索とセマンティック検索",
       meaningHelp: (name: string, size: string) =>
         `キーワードと意味の両方で検索し、表現や言語が異なる段落も一致させます。埋め込みモデル ${name}（${size}）が必要です。モデルはこのコンピュータ上で動作します。`,
-      analysis: "データ分析",
-      analysisHelp: "このコレクションの表形式のファイル（CSV、TSV、Parquet、JSON Lines）を分析表にし、集計、グループ化、傾向分析に使います。",
-      analysisNone: "このコレクションには分析できる表形式のファイルがありません。",
       meaningLater: "埋め込みモデルはインデックス作成後にバックグラウンドでダウンロードされます。完了までは全文検索のみを使用し、完了後に自動でベクトルを生成します。",
     },
     preview: "段落のプレビュー",

@@ -1299,9 +1299,6 @@ export const en = {
       meaning: "Full-Text and Semantic Search",
       meaningHelp: (name: string, size: string) =>
         `Search by keyword and by meaning, matching passages that are worded differently or written in another language. Requires the embedding model ${name} (${size}), which runs on this computer.`,
-      analysis: "Data Analysis",
-      analysisHelp: "Makes the table files of this collection (CSV, TSV, Parquet, JSON Lines) into analysis tables for totals, grouping and trends.",
-      analysisNone: "This collection has no table files to analyze.",
       meaningLater: "The embedding model downloads in the background after the index is built. Until it finishes, full-text search is used; vectors are then generated automatically.",
     },
     preview: "Passage Preview",

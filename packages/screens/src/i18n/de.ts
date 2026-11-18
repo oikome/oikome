@@ -1287,9 +1287,6 @@ export const de: Strings = {
       meaning: "Volltext- und semantische Suche",
       meaningHelp: (name: string, size: string) =>
         `Sucht nach Stichwörtern und nach Bedeutung und findet auch anders formulierte oder anderssprachige Abschnitte. Erfordert das Embedding-Modell ${name} (${size}), das auf diesem Computer läuft.`,
-      analysis: "Datenanalyse",
-      analysisHelp: "Macht die Tabellendateien dieser Sammlung (CSV, TSV, Parquet, JSON Lines) zu Analysetabellen für Summen, Gruppierungen und Trends.",
-      analysisNone: "Diese Sammlung enthält keine Tabellendateien zur Analyse.",
       meaningLater: "Das Embedding-Modell wird nach dem Erstellen des Index im Hintergrund heruntergeladen. Bis dahin wird nur die Volltextsuche verwendet; danach werden die Vektoren automatisch erzeugt.",
     },
     preview: "Abschnittsvorschau",

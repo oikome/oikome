@@ -1248,9 +1248,6 @@ export const zhHans: Strings = {
       meaning: "全文与语义检索",
       meaningHelp: (name: string, size: string) =>
         `同时按关键词和语义检索，可匹配表述不同或使用其他语言的段落。需要嵌入模型 ${name}（${size}），模型在本机运行。`,
-      analysis: "数据分析",
-      analysisHelp: "将资料库中的表格文件（CSV、TSV、Parquet、JSON Lines）转换为分析表，用于汇总、分组和趋势分析。",
-      analysisNone: "此资料库中没有可分析的表格文件。",
       meaningLater: "建立索引后将在后台下载嵌入模型，下载完成前仅使用全文检索，完成后自动生成向量。",
     },
     preview: "段落预览",

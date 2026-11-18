@@ -1293,9 +1293,6 @@ export const ko: Strings = {
       meaning: "전문 검색 및 의미 검색",
       meaningHelp: (name: string, size: string) =>
         `키워드와 의미로 함께 검색하여 표현이나 언어가 다른 단락도 찾습니다. 임베딩 모델 ${name}(${size})이 필요하며, 모델은 이 컴퓨터에서 실행됩니다.`,
-      analysis: "데이터 분석",
-      analysisHelp: "이 컬렉션의 표 파일(CSV, TSV, Parquet, JSON Lines)을 분석 표로 만들어 합계, 그룹화, 추세 분석에 사용합니다.",
-      analysisNone: "이 컬렉션에는 분석할 수 있는 표 파일이 없습니다.",
       meaningLater: "임베딩 모델은 인덱스 생성 후 백그라운드에서 다운로드됩니다. 완료 전까지는 전문 검색만 사용하며, 완료되면 벡터가 자동으로 생성됩니다.",
     },
     preview: "단락 미리보기",

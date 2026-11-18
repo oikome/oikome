@@ -1243,9 +1243,6 @@ export const zhHant: Strings = {
       meaning: "全文與語意檢索",
       meaningHelp: (name: string, size: string) =>
         `同時依關鍵字和語意檢索，可比對表述不同或使用其他語言的段落。需要嵌入模型 ${name}（${size}），模型在本機執行。`,
-      analysis: "資料分析",
-      analysisHelp: "將資料庫中的表格檔案（CSV、TSV、Parquet、JSON Lines）轉換為分析表，用於彙總、分組和趨勢分析。",
-      analysisNone: "此資料庫中沒有可分析的表格檔案。",
       meaningLater: "建立索引後將在背景下載嵌入模型，下載完成前僅使用全文檢索，完成後自動產生向量。",
     },
     preview: "段落預覽",

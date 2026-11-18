@@ -4809,3 +4809,20 @@ tr.screen-source {
   color: var(--ink3);
   cursor: default;
 }
+
+/* What you share sits in a third of the page beside Contacts: its five
+   columns keep the card's edges but sit closer, so Stop stays in view at
+   1280 px without the table scrolling sideways. */
+.screen-table-in-card .oik-table.screen-shares th,
+.screen-table-in-card .oik-table.screen-shares td {
+  padding-right: 8px;
+  padding-left: 8px;
+}
+.screen-table-in-card .oik-table.screen-shares th:first-child,
+.screen-table-in-card .oik-table.screen-shares td:first-child {
+  padding-left: var(--space-4);
+}
+.screen-table-in-card .oik-table.screen-shares th:last-child,
+.screen-table-in-card .oik-table.screen-shares td:last-child {
+  padding-right: var(--space-4);
+}

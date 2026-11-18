@@ -144,7 +144,7 @@ export function Sharing({
             <p className="screen-panel__empty">{s.nothingShared}</p>
           ) : (
             <div className="screen-table-in-card">
-              <table className="oik-table" aria-label={s.sharedByYou}>
+              <table className="oik-table screen-shares" aria-label={s.sharedByYou}>
                 <thead>
                   <tr>
                     <th scope="col">{s.colCollection}</th>

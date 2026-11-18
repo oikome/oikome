@@ -37,8 +37,10 @@ use crate::search::{hits_wanted, terms_of, MAX_KEY_COLUMNS};
 use crate::{
     encode_rows, first_count, now_ms, Api, ApiError, Assistant, AssistantApp, AssistantCollections,
     AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, InstallAssistant,
-    ReadRow, ReadableCollection, ReadableTable, Rows, Search, SearchResults,
+    KnowledgePassage, KnowledgeText, ReadKnowledge, ReadRow, ReadableCollection, ReadableTable,
+    Rows, Search, SearchResults,
 };
+use oikome_node::knowledge::KnowledgeRange;
 
 const ASSISTANTS_FILE: &str = "assistants.json";
 /// Tokens start so, to be told from other secrets in a config file.
@@ -514,6 +516,156 @@ impl Api {
             }),
         }
         rows
+    }
+
+    /// Passages of the prepared documents of the calling assistant's
+    /// collections (or one of them) matching `req.query` by full text, best
+    /// first. An assistant is given whole collections, so it reads their
+    /// knowledge as the owner keeps it. A search that finds passages is in
+    /// Activity with the search it came with.
+    pub async fn assistant_search_knowledge(
+        &self,
+        caller: &Caller,
+        req: Search,
+    ) -> Result<Vec<KnowledgePassage>, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let names = match &req.collection {
+            Some(name) => {
+                validate_space_name(name)?;
+                if !me.collections.contains(name) {
+                    return Err(no_collection(name));
+                }
+                vec![name.clone()]
+            }
+            None => me.collections.clone(),
+        };
+        let query = req.query.trim().to_string();
+        let limit = req.limit.unwrap_or(10).clamp(1, 100);
+        let owner = self.session(None);
+        let mut found: Vec<KnowledgePassage> = Vec::new();
+        for name in &names {
+            let hits = match owner.search_knowledge(name, &query, limit).await {
+                Ok(found) => found.hits,
+                Err(e) => {
+                    tracing::warn!(collection = %name, error = %e, "searching knowledge failed");
+                    continue;
+                }
+            };
+            found.extend(hits.into_iter().map(|c| {
+                let chunk = crate::knowledge::chunk_of(c, true);
+                KnowledgePassage {
+                    collection: name.clone(),
+                    excerpt: chunk.text.chars().take(600).collect(),
+                    path: chunk.path,
+                    chunk_id: chunk.chunk_id,
+                    heading: chunk.heading,
+                    page: chunk.page,
+                    line_start: chunk.line_start,
+                    line_end: chunk.line_end,
+                    score: chunk.score,
+                }
+            }));
+        }
+        found.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        found.truncate(limit as usize);
+        if !found.is_empty() {
+            let collections: Vec<String> = names
+                .iter()
+                .filter(|n| found.iter().any(|p| &p.collection == *n))
+                .cloned()
+                .collect();
+            self.record(AccessEntry {
+                detail: Some(query),
+                merge: true,
+                ..entry(&me, SEARCH_METHOD, collections)
+            });
+        }
+        Ok(found)
+    }
+
+    /// A passage of a prepared document and what is around it, or a range
+    /// of its lines or characters, for the calling assistant.
+    pub async fn assistant_read_knowledge(
+        &self,
+        caller: &Caller,
+        req: ReadKnowledge,
+    ) -> Result<KnowledgeText, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        validate_space_name(&req.collection)?;
+        let read = AccessEntry {
+            detail: Some(req.path.clone()),
+            ..entry(&me, READ_METHOD, vec![req.collection.clone()])
+        };
+        if !me.collections.contains(&req.collection) {
+            self.record(AccessEntry {
+                outcome: Outcome::Denied,
+                reason: Some("not one of its collections".to_string()),
+                ..read
+            });
+            return Err(no_collection(&req.collection));
+        }
+        let range = match (&req.chunk_id, req.lines, req.chars) {
+            (Some(chunk_id), None, None) => KnowledgeRange::Chunk {
+                chunk_id: chunk_id.clone(),
+                around: req.around.unwrap_or(1),
+            },
+            (None, Some((start, end)), None) => KnowledgeRange::Lines {
+                page: req.page,
+                start,
+                end,
+            },
+            (None, None, Some((start, end))) => KnowledgeRange::Chars {
+                page: req.page,
+                start,
+                end,
+            },
+            (None, None, None) => KnowledgeRange::Lines {
+                page: req.page,
+                start: 1,
+                end: u32::MAX,
+            },
+            _ => {
+                return Err(ApiError::invalid(
+                    "name a chunk, or lines, or characters, not more than one",
+                ))
+            }
+        };
+        let text = self
+            .session(None)
+            .read_knowledge(&req.collection, &req.path, range)
+            .await;
+        match text {
+            Ok(t) => {
+                self.record(AccessEntry {
+                    merge: true,
+                    ..read
+                });
+                Ok(KnowledgeText {
+                    collection: req.collection,
+                    path: t.path,
+                    page: t.page,
+                    char_start: t.char_start,
+                    char_end: t.char_end,
+                    total_chars: t.total_chars,
+                    text: t.text,
+                })
+            }
+            Err(e) => {
+                let e = ApiError::from(e);
+                self.record(AccessEntry {
+                    outcome: Outcome::Failed,
+                    reason: Some(e.message.clone()),
+                    ..read
+                });
+                Err(e)
+            }
+        }
     }
 
     /// The connected assistant `caller` is; anyone else is refused.

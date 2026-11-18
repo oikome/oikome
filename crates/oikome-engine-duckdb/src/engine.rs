@@ -454,10 +454,18 @@ impl QueryEngine for DuckDbEngine {
     }
 
     async fn detach(&self, name: &QualifiedName) -> Result<(), EngineError> {
-        let sql = format!(
-            "DROP VIEW IF EXISTS {n}; DROP TABLE IF EXISTS {n};",
-            n = name.quoted()
-        );
+        // Arrow batches are loaded into a table, everything else is a view,
+        // and DuckDB refuses DROP VIEW on a table: drop what was attached.
+        let table = self
+            .attached
+            .lock()
+            .map(|m| matches!(m.get(name), Some(Attached::Arrow)))
+            .unwrap_or(false);
+        let sql = if table {
+            format!("DROP TABLE IF EXISTS {};", name.quoted())
+        } else {
+            format!("DROP VIEW IF EXISTS {};", name.quoted())
+        };
         self.run_batch(sql).await?;
         if let Ok(mut m) = self.attached.lock() {
             m.remove(name);

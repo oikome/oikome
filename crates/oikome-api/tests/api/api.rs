@@ -5718,3 +5718,117 @@ async fn removed_official_plugins_stay_removed_and_hide_mcp_clients() {
         .await
         .unwrap();
 }
+
+/// Knowledge (docs/knowledge-schema.md, K1) is the owner's: a contact may
+/// neither look at nor prepare it, a request is checked before the node
+/// runs it, and a preview reads the documents without writing anything.
+#[tokio::test]
+async fn knowledge_is_the_owners_and_its_requests_are_checked() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let docs = root.join("docs");
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(
+        docs.join("architecture.md"),
+        "# Architecture\n\n## Federation\n\nDataFusion coordinates and never reads files.\n",
+    )
+    .unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: docs.to_string_lossy().into_owned(),
+                name: Some("docs".into()),
+                files: None,
+            },
+        )
+        .await
+        .unwrap();
+    let docs_ref = || SpaceRef {
+        space: "docs".into(),
+    };
+
+    let contact = Caller::Principal { did: did(9) };
+    let e = n
+        .api
+        .knowledge_status(&contact, docs_ref())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n
+        .api
+        .prepare_knowledge(&contact, docs_ref())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+    let e = n.api.install_lance(&contact, Empty {}).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::PermissionDenied);
+
+    // Not prepared: nothing to show, and nothing is found.
+    let status = n.api.knowledge_status(&OWNER, docs_ref()).await.unwrap();
+    assert!(status.prepared_ms.is_none());
+    assert!(status.files.is_empty());
+    let none = n
+        .api
+        .retrieval_test(
+            &OWNER,
+            RetrievalTest {
+                space: "docs".into(),
+                query: "DataFusion".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(none.hits.is_empty());
+
+    // The preview: the first passages with their places, nothing written.
+    let preview = n.api.knowledge_preview(&OWNER, docs_ref()).await.unwrap();
+    assert_eq!(preview.len(), 1);
+    assert_eq!(preview[0].path, "architecture.md");
+    assert_eq!(preview[0].heading, vec!["Architecture", "Federation"]);
+    assert_eq!((preview[0].line_start, preview[0].line_end), (3, 5));
+    let status = n.api.knowledge_status(&OWNER, docs_ref()).await.unwrap();
+    assert!(status.prepared_ms.is_none());
+
+    let e = n
+        .api
+        .set_knowledge_chunk(
+            &OWNER,
+            SetKnowledgeChunk {
+                space: "docs".into(),
+                chunk_id: "'; DROP TABLE x; --".into(),
+                enabled: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+    let e = n
+        .api
+        .retrieval_test(
+            &OWNER,
+            RetrievalTest {
+                space: "docs".into(),
+                query: "x".repeat(201),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Invalid);
+
+    // A collection of tables holds no documents to prepare yet.
+    notes(&n).await;
+    assert!(n
+        .api
+        .knowledge_preview(
+            &OWNER,
+            SpaceRef {
+                space: "notes".into()
+            }
+        )
+        .await
+        .is_err());
+}

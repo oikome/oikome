@@ -21,8 +21,9 @@
 //!   API's assistant calls, so its grants decide what it reads. A request
 //!   with an `Origin` is refused (a web page has no business here: DNS
 //!   rebinding), as is one whose `Host` isn't this server (checked before).
-//! - **What.** Three tools: `list_collections`, `search`, `read_row`. None of
-//!   the owner's own operations is offered.
+//! - **What.** Four tools: `list_collections`, `search`, `read` (a passage
+//!   or lines of a document prepared for AI) and `read_row`. None of the
+//!   owner's own operations is offered.
 //! - **Which protocol.** Both eras on one endpoint: a request carrying
 //!   per-request `_meta` is served as revision 2026-07-28 (its headers
 //!   checked against its body, `server/discover` answered); `initialize`
@@ -44,7 +45,7 @@ use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
-use oikome_api::{Api, ApiError, Caller, ErrorCode, ReadRow, Search};
+use oikome_api::{Api, ApiError, Caller, ErrorCode, ReadKnowledge, ReadRow, Search};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
@@ -64,7 +65,9 @@ const MAX_IMAGE_BYTES: usize = 4 << 20;
 
 const INSTRUCTIONS: &str = "Oikome is the owner's personal data center on this computer. \
 You may read only the collections the owner gave you. Call list_collections to see them, \
-search to find rows by their words, and read_row to open one by its key. \
+search to find rows and passages of documents by their words, read_row to open a row by its key, \
+and read to open a passage with what is around it, or lines of its document. \
+When you answer from a passage, name its document and lines. \
 Every search and read shows up in the owner's Activity.";
 
 // JSON-RPC and MCP error codes.
@@ -452,7 +455,7 @@ fn tools() -> Value {
         {
             "name": "search",
             "title": "Search collections",
-            "description": "Find rows with every word of the query in their text: words of three or more characters match inside words, case and accents aside, in any language (Chinese and Japanese too). Searches all the collections you may read, or one. Each hit names its collection, table and key (to open it with read_row), the column that matched, and an excerpt.",
+            "description": "Find rows with every word of the query in their text: words of three or more characters match inside words, case and accents aside, in any language (Chinese and Japanese too). Searches all the collections you may read, or one. Each hit names its collection, table and key (to open it with read_row), the column that matched, and an excerpt. Collections the owner prepared for AI also give passages of their documents (Markdown, text, code, PDF), best first: each names its document, headings, page and lines, with a chunkId to open it with read.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -461,6 +464,26 @@ fn tools() -> Value {
                     "limit": { "type": "integer", "minimum": 1, "maximum": 100, "description": "At most this many hits; 30 when left out." }
                 },
                 "required": ["query"],
+                "additionalProperties": false
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "read",
+            "title": "Read a document",
+            "description": "Read a document of a collection prepared for AI: a passage by its chunkId (from search) with `around` passages on either side, or lines (from 1, both inclusive) or characters of the document, on `page` for a PDF. At most 20,000 characters; totalChars says how long the whole text is.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string" },
+                    "path": { "type": "string", "description": "The document's path in the collection, as search gives it." },
+                    "chunkId": { "type": "string" },
+                    "around": { "type": "integer", "minimum": 0, "maximum": 5, "description": "Passages on either side of the chunk; 1 when left out." },
+                    "page": { "type": "integer", "minimum": 1 },
+                    "lines": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+                    "chars": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }
+                },
+                "required": ["collection", "path"],
                 "additionalProperties": false
             },
             "annotations": read_only,
@@ -501,6 +524,18 @@ struct ReadRowArgs {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ReadArgs {
+    collection: String,
+    path: String,
+    chunk_id: Option<String>,
+    around: Option<u32>,
+    page: Option<u32>,
+    lines: Option<(u32, u32)>,
+    chars: Option<(u64, u64)>,
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NoArgs {}
 
@@ -516,17 +551,17 @@ async fn call(api: &Api, caller: &Caller, name: &str, arguments: Value) -> Optio
             Err(e) => Err(e),
         },
         "search" => match args::<SearchArgs>(arguments) {
-            Ok(a) => api
-                .assistant_search(
-                    caller,
-                    Search {
-                        query: a.query,
-                        collection: a.collection,
-                        limit: a.limit,
-                    },
-                )
-                .await
-                .map(|found| {
+            Ok(a) => {
+                let search = Search {
+                    query: a.query,
+                    collection: a.collection,
+                    limit: a.limit,
+                };
+                let passages = api
+                    .assistant_search_knowledge(caller, search.clone())
+                    .await
+                    .unwrap_or_default();
+                api.assistant_search(caller, search).await.map(|found| {
                     // Where the words are is for the owner's page; the
                     // model reads the excerpt.
                     let hits: Vec<Value> = found
@@ -544,8 +579,29 @@ async fn call(api: &Api, caller: &Caller, name: &str, arguments: Value) -> Optio
                         .collect();
                     let skipped: Vec<&String> =
                         found.skipped.iter().map(|s| &s.collection).collect();
-                    structured(json!({ "hits": hits, "notSearched": skipped }))
-                }),
+                    structured(
+                        json!({ "hits": hits, "passages": passages, "notSearched": skipped }),
+                    )
+                })
+            }
+            Err(e) => Err(e),
+        },
+        "read" => match args::<ReadArgs>(arguments) {
+            Ok(a) => api
+                .assistant_read_knowledge(
+                    caller,
+                    ReadKnowledge {
+                        collection: a.collection,
+                        path: a.path,
+                        chunk_id: a.chunk_id,
+                        around: a.around,
+                        page: a.page,
+                        lines: a.lines,
+                        chars: a.chars,
+                    },
+                )
+                .await
+                .map(|text| structured(json!(text))),
             Err(e) => Err(e),
         },
         "read_row" => match args::<ReadRowArgs>(arguments) {
@@ -788,7 +844,7 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(names, ["list_collections", "search", "read_row"]);
+        assert_eq!(names, ["list_collections", "search", "read", "read_row"]);
         assert!(tools()
             .as_array()
             .unwrap()

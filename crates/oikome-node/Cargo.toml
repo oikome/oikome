@@ -7,8 +7,10 @@ authors.workspace = true
 description = "Oikome node runtime: session, engine registry and statement routing"
 
 [features]
-default = ["engine-duckdb", "engine-sqlite"]
+default = ["engine-duckdb", "engine-sqlite", "knowledge"]
 engine-duckdb = ["dep:oikome-engine-duckdb"]
+# Knowledge an AI can read (docs/knowledge-schema.md): chunks in Lance.
+knowledge = ["engine-duckdb", "dep:pdf-extract"]
 engine-sqlite = ["dep:oikome-engine-sqlite"]
 
 [dependencies]
@@ -45,6 +47,7 @@ zeroize = { workspace = true }
 # The OS keychain for storage credentials (secrets.rs); pinned with the
 # platform stores below.
 keyring-core = "=1.0.1"
+pdf-extract = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }

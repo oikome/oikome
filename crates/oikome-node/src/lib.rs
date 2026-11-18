@@ -35,6 +35,8 @@ mod dml;
 pub mod error;
 mod graph;
 pub mod inplace;
+#[cfg(feature = "knowledge")]
+pub mod knowledge;
 mod lance;
 pub mod publish;
 pub mod registry;

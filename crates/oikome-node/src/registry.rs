@@ -69,6 +69,10 @@ type RemoteEngine = (String, Arc<dyn QueryEngine>);
 pub struct EngineRegistry {
     catalog: Arc<OikomeCatalog>,
     duckdb: Option<Arc<dyn QueryEngine>>,
+    /// How the shared DuckDB was opened, to install an extension into the
+    /// same directory.
+    #[cfg(feature = "engine-duckdb")]
+    duckdb_config: oikome_engine_duckdb::DuckDbConfig,
     sqlite: RwLock<HashMap<String, Arc<dyn QueryEngine>>>,
     /// Flight engines of remote Spaces, keyed by Space name, with the
     /// binding they were built for (so a re-created Space gets a new one).
@@ -127,6 +131,8 @@ impl EngineRegistry {
         Ok(Self {
             catalog,
             duckdb,
+            #[cfg(feature = "engine-duckdb")]
+            duckdb_config: config.duckdb.clone(),
             sqlite: RwLock::new(HashMap::new()),
             remote: RwLock::new(HashMap::new()),
             identity,
@@ -341,6 +347,18 @@ impl EngineRegistry {
         self.duckdb
             .clone()
             .ok_or(SessionError::EngineNotRegistered(EngineKind::DuckDb))
+    }
+
+    /// Download DuckDB's `lance` extension (signed by DuckDB) into this
+    /// node's extension directory, as `oikome extensions install` does, and
+    /// return its version. Only ever on the owner's explicit request.
+    #[cfg(feature = "engine-duckdb")]
+    pub async fn install_lance(&self) -> Result<String, SessionError> {
+        let installer =
+            oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
+        Ok(installer
+            .install_extension(oikome_engine_duckdb::Extension::Lance)
+            .await?)
     }
 
     /// The SQLite engine serving `space`'s Location, opened on first use.

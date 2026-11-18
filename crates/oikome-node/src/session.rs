@@ -300,6 +300,8 @@ impl OikomeSession {
             }
         }
         self.catalog.drop_space(name)?;
+        #[cfg(feature = "knowledge")]
+        self.forget_knowledge(name).await?;
         if let Some(location) = in_place {
             crate::inplace::forget(&self.catalog, &location).await?;
         }

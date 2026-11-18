@@ -1362,6 +1362,107 @@ export type AnalysisProfile = { name: string, sourceSpace: string, sourceTable: 
 export type DatasetAnalysis = { space: SpaceSummary, profile: AnalysisProfile, };
 
 /**
+ * Where one original of a collection is in being prepared as knowledge.
+ */
+export type KnowledgeStage = "waiting" | "reading" | "splitting" | "ready" | "failed";
+
+/**
+ * One original of a collection prepared as knowledge.
+ */
+export type KnowledgeFile = {
+/**
+ * Its path within the collection.
+ */
+path: string, name: string, size: number, stage: KnowledgeStage,
+/**
+ * Chunks of its current version (the previous one's while it is
+ * prepared again).
+ */
+chunks: number,
+/**
+ * Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF) or
+ * `unreadable`.
+ */
+reason: string | null, updatedMs: number, };
+
+/**
+ * `knowledge_status`, `prepare_knowledge`, `retry_knowledge`: what an AI
+ * can read of a collection.
+ */
+export type KnowledgeStatus = { space: string,
+/**
+ * When the owner prepared it; `None` when never.
+ */
+preparedMs: number | null,
+/**
+ * Whether this computer has Lance support (`install_lance`).
+ */
+available: boolean, files: Array<KnowledgeFile>, ready: number,
+/**
+ * Waiting or in progress.
+ */
+waiting: number, failed: number, chunks: number, };
+
+/**
+ * A chunk: a slice of an original's text, and where it is.
+ */
+export type KnowledgeChunk = {
+/**
+ * Empty in a preview, before anything is written.
+ */
+chunkId: string, path: string, seq: number,
+/**
+ * Headings above it, outermost first.
+ */
+heading: Array<string>, text: string,
+/**
+ * The PDF page, from 1.
+ */
+page: number | null,
+/**
+ * Characters of the original's text (of the page's for a PDF), end
+ * exclusive.
+ */
+charStart: number, charEnd: number,
+/**
+ * Lines from 1, both inclusive.
+ */
+lineStart: number, lineEnd: number, enabled: boolean,
+/**
+ * Its full-text score, for a hit.
+ */
+score: number | null, };
+
+/**
+ * `knowledge_chunks`: the chunks of one original.
+ */
+export type KnowledgeChunksRequest = { space: string, path: string, };
+
+/**
+ * `set_knowledge_chunk`: turn a chunk off (kept, never returned) or on.
+ */
+export type SetKnowledgeChunk = { space: string, chunkId: string, enabled: boolean, };
+
+/**
+ * `retrieval_test`: search a collection's knowledge as an assistant would.
+ */
+export type RetrievalTest = { space: string, query: string,
+/**
+ * Most hits, 1 to 100; default 10.
+ */
+limit: number | null, };
+
+/**
+ * What a retrieval test found, best first, and how long it took.
+ */
+export type RetrievalResults = { hits: Array<KnowledgeChunk>, tookMs: number, };
+
+/**
+ * `install_lance`: DuckDB's Lance support, now on this computer.
+ */
+export type LanceInstalled = { version: string, };
+
+/**
  * `create_public_share`: publish a detached collection with live-query and
  * snapshot limits chosen by the owner.
  */

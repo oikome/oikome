@@ -2293,3 +2293,171 @@ pub struct AccessItem {
     /// What it asked for, where that says more: an assistant's search words.
     pub detail: Option<String>,
 }
+
+/// Where one original of a collection is in being prepared as knowledge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum KnowledgeStage {
+    Waiting,
+    Reading,
+    Splitting,
+    Ready,
+    Failed,
+}
+
+/// One original of a collection prepared as knowledge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeFile {
+    /// Its path within the collection.
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub stage: KnowledgeStage,
+    /// Chunks of its current version (the previous one's while it is
+    /// prepared again).
+    pub chunks: u64,
+    /// Why it failed: `too_large`, `not_text`, `no_text` (a scanned PDF) or
+    /// `unreadable`.
+    pub reason: Option<String>,
+    pub updated_ms: i64,
+}
+
+/// `knowledge_status`, `prepare_knowledge`, `retry_knowledge`: what an AI
+/// can read of a collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeStatus {
+    pub space: String,
+    /// When the owner prepared it; `None` when never.
+    pub prepared_ms: Option<i64>,
+    /// Whether this computer has Lance support (`install_lance`).
+    pub available: bool,
+    pub files: Vec<KnowledgeFile>,
+    pub ready: u32,
+    /// Waiting or in progress.
+    pub waiting: u32,
+    pub failed: u32,
+    pub chunks: u64,
+}
+
+/// A chunk: a slice of an original's text, and where it is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeChunk {
+    /// Empty in a preview, before anything is written.
+    pub chunk_id: String,
+    pub path: String,
+    pub seq: i32,
+    /// Headings above it, outermost first.
+    pub heading: Vec<String>,
+    pub text: String,
+    /// The PDF page, from 1.
+    pub page: Option<u32>,
+    /// Characters of the original's text (of the page's for a PDF), end
+    /// exclusive.
+    pub char_start: u64,
+    pub char_end: u64,
+    /// Lines from 1, both inclusive.
+    pub line_start: u32,
+    pub line_end: u32,
+    pub enabled: bool,
+    /// Its full-text score, for a hit.
+    pub score: Option<f64>,
+}
+
+/// `knowledge_chunks`: the chunks of one original.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeChunksRequest {
+    pub space: String,
+    pub path: String,
+}
+
+/// `set_knowledge_chunk`: turn a chunk off (kept, never returned) or on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetKnowledgeChunk {
+    pub space: String,
+    pub chunk_id: String,
+    pub enabled: bool,
+}
+
+/// `retrieval_test`: search a collection's knowledge as an assistant would.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalTest {
+    pub space: String,
+    pub query: String,
+    /// Most hits, 1 to 100; default 10.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// What a retrieval test found, best first, and how long it took.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalResults {
+    pub hits: Vec<KnowledgeChunk>,
+    pub took_ms: u64,
+}
+
+/// `install_lance`: DuckDB's Lance support, now on this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct LanceInstalled {
+    pub version: String,
+}
+
+/// A passage of a prepared document an assistant's search found.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgePassage {
+    pub collection: String,
+    pub path: String,
+    /// To open it, with what is around it, with `read`.
+    pub chunk_id: String,
+    pub heading: Vec<String>,
+    pub page: Option<u32>,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub excerpt: String,
+    pub score: Option<f64>,
+}
+
+/// An assistant's `read`: a passage and what is around it, or a range of a
+/// prepared document's lines or characters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadKnowledge {
+    pub collection: String,
+    pub path: String,
+    #[serde(default)]
+    pub chunk_id: Option<String>,
+    /// Passages on either side of the chunk, 0 to 5.
+    #[serde(default)]
+    pub around: Option<u32>,
+    /// The PDF page lines or characters are counted on.
+    #[serde(default)]
+    pub page: Option<u32>,
+    /// Lines from 1, both inclusive.
+    #[serde(default)]
+    pub lines: Option<(u32, u32)>,
+    /// Characters, end exclusive.
+    #[serde(default)]
+    pub chars: Option<(u64, u64)>,
+}
+
+/// What `read` returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeText {
+    pub collection: String,
+    pub path: String,
+    pub page: Option<u32>,
+    pub char_start: u64,
+    pub char_end: u64,
+    /// Characters of the whole text, to say what was left out.
+    pub total_chars: u64,
+    pub text: String,
+}

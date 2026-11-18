@@ -37,8 +37,8 @@ Each collection has its own derived data, because grants, sharing, subscriptions
 ```
 .oikome/knowledge/<space>/
   catalog.sqlite        control plane: assets, conversions, jobs, skills, table profiles
-  knowledge.lance/      chunks (§5.1), one Lance dataset per table, written by the node
-  media.lance/
+  lance/chunks.lance    chunks (§5.1), one Lance dataset per table
+  lance/media.lance     media (§5.2, K4)
 <Space's analytical storage>/<table>/   analysis tables (Iceberg + Parquet), as today
 ```
 
@@ -49,13 +49,14 @@ Each collection has its own derived data, because grants, sharing, subscriptions
 
 ### 3.1 Who writes and who reads
 
-- **Lance is written through the Rust `lance` crate, pinned to the version the DuckDB `lance` extension is built on (12.0.0 today).** That version uses the workspace's Arrow 58 and DataFusion 54, the same family as the `lance-table`, `lance-io`, `lance-file` and `lance-encoding` crates the catalog already reads manifests with, so it adds no second Arrow, and what the node writes is exactly what DuckDB reads. The crate gives atomic commits, deletes by asset, merge-insert, new columns for a new model without rewriting data, index builds, compaction, tags and stable row ids. The DuckDB extension cannot do several of these: an UPDATE or MERGE after another write to the same table in one transaction is not implemented, and writes to several tables are not atomic. The crate and the extension are upgraded together.
-- **DuckDB reads and searches Lance** (`lance_fts`, `lance_vector_search`, `lance_hybrid_search`) and joins the results with tables, as it does for Lance Spaces today (architecture §7.6).
-- **One commit per asset.** A conversion writes its asset's new rows, and the same commit deletes the rows of the version they replace. The control plane records the committed `lance_version`; a conversion is `ready` only after its commit. `chunks` and `media` are separate datasets, so a conversion that touches both commits `media` first and `chunks` last, and a reader never sees a chunk pointing at a missing media row.
+- **Lance is written, read and searched through DuckDB's `lance` extension.** The Rust `lance` crate was the first choice, but it needs `lance-index`, whose `dirs` dependency brings in `option-ext` under MPL-2.0, outside the permissive licences this project allows (`cargo deny`). The extension is installed by the owner from the apps (`install_lance`) or the CLI, never downloaded silently. DuckDB also joins Lance results with tables, as it does for Lance Spaces today (architecture §7.6).
+- **Two statements per asset, one current version.** The extension commits each statement on its own, and an UPDATE or MERGE after another write to the same table in one transaction is not implemented. A conversion therefore inserts its asset's new rows in one statement, then deletes the rows of other conversions of that asset in the next. The control plane marks the conversion current only after the insert, and every read keeps only rows of current conversions, so a search between the two statements never returns both versions. After a round of conversions the full-text index is rebuilt once. `chunks` and `media` are separate datasets, so a conversion that touches both writes `media` first and `chunks` last, and a reader never sees a chunk pointing at a missing media row. How a model's vectors are added (K2) is decided with K2; if the extension cannot do it well, the crate is reconsidered together with its licence.
 - **Full text in Chinese.** The `INVERTED` index is built with the `ngram` base tokenizer, which needs no dictionary download and splits any script, as the SQLite FTS5 trigram index does. `jieba` would need model files in `LANCE_LANGUAGE_MODEL_HOME`; it can be added later as an option if word-level ranking proves worth a download.
 - **Iceberg stays the format of analysis tables**, written through Oikome's existing path (AppendBuffer → Parquet → Iceberg commit; `replace_data_files` for a rebuild as one overwrite snapshot) and read by DuckDB. Field meanings are also written into each Iceberg field's `doc`. Chunks never go into Iceberg and tables never into Lance: one dataset, one layout (data-analysis.md).
 
 ## 4. Control plane (SQLite)
+
+K1 implements `assets`, `conversions` and `chunk_overrides` (a chunk the owner turned off, §10). `models` and `embedding_cache` come with K2.
 
 ### 4.1 `assets`
 
@@ -110,6 +111,8 @@ One row per asset and target. The previous version keeps serving until a new one
 
 The queue that runs conversions: `job_id, conversion_id, attempt, not_before_ms, started_ms, worker`. Failed jobs are retried a bounded number of times; the owner can retry all.
 
+In K1 the queue is the `conversions` table itself: a `queued` conversion is a job, with its `attempts` (at most three). One worker runs per collection, in the background after Prepare and in the node's regular refresh, within a time budget. A separate table comes when scheduling needs more.
+
 ## 5. Knowledge (Lance)
 
 ### 5.1 `chunks`
@@ -133,6 +136,8 @@ One table for everything text-like, so one hybrid search covers documents, notes
 | `vec_<model>` | FLOAT[N] NULL | One column per text model, added by schema evolution |
 
 Indexes:
+
+In K1 the columns are flat, because DuckDB loads only flat Arrow columns into the extension: `heading` is JSON text, and `page`, `char_start`, `char_end`, `line_start` and `line_end` (1-based, inclusive) are columns of their own instead of `loc`. `parent_id`, `lang`, `token_count`, `tags` and `enabled` are not written yet; a chunk turned off is a row in the control plane, so turning it off needs no Lance write.
 
 - `INVERTED(text)` for full-text. Chinese needs a tokenizer that splits it: `ngram`, or `jieba` if the DuckDB 1.5.6 `lance` build has it (§11). The SQLite FTS5 trigram index stays as the fallback.
 - `BTREE(asset_id)`, `BITMAP(channel)`, `LABEL_LIST(tags)` for filters.
@@ -216,13 +221,13 @@ Today assistants have `list_collections`, `search` (full text) and `read_row`. T
 | Tool | Does |
 |------|------|
 | `list_collections` | Also says what each holds in knowledge and tables, and its active model |
-| `search` | Hybrid search (full text + vector) with filters (collection, channel, tags, time). Returns snippets with scores and a `resource_link` to each chunk and original, not whole documents |
-| `read` | A chunk with its neighbours or parent, or a range of a document's text by characters or lines, or the whole document when the assistant asks for it |
-| `grep` | Exact words or a pattern within one document or collection, with line numbers, for what meaning-based search misses |
+| `search` | Hybrid search (full text + vector) with filters (collection, channel, tags, time). Returns table rows and passages: each passage with its collection, document, heading, page, lines, an excerpt and a score, not whole documents. K1 searches by full text. |
+| `read` | A chunk with up to five neighbours, or a range of a document's text by characters or lines (at most 20,000 characters at a time), so an assistant can quote and cite the document and lines |
+| `grep` | Exact words or a pattern within one document or collection, with line numbers, for what meaning-based search misses (after K1) |
 | `query_table` | Read-only SQL over analysis tables the assistant may read, with row and time limits |
 | `list_skills`, `get_skill` | Or the MCP Skills extension where a client supports it |
 
-The tools follow the order list → search → read, as Cherry Studio's and Open WebUI's do. Oikome ships one skill of its own that teaches assistants that order and to cite the original for every answer. No tool changes knowledge; preparing and editing stay the owner's.
+The tools follow the order list → search → read, as Cherry Studio's and Open WebUI's do. Citations are the document and lines in the tool results; `resource_link` is left until clients use it. Oikome ships one skill of its own that teaches assistants that order and to cite the original for every answer. No tool changes knowledge; preparing and editing stay the owner's.
 
 Grants stay the rule:
 
@@ -248,7 +253,7 @@ Decided on 2026-11-17:
 | Default text model | Qwen3-Embedding-0.6B: Apache-2.0, Chinese and English, 1024 dimensions, 32K context, a query instruction for searches. Run locally through candle. BGE-M3 (MIT) is the alternative if a benchmark on real collections favours it. The jina models are excluded by their non-commercial licenses. |
 | Where content is processed | On this computer by default. A cloud embedding or vision API is used only after the owner adds their own key and is told that content leaves the computer; not in K1 or K2. |
 | Vane | Not integrated. Media recognition (K4) gets its own runtime decision. |
-| Who writes Lance | The Rust `lance` crate, at the DuckDB extension's version; DuckDB reads and searches (§3.1). |
+| Who writes Lance | DuckDB's `lance` extension writes, reads and searches (§3.1). The Rust `lance` crate is out while its dependencies include MPL-2.0 code (changed during K1). |
 | Chinese full text in Lance | `ngram` base tokenizer (§3.1). |
 | Analysis tables | Iceberg through the existing write path, with field meanings in the profile and in each field's `doc` (§3.1, §6). |
 | One dataset per collection or per node | Per collection, so grants, sharing, subscriptions and removal stay as they are. Search across collections runs per collection and merges the results; collections with different models are searched with each one's own model. |
@@ -264,7 +269,7 @@ Still open:
 
 | Step | Delivers | Owner can |
 |------|----------|-----------|
-| K1 | `assets`, `conversions`, `jobs`; Markdown, text and PDF text to `chunks`; full-text search over chunks; retrieval test; MCP `search` and `read` over chunks | Prepare a collection of documents and let an assistant read it with sources |
+| K1 (done) | `assets`, `conversions` as jobs, `chunk_overrides`; Markdown, text, code and PDF text to `chunks`; full-text search over chunks; retrieval test; MCP `search` and `read` over chunks | Prepare a collection of documents and let an assistant read it with sources |
 | K2 | Qwen3-Embedding-0.6B in the node, `vec_<model>`, hybrid search, model registry and rebuild; skills registry and MCP skills | Search by meaning; give assistants skills |
 | K3 | Table profiles (PR 27) extended with units and column usage; `table_row` chunks; `query_table` | Analyze a spreadsheet as a table and ask about it |
 | K4 | OCR, speech to text, captions, image vectors; `media` (runtime decided when it starts) | Find what is written on photos and said in recordings |

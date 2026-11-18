@@ -38,6 +38,7 @@ mod examples;
 mod google;
 mod in_place;
 mod invites;
+mod knowledge;
 mod lending;
 mod network;
 mod places;

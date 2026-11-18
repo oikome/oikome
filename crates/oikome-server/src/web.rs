@@ -71,6 +71,7 @@ use oikome_api::{
     FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
     SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
 };
+use oikome_api::{KnowledgeChunksRequest, RetrievalTest, SetKnowledgeChunk};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use subtle::ConstantTimeEq;
@@ -465,6 +466,14 @@ impl WebState {
             "dataset_profile" => json_op!(boxed dataset_profile, SpaceRef),
             "analyze_dataset" => json_op!(boxed analyze_dataset, AnalyzeDataset),
             "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
+            "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),
+            "prepare_knowledge" => json_op!(boxed prepare_knowledge, SpaceRef),
+            "retry_knowledge" => json_op!(boxed retry_knowledge, SpaceRef),
+            "knowledge_preview" => json_op!(boxed knowledge_preview, SpaceRef),
+            "knowledge_chunks" => json_op!(boxed knowledge_chunks, KnowledgeChunksRequest),
+            "set_knowledge_chunk" => json_op!(set_knowledge_chunk, SetKnowledgeChunk),
+            "retrieval_test" => json_op!(boxed retrieval_test, RetrievalTest),
+            "install_lance" => json_op!(boxed install_lance, Empty),
             "add_examples" => json_op!(add_examples, AddExamples),
             "list_storages" => json_op!(list_storages, Empty),
             "add_storage" => json_op!(add_storage, NewStorage),

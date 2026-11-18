@@ -399,3 +399,196 @@ async fn writes_by_another_process_are_seen() {
     n.sql("DELETE FROM notes.items WHERE id < 10").await;
     assert_eq!(count().await, vec![290]);
 }
+
+/// Words found in `docs`: each hit as `path:first line`, best first.
+async fn found(n: &Node, query: &str) -> Vec<String> {
+    n.owner
+        .search_knowledge("docs", query, 5)
+        .await
+        .unwrap()
+        .hits
+        .iter()
+        .map(|c| format!("{}:{}", c.path, c.line_start))
+        .collect()
+}
+
+/// Knowledge (docs/knowledge-schema.md, K1): a folder's Markdown and text
+/// split into chunks that keep their places, found in Chinese and English
+/// through the `ngram` full-text index, read back by chunk and by lines,
+/// turned off and on, and replaced or removed as the originals change.
+#[tokio::test]
+#[ignore = "downloads the DuckDB lance extension"]
+async fn knowledge_is_prepared_found_read_and_kept_up_to_date() {
+    use oikome_node::knowledge::{KnowledgeRange, Stage};
+    let n = lance_node();
+    let folder = tempfile::Builder::new().prefix("docs-").tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(
+        root.join("architecture.md"),
+        "# 架构\n\n## 联邦层\n\nDataFusion 是协调者，从不直接读取文件。\n\n## 多模态\n\n向量检索走 Lance，全文检索也走 Lance。\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("sharing.txt"),
+        "A public share is the owner's explicit grant to anyone.\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("spending.csv"), "day,euros\n2025-01-01,3.5\n").unwrap();
+    n.sql(&format!(
+        "CREATE SPACE docs WITH PLACE = 'local', PATH = '{}'",
+        root.display()
+    ))
+    .await;
+    n.owner.refresh_in_place("docs").await.unwrap();
+
+    // Before Prepare there is nothing, and a preview writes nothing.
+    assert!(n
+        .owner
+        .knowledge_status("docs")
+        .unwrap()
+        .prepared_ms
+        .is_none());
+    let preview = n.owner.preview_knowledge("docs", 5).await.unwrap();
+    assert!(!preview.is_empty());
+    assert!(n
+        .owner
+        .knowledge_status("docs")
+        .unwrap()
+        .prepared_ms
+        .is_none());
+
+    // Prepare queues the Markdown and the text; a table is not a document.
+    let status = n.owner.prepare_knowledge("docs").await.unwrap();
+    assert!(status.prepared_ms.is_some());
+    let mut paths: Vec<_> = status.assets.iter().map(|a| a.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, vec!["architecture.md", "sharing.txt"]);
+    assert!(status.assets.iter().all(|a| a.stage == Stage::Queued));
+
+    let done = n
+        .owner
+        .work_knowledge("docs", std::time::Duration::from_secs(120))
+        .await
+        .unwrap();
+    assert_eq!(
+        done,
+        2,
+        "{:?}",
+        n.owner.knowledge_status("docs").unwrap().assets
+    );
+    let status = n.owner.knowledge_status("docs").unwrap();
+    assert!(
+        status.assets.iter().all(|a| a.stage == Stage::Ready),
+        "{:?}",
+        status.assets
+    );
+
+    // Two-character Chinese words, English words, each with its place.
+    assert_eq!(found(&n, "协调者").await, vec!["architecture.md:3"]);
+    assert_eq!(found(&n, "向量").await, vec!["architecture.md:7"]);
+    assert_eq!(found(&n, "DataFusion").await, vec!["architecture.md:3"]);
+    assert_eq!(found(&n, "grant").await, vec!["sharing.txt:1"]);
+    assert_eq!(found(&n, "public GRANT").await, vec!["sharing.txt:1"]);
+    assert!(found(&n, "public 协调者").await.is_empty());
+    assert!(found(&n, "euros").await.is_empty());
+
+    let hit = n
+        .owner
+        .search_knowledge("docs", "协调者", 1)
+        .await
+        .unwrap()
+        .hits
+        .remove(0);
+    assert_eq!(hit.heading, vec!["架构", "联邦层"]);
+    assert!(hit.score.is_some());
+
+    // Read back: the chunk itself, and the original by lines.
+    let read = n
+        .owner
+        .read_knowledge(
+            "docs",
+            "architecture.md",
+            KnowledgeRange::Chunk {
+                chunk_id: hit.chunk_id.clone(),
+                around: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(read.text, hit.text);
+    let line = n
+        .owner
+        .read_knowledge(
+            "docs",
+            "architecture.md",
+            KnowledgeRange::Lines {
+                page: None,
+                start: 5,
+                end: 5,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        line.text.trim_end(),
+        "DataFusion 是协调者，从不直接读取文件。"
+    );
+
+    // A chunk turned off is kept but never returned, nor read by its id.
+    n.owner
+        .set_knowledge_chunk("docs", &hit.chunk_id, false)
+        .unwrap();
+    assert!(found(&n, "协调者").await.is_empty());
+    let chunks = n
+        .owner
+        .knowledge_chunks("docs", "architecture.md")
+        .await
+        .unwrap();
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks.iter().filter(|(_, on)| !on).count(), 1);
+    assert!(n
+        .owner
+        .read_knowledge(
+            "docs",
+            "architecture.md",
+            KnowledgeRange::Chunk {
+                chunk_id: hit.chunk_id.clone(),
+                around: 0,
+            },
+        )
+        .await
+        .is_err());
+    n.owner
+        .set_knowledge_chunk("docs", &hit.chunk_id, true)
+        .unwrap();
+    assert_eq!(found(&n, "协调者").await, vec!["architecture.md:3"]);
+
+    // An original changed: its old chunks go, its new ones are found.
+    // One removed: its chunks go with it.
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    std::fs::write(
+        root.join("architecture.md"),
+        "# 架构\n\n协调者只合并 Arrow 流。\n",
+    )
+    .unwrap();
+    std::fs::remove_file(root.join("sharing.txt")).unwrap();
+    n.owner.refresh_in_place("docs").await.unwrap();
+    n.owner
+        .refresh_knowledge(std::time::Duration::from_secs(120))
+        .await;
+    assert_eq!(found(&n, "协调者").await, vec!["architecture.md:1"]);
+    assert!(found(&n, "向量").await.is_empty());
+    assert!(found(&n, "grant").await.is_empty());
+    let status = n.owner.knowledge_status("docs").unwrap();
+    assert_eq!(status.assets.len(), 1);
+
+    // Removing the collection forgets its knowledge; the folder stays.
+    n.sql("DROP SPACE docs").await;
+    assert!(root.join("architecture.md").exists());
+    assert!(!n
+        .catalog
+        .oikome_dir()
+        .join("knowledge")
+        .join("docs")
+        .exists());
+}

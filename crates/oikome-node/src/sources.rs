@@ -855,6 +855,9 @@ pub fn spawn_source_sync(session: Arc<OikomeSession>, check_every: Duration) -> 
             session.pull_due_sources().await;
             // Folders viewed in place are scanned on the same schedule.
             session.refresh_places(Duration::from_secs(20)).await;
+            // So are prepared collections' knowledge (knowledge/mod.rs).
+            #[cfg(feature = "knowledge")]
+            session.refresh_knowledge(Duration::from_secs(20)).await;
         }
     })
 }

@@ -17,6 +17,13 @@ import type {
   AnalysisProfile,
   DatasetAnalysis,
   DatasetProfile,
+  KnowledgeChunk,
+  KnowledgeChunksRequest,
+  KnowledgeStatus,
+  LanceInstalled,
+  RetrievalResults,
+  RetrievalTest,
+  SetKnowledgeChunk,
   ApiError,
   Assistant,
   AssistantCollections,
@@ -145,6 +152,18 @@ export interface NodeClient {
   datasetProfile(request: SpaceRef): Promise<DatasetProfile>;
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis>;
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile>;
+  /** What an AI can read of a collection: prepared or not, each original. */
+  knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus>;
+  /** Prepare a collection's documents for AI; it continues in the background. */
+  prepareKnowledge(request: SpaceRef): Promise<KnowledgeStatus>;
+  retryKnowledge(request: SpaceRef): Promise<KnowledgeStatus>;
+  /** The first chunks Prepare would make, without writing anything. */
+  knowledgePreview(request: SpaceRef): Promise<KnowledgeChunk[]>;
+  knowledgeChunks(request: KnowledgeChunksRequest): Promise<KnowledgeChunk[]>;
+  setKnowledgeChunk(request: SetKnowledgeChunk): Promise<Empty>;
+  retrievalTest(request: RetrievalTest): Promise<RetrievalResults>;
+  /** Download DuckDB's Lance support to this computer. */
+  installLance(): Promise<LanceInstalled>;
   /** Once, on a new data center: the examples, in `language` when they are written in it. */
   addExamples(request?: AddExamples): Promise<SpaceSummary[]>;
   listStorages(): Promise<StorageSummary[]>;
@@ -390,6 +409,38 @@ export class HttpClient implements NodeClient {
 
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis> {
     return this.#json("analyze_dataset", request);
+  }
+
+  knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus> {
+    return this.#json("knowledge_status", request);
+  }
+
+  prepareKnowledge(request: SpaceRef): Promise<KnowledgeStatus> {
+    return this.#json("prepare_knowledge", request);
+  }
+
+  retryKnowledge(request: SpaceRef): Promise<KnowledgeStatus> {
+    return this.#json("retry_knowledge", request);
+  }
+
+  knowledgePreview(request: SpaceRef): Promise<KnowledgeChunk[]> {
+    return this.#json("knowledge_preview", request);
+  }
+
+  knowledgeChunks(request: KnowledgeChunksRequest): Promise<KnowledgeChunk[]> {
+    return this.#json("knowledge_chunks", request);
+  }
+
+  setKnowledgeChunk(request: SetKnowledgeChunk): Promise<Empty> {
+    return this.#json("set_knowledge_chunk", request);
+  }
+
+  retrievalTest(request: RetrievalTest): Promise<RetrievalResults> {
+    return this.#json("retrieval_test", request);
+  }
+
+  installLance(): Promise<LanceInstalled> {
+    return this.#json("install_lance", {});
   }
 
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile> {

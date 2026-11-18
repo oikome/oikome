@@ -1744,8 +1744,11 @@ test("a contact adds the invite in their own Oikome, reads it, and leaves it onc
     await call("confirm_recovery_key", {});
   });
   await bob.goto(`${bobBase}/sharing`);
-  await bob.getByRole("button", { name: "Add an Invite" }).click();
-  const adding = bob.getByRole("dialog", { name: "Add an Invite" });
+  // One Add Contact: by their ID or by an invite they sent, with your own ID to give.
+  await bob.getByRole("button", { name: "Add Contact" }).click();
+  const adding = bob.getByRole("dialog", { name: "Add Contact" });
+  await expect(adding).toContainText("Your ID");
+  await adding.getByRole("radio", { name: /^From an invite/ }).check();
   // Half a code says so, in words.
   await adding.getByLabel("Invite code").fill(invite.slice(0, 50));
   await adding.getByRole("button", { name: "Add Invite" }).click();
@@ -1840,8 +1843,9 @@ test("Home lends this computer to Bob, who adds it and sees when lending is paus
 
   // Bob adds it in his Oikome: Home's computer is there for him.
   await bob.goto(`${bobBase}/sharing`);
-  await bob.getByRole("button", { name: "Add an Invite" }).click();
-  await bob.getByRole("dialog", { name: "Add an Invite" }).getByLabel("Invite code").fill(code);
+  await bob.getByRole("button", { name: "Add Contact" }).click();
+  await bob.getByRole("dialog", { name: "Add Contact" }).getByRole("radio", { name: /^From an invite/ }).check();
+  await bob.getByRole("dialog", { name: "Add Contact" }).getByLabel("Invite code").fill(code);
   await bob.getByRole("button", { name: "Add Invite" }).click();
   const notice = bob.getByRole("region", { name: "Home lends you their computer" });
   await expect(notice).toContainText("2 tasks at a time · 30 an hour");
@@ -1890,8 +1894,9 @@ test("Bob lends Home his computer: big summaries of what he may see go there, th
 
   // Home adds it.
   await page.goto(`${base}/sharing`);
-  await page.getByRole("button", { name: "Add an Invite" }).click();
-  await page.getByRole("dialog", { name: "Add an Invite" }).getByLabel("Invite code").fill(code);
+  await page.getByRole("button", { name: "Add Contact" }).click();
+  await page.getByRole("dialog", { name: "Add Contact" }).getByRole("radio", { name: /^From an invite/ }).check();
+  await page.getByRole("dialog", { name: "Add Contact" }).getByLabel("Invite code").fill(code);
   await page.getByRole("button", { name: "Add Invite" }).click();
   const notice = page.getByRole("region", { name: /lends you their computer$/ });
   await notice.getByRole("button", { name: /^Accept: / }).click();

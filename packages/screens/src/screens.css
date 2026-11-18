@@ -4826,3 +4826,22 @@ tr.screen-source {
 .screen-table-in-card .oik-table.screen-shares td:last-child {
   padding-right: var(--space-4);
 }
+
+/* Add Contact: this data center's own ID, to give to the other side. */
+.screen-your-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.screen-your-id__text {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.screen-your-id__text .oik-mono {
+  overflow-wrap: anywhere;
+}
+.screen-your-id__text .screen-help {
+  margin: 0;
+}

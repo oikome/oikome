@@ -1630,7 +1630,12 @@ removeLocation?: boolean,
 /**
  * Whether strangers may reach live queries from outside this network.
  */
-reach?: ReachChoice, };
+reach?: ReachChoice,
+/**
+ * When the share ends by itself, in milliseconds since the Unix epoch;
+ * it lasts until revoked when left out.
+ */
+expiresAtMs?: number, };
 
 /**
  * A file in a signed public manifest.
@@ -1654,7 +1659,11 @@ export type PublicSnapshot = { hash: string, size: number, manifest: PublicManif
 /**
  * A public share and its current state.
  */
-export type PublicShare = { id: string, space: string, allowCopy: boolean, requestsPerMinute: number, maxRows: number, maxMs: number, removeLocation: boolean, active: boolean, createdAtMs: number, snapshot: PublicSnapshot | null, };
+export type PublicShare = { id: string, space: string, allowCopy: boolean, requestsPerMinute: number, maxRows: number, maxMs: number, removeLocation: boolean, active: boolean, createdAtMs: number,
+/**
+ * When it ends by itself; `None` until revoked.
+ */
+expiresAtMs: number | null, snapshot: PublicSnapshot | null, };
 
 /**
  * A public share to inspect, query or revoke.

@@ -535,6 +535,10 @@ pub struct NewPublicShare {
     /// Whether strangers may reach live queries from outside this network.
     #[serde(default)]
     pub reach: Option<ReachChoice>,
+    /// When the share ends by itself, in milliseconds since the Unix epoch;
+    /// it lasts until revoked when left out.
+    #[serde(default)]
+    pub expires_at_ms: Option<u64>,
 }
 
 /// A file in a signed public manifest.
@@ -590,6 +594,9 @@ pub struct PublicShare {
     pub remove_location: bool,
     pub active: bool,
     pub created_at_ms: u64,
+    /// When it ends by itself; `None` until revoked.
+    #[serde(default)]
+    pub expires_at_ms: Option<u64>,
     #[serde(default)]
     pub snapshot: Option<PublicSnapshot>,
     /// Authenticated visitors, used to remove this share's isolated grants.

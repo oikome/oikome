@@ -796,9 +796,13 @@ impl WebState {
                 Err(e) => error(e),
             },
             _ => {
-                let Some(path) = file.strip_prefix("files/") else {
-                    return error(ApiError::not_found("not found"));
-                };
+                // An original (copying allowed), or a photo's preview (any share).
+                let (preview, path) =
+                    match (file.strip_prefix("files/"), file.strip_prefix("previews/")) {
+                        (Some(path), _) => (false, path),
+                        (_, Some(path)) => (true, path),
+                        _ => return error(ApiError::not_found("not found")),
+                    };
                 let Some(path) = path
                     .split('/')
                     .map(percent_decoded)
@@ -807,16 +811,20 @@ impl WebState {
                 else {
                     return error(ApiError::not_found("not found"));
                 };
-                match self
-                    .api
-                    .public_file(PublicFileRef {
-                        id: id.into(),
-                        path: path.clone(),
-                    })
-                    .await
-                {
-                    Ok(body) => respond(StatusCode::OK, content_type(Path::new(&path)), body),
-                    Err(e) => error(e),
+                let request = PublicFileRef {
+                    id: id.into(),
+                    path: path.clone(),
+                };
+                if preview {
+                    match self.api.public_preview(request).await {
+                        Ok(body) => respond(StatusCode::OK, "image/jpeg", body),
+                        Err(e) => error(e),
+                    }
+                } else {
+                    match self.api.public_file(request).await {
+                        Ok(body) => respond(StatusCode::OK, content_type(Path::new(&path)), body),
+                        Err(e) => error(e),
+                    }
                 }
             }
         };

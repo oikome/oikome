@@ -475,6 +475,7 @@ async fn public_snapshots_need_no_owner_session_and_revocation_closes_them() {
                 max_ms: None,
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await

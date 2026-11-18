@@ -4965,11 +4965,72 @@ async fn public_snapshot_is_signed_private_and_revocable() {
                 max_ms: Some(1_000),
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await
         .unwrap();
     assert!(share.active);
+    // Without copying, a visitor sees a photo's preview, never the original,
+    // and a share given an end stops at it.
+    let viewing = n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "trip".into(),
+                allow_copy: Some(false),
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+                reach: None,
+                expires_at_ms: Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64
+                        + 1_500,
+                ),
+            },
+        )
+        .await
+        .unwrap();
+    let file = |path: &str| PublicFileRef {
+        id: viewing.id.clone(),
+        path: path.into(),
+    };
+    assert!(n.api.public_file(file("b.jpg")).await.is_err());
+    let preview = n.api.public_preview(file("b.jpg")).await.unwrap();
+    assert_eq!(&preview[..2], &[0xff, 0xd8]);
+    assert!(!preview.windows(4).any(|w| w == b"Exif"));
+    assert!(n.api.public_preview(file("a.txt")).await.is_err());
+    assert!(n
+        .api
+        .create_public_share(
+            &OWNER,
+            NewPublicShare {
+                space: "trip".into(),
+                allow_copy: None,
+                requests_per_minute: None,
+                max_rows: None,
+                max_ms: None,
+                remove_location: None,
+                reach: None,
+                expires_at_ms: Some(1),
+            },
+        )
+        .await
+        .is_err());
+    tokio::time::sleep(std::time::Duration::from_millis(1_600)).await;
+    assert!(n
+        .api
+        .public_manifest(PublicShareRef {
+            id: viewing.id.clone()
+        })
+        .await
+        .is_err());
+    assert!(n.api.public_preview(file("b.jpg")).await.is_err());
     let manifest = n
         .api
         .public_manifest(PublicShareRef {
@@ -5043,8 +5104,8 @@ async fn public_snapshot_is_signed_private_and_revocable() {
         .await
         .is_err());
     let shares = n.api.list_public_shares(&OWNER, Empty {}).await.unwrap();
-    assert_eq!(shares.len(), 1);
-    assert!(!shares[0].active);
+    assert_eq!(shares.len(), 2);
+    assert!(!shares.iter().find(|s| s.id == share.id).unwrap().active);
 }
 
 #[tokio::test]
@@ -5065,6 +5126,7 @@ async fn public_live_queries_authenticate_limit_log_and_revoke() {
                 max_ms: Some(1_000),
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await
@@ -5181,6 +5243,7 @@ async fn public_live_queries_verify_ethereum_signatures() {
                 max_ms: None,
                 remove_location: None,
                 reach: None,
+                expires_at_ms: None,
             },
         )
         .await

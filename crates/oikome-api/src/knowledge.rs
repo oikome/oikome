@@ -20,13 +20,14 @@
 use std::time::Duration;
 
 use oikome_core::validate_space_name;
+use oikome_node::knowledge::support::SupportState;
 use oikome_node::knowledge::{self as node, model, skills::Skill, Stage, StoredChunk};
 
 use crate::{
-    Api, ApiError, Caller, EmbeddingModel, Empty, FoundBy, KnowledgeChunk, KnowledgeChunksRequest,
-    KnowledgeFile, KnowledgeStage, KnowledgeStatus, LanceInstalled, ModelRef, ModelState,
-    RetrievalResults, RetrievalTest, SearchMode, SetKnowledgeChunk, SetKnowledgeModel,
-    SkillFileInfo, SkillInfo, SpaceRef,
+    Api, ApiError, Caller, DownloadState, EmbeddingModel, Empty, ExtensionDownload, FoundBy,
+    KnowledgeChunk, KnowledgeChunksRequest, KnowledgeFile, KnowledgeStage, KnowledgeStatus,
+    ModelRef, ModelState, RetrievalResults, RetrievalTest, SearchMode, SetKnowledgeChunk,
+    SetKnowledgeModel, SkillFileInfo, SkillInfo, SpaceRef,
 };
 
 /// A skill as the apps and assistants see it; `collection` is `None` for
@@ -94,10 +95,30 @@ fn mode_of(mode: node::SearchMode) -> SearchMode {
     }
 }
 
+fn extension_of(session: &oikome_node::OikomeSession) -> ExtensionDownload {
+    let (state, dir) = session.knowledge_support();
+    let (state, done, total, error) = match state {
+        SupportState::Idle => (DownloadState::Idle, 0, None, None),
+        SupportState::Downloading { done, total } => {
+            (DownloadState::Downloading, done, total, None)
+        }
+        SupportState::Installing => (DownloadState::Installing, 0, None, None),
+        SupportState::Failed(e) => (DownloadState::Failed, 0, None, Some(e)),
+    };
+    ExtensionDownload {
+        state,
+        done,
+        total,
+        error,
+        path: dir.to_string_lossy().into_owned(),
+    }
+}
+
 fn model_of(
     info: &model::ModelInfo,
     state: model::ModelState,
     used: &[(String, String)],
+    path: &std::path::Path,
 ) -> EmbeddingModel {
     let (state, done, error) = match state {
         model::ModelState::Absent => (ModelState::Absent, 0, None),
@@ -119,6 +140,7 @@ fn model_of(
             .filter(|(m, _)| m == info.id)
             .map(|(_, space)| space.clone())
             .collect(),
+        path: path.to_string_lossy().into_owned(),
     }
 }
 
@@ -169,6 +191,7 @@ impl Api {
             space: space.to_string(),
             prepared_ms: status.prepared_ms,
             available,
+            extension: extension_of(&session),
             model: status.model,
             meaning,
             ready: count(|f| f.stage == KnowledgeStage::Ready),
@@ -194,6 +217,32 @@ impl Api {
         tokio::spawn(async move {
             if let Err(e) = session.work_knowledge(&space, ROUND).await {
                 tracing::warn!(space, error = %e, "preparing knowledge");
+            }
+        });
+    }
+
+    /// While model `id` downloads, wait for it; once it is here, give
+    /// `space`'s passages vectors at once rather than at the node's next
+    /// regular refresh.
+    fn vectors_when_model_arrives(&self, space: String, id: String) {
+        let session = self.session(None);
+        tokio::spawn(async move {
+            loop {
+                let state = session
+                    .embedding_models()
+                    .into_iter()
+                    .find(|(m, _)| m.id == id)
+                    .map(|(_, state)| state);
+                match state {
+                    Some(model::ModelState::Ready) => break,
+                    Some(model::ModelState::Downloading { .. }) => {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                    _ => return,
+                }
+            }
+            if let Err(e) = session.update_knowledge(&space, ROUND).await {
+                tracing::warn!(space, error = %e, "giving passages vectors");
             }
         });
     }
@@ -336,12 +385,15 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         validate_space_name(&req.space)?;
-        let status = self
-            .session(None)
+        let session = self.session(None);
+        let status = session
             .set_knowledge_model(&req.space, req.model.as_deref())
             .await?;
         if status.prepared_ms.is_some() {
             self.work_in_background(&req.space);
+        }
+        if let Some(id) = req.model {
+            self.vectors_when_model_arrives(req.space.clone(), id);
         }
         self.knowledge_view(&req.space).await
     }
@@ -366,7 +418,10 @@ impl Api {
         Ok(session
             .embedding_models()
             .into_iter()
-            .map(|(info, state)| model_of(info, state, &used))
+            .map(|(info, state)| {
+                let path = model::dir(&self.engines.models_dir(), info);
+                model_of(info, state, &used, &path)
+            })
             .collect())
     }
 
@@ -380,7 +435,8 @@ impl Api {
         caller.require_owner()?;
         let state = self.session(None).download_embedding_model(&req.id)?;
         let info = model::model(&req.id).ok_or_else(|| ApiError::invalid("no such model"))?;
-        Ok(model_of(info, state, &[]))
+        let path = model::dir(&self.engines.models_dir(), info);
+        Ok(model_of(info, state, &[], &path))
     }
 
     /// Remove a model's files. Collections searched by meaning with it are
@@ -410,14 +466,17 @@ impl Api {
             .collect())
     }
 
-    /// Download DuckDB's Lance support (signed by DuckDB) to this computer.
+    /// Start downloading the DuckDB extension knowledge needs, from
+    /// DuckDB's repository, and installing it; DuckDB checks its signature
+    /// when it loads it. `knowledge_status` says how far it is.
     pub async fn install_lance(
         &self,
         caller: &Caller,
         _: Empty,
-    ) -> Result<LanceInstalled, ApiError> {
+    ) -> Result<ExtensionDownload, ApiError> {
         caller.require_owner()?;
-        let version = self.engines.install_lance().await?;
-        Ok(LanceInstalled { version })
+        let session = self.session(None);
+        session.install_knowledge_support()?;
+        Ok(extension_of(&session))
     }
 }

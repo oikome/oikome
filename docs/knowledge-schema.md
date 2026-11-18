@@ -23,9 +23,10 @@ This changes one principle of [`data-analysis.md`](data-analysis.md): formats ma
 |----------------|------------------|
 | Collection | Space |
 | Original: a file, an app's record, a saved file, a skill | Asset (§4.1) |
-| Prepare for AI / Prepare for analysis | Conversion (§4.2) |
-| Knowledge: what an AI can read and search | Lance knowledge dataset of the collection (§5) |
-| Analysis table | Iceberg table with a dataset profile (§6) |
+| Build Index (for full-text search, or full-text and semantic search) / Data Analysis | Conversion (§4.2) |
+| Index: passages that can be searched by keyword or meaning, by the owner and by AI assistants | Lance knowledge dataset of the collection (§5) |
+| Data analysis: totals, grouping and trends over a table | Iceberg table with a dataset profile (§6) |
+| Embedding model | A model of §4.3, run on this computer |
 | Model | A row of the model registry (§4.3) |
 | Retrieval test | A search against the knowledge dataset with its scores and sources |
 | Skill | A folder with `SKILL.md` registered in the collection (§7) |
@@ -209,12 +210,14 @@ Defaults follow the original: documents and media go to knowledge, tables to ana
 
 ### 8.2 In the apps
 
-- **Prepare.** A collection's page offers Prepare. Its dialog shows what will be prepared (all originals, a selection, or one table), the result with its format preselected, and the model (none, or a local one). Formats are explained in one sentence each:
-  - Knowledge (Lance): text, vectors and indexes kept together for search and for AI assistants.
-  - Analysis table (Iceberg): columns stored for totals, grouping and charts; readable by most analysis tools.
-  - A preview shows the first chunks, or the inferred fields for a table, before anything is written. A table's inferred fields are reviewed and corrected there (PR 27).
+- **Build Index.** A collection's page offers it under its Index view. The owner chooses a **purpose**, each named and explained in one sentence, not a storage format (owner's review, 2026-11-18: people build collections for personal data analysis, for searchable knowledge, or for vector search; Lance and Iceberg are not shown):
+  - Full-text search: passages found by keyword.
+  - Full-text and semantic search: by keyword and by meaning; names the embedding model with its size and that it runs on this computer.
+  - Data analysis: totals, grouping and trends over a table; for table collections (PR 27's Analyze…), shown but not applicable to documents.
+  - A preview shows the first passages, or the inferred fields for a table, before anything is written. A table's inferred fields are reviewed and corrected there (PR 27).
+- **Downloads.** Whatever is downloaded (the DuckDB extension, a model) shows how much of how much, the speed, about how long is left, and where it is saved, before and while it downloads; an interrupted download resumes. The node downloads the extension itself to report this, then has DuckDB install the file.
 - **Progress.** Each original has one plain status: Waiting, Reading, Splitting, Embedding, Ready or Failed, with the reason and Retry. A collection says how many originals are ready, failed, or prepared with older settings.
-- **Knowledge view.** Per original: its chunks, each with its place in the original (page, time, row), Disable and Edit. A **Retrieval test** box searches the collection and shows each hit's rank, score, source and the time taken; a question can be saved and run again after a change, as Dify's golden questions and Cherry Studio's recall test do.
+- **Index view.** How it is searched (semantic search on or off), then per original: its chunks, each with its place in the original (page, time, row), Disable and Edit. A **Retrieval test** box searches the collection and shows each hit's rank, score, source and the time taken; a question can be saved and run again after a change, as Dify's golden questions and Cherry Studio's recall test do.
 - **Analysis view.** The table, its fields and their meanings, and charts by time and category (the existing series view and PR 27's derived analyses).
 - **Info.** Format, model and dimensions, chunk count, dataset version and size, for those who want them.
 
@@ -263,7 +266,7 @@ Decided on 2026-11-17:
 | Chinese full text in Lance | `ngram` base tokenizer (§3.1). |
 | Analysis tables | Iceberg through the existing write path, with field meanings in the profile and in each field's `doc` (§3.1, §6). |
 | One dataset per collection or per node | Per collection, so grants, sharing, subscriptions and removal stay as they are. Search across collections runs per collection and merges the results; collections with different models are searched with each one's own model. |
-| How much format choice to show | Per Prepare, with the default preselected and each format explained in one sentence (§8.2). Of the applications surveyed, AnythingLLM shows its store preselected and explained; Cherry Studio and Open WebUI do not show it. |
+| How much format choice to show | None: the owner chooses a purpose (full-text search; full-text and semantic search; data analysis), each explained in one sentence; storage formats stay in this document (§8.2; changed 2026-11-18 after the owner's review, replacing the format choice decided 2026-11-17). |
 
 Still open:
 

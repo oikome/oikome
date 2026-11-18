@@ -4146,6 +4146,34 @@ tr.screen-source {
   padding: 0;
   list-style: none;
 }
+/* Choosing every file, or none, above the list; with how many are chosen. */
+.screen-save-all {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 46px;
+  border-bottom: 1px solid var(--line2);
+}
+.screen-save-all__count {
+  font: var(--text-meta);
+  color: var(--ink3);
+  font-variant-numeric: tabular-nums;
+}
+.screen-save-all + .screen-help {
+  margin-top: var(--space-2);
+}
+/* A chosen file's caption goes under its name, in line with it. */
+.screen-share-person.screen-save-file {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+.screen-save-file > .oik-field {
+  margin: 0 0 var(--space-1) 24px;
+}
 .screen-share-person {
   display: flex;
   align-items: center;
@@ -4731,18 +4759,35 @@ tr.screen-source {
 .screen-model-row .screen-knowledge-install {
   margin: 0;
 }
-.screen-model-progress {
+.screen-download {
+  display: grid;
+  flex: 1 1 100%;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.screen-download__bar {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin: var(--space-2) 0 0;
-  font: var(--text-meta);
-  color: var(--ink2);
 }
-.screen-model-progress progress {
+.screen-download__bar progress {
   flex: 1 1 auto;
   height: 6px;
   accent-color: var(--ink);
+}
+.screen-download__pct,
+.screen-download__line {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+}
+.screen-download__path {
+  flex: 1 1 100%;
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--ink3);
+  overflow-wrap: anywhere;
 }
 
 /* A skill's folder, beside it. */

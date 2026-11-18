@@ -646,16 +646,11 @@ async fn knowledge_is_found_by_meaning() {
         .set_knowledge_chunk("docs", &engines.chunk_id, false)
         .unwrap();
 
-    // Meaning needs the model here.
+    // Choosing a model not yet here starts its download; the collection
+    // is searched by words until it arrives.
     let id = model::MODELS[0].id;
-    let here = n
-        .owner
-        .embedding_models()
-        .iter()
-        .any(|(m, state)| m.id == id && *state == model::ModelState::Ready);
-    if !here {
-        assert!(n.owner.set_knowledge_model("docs", Some(id)).await.is_err());
-    }
+    let status = n.owner.set_knowledge_model("docs", Some(id)).await.unwrap();
+    assert_eq!(status.model.as_deref(), Some(id));
     let started = std::time::Instant::now();
     loop {
         match n.owner.download_embedding_model(id).unwrap() {

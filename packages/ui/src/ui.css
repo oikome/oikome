@@ -841,6 +841,11 @@
   background-color: var(--ink);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.2l2.3 2.3 4.7-5' fill='none' stroke='%23fcfcfb' stroke-width='2'/%3E%3C/svg%3E");
 }
+.oik-checkbox input:indeterminate {
+  border-color: var(--ink);
+  background-color: var(--ink);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8h7' fill='none' stroke='%23fcfcfb' stroke-width='2'/%3E%3C/svg%3E");
+}
 .oik-checkbox:has(input:disabled) {
   color: var(--ink3);
   cursor: default;
@@ -857,6 +862,12 @@
   border-color: #111;
   background-color: #3ddc97;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.2 8.2l2.4 2.4 5-5.2' fill='none' stroke='%23111' stroke-width='2.2'/%3E%3C/svg%3E");
+}
+
+[data-theme="bold"] .oik-checkbox input:indeterminate {
+  border-color: #111;
+  background-color: #3ddc97;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.2 8h7.6' fill='none' stroke='%23111' stroke-width='2.2'/%3E%3C/svg%3E");
 }
 
 /* ----- Choices as cards ----- */
@@ -949,6 +960,22 @@
 }
 .oik-choice__more > :last-child {
   margin-bottom: 0;
+}
+/* Shown but not to be chosen: dimmed, with the reason under it. */
+.oik-choice--off,
+.oik-choice--off:hover {
+  border-color: var(--line2);
+  background: transparent;
+}
+.oik-choice--off .oik-choice__row {
+  cursor: default;
+}
+.oik-choice--off .oik-choice__row input,
+.oik-choice--off .oik-choice__tile {
+  opacity: 0.45;
+}
+.oik-choice--off .oik-choice__title {
+  color: var(--ink3);
 }
 
 /* ----- Messages ----- */

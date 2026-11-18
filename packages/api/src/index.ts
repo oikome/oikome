@@ -1395,9 +1395,13 @@ export type KnowledgeStatus = { space: string,
  */
 preparedMs: number | null,
 /**
- * Whether this computer has Lance support (`install_lance`).
+ * Whether this computer has the DuckDB extension knowledge needs.
  */
 available: boolean,
+/**
+ * Its download and installation (`install_lance`), while there is one.
+ */
+extension: ExtensionDownload,
 /**
  * The model it is searched by meaning with (`set_knowledge_model`).
  */
@@ -1478,9 +1482,27 @@ mode: SearchMode | null, };
 export type RetrievalResults = { hits: Array<KnowledgeChunk>, mode: SearchMode, tookMs: number, };
 
 /**
- * `install_lance`: DuckDB's Lance support, now on this computer.
+ * Where a download the owner started is.
  */
-export type LanceInstalled = { version: string, };
+export type DownloadState = "idle" | "downloading" | "installing" | "failed";
+
+/**
+ * `install_lance`, and in `knowledge_status`: the download and
+ * installation of the DuckDB extension knowledge needs.
+ */
+export type ExtensionDownload = { state: DownloadState,
+/**
+ * Bytes downloaded so far.
+ */
+done: number,
+/**
+ * The whole download, once the server said.
+ */
+total: number | null, error: string | null,
+/**
+ * The directory DuckDB keeps extensions in.
+ */
+path: string, };
 
 /**
  * How a search hit was found.
@@ -1527,7 +1549,11 @@ error: string | null,
 /**
  * Collections searched by meaning with it.
  */
-usedBy: Array<string>, };
+usedBy: Array<string>,
+/**
+ * The directory its files are saved in.
+ */
+path: string, };
 
 /**
  * `download_model`, `remove_model`: a model by id.

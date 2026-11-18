@@ -20,7 +20,7 @@ import type {
   KnowledgeChunk,
   KnowledgeChunksRequest,
   KnowledgeStatus,
-  LanceInstalled,
+  ExtensionDownload,
   RetrievalResults,
   RetrievalTest,
   SetKnowledgeChunk,
@@ -166,8 +166,8 @@ export interface NodeClient {
   knowledgeChunks(request: KnowledgeChunksRequest): Promise<KnowledgeChunk[]>;
   setKnowledgeChunk(request: SetKnowledgeChunk): Promise<Empty>;
   retrievalTest(request: RetrievalTest): Promise<RetrievalResults>;
-  /** Download DuckDB's Lance support to this computer. */
-  installLance(): Promise<LanceInstalled>;
+  /** Start downloading and installing the DuckDB extension knowledge needs; `knowledgeStatus` says how far it is. */
+  installLance(): Promise<ExtensionDownload>;
   /** Search a collection by meaning with a model as well as by words, or by words only. */
   setKnowledgeModel(request: SetKnowledgeModel): Promise<KnowledgeStatus>;
   /** The embedding models, where each is, and the collections using it. */
@@ -452,7 +452,7 @@ export class HttpClient implements NodeClient {
     return this.#json("retrieval_test", request);
   }
 
-  installLance(): Promise<LanceInstalled> {
+  installLance(): Promise<ExtensionDownload> {
     return this.#json("install_lance", {});
   }
 

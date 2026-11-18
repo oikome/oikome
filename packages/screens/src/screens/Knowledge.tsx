@@ -1,12 +1,12 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Knowledge an AI can read (docs/knowledge-schema.md, PR 28 K1–K2):
-// Prepare, where each original is, its passages, search by meaning with a
-// model that runs on this computer, and a retrieval test that searches the
-// way an assistant does.
+// A collection's index (docs/knowledge-schema.md, K1–K2): building it for
+// a purpose (full-text search, or full-text and semantic search with a
+// model that runs on this computer), where each original is, its passages,
+// its skills, and a retrieval test that searches the way an assistant does.
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   Button,
@@ -34,7 +34,7 @@ import type {
   SearchMode,
 } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
-import { bytes } from "../format";
+import { bytes, homeRelative } from "../format";
 import { strings } from "../strings";
 
 const k = strings.knowledge;
@@ -75,7 +75,68 @@ function useModels() {
   return models;
 }
 
-/** A model's download: the button, how far it is, or that it is ready. */
+/** A download in progress: how much of how much, how fast, about how
+ * long is left, and where the files go. */
+function DownloadProgress({
+  done,
+  total,
+  path,
+  label,
+  installing,
+}: {
+  done: number;
+  total: number | null;
+  path: string;
+  label: string;
+  installing?: boolean;
+}) {
+  const [rate, setRate] = useState<number>();
+  const last = useRef<{ at: number; done: number } | undefined>(undefined);
+  useEffect(() => {
+    const at = performance.now();
+    const before = last.current;
+    if (before && done > before.done && at > before.at) {
+      const now = ((done - before.done) * 1000) / (at - before.at);
+      setRate((old) => (old ? old * 0.6 + now * 0.4 : now));
+    }
+    last.current = { at, done };
+  }, [done]);
+  const pct = total ? Math.min(100, Math.floor((done / total) * 100)) : undefined;
+  const parts: string[] = [];
+  if (installing) {
+    parts.push(k.download.installing);
+  } else if (!done && !total) {
+    parts.push(k.download.connecting);
+  } else {
+    parts.push(total ? k.download.progress(bytes(done), bytes(total)) : bytes(done));
+    if (rate) {
+      parts.push(k.download.speed(bytes(Math.round(rate))));
+      if (total) {
+        const left = Math.max(0, (total - done) / rate);
+        parts.push(
+          k.download.remaining(
+            left < 60 ? k.download.seconds(Math.max(1, Math.round(left))) : k.download.minutes(Math.ceil(left / 60)),
+          ),
+        );
+      }
+    }
+  }
+  return (
+    <div className="screen-download" role="status">
+      <div className="screen-download__bar">
+        <progress max={100} value={installing ? undefined : pct} aria-label={label} />
+        {pct !== undefined && !installing && <span className="screen-download__pct">{`${pct}%`}</span>}
+      </div>
+      <p className="screen-download__line">{parts.join(" · ")}</p>
+      <p className="screen-download__path" translate="no">
+        {k.download.savedTo(homeRelative(path))}
+      </p>
+    </div>
+  );
+}
+
+/** A model's download: the button and where it will be saved, how far it
+ * is, or that it is ready. */
 function ModelDownload({
   model,
   onChange,
@@ -93,20 +154,18 @@ function ModelDownload({
   };
   if (model.state === "ready") return <p className="screen-help">{k.modelReady}</p>;
   if (model.state === "downloading") {
-    const pct = model.size ? Math.floor((model.done / model.size) * 100) : 0;
-    return (
-      <div className="screen-model-progress" role="status">
-        <progress max={100} value={pct} aria-label={model.name} />
-        <span>{k.modelDownloading(pct)}</span>
-      </div>
-    );
+    return <DownloadProgress done={model.done} total={model.size} path={model.path} label={model.name} />;
   }
+  const failed = model.state === "failed";
   return (
     <div className="screen-knowledge-install">
-      <p>{model.state === "failed" ? k.modelFailed : (help ?? k.searchMeaningHelp(model.name, bytes(model.size)))}</p>
+      {(failed || help) && <p>{failed ? k.download.failed : help}</p>}
       <Button icon="download" disabled={download.busy} onClick={() => void start()}>
-        {k.modelDownload}
+        {failed ? k.download.retry : `${k.modelDownload} (${bytes(model.size)})`}
       </Button>
+      <p className="screen-download__path" translate="no">
+        {k.download.savedTo(homeRelative(model.path))}
+      </p>
       {download.error && <ErrorText>{download.error}</ErrorText>}
     </div>
   );
@@ -126,8 +185,13 @@ function Passage({ chunk, aside }: { chunk: KnowledgeChunk; aside?: ReactNode })
   );
 }
 
-/** Prepare a collection for AI: the format, explained and chosen; Lance
- * support when this computer lacks it; the first passages it will make. */
+/** What an index can be built for here; data analysis is shown beside
+ * them, but is made from a table collection's own menu. */
+type Purpose = "words" | "meaning";
+
+/** Build a collection's index: what it is for (each purpose named and
+ * explained), the extension and model it needs with their downloads, and
+ * the first passages it will make. */
 export function KnowledgeDialog({
   space,
   onClose,
@@ -143,12 +207,21 @@ export function KnowledgeDialog({
   const install = useAction();
   const prepare = useAction();
   const models = useModels();
-  const [format, setFormat] = useState("lance");
-  const [search, setSearch] = useState<"words" | "meaning">("words");
+  const [purpose, setPurpose] = useState<Purpose>("words");
   const [installed, setInstalled] = useState(false);
   const available = status.data?.available ?? false;
+  const extension = status.data?.extension;
+  const installing = extension?.state === "downloading" || extension?.state === "installing";
   const model = models.data?.[0];
-  const ready = search === "words" || model?.state === "ready";
+  // Semantic search does not wait for the model: the index is built at
+  // once and searched by words until the model has arrived.
+
+  // While the extension downloads, look again every second.
+  useEffect(() => {
+    if (!installing) return;
+    const timer = setTimeout(status.reload, 1000);
+    return () => clearTimeout(timer);
+  }, [status.data, installing, status.reload]);
 
   const doInstall = async () => {
     if (await install.run(() => client.installLance())) {
@@ -158,7 +231,7 @@ export function KnowledgeDialog({
   };
   const doPrepare = async () => {
     const done = await prepare.run(async () => {
-      await client.setKnowledgeModel({ space, model: search === "meaning" && model ? model.id : null });
+      await client.setKnowledgeModel({ space, model: purpose === "meaning" && model ? model.id : null });
       return client.prepareKnowledge({ space });
     });
     if (done) {
@@ -176,11 +249,7 @@ export function KnowledgeDialog({
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button
-            variant="primary"
-            disabled={!available || format !== "lance" || !ready || prepare.busy}
-            onClick={() => void doPrepare()}
-          >
+          <Button variant="primary" disabled={!available || prepare.busy} onClick={() => void doPrepare()}>
             {prepare.busy ? k.preparing : k.action}
           </Button>
         </>
@@ -188,39 +257,65 @@ export function KnowledgeDialog({
     >
       <p className="oik-dialog__text">{k.body}</p>
       <ChoiceList
-        label={k.formatLabel}
-        name="knowledge-format"
-        value={format}
-        onChange={setFormat}
+        label={k.purposeLabel}
+        name="knowledge-purpose"
+        value={purpose}
+        onChange={(value) => setPurpose(value === "meaning" ? "meaning" : "words")}
         choices={[
-          { value: "lance", title: k.formats.lance, meta: k.formats.lanceHelp, leading: <Icon name="ai" /> },
-          { value: "iceberg", title: k.formats.iceberg, meta: k.formats.icebergHelp, leading: <Icon name="table" /> },
+          { value: "words", title: k.purposes.words, meta: k.purposes.wordsHelp, leading: <Icon name="search" /> },
+          ...(model
+            ? [
+                {
+                  value: "meaning",
+                  title: k.purposes.meaning,
+                  meta: k.purposes.meaningHelp(model.name, bytes(model.size)),
+                  leading: <Icon name="ai" />,
+                  more:
+                    model.state === "ready" ? undefined : model.state === "downloading" ? (
+                      <DownloadProgress done={model.done} total={model.size} path={model.path} label={model.name} />
+                    ) : (
+                      <>
+                        <p className="screen-help">{k.purposes.meaningLater}</p>
+                        <p className="screen-download__path" translate="no">
+                          {k.download.savedTo(homeRelative(model.path))}
+                        </p>
+                      </>
+                    ),
+                },
+              ]
+            : []),
+          {
+            value: "analysis",
+            title: k.purposes.analysis,
+            meta: k.purposes.analysisHelp,
+            leading: <Icon name="table" />,
+            disabled: true,
+            more: <p className="screen-help">{k.purposes.analysisNone}</p>,
+          },
         ]}
       />
-      {model && (
-        <ChoiceList
-          label={k.searchLabel}
-          name="knowledge-search"
-          value={search}
-          onChange={(value) => setSearch(value === "meaning" ? "meaning" : "words")}
-          choices={[
-            { value: "words", title: k.searchWords, meta: k.searchWordsHelp },
-            {
-              value: "meaning",
-              title: k.searchMeaning,
-              meta: k.searchMeaningHelp(model.name, bytes(model.size)),
-              more: model.state === "ready" ? undefined : <ModelDownload model={model} onChange={models.reload} />,
-            },
-          ]}
-        />
-      )}
       {installed && available && <p className="screen-help screen-knowledge-ready">{k.installed}</p>}
-      {status.data && !available && !installed && (
+      {status.data && extension && !available && (
         <div className="screen-knowledge-install">
-          <p>{k.install}</p>
-          <Button icon="download" disabled={install.busy} onClick={() => void doInstall()}>
-            {install.busy ? k.installing : k.installAction}
-          </Button>
+          <p>{extension.state === "failed" ? k.download.failed : k.install}</p>
+          {installing ? (
+            <DownloadProgress
+              done={extension.done}
+              total={extension.total}
+              path={extension.path}
+              label={k.installAction}
+              installing={extension.state === "installing"}
+            />
+          ) : (
+            <>
+              <Button icon="download" disabled={install.busy} onClick={() => void doInstall()}>
+                {extension.state === "failed" ? k.download.retry : k.installAction}
+              </Button>
+              <p className="screen-download__path" translate="no">
+                {k.download.savedTo(homeRelative(extension.path))}
+              </p>
+            </>
+          )}
         </div>
       )}
       <section className="screen-knowledge-preview" aria-label={k.preview}>
@@ -355,7 +450,9 @@ function MeaningSetting({ status, onChange }: { status: KnowledgeStatus; onChang
   const meta = !status.model
     ? k.meaningOff
     : !status.meaning
-      ? k.meaningNoModel(model.name)
+      ? model.state === "downloading"
+        ? k.meaningDownloading
+        : k.meaningNoModel(model.name)
       : status.files.some((f) => f.stage === "embedding" || f.stage === "waiting")
         ? k.meaningPending
         : k.meaningOn(model.name);
@@ -367,7 +464,7 @@ function MeaningSetting({ status, onChange }: { status: KnowledgeStatus; onChang
         trailing={
           <Button
             variant={status.model ? "quiet" : "secondary"}
-            disabled={change.busy || (!status.model && model.state !== "ready")}
+            disabled={change.busy}
             onClick={() => void set(!status.model)}
           >
             {status.model ? k.turnOff : k.turnOn}
@@ -376,7 +473,18 @@ function MeaningSetting({ status, onChange }: { status: KnowledgeStatus; onChang
       />
       {model.state !== "ready" && (
         <li className="oik-group__item screen-model-row">
-          <ModelDownload model={model} onChange={models.reload} />
+          {status.model ? (
+            // Chosen: how far its download is, or downloading it again.
+            <ModelDownload model={model} onChange={models.reload} />
+          ) : (
+            // Not chosen: what enabling it downloads, and where to.
+            <>
+              <p className="screen-help">{k.purposes.meaningHelp(model.name, bytes(model.size))}</p>
+              <p className="screen-download__path" translate="no">
+                {k.download.savedTo(homeRelative(model.path))}
+              </p>
+            </>
+          )}
         </li>
       )}
       {change.error && (

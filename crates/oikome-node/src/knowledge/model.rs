@@ -21,12 +21,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
 
-use futures::StreamExt;
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use super::fetch;
 use crate::error::SessionError;
 
 /// One file of a model, as published at its revision.
@@ -126,7 +124,7 @@ fn downloads<T>(f: impl FnOnce(&mut HashMap<PathBuf, ModelState>) -> T) -> T {
 }
 
 /// The directory of `model` under `root`.
-pub(crate) fn dir(root: &Path, model: &ModelInfo) -> PathBuf {
+pub fn dir(root: &Path, model: &ModelInfo) -> PathBuf {
     root.join(model.id).join(model.revision)
 }
 
@@ -224,16 +222,11 @@ async fn download(dir: &Path, model: &ModelInfo) -> Result<(), SessionError> {
     tokio::fs::create_dir_all(dir)
         .await
         .map_err(|e| io(dir, e))?;
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("oikome/", env!("CARGO_PKG_VERSION")))
-        .connect_timeout(Duration::from_secs(30))
-        .read_timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|e| SessionError::Unsupported(format!("downloading {}: {e}", model.name)))?;
+    let client = fetch::client()?;
     let total = model.size();
     let mut before = 0;
     for file in model.files {
-        fetch(&client, dir, model, file, before, total).await?;
+        get(&client, dir, model, file, before, total).await?;
         before += file.size;
     }
     tokio::fs::write(dir.join(VERIFIED), b"")
@@ -242,9 +235,9 @@ async fn download(dir: &Path, model: &ModelInfo) -> Result<(), SessionError> {
     Ok(())
 }
 
-/// Download one file, resuming a part left by an earlier try, and keep it
-/// only when its size and digest are the published ones.
-async fn fetch(
+/// Download one file of `model`, resuming a part left by an earlier try,
+/// and keep it only when its size and digest are the published ones.
+async fn get(
     client: &reqwest::Client,
     dir: &Path,
     model: &ModelInfo,
@@ -262,62 +255,15 @@ async fn fetch(
         return Ok(());
     }
     let part = dir.join(format!("{}.part", file.name));
-    let mut hasher = Sha256::new();
-    let mut have = match tokio::fs::metadata(&part).await {
-        Ok(m) if m.len() <= file.size => {
-            hash_into(&part, &mut hasher).await?;
-            m.len()
-        }
-        _ => 0,
-    };
     let url = format!(
         "https://huggingface.co/{}/resolve/{}/{}",
         model.repo, model.revision, file.name
     );
-    let failed =
-        |e: reqwest::Error| SessionError::Unsupported(format!("downloading {}: {e}", model.name));
-    if have < file.size {
-        let mut request = client.get(&url);
-        if have > 0 {
-            request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
-        }
-        let response = request.send().await.map_err(failed)?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(SessionError::Unsupported(format!(
-                "downloading {}: huggingface.co answered {status}",
-                model.name
-            )));
-        }
-        let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
-        if !resumed {
-            // The whole file came: start the part again.
-            hasher = Sha256::new();
-            have = 0;
-        }
-        let mut writer = tokio::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(resumed)
-            .truncate(!resumed)
-            .open(&part)
-            .await
-            .map_err(|e| io(&part, e))?;
-        let mut body = response.bytes_stream();
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk.map_err(failed)?;
-            have += chunk.len() as u64;
-            if have > file.size {
-                break;
-            }
-            hasher.update(&chunk);
-            writer.write_all(&chunk).await.map_err(|e| io(&part, e))?;
-            progress(dir, before + have, total);
-        }
-        writer.flush().await.map_err(|e| io(&part, e))?;
-    }
-    let digest = hex(&hasher.finalize());
-    if have != file.size || digest != file.sha256 {
+    let got = fetch::fetch(client, &url, &part, Some(file.size), |done, _| {
+        progress(dir, before + done, total)
+    })
+    .await?;
+    if got.size != file.size || got.sha256 != file.sha256 {
         let _ = tokio::fs::remove_file(&part).await;
         return Err(SessionError::Unsupported(format!(
             "{} of {} did not match its published size and digest; it was deleted",
@@ -330,26 +276,10 @@ async fn fetch(
     Ok(())
 }
 
-async fn hash_into(path: &Path, hasher: &mut Sha256) -> Result<(), SessionError> {
-    let mut f = tokio::fs::File::open(path).await.map_err(|e| io(path, e))?;
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = f.read(&mut buf).await.map_err(|e| io(path, e))?;
-        if n == 0 {
-            return Ok(());
-        }
-        hasher.update(&buf[..n]);
-    }
-}
-
 async fn digest_of(path: &Path) -> Result<String, SessionError> {
     let mut hasher = Sha256::new();
-    hash_into(path, &mut hasher).await?;
-    Ok(hex(&hasher.finalize()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    fetch::hash_into(path, &mut hasher).await?;
+    Ok(fetch::hex(&hasher.finalize()))
 }
 
 #[cfg(test)]

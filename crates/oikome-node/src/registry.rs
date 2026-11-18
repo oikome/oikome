@@ -376,6 +376,38 @@ impl EngineRegistry {
             .await?)
     }
 
+    /// Install DuckDB's `lance` extension from a file the node downloaded
+    /// (knowledge shows the download's progress), into the node's extension
+    /// directory. DuckDB checks its signature when it loads it.
+    #[cfg(feature = "engine-duckdb")]
+    pub async fn install_lance_file(&self, file: &Path) -> Result<String, SessionError> {
+        let installer =
+            oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
+        Ok(installer
+            .install_extension_file(oikome_engine_duckdb::Extension::Lance, file)
+            .await?)
+    }
+
+    /// DuckDB's version and platform, which name where its extensions are.
+    #[cfg(feature = "engine-duckdb")]
+    pub async fn duckdb_version_and_platform(&self) -> Result<(String, String), SessionError> {
+        let probe = oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
+        Ok(probe.version_and_platform().await?)
+    }
+
+    /// Where DuckDB keeps extensions for this node: its own directory, or
+    /// DuckDB's default under the home folder.
+    #[cfg(feature = "engine-duckdb")]
+    pub fn extension_dir(&self) -> PathBuf {
+        self.duckdb_config.extension_dir.clone().unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join(".duckdb")
+                .join("extensions")
+        })
+    }
+
     /// The SQLite engine serving `space`'s Location, opened on first use.
     #[cfg(feature = "engine-sqlite")]
     pub fn sqlite_for(&self, space: &Space) -> Result<Arc<dyn QueryEngine>, SessionError> {

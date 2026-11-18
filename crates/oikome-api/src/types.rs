@@ -2333,8 +2333,10 @@ pub struct KnowledgeStatus {
     pub space: String,
     /// When the owner prepared it; `None` when never.
     pub prepared_ms: Option<i64>,
-    /// Whether this computer has Lance support (`install_lance`).
+    /// Whether this computer has the DuckDB extension knowledge needs.
     pub available: bool,
+    /// Its download and installation (`install_lance`), while there is one.
+    pub extension: ExtensionDownload,
     /// The model it is searched by meaning with (`set_knowledge_model`).
     pub model: Option<String>,
     /// Whether it is searched by meaning now: it has a model and the
@@ -2479,6 +2481,8 @@ pub struct EmbeddingModel {
     pub error: Option<String>,
     /// Collections searched by meaning with it.
     pub used_by: Vec<String>,
+    /// The directory its files are saved in.
+    pub path: String,
 }
 
 /// One file of a skill, with its digest.
@@ -2551,11 +2555,31 @@ pub struct ModelRef {
     pub id: String,
 }
 
-/// `install_lance`: DuckDB's Lance support, now on this computer.
+/// Where a download the owner started is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadState {
+    /// None running.
+    Idle,
+    Downloading,
+    Installing,
+    /// The last try failed; trying again resumes it.
+    Failed,
+}
+
+/// `install_lance`, and in `knowledge_status`: the download and
+/// installation of the DuckDB extension knowledge needs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct LanceInstalled {
-    pub version: String,
+pub struct ExtensionDownload {
+    pub state: DownloadState,
+    /// Bytes downloaded so far.
+    pub done: u64,
+    /// The whole download, once the server said.
+    pub total: Option<u64>,
+    pub error: Option<String>,
+    /// The directory DuckDB keeps extensions in.
+    pub path: String,
 }
 
 /// A passage of a prepared document an assistant's search found.

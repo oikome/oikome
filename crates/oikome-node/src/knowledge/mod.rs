@@ -34,11 +34,13 @@
 mod catalog;
 #[cfg(feature = "embedding")]
 mod embed;
+mod fetch;
 #[cfg(feature = "embedding")]
 pub mod model;
 pub mod skills;
 mod split;
 mod store;
+pub mod support;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -193,15 +195,18 @@ impl Vectors {
     }
 }
 
-/// The conversion version: splitting's, and the model's when there is one,
-/// so choosing or changing a model converts every original again.
-fn knowledge_version(model: Option<&str>) -> String {
+/// The conversion version: splitting's, and the model's when the
+/// collection has one whose files are here. Choosing a model therefore
+/// converts every original again once the model has arrived (not before:
+/// until then the collection is searched by words), and so does a model
+/// changing or going.
+fn knowledge_version(vectors: Option<&Vectors>) -> String {
     #[cfg(feature = "embedding")]
-    if let Some(m) = model.and_then(model::model) {
-        return format!("{VERSION}+{}", m.tag());
+    if let Some(v) = vectors {
+        return format!("{VERSION}+{}", v.info.tag());
     }
     #[cfg(not(feature = "embedding"))]
-    let _ = model;
+    let _ = vectors;
     VERSION.to_string()
 }
 
@@ -270,7 +275,7 @@ impl OikomeSession {
             space,
             &files,
             |name| Kind::of(name).map(Kind::converter),
-            &knowledge_version(cat.model()?.as_deref()),
+            &knowledge_version(self.knowledge_meaning(cat)?.as_ref()),
         )?;
         if !gone.is_empty() {
             let store = self.knowledge_store(space).await?;
@@ -282,9 +287,10 @@ impl OikomeSession {
     }
 
     /// Search `space` by meaning with `model` as well as by words, or by
-    /// words only (`None`). Its originals are converted again, the chunks
-    /// they have now serving until then. The model must be on this computer.
-    /// Owner only.
+    /// words only (`None`). A model not yet on this computer starts
+    /// downloading in the background; the collection is searched by words
+    /// until it arrives, then its originals are converted again with
+    /// vectors, the chunks they have now serving until then. Owner only.
     #[cfg(feature = "embedding")]
     pub async fn set_knowledge_model(
         &self,
@@ -296,11 +302,12 @@ impl OikomeSession {
         if let Some(id) = model {
             let info = model::model(id)
                 .ok_or_else(|| SessionError::Unsupported(format!("no model {id}")))?;
-            if model::state(&self.engines().models_dir(), info) != model::ModelState::Ready {
-                return Err(SessionError::Unsupported(format!(
-                    "{} is not on this computer; download it first",
-                    info.name
-                )));
+            let root = self.engines().models_dir();
+            if matches!(
+                model::state(&root, info),
+                model::ModelState::Absent | model::ModelState::Failed(_)
+            ) {
+                model::start(&root, info);
             }
         }
         let cat = self.knowledge_catalog(space)?;
@@ -364,7 +371,7 @@ impl OikomeSession {
     pub fn retry_knowledge(&self, space: &str) -> Result<u64, SessionError> {
         self.deny_principal("preparing knowledge")?;
         let cat = self.knowledge_catalog(space)?;
-        cat.retry_failed(&knowledge_version(cat.model()?.as_deref()))
+        cat.retry_failed(&knowledge_version(self.knowledge_meaning(&cat)?.as_ref()))
     }
 
     /// The model `space`'s chunks get vectors from, whether or not its
@@ -411,7 +418,9 @@ impl OikomeSession {
             return Ok(0);
         }
         let cat = self.knowledge_catalog(space)?;
-        let vectors = self.knowledge_vectors(&cat)?;
+        // Vectors only with a model whose files are here; otherwise words
+        // now, and vectors when it arrives (the version then changes).
+        let vectors = self.knowledge_meaning(&cat)?;
         let started = Instant::now();
         let mut store = None;
         let mut done = 0;
@@ -443,6 +452,24 @@ impl OikomeSession {
         Ok(done)
     }
 
+    /// Bring one prepared collection up to date: list its originals again,
+    /// queue what changed (or what a model that just arrived must give
+    /// vectors to), and convert for at most `budget`. Owner only.
+    pub async fn update_knowledge(
+        &self,
+        space: &str,
+        budget: Duration,
+    ) -> Result<u64, SessionError> {
+        self.deny_principal("preparing knowledge")?;
+        let cat = self.knowledge_catalog(space)?;
+        if cat.prepared_ms()?.is_none() {
+            return Ok(0);
+        }
+        let location = self.knowledge_location(space)?;
+        self.reconcile_knowledge(space, &location, &cat).await?;
+        self.work_knowledge(space, budget).await
+    }
+
     /// Keep every prepared collection up to date: list its originals again
     /// and convert what changed, within `budget` overall.
     pub async fn refresh_knowledge(&self, budget: Duration) {
@@ -455,18 +482,9 @@ impl OikomeSession {
             if !dir.join("catalog.sqlite").exists() {
                 continue;
             }
-            let result = async {
-                let cat = self.knowledge_catalog(&space.name)?;
-                if cat.prepared_ms()?.is_none() {
-                    return Ok(0);
-                }
-                let location = self.knowledge_location(&space.name)?;
-                self.reconcile_knowledge(&space.name, &location, &cat)
-                    .await?;
-                self.work_knowledge(&space.name, budget.saturating_sub(started.elapsed()))
-                    .await
-            }
-            .await;
+            let result = self
+                .update_knowledge(&space.name, budget.saturating_sub(started.elapsed()))
+                .await;
             if let Err(e) = result {
                 tracing::warn!(space = %space.name, error = %e, "keeping knowledge up to date");
             }

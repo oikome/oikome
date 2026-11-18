@@ -10,7 +10,13 @@ description = "Oikome node runtime: session, engine registry and statement routi
 default = ["engine-duckdb", "engine-sqlite", "knowledge", "embedding"]
 engine-duckdb = ["dep:oikome-engine-duckdb"]
 # Knowledge an AI can read (docs/knowledge-schema.md): chunks in Lance.
-knowledge = ["engine-duckdb", "dep:pdf-extract", "dep:sha2"]
+knowledge = [
+    "engine-duckdb",
+    "dep:pdf-extract",
+    "dep:sha2",
+    "dep:reqwest",
+    "dep:flate2",
+]
 # Meaning search: a local embedding model, downloaded only when the owner asks.
 embedding = [
     "knowledge",
@@ -18,7 +24,6 @@ embedding = [
     "dep:candle-nn",
     "dep:candle-transformers",
     "dep:tokenizers",
-    "dep:reqwest",
 ]
 engine-sqlite = ["dep:oikome-engine-sqlite"]
 
@@ -61,9 +66,12 @@ candle-core = { workspace = true, optional = true }
 candle-nn = { workspace = true, optional = true }
 candle-transformers = { workspace = true, optional = true }
 tokenizers = { workspace = true, optional = true }
-# Model downloads; the same reqwest and TLS stack as oikome-vfs.
+# Downloads the owner asks for (a model, the lance extension); the same
+# reqwest and TLS stack as oikome-vfs.
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"], optional = true }
 sha2 = { workspace = true, optional = true }
+# Unpacking the lance extension; the pure-Rust back end zip already uses.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "=1.0.2", features = ["keychain"] }

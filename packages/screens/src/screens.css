@@ -4329,11 +4329,12 @@ tr.screen-source {
   }
   .screen-shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr;
   }
+  /* A phone's pages are in the tab bar at the bottom; the top bar keeps
+     where you are, the network and search. */
   .screen-sidebar {
-    border-right: 0;
-    border-bottom: var(--bw) solid var(--line);
+    display: none;
   }
   .screen-sidebar__inner {
     position: static;
@@ -4379,7 +4380,7 @@ tr.screen-source {
     margin-left: 0;
   }
   .screen-page {
-    padding: var(--space-5) var(--space-4) 48px;
+    padding: var(--space-5) var(--space-4) calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-6));
   }
   .screen-title {
     font: var(--text-display-compact);
@@ -4844,4 +4845,78 @@ tr.screen-source {
 }
 .screen-your-id__text .screen-help {
   margin: 0;
+}
+
+/* A phone's tab bar: four tabs, each at least 44 px, over the page's foot. */
+:root {
+  --tabbar-height: 60px;
+}
+.screen-tabbar {
+  position: fixed;
+  z-index: 40;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-height: var(--tabbar-height);
+  padding: 4px var(--space-2) calc(4px + env(safe-area-inset-bottom));
+  border-top: var(--bw) solid var(--line);
+  background: var(--raised);
+}
+.screen-tabbar__tab,
+.screen-tabbar__more .oik-menu > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 48px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: none;
+  box-shadow: none;
+  color: var(--ink3);
+  font: 500 11px/14px var(--font);
+  text-decoration: none;
+  transform: none;
+}
+.screen-tabbar__more,
+.screen-tabbar__more .oik-menu {
+  display: flex;
+  width: 100%;
+}
+.screen-tabbar__tab .oik-icon,
+.screen-tabbar__more .oik-menu > button .oik-icon {
+  width: 22px;
+  height: 22px;
+}
+.screen-tabbar__tab[aria-current="page"],
+.screen-tabbar__more--current .oik-menu > button {
+  color: var(--ink);
+}
+.screen-tabbar__tab[aria-current="page"] .screen-tabbar__label,
+.screen-tabbar__more--current .oik-menu__shown {
+  font-weight: 600;
+}
+.screen-tabbar__tab:focus-visible,
+.screen-tabbar__more .oik-menu > button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+[data-theme="bold"] .screen-tabbar {
+  border-top: 2px solid #111;
+}
+/* Wider screens list every page in the sidebar. */
+@media (min-width: 761px) {
+  .screen-tabbar {
+    display: none;
+  }
+}
+[data-theme="bold"] .screen-tabbar__tab[aria-current="page"],
+[data-theme="bold"] .screen-tabbar__more--current .oik-menu > button {
+  background: #ffd23f;
+  color: #111;
 }

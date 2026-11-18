@@ -7,7 +7,7 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Button, Card, EmptyState, ErrorText, Icon, Status, ToastProvider } from "@oikome/ui";
+import { Button, Card, EmptyState, ErrorText, Icon, Menu, Status, ToastProvider } from "@oikome/ui";
 import type { IconName } from "@oikome/ui";
 import type { NodeClient, NodeInfo, StorageSummary } from "@oikome/client";
 import { collectionTitle } from "./covers";
@@ -67,6 +67,8 @@ const NAV = (): NavItem[] => [
 ];
 /** At the foot of the sidebar, as settings usually are. */
 const FOOT = (): NavItem[] => [{ to: "/settings", label: strings.nav.settings, icon: "sliders" }];
+/** On a phone, the pages at the bottom of the screen; the rest are under More. */
+const TABS = ["/", "/collections", "/sharing"];
 
 /** The section a path belongs to: Home only for "/" itself. */
 function sectionOf(path: string): NavItem | undefined {
@@ -313,6 +315,41 @@ function NavList({
   );
 }
 
+/** A phone's pages, at the bottom within reach of a thumb: Home,
+ * Collections and Sharing, and More for the others. Hidden on wider
+ * screens, where the sidebar lists every page. */
+function TabBar({ current, collections }: { current?: string; collections?: number }) {
+  const all = [...NAV(), ...FOOT()];
+  const tabs = all.filter((item) => TABS.includes(item.to));
+  const rest = all.filter((item) => !TABS.includes(item.to));
+  const inMore = rest.some((item) => item.to === current);
+  return (
+    <nav className="screen-tabbar" aria-label={strings.nav.label}>
+      {tabs.map((item) => (
+        <Link key={item.to} to={item.to} className="screen-tabbar__tab" current={item.to === current}>
+          <Icon name={item.icon} />
+          <span className="screen-tabbar__label">{item.label}</span>
+          {item.to === "/collections" && collections !== undefined && (
+            <span className="oik-visually-hidden">{` (${collections})`}</span>
+          )}
+        </Link>
+      ))}
+      <span className={inMore ? "screen-tabbar__more screen-tabbar__more--current" : "screen-tabbar__more"}>
+        <Menu
+          label={strings.nav.more}
+          trigger={{ icon: "more", text: strings.nav.more }}
+          items={rest.map((item) => ({
+            label: item.label,
+            icon: item.icon,
+            checked: item.to === current ? true : undefined,
+            onSelect: () => navigate(item.to),
+          }))}
+        />
+      </span>
+    </nav>
+  );
+}
+
 function Shell({
   info,
   current,
@@ -509,6 +546,7 @@ function Shell({
           {children}
         </div>
       </main>
+      <TabBar current={current} collections={spaces.data?.length} />
       {searching && <Palette onClose={() => setSearching(false)} />}
     </div>
   );

@@ -65,7 +65,7 @@ Sidebar: Home, Collections, Sources, Sharing, MCP Access, Plugins, Activity, Set
 
 ## Information Architecture and Key Pages
 
-The sidebar has eight items, with the places below them. For now only the owner uses the apps: the web page on the computer has every page; the phone app at first sees only Home and the collections, and the rest waits until remote management grants are decided.
+The sidebar has eight items, with the places below them. For now only the owner uses the apps: the web page on the computer has every page; the phone app at first sees only Home and the collections, and the rest waits until remote management grants are decided. On a phone-width screen (760 px or less) the sidebar gives way to a tab bar at the bottom: Home, Collections, Sharing and More, which lists Sources, MCP Access, Plugins, Activity and Settings; each tab is at least 44 px tall, and the top bar keeps where you are, the network entry and search.
 
 | Page | What it is for | What it holds |
 | --- | --- | --- |

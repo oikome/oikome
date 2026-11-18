@@ -2728,7 +2728,13 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   await page.setViewportSize({ width: 390, height: 600 });
   await page.goto(`${base}/sharing`);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.getByRole("link", { name: "Activity" }).click();
+  // A phone's pages are in the tab bar at the bottom: three tabs and More.
+  const tabs = page.getByRole("navigation", { name: "Main" });
+  await expect(tabs.getByRole("link")).toHaveText(["Home", "Collections", "Sharing"]);
+  await expect(tabs.getByRole("link", { name: "Sharing" })).toHaveAttribute("aria-current", "page");
+  await tabs.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Activity" }).click();
+  await expect(page).toHaveURL(/\/activity$/);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   await page.setViewportSize({ width: 1280, height: 800 });
 

@@ -413,7 +413,7 @@ export const zhHant: Strings = {
     newCollection: "新增資料庫",
     addFiles: "加入檔案",
     addFilesBody: "選擇資料庫，然後參照原處的檔案，或把檔案複製進去。",
-    rustfsBody: "選擇儲存貯體中的資料夾，作為資料庫檢視。檔案保留在 RustFS 中。",
+    rustfsBody: "選擇儲存貯體中的資料夾，加入現有資料庫，或作為新資料庫檢視。檔案保留在 RustFS 中。",
     folderAlready: (name: string) => `此資料夾已加入為資料庫 ${name}。再次加入將建立內容相同的第二個資料庫。`,
     nameNumbered: (wanted: string, name: string) => `已存在名為 ${wanted} 的資料庫，此資料庫將命名為 ${name}。可在上方修改名稱。`,
     wholePlace: "整個儲存空間",
@@ -466,6 +466,7 @@ export const zhHant: Strings = {
     thisComputerPlace: "這台電腦",
     folderOn: (place: string) => `${place} 上的資料夾`,
     folderOnHint: "它在儲存空間上的路徑，例如 Photos/2025。留空即表示全部。",
+    joinsAsFolder: (collection: string, place: string) => `該資料夾以原名顯示在 ${collection} 的最上層。檔案保留在 ${place} 中，無法在 Oikome 中編輯。`,
     chooseFolder: "選擇資料夾…",
     noFolderYet: "尚未選擇資料夾",
     holds: (photos: number, notes: number) => {

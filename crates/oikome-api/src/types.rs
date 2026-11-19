@@ -182,13 +182,19 @@ pub struct ViewInPlace {
     pub files: Option<Vec<String>>,
 }
 
-/// `add_in_place_folder`: add a whole local folder to an existing file collection.
+/// `add_in_place_folder`: add a whole folder, on this computer or a storage, to an
+/// existing file collection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AddInPlaceFolder {
     pub space: String,
-    /// Absolute path of the folder on this computer.
+    /// The folder: absolute on this computer, else within `place`.
     pub path: String,
+    /// A storage's name: the folder is on it and joins the collection as a
+    /// folder of its own, read where it is. This computer when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub place: Option<String>,
 }
 
 /// `add_in_place_files`: add original local files to a file collection.

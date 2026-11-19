@@ -1097,13 +1097,19 @@ export type AddInPlaceFiles = { space: string,
 files: Array<string>, };
 
 /**
- * `add_in_place_folder`: add a whole local folder to an existing file collection.
+ * `add_in_place_folder`: add a whole folder, on this computer or a storage, to an
+ * existing file collection.
  */
 export type AddInPlaceFolder = { space: string,
 /**
- * Absolute path of the folder on this computer.
+ * The folder: absolute on this computer, else within `place`.
  */
-path: string, };
+path: string,
+/**
+ * A storage's name: the folder is on it and joins the collection as a
+ * folder of its own, read where it is. This computer when left out.
+ */
+place?: string, };
 
 /**
  * One file deliberately copied from the owner's browser into a new collection.

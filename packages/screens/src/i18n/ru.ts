@@ -439,7 +439,7 @@ export const ru: Strings = {
     newCollection: "Новая коллекция",
     addFiles: "Добавить файлы",
     addFilesBody: "Выберите коллекцию, затем сошлитесь на исходные файлы там, где они хранятся, или скопируйте их в неё.",
-    rustfsBody: "Выберите папку в бакете, которая будет показана как коллекция. Её файлы остаются в RustFS.",
+    rustfsBody: "Выберите папку в бакете, чтобы добавить её в коллекцию или показать как новую коллекцию. Её файлы остаются в RustFS.",
     folderAlready: (name: string) => `Эта папка уже добавлена как коллекция ${name}. Повторное добавление создаст вторую коллекцию с теми же файлами.`,
     nameNumbered: (wanted: string, name: string) => `Коллекция с именем ${wanted} уже существует, поэтому эта будет названа ${name}. Имя можно изменить выше.`,
     wholePlace: "Всё хранилище",
@@ -493,6 +493,7 @@ export const ru: Strings = {
     thisComputerPlace: "Этот компьютер",
     folderOn: (place: string) => `Папка на ${place}`,
     folderOnHint: "Путь к ней в хранилище, например Photos/2025. Оставьте пустым, чтобы взять всё.",
+    joinsAsFolder: (collection: string, place: string) => `Папка появится под своим именем на верхнем уровне коллекции ${collection}. Её файлы остаются в ${place} и не редактируются в Oikome.`,
     chooseFolder: "Выбрать папку…",
     noFolderYet: "Папка не выбрана",
     holds: (photos: number, notes: number) =>

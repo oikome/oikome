@@ -446,7 +446,7 @@ export const ko: Strings = {
     newCollection: "새 컬렉션",
     addFiles: "파일 추가",
     addFilesBody: "컬렉션을 선택한 다음 원본 파일을 원래 위치에서 참조하거나 해당 컬렉션으로 복사해요.",
-    rustfsBody: "버킷의 폴더를 선택하여 컬렉션으로 표시합니다. 파일은 RustFS에 그대로 유지됩니다.",
+    rustfsBody: "버킷의 폴더를 선택해 기존 컬렉션에 추가하거나 새 컬렉션으로 표시합니다. 파일은 RustFS에 그대로 유지됩니다.",
     folderAlready: (name: string) => `이 폴더는 이미 ${name} 컬렉션으로 추가되어 있습니다. 다시 추가하면 내용이 같은 두 번째 컬렉션이 만들어집니다.`,
     nameNumbered: (wanted: string, name: string) => `${wanted} 이름의 컬렉션이 이미 있어 ${name}(으)로 지정됩니다. 이름은 위에서 변경할 수 있습니다.`,
     wholePlace: "전체 스토리지",
@@ -499,6 +499,7 @@ export const ko: Strings = {
     thisComputerPlace: "이 컴퓨터",
     folderOn: (place: string) => `${place}의 폴더`,
     folderOnHint: "저장 공간 안의 경로예요. 예: Photos/2025. 전체를 보려면 비워 두세요.",
+    joinsAsFolder: (collection: string, place: string) => `이 폴더는 원래 이름으로 ${collection}의 최상위에 표시됩니다. 파일은 ${place}에 그대로 유지되며 Oikome에서 편집할 수 없습니다.`,
     chooseFolder: "폴더 선택…",
     noFolderYet: "선택한 폴더 없음",
     holds: (photos: number, notes: number) => {

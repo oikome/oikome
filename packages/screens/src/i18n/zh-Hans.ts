@@ -417,7 +417,7 @@ export const zhHans: Strings = {
     newCollection: "新建资料库",
     addFiles: "添加文件",
     addFilesBody: "选择资料库，然后引用原处的文件，或把文件复制进去。",
-    rustfsBody: "选择存储桶中的文件夹，作为资料库查看。文件保留在 RustFS 中。",
+    rustfsBody: "选择存储桶中的文件夹，加入已有资料库，或作为新资料库查看。文件保留在 RustFS 中。",
     folderAlready: (name: string) => `此文件夹已添加为资料库 ${name}。再次添加将创建内容相同的第二个资料库。`,
     nameNumbered: (wanted: string, name: string) => `已存在名为 ${wanted} 的资料库，此资料库将命名为 ${name}。可在上方修改名称。`,
     wholePlace: "整个存储",
@@ -470,6 +470,7 @@ export const zhHans: Strings = {
     thisComputerPlace: "这台电脑",
     folderOn: (place: string) => `${place} 上的文件夹`,
     folderOnHint: "它在存储上的路径，比如 Photos/2025。留空表示整个存储。",
+    joinsAsFolder: (collection: string, place: string) => `该文件夹以原名显示在 ${collection} 的顶层。文件保留在 ${place} 中，不能在 Oikome 中编辑。`,
     chooseFolder: "选择文件夹…",
     noFolderYet: "未选择文件夹",
     holds: (photos: number, notes: number) =>

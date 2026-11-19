@@ -421,7 +421,7 @@ export const ja: Strings = {
     newCollection: "新規コレクション",
     addFiles: "ファイルを追加",
     addFilesBody: "コレクションを選択し、元のファイルをその場所で参照するか、そのコレクションにコピーします。",
-    rustfsBody: "バケット内のフォルダを選択し、コレクションとして表示します。ファイルは RustFS に残ります。",
+    rustfsBody: "バケット内のフォルダを選択し、既存のコレクションに追加するか、新しいコレクションとして表示します。ファイルは RustFS に残ります。",
     folderAlready: (name: string) => `このフォルダは既にコレクション ${name} として追加されています。再度追加すると、同じ内容のコレクションがもう 1 つ作成されます。`,
     nameNumbered: (wanted: string, name: string) => `${wanted} という名前のコレクションが既に存在するため、${name} という名前になります。名前は上で変更できます。`,
     wholePlace: "ストレージ全体",
@@ -475,6 +475,7 @@ export const ja: Strings = {
     thisComputerPlace: "このコンピュータ",
     folderOn: (place: string) => `${place} 上のフォルダ`,
     folderOnHint: "ストレージ上のパスです（例: Photos/2025）。すべてを対象にするには空欄のままにします。",
+    joinsAsFolder: (collection: string, place: string) => `このフォルダは元の名前で ${collection} の最上位に表示されます。ファイルは ${place} に残り、Oikome では編集できません。`,
     chooseFolder: "フォルダを選択…",
     noFolderYet: "フォルダが選択されていません",
     holds: (photos: number, notes: number) =>

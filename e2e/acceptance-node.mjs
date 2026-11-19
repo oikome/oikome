@@ -246,6 +246,9 @@ async function fillBucket(rustfs) {
     "archive/tickets/2024/Tram 28E.txt": "Carris · Tram 28E · Martim Moniz → Campo de Ourique · 2024-05-11 · EUR 3.10\n",
     "archive/tickets/2024/prices.csv": "date,line,price\n2024-05-11,28E,3.10\n2024-05-12,15E,3.10\n2024-05-13,Metro,1.85\n",
     "archive/README.md": "# Archive\n\nScans and tickets kept on RustFS. Oikome views this folder where it is.\n",
+    // Last year's receipts, moved off the computer to the bucket.
+    "household/receipts-2024/receipts.csv":
+      "date,category,amount,shop\n2024-10-03,Groceries,41.20,Pingo Doce\n2024-10-17,Books,18.90,Bertrand\n2024-11-05,Groceries,36.75,Mercado de Campo de Ourique\n2024-12-12,Eating out,27.40,Cervejaria Ramiro\n",
   };
   for (const [key, contents] of Object.entries(files)) await putObject(rustfs, "acceptance", key, contents);
 }
@@ -336,6 +339,9 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     });
     // The folder in the bucket, as the RustFS data source adds it.
     await call("view_in_place", { place: object.name, path: "archive", name: "rustfs-archive" });
+    // Last year's receipts in the bucket, added to the household's own
+    // collection by reference: a folder of it, read where it is.
+    await call("add_in_place_folder", { space: "household", path: "household/receipts-2024", place: object.name });
 
     await call("add_contact", { did: peerDid, name: "Acceptance Peer" });
     return call("share_space", { space: "photos", did: peerDid });

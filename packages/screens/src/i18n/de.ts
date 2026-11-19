@@ -433,7 +433,7 @@ export const de: Strings = {
     newCollection: "Neue Sammlung",
     addFiles: "Dateien hinzufügen",
     addFilesBody: "Wähle eine Sammlung und verweise dann auf Originaldateien an ihrem Ort oder kopiere sie in diese Sammlung.",
-    rustfsBody: "Wähle einen Ordner im Bucket, der als Sammlung angezeigt wird. Seine Dateien bleiben auf RustFS.",
+    rustfsBody: "Wähle einen Ordner im Bucket und füge ihn einer Sammlung hinzu oder zeige ihn als neue Sammlung an. Seine Dateien bleiben auf RustFS.",
     folderAlready: (name: string) => `Dieser Ordner wurde bereits als Sammlung ${name} hinzugefügt. Erneutes Hinzufügen erstellt eine zweite Sammlung derselben Dateien.`,
     nameNumbered: (wanted: string, name: string) => `Eine Sammlung mit dem Namen ${wanted} ist bereits vorhanden; diese wird ${name} genannt. Der Name kann oben geändert werden.`,
     wholePlace: "Der gesamte Speicher",
@@ -488,6 +488,7 @@ export const de: Strings = {
     thisComputerPlace: "Dieser Computer",
     folderOn: (place: string) => `Ordner auf ${place}`,
     folderOnHint: "Sein Pfad auf dem Speicher, etwa Photos/2025. Lass das Feld leer für alles.",
+    joinsAsFolder: (collection: string, place: string) => `Der Ordner erscheint unter seinem Namen auf der obersten Ebene von ${collection}. Seine Dateien bleiben auf ${place} und lassen sich in Oikome nicht bearbeiten.`,
     chooseFolder: "Ordner auswählen …",
     noFolderYet: "Kein Ordner ausgewählt",
     holds: (photos: number, notes: number) =>

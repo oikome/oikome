@@ -417,6 +417,8 @@ impl OikomeSession {
             // Nothing is tried, so nothing fails, while the place is away.
             return Ok(0);
         }
+        // Nor in an added folder that is away; the rest goes on.
+        let away = place.away().await;
         let cat = self.knowledge_catalog(space)?;
         // Vectors only with a model whose files are here; otherwise words
         // now, and vectors when it arrives (the version then changes).
@@ -425,7 +427,7 @@ impl OikomeSession {
         let mut store = None;
         let mut done = 0;
         while started.elapsed() < budget {
-            let Some(job) = cat.next_job()? else {
+            let Some(job) = cat.next_job_outside(&away)? else {
                 break;
             };
             if store.is_none() {

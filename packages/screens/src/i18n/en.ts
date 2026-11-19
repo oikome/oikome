@@ -432,7 +432,7 @@ export const en = {
     newCollection: "New Collection",
     addFiles: "Add Files",
     addFilesBody: "Choose a collection, then reference original files where they are or copy them into it.",
-    rustfsBody: "Choose a folder in the bucket to view as a collection. Its files stay on RustFS.",
+    rustfsBody: "Choose a folder in the bucket and add it to a collection, or view it as a new collection. Its files stay on RustFS.",
     folderAlready: (name: string) => `This folder is already added as the collection ${name}. Adding it again makes a second collection of the same files.`,
     nameNumbered: (wanted: string, name: string) => `A collection named ${wanted} already exists, so this one will be named ${name}. The name can be changed above.`,
     wholePlace: "The whole storage",
@@ -488,6 +488,7 @@ export const en = {
     thisComputerPlace: "This computer",
     folderOn: (place: string) => `Folder on ${place}`,
     folderOnHint: "Its path on the storage, such as Photos/2025. Leave it empty for all of it.",
+    joinsAsFolder: (collection: string, place: string) => `The folder appears at the top of ${collection} under its own name. Its files stay on ${place} and cannot be edited in Oikome.`,
     chooseFolder: "Choose Folder…",
     noFolderYet: "No folder chosen",
     holds: (photos: number, notes: number) =>

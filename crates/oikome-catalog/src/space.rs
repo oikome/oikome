@@ -60,14 +60,38 @@ pub struct Space {
 }
 
 /// One root of a file collection, optionally limited to selected files.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// A root with no `mount` is one of the collection's own local roots: its
+/// files are named relative to the roots' common folder (the Location's
+/// `path`). A root with a `mount` was added later from anywhere (this
+/// computer or a storage): it appears as the top-level folder `mount`, so
+/// the paths of files already in the collection never change.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InPlaceSource {
-    /// An absolute local folder. Multi-source references are local only.
+    /// An absolute local folder, or a folder within `place`.
     pub root: String,
     /// Files within `root`; `None` means every file under it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<String>>,
+    /// The storage `root` is on; `None` for this computer. Only a mounted
+    /// root may be on a storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    /// The top-level folder it appears as, for a root added later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mount: Option<String>,
+}
+
+impl InPlaceSource {
+    /// A collection's own local root (not mounted).
+    pub fn local(root: String, files: Option<Vec<String>>) -> Self {
+        InPlaceSource {
+            root,
+            files,
+            ..Default::default()
+        }
+    }
 }
 
 /// The on-disk format of a Location.
@@ -397,12 +421,10 @@ fn in_place(
         format: LocationFormat::InPlace {
             place: (place != PLACE_LOCAL).then(|| place.to_string()),
             path: path.to_string(),
-            sources: request.include.as_ref().map(|files| {
-                vec![InPlaceSource {
-                    root: path.to_string(),
-                    files: Some(files.clone()),
-                }]
-            }),
+            sources: request
+                .include
+                .as_ref()
+                .map(|files| vec![InPlaceSource::local(path.to_string(), Some(files.clone()))]),
         },
         residency: vec![STORAGE_DISK.to_string()],
         writer: None,

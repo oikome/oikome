@@ -119,13 +119,7 @@ fn new_file_sources(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let root = common.to_string_lossy().into_owned();
-    Ok((
-        root.clone(),
-        vec![InPlaceSource {
-            root,
-            files: Some(files),
-        }],
-    ))
+    Ok((root.clone(), vec![InPlaceSource::local(root, Some(files))]))
 }
 
 pub(crate) fn add_selected_source(
@@ -143,7 +137,7 @@ pub(crate) fn add_selected_source(
     let root_text = root.to_string_lossy();
     if let Some(source) = sources
         .iter_mut()
-        .find(|source| source.root == root_text.as_ref())
+        .find(|source| source.mount.is_none() && source.root == root_text.as_ref())
     {
         if let Some(files) = &mut source.files {
             if !files.contains(&name) {
@@ -152,10 +146,10 @@ pub(crate) fn add_selected_source(
         }
         return Ok(());
     }
-    sources.push(InPlaceSource {
-        root: root.to_string_lossy().into_owned(),
-        files: Some(vec![name]),
-    });
+    sources.push(InPlaceSource::local(
+        root.to_string_lossy().into_owned(),
+        Some(vec![name]),
+    ));
     Ok(())
 }
 
@@ -571,6 +565,13 @@ impl Api {
             (None, Some(name)) => {
                 let space = self.catalog.get_space(&name)?;
                 let location = self.catalog.get_location(&space.location)?;
+                if let Some(within) = req.folder.as_deref() {
+                    if crate::editing::in_added_folder(&location, within.trim_matches('/')) {
+                        return Err(ApiError::invalid(
+                            "this folder was added from another place; copy files to it there",
+                        ));
+                    }
+                }
                 match location.format {
                     LocationFormat::InPlace {
                         place: None, path, ..
@@ -798,12 +799,8 @@ impl Api {
                 path,
                 sources,
             } => {
-                let mut sources = sources.unwrap_or_else(|| {
-                    vec![InPlaceSource {
-                        root: path.clone(),
-                        files: None,
-                    }]
-                });
+                let mut sources =
+                    sources.unwrap_or_else(|| vec![InPlaceSource::local(path.clone(), None)]);
                 for file in &files {
                     add_selected_source(&mut sources, file)?;
                 }
@@ -867,7 +864,21 @@ impl Api {
         self.refresh()?;
         let space = self.catalog.get_space(&req.space)?;
         let location = self.catalog.get_location(&space.location)?;
+        // A folder from a storage, or any folder for a collection kept on
+        // one, joins as a folder of its own.
+        if matches!(
+            &location.format,
+            LocationFormat::InPlace { place: Some(_), .. }
+        ) || (req.place.is_some() && matches!(&location.format, LocationFormat::InPlace { .. }))
+        {
+            return self.mount_folder(caller, req, location).await;
+        }
         let convert = matches!(&location.format, LocationFormat::IcebergParquet { .. });
+        if req.place.is_some() {
+            return Err(ApiError::invalid(
+                "a folder on a storage can be added only to a file collection",
+            ));
+        }
         let LocationFormat::InPlace {
             place: None,
             path,
@@ -944,14 +955,10 @@ impl Api {
                 folder.display()
             )));
         }
-        let mut sources = sources.unwrap_or_else(|| {
-            vec![InPlaceSource {
-                root: path.clone(),
-                files: None,
-            }]
-        });
+        let mut sources = sources.unwrap_or_else(|| vec![InPlaceSource::local(path.clone(), None)]);
         if sources.iter().any(|source| {
-            source.files.is_none()
+            source.mount.is_none()
+                && source.files.is_none()
                 && (Path::new(&source.root) == folder || folder.starts_with(&source.root))
         }) {
             return Err(ApiError::new(
@@ -959,10 +966,10 @@ impl Api {
                 "this folder is already in the collection",
             ));
         }
-        sources.push(InPlaceSource {
-            root: folder.to_string_lossy().into_owned(),
-            files: None,
-        });
+        sources.push(InPlaceSource::local(
+            folder.to_string_lossy().into_owned(),
+            None,
+        ));
         let root = common_root(vec![std::path::PathBuf::from(path), folder])?
             .to_string_lossy()
             .into_owned();
@@ -1101,7 +1108,11 @@ impl Api {
                         req.space, within
                     )));
                 }
-                Path::new(path).join(within)
+                inplace::place_of(&self.catalog, &self.engines, &location)?
+                    .local_file(within)
+                    .ok_or_else(|| {
+                        ApiError::invalid(format!("{within} is on another place; open it there"))
+                    })?
             }
             None => Path::new(path).to_path_buf(),
         };
@@ -1115,20 +1126,100 @@ impl Api {
         Ok(Empty {})
     }
 
+    /// Add a folder from anywhere (this computer or a storage) to a file
+    /// collection as a top-level folder of its own, read where it is; the
+    /// paths of the files already in it stay as they are.
+    async fn mount_folder(
+        &self,
+        caller: &Caller,
+        req: crate::AddInPlaceFolder,
+        location: oikome_catalog::Location,
+    ) -> Result<SpaceSummary, ApiError> {
+        let LocationFormat::InPlace { sources, .. } = &location.format else {
+            return Err(ApiError::invalid("only a file collection takes folders"));
+        };
+        let (root, place, label) = match &req.place {
+            Some(storage) => {
+                let def = self.catalog.get_storage(storage)?;
+                let within = req.path.trim().trim_matches('/').to_string();
+                let found = inplace::place_on(&self.catalog, &self.engines, storage, &within)?;
+                if !found.reachable().await {
+                    return Err(ApiError::invalid(format!(
+                        "{} can't be reached right now",
+                        found.label()
+                    )));
+                }
+                let label = within
+                    .rsplit('/')
+                    .next()
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| def.name.clone());
+                (within, Some(storage.clone()), label)
+            }
+            None => {
+                let given = Path::new(req.path.trim());
+                if !given.is_absolute() {
+                    return Err(ApiError::invalid("choose a folder on this computer"));
+                }
+                let folder = given.canonicalize().map_err(|e| {
+                    ApiError::invalid(format!("{} cannot be read: {e}", given.display()))
+                })?;
+                let name = folder
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_string);
+                if !folder.is_dir()
+                    || folder.starts_with(self.catalog.oikome_dir())
+                    || name.as_deref().is_none_or(|name| name.starts_with('.'))
+                {
+                    return Err(ApiError::invalid(format!(
+                        "{} is not a folder Oikome can add",
+                        folder.display()
+                    )));
+                }
+                (
+                    folder.to_string_lossy().into_owned(),
+                    None,
+                    name.unwrap_or_default(),
+                )
+            }
+        };
+        if sources
+            .iter()
+            .flatten()
+            .any(|s| s.mount.is_some() && s.place == place && s.root == root)
+        {
+            return Err(ApiError::new(
+                crate::ErrorCode::Conflict,
+                "this folder is already in the collection",
+            ));
+        }
+        let mut taken = inplace::top_names(&self.catalog, &location)?;
+        taken.extend(sources.iter().flatten().filter_map(|s| s.mount.clone()));
+        let mount = std::iter::once(label.clone())
+            .chain((2..).map(|n| format!("{label} {n}")))
+            .find(|name| !taken.contains(name))
+            .unwrap_or(label);
+        self.catalog.add_in_place_mount(
+            &req.space,
+            oikome_catalog::InPlaceSource {
+                root,
+                files: None,
+                place,
+                mount: Some(mount),
+            },
+        )?;
+        self.session(None).refresh_in_place(&req.space).await?;
+        self.summary_of(caller, &req.space).await
+    }
+
     /// Open an indexed file on this computer with its default application.
     pub async fn open_with(&self, caller: &Caller, req: FileRef) -> Result<Empty, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
         let location = self.in_place_of(&req.space)?;
-        let LocationFormat::InPlace {
-            place: None, path, ..
-        } = &location.format
-        else {
-            return Err(ApiError::invalid(format!(
-                "{} is not on this computer; open it there",
-                req.space
-            )));
-        };
+        let place = inplace::place_of(&self.catalog, &self.engines, &location)?;
         if !inplace::is_path_within(&req.path) {
             return Err(ApiError::invalid(format!(
                 "{} is not a file in it",
@@ -1141,7 +1232,12 @@ impl Api {
                 req.space, req.path
             )));
         }
-        let target = Path::new(path).join(&req.path);
+        let Some(target) = place.local_file(&req.path) else {
+            return Err(ApiError::invalid(format!(
+                "{} is not on this computer; open it there",
+                req.path
+            )));
+        };
         if !target.is_file() {
             return Err(ApiError::invalid(format!(
                 "{} isn't there right now",
@@ -1331,10 +1427,11 @@ impl Api {
             return saved_listing(entries, req);
         }
         let location = self.in_place_of(&req.space)?;
-        let local = matches!(
-            &location.format,
-            LocationFormat::InPlace { place: None, .. }
-        );
+        let place = inplace::place_of(&self.catalog, &self.engines, &location)?;
+        let item = |entry: inplace::FileEntry| {
+            let local = place.local_file(&entry.path).is_some();
+            item_of(entry, local)
+        };
         let folder = req.folder.unwrap_or_default();
         let folder = folder.trim_matches('/');
         if !folder.is_empty() && !inplace::is_path_within(folder) {
@@ -1383,18 +1480,10 @@ impl Api {
                     modified_ms: f.modified_ms.and_then(|ms| u64::try_from(ms).ok()),
                     photos: f.photos,
                     notes: f.notes,
-                    cover: f
-                        .cover
-                        .into_iter()
-                        .map(|entry| item_of(entry, local))
-                        .collect(),
+                    cover: f.cover.into_iter().map(item).collect(),
                 })
                 .collect(),
-            files: listing
-                .files
-                .into_iter()
-                .map(|entry| item_of(entry, local))
-                .collect(),
+            files: listing.files.into_iter().map(item).collect(),
             total: listing.total,
         })
     }
@@ -1407,10 +1496,9 @@ impl Api {
             return Ok(item_of(entry, false));
         }
         let location = self.in_place_of(&req.space)?;
-        let local = matches!(
-            &location.format,
-            LocationFormat::InPlace { place: None, .. }
-        );
+        let local = inplace::place_of(&self.catalog, &self.engines, &location)?
+            .local_file(&req.path)
+            .is_some();
         let mut item = inplace::file(&self.catalog, &location, &req.path)?
             .map(|entry| item_of(entry, local))
             .ok_or_else(|| {
@@ -1487,8 +1575,9 @@ impl Api {
             return Err(ApiError::invalid("ask for a large original in ranges"));
         }
         let place = inplace::place_of(&self.catalog, &self.engines, &location)?;
-        if !place.reachable().await {
-            return Err(ApiError::from(inplace::offline(&place.label())));
+        let (on, _) = place.route(&file.path);
+        if !on.reachable().await {
+            return Err(ApiError::from(inplace::offline(&on.label())));
         }
         let bytes = place.read(&file.path, start..end, end - start).await?;
         Ok(Original {

@@ -435,7 +435,7 @@ export const fr: Strings = {
     newCollection: "Nouvelle collection",
     addFiles: "Ajouter des fichiers",
     addFilesBody: "Choisissez une collection, puis référencez les fichiers originaux à leur emplacement ou copiez-les dans celle-ci.",
-    rustfsBody: "Choisissez un dossier du bucket à afficher comme collection. Ses fichiers restent sur RustFS.",
+    rustfsBody: "Choisissez un dossier du bucket pour l’ajouter à une collection ou l’afficher comme nouvelle collection. Ses fichiers restent sur RustFS.",
     folderAlready: (name: string) => `Ce dossier est déjà ajouté comme collection ${name}. L’ajouter à nouveau crée une seconde collection des mêmes fichiers.`,
     nameNumbered: (wanted: string, name: string) => `Une collection nommée ${wanted} existe déjà ; celle-ci sera nommée ${name}. Le nom peut être modifié ci-dessus.`,
     wholePlace: "Tout le stockage",
@@ -490,6 +490,7 @@ export const fr: Strings = {
     thisComputerPlace: "Cet ordinateur",
     folderOn: (place: string) => `Dossier sur ${place}`,
     folderOnHint: "Son chemin sur le stockage, comme Photos/2025. Laissez vide pour tout le stockage.",
+    joinsAsFolder: (collection: string, place: string) => `Le dossier apparaît sous son nom à la racine de ${collection}. Ses fichiers restent sur ${place} et ne peuvent pas être modifiés dans Oikome.`,
     chooseFolder: "Choisir un dossier…",
     noFolderYet: "Aucun dossier choisi",
     holds: (photos: number, notes: number) =>

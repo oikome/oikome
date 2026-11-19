@@ -175,6 +175,24 @@ fn local_root(location: &Location) -> Result<PathBuf, ApiError> {
     Ok(root)
 }
 
+/// Whether `relative` is in a folder added to the collection from another
+/// place; such folders are read where they are and not edited.
+pub(crate) fn in_added_folder(location: &Location, relative: &str) -> bool {
+    let LocationFormat::InPlace {
+        sources: Some(sources),
+        ..
+    } = &location.format
+    else {
+        return false;
+    };
+    sources.iter().filter_map(|s| s.mount.as_deref()).any(|m| {
+        relative == m
+            || relative
+                .strip_prefix(m)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
+}
+
 fn existing_file(root: &Path, relative: &str) -> Result<PathBuf, ApiError> {
     if !inplace::is_path_within(relative) {
         return Err(ApiError::invalid(format!(
@@ -209,6 +227,11 @@ fn read_source(api: &Api, location: &Location, relative: &str) -> Result<SourceF
     if known_non_text_name(relative) {
         return Err(ApiError::invalid(
             "this is not a text format; open it in an application that supports it",
+        ));
+    }
+    if in_added_folder(location, relative) {
+        return Err(ApiError::permission_denied(
+            "this folder was added from another place and is read-only in Oikome; open the file there to edit it",
         ));
     }
     let root = local_root(location)?;
@@ -572,12 +595,9 @@ impl Api {
             let LocationFormat::InPlace { path, sources, .. } = &location.format else {
                 unreachable!("local_root checked the location")
             };
-            let mut sources = sources.clone().unwrap_or_else(|| {
-                vec![oikome_catalog::InPlaceSource {
-                    root: path.clone(),
-                    files: None,
-                }]
-            });
+            let mut sources = sources
+                .clone()
+                .unwrap_or_else(|| vec![oikome_catalog::InPlaceSource::local(path.clone(), None)]);
             crate::in_place::add_selected_source(&mut sources, &target)?;
             if let Err(e) = self
                 .catalog

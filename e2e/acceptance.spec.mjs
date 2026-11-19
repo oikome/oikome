@@ -179,12 +179,14 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     }
     await page.goto(`${running.base}/collections/household`);
     await expect(page.getByText("spending", { exact: true }).first()).toBeVisible();
+    // Last year's receipts, kept in the bucket, are a folder of it.
+    await expect(page.getByText("receipts-2024", { exact: true }).first()).toBeVisible();
     // Data Analysis: the household's table files become its analysis tables
     // (a folder of monthly files read as one), with totals by month and category.
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
     await expect(page.getByText("No Analysis Tables")).toBeVisible();
     await page.getByRole("button", { name: "Make Analysis Tables" }).click();
-    for (const table of ["readings", "spending", "steps"]) {
+    for (const table of ["readings", "receipts_2024", "spending", "steps"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();

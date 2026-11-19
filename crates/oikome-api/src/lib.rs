@@ -1214,6 +1214,8 @@ impl Api {
                 .into_iter()
                 .map(|entry| (entry.name, entry.is_dir))
                 .collect(),
+            // A storage's folder is one place, never several.
+            oikome_node::inplace::Place::Several { .. } => Vec::new(),
         };
         entries.retain(|(name, _)| !name.starts_with('.') && !name.is_empty());
         entries.sort_by_key(|(name, _)| name.to_lowercase());

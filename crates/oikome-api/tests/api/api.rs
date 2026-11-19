@@ -3686,6 +3686,7 @@ async fn a_whole_folder_joins_an_existing_file_collection() {
             AddInPlaceFolder {
                 space: "notes".into(),
                 path: second.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await
@@ -3727,10 +3728,182 @@ async fn a_whole_folder_joins_an_existing_file_collection() {
             AddInPlaceFolder {
                 space: "notes".into(),
                 path: second.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await;
     assert_eq!(duplicate.unwrap_err().code, ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn a_folder_on_a_storage_joins_a_collection_by_reference() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let notes = root.join("notes");
+    std::fs::create_dir_all(notes.join("trips")).unwrap();
+    std::fs::write(notes.join("one.md"), "own note").unwrap();
+    std::fs::write(notes.join("trips/plan.md"), "own plan").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: notes.to_string_lossy().into_owned(),
+                name: Some("notes".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+    // A folder on another place, with a table in it.
+    let picked = tempfile::tempdir().unwrap();
+    let archive = n
+        .api
+        .add_storage(
+            &OWNER,
+            NewStorage {
+                label: "Archive".into(),
+                kind: StorageType::Folder,
+                address: picked.path().to_str().unwrap().into(),
+                username: None,
+                password: None,
+                bucket: None,
+                encrypted: None,
+                make_default: Some(false),
+            },
+        )
+        .await
+        .unwrap();
+    let on_archive = std::path::PathBuf::from(&archive.place);
+    std::fs::create_dir_all(on_archive.join("2025/trips")).unwrap();
+    std::fs::write(on_archive.join("2025/trips/lisbon.md"), "Lisbon, slowly").unwrap();
+    std::fs::write(
+        on_archive.join("2025/trips/costs.csv"),
+        "day,amount\n2025-05-01,12.5\n2025-05-02,30\n",
+    )
+    .unwrap();
+    let add = |path: &str| AddInPlaceFolder {
+        space: "notes".into(),
+        path: path.into(),
+        place: archive.name.clone(),
+    };
+    n.api
+        .add_in_place_folder(&OWNER, add("2025/trips"))
+        .await
+        .unwrap();
+
+    // It sits at the top under its own name, numbered past the
+    // collection's own "trips"; the collection's files keep their paths.
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "notes".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    let folders: Vec<_> = listed.folders.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(folders, ["trips", "trips 2"], "{folders:?}");
+    let own = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "trips/plan.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(own.text.as_deref(), Some("own plan"));
+
+    // Its files are read where they are, and not edited from Oikome.
+    let added = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "trips 2/lisbon.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(added.text.as_deref(), Some("Lisbon, slowly"));
+    assert!(!added.content.capabilities.edit);
+    assert!(added
+        .content
+        .edit_unavailable_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("added from another place")));
+
+    // Its tables read like the collection's own.
+    let costs = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "notes".into(),
+                path: "trips 2/costs.csv".into(),
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&costs), 2);
+
+    // The same folder twice is refused; the place's root is named after it.
+    let twice = n.api.add_in_place_folder(&OWNER, add("2025/trips")).await;
+    assert_eq!(twice.unwrap_err().code, ErrorCode::Conflict);
+    std::fs::write(on_archive.join("readme.md"), "the archive").unwrap();
+    n.api.add_in_place_folder(&OWNER, add("")).await.unwrap();
+    let whole = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "archive/readme.md".into(),
+            },
+        )
+        .await;
+    assert!(whole.is_ok(), "{whole:?}");
+
+    // A folder of a storage needs a file collection.
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "ledger".into(),
+                kind: Some(SpaceKind::Analytical),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let wrong = n
+        .api
+        .add_in_place_folder(
+            &OWNER,
+            AddInPlaceFolder {
+                space: "ledger".into(),
+                path: "2025/trips".into(),
+                place: archive.name.clone(),
+            },
+        )
+        .await;
+    assert_eq!(wrong.unwrap_err().code, ErrorCode::Invalid);
 }
 
 #[tokio::test]
@@ -3777,6 +3950,7 @@ async fn an_empty_analytical_collection_accepts_a_folder() {
             AddInPlaceFolder {
                 space: "source-destination".into(),
                 path: vault.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await
@@ -3789,6 +3963,7 @@ async fn an_empty_analytical_collection_accepts_a_folder() {
             AddInPlaceFolder {
                 space: "file-library".into(),
                 path: vault.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await

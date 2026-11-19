@@ -1433,6 +1433,7 @@ export const ru: Strings = {
     rows: (n: number) => `Строк: ${n}`,
     filesLabel: "Файлы",
     files: (n: number) => `Файлов: ${n}`,
+    inSheet: (file: string, sheet: string) => `${file}, лист ${sheet}`,
     updated: "Обновлено",
     queryAsLabel: "Имя для запросов",
     byMonth: "По месяцам",

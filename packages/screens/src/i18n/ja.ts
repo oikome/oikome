@@ -1391,6 +1391,7 @@ export const ja: Strings = {
     rows: (n: number) => `${n} 行`,
     filesLabel: "ファイル",
     files: (n: number) => `${n} 個のファイル`,
+    inSheet: (file: string, sheet: string) => `${file} のシート「${sheet}」`,
     updated: "更新",
     queryAsLabel: "クエリ名",
     byMonth: "月別の集計",

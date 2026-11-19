@@ -1418,6 +1418,7 @@ export const ko: Strings = {
     rows: (n: number) => `${n}행`,
     filesLabel: "파일",
     files: (n: number) => `파일 ${n}개`,
+    inSheet: (file: string, sheet: string) => `${file}의 시트 '${sheet}'`,
     updated: "업데이트",
     queryAsLabel: "쿼리 이름",
     byMonth: "월별 합계",

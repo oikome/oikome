@@ -28,6 +28,10 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 zeroize = { workspace = true }
+# Excel (xlsx, xlsm, xls, xlsb) and OpenDocument (ods) spreadsheets, read
+# for analysis tables: pure Rust, MIT, checked on crates.io (0.38.0,
+# 2026-11-02). `dates` gives cells formatted as dates their date.
+calamine = { version = "0.38", features = ["dates"] }
 # flomo_backup.zip; only reading deflated entries.
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

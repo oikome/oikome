@@ -1368,6 +1368,7 @@ export const zhHant: Strings = {
     rows: (n: number) => `${n} 列`,
     filesLabel: "檔案",
     files: (n: number) => `${n} 個檔案`,
+    inSheet: (file: string, sheet: string) => `${file} 的工作表「${sheet}」`,
     updated: "更新時間",
     queryAsLabel: "查詢名稱",
     byMonth: "按月彙總",

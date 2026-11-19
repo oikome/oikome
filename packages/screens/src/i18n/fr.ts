@@ -1440,6 +1440,7 @@ export const fr: Strings = {
     rows: (n: number) => `${n} lignes`,
     filesLabel: "Fichiers",
     files: (n: number) => `${n} fichiers`,
+    inSheet: (file: string, sheet: string) => `${file}, feuille ${sheet}`,
     updated: "Mise à jour",
     queryAsLabel: "Nom de requête",
     byMonth: "Par mois",

@@ -1412,6 +1412,7 @@ export const de: Strings = {
     rows: (n: number) => `${n} Zeilen`,
     filesLabel: "Dateien",
     files: (n: number) => `${n} Dateien`,
+    inSheet: (file: string, sheet: string) => `${file}, Blatt ${sheet}`,
     updated: "Aktualisiert",
     queryAsLabel: "Abfragename",
     byMonth: "Nach Monat",

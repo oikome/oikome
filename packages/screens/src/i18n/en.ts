@@ -1440,6 +1440,7 @@ export const en = {
     rows: (n: number) => `${n} rows`,
     filesLabel: "Files",
     files: (n: number) => `${n} files`,
+    inSheet: (file: string, sheet: string) => `${file}, sheet ${sheet}`,
     updated: "Updated",
     queryAsLabel: "Queried as",
     byMonth: "By Month",

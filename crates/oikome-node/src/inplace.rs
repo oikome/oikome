@@ -1403,7 +1403,13 @@ pub struct Bound {
 /// A table name for a data file: its name without the extension, in
 /// lowercase letters, digits and `_`.
 pub fn table_name(file: &str) -> String {
-    let stem = stem_of(file).to_lowercase();
+    name_for_table(&stem_of(file))
+}
+
+/// `text` (a file's stem, a sheet's name) as a table's name: lower case,
+/// letters, digits and `_`, not starting with a digit.
+pub fn name_for_table(text: &str) -> String {
+    let stem = text.to_lowercase();
     let mut out = String::new();
     for c in stem.chars() {
         if c.is_ascii_alphanumeric() {
@@ -1438,6 +1444,71 @@ pub struct DataFile {
     pub modified_ms: i64,
     pub format: FileFormat,
     pub local: Option<PathBuf>,
+}
+
+/// A spreadsheet of a folder viewed in place, read for its sheets: on this
+/// computer where it is, a NAS's or a bucket's through the cache. `local` is
+/// `None` when it cannot be read now.
+#[derive(Debug, Clone)]
+pub struct SheetFile {
+    pub path: String,
+    pub size: u64,
+    pub modified_ms: i64,
+    pub local: Option<PathBuf>,
+}
+
+/// Every spreadsheet (xlsx, xlsm, xls, xlsb, ods) of a folder viewed in
+/// place, in every subfolder.
+pub async fn sheet_files(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    location: &Location,
+) -> Result<Vec<SheetFile>, SessionError> {
+    let dir = catalog.index_dir(location);
+    let rows = tokio::task::spawn_blocking(move || {
+        let conn = open_index(&dir)?;
+        let mut stmt = conn
+            .prepare("SELECT path, size, modified_ms FROM files WHERE kind = ?1 ORDER BY path")
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(params![OTHER], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(sql)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sql)?;
+        Ok::<_, SessionError>(rows)
+    })
+    .await
+    .map_err(io)??;
+    let place = place_of(catalog, engines, location)?;
+    let reachable = place.reachable().await;
+    let mut out = Vec::new();
+    for (path, size, modified_ms) in rows {
+        if !oikome_connect::sheets::is_spreadsheet(&path) {
+            continue;
+        }
+        let local = if !reachable {
+            None
+        } else if let Some(file) = place.local_file(&path) {
+            Some(file)
+        } else {
+            cached(catalog, location, &place, &path, size, modified_ms)
+                .await
+                .ok()
+        };
+        out.push(SheetFile {
+            path,
+            size,
+            modified_ms,
+            local,
+        });
+    }
+    Ok(out)
 }
 
 /// Every readable data file (CSV, TSV, Parquet, JSON Lines) of a folder

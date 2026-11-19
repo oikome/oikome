@@ -489,6 +489,8 @@ pub struct AnalysisSource {
     pub name: String,
     /// Its files' paths within the collection.
     pub files: Vec<String>,
+    /// The sheet it is, for a spreadsheet's table.
+    pub sheet: Option<String>,
 }
 
 /// An analysis table of a folder collection: made from its files, kept in
@@ -498,6 +500,8 @@ pub struct AnalysisSource {
 pub struct AnalysisTable {
     pub name: String,
     pub files: Vec<String>,
+    /// The sheet it was made of, for a spreadsheet's table.
+    pub sheet: Option<String>,
     #[ts(type = "number")]
     pub rows: u64,
     /// Its columns, with what each is for, as proposed or as corrected.

@@ -1411,13 +1411,21 @@ name: string,
 /**
  * Its files' paths within the collection.
  */
-files: Array<string>, };
+files: Array<string>,
+/**
+ * The sheet it is, for a spreadsheet's table.
+ */
+sheet: string | null, };
 
 /**
  * An analysis table of a folder collection: made from its files, kept in
  * Iceberg, rebuilt when they change; queried as `<collection>.<name>`.
  */
-export type AnalysisTable = { name: string, files: Array<string>, rows: number,
+export type AnalysisTable = { name: string, files: Array<string>,
+/**
+ * The sheet it was made of, for a spreadsheet's table.
+ */
+sheet: string | null, rows: number,
 /**
  * Its columns, with what each is for, as proposed or as corrected.
  */

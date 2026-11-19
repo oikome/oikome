@@ -87,7 +87,11 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
         <div>
           <dt className="oik-label">{a.filesLabel}</dt>
           <dd translate="no" title={table.files.join("\n")}>
-            {table.files.length === 1 ? table.files[0] : a.files(table.files.length)}
+            {table.sheet
+              ? a.inSheet(table.files[0], table.sheet)
+              : table.files.length === 1
+                ? table.files[0]
+                : a.files(table.files.length)}
           </dd>
         </div>
         <div>
@@ -198,7 +202,11 @@ export function AnalysisView({ space }: { space: string }) {
                   {source.name}
                 </span>
                 <span className="screen-help" translate="no" title={source.files.join("\n")}>
-                  {source.files.length === 1 ? source.files[0] : a.files(source.files.length)}
+                  {source.sheet
+                    ? a.inSheet(source.files[0], source.sheet)
+                    : source.files.length === 1
+                      ? source.files[0]
+                      : a.files(source.files.length)}
                 </span>
               </li>
             ))}

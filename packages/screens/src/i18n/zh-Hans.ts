@@ -1373,6 +1373,7 @@ export const zhHans: Strings = {
     rows: (n: number) => `${n} 行`,
     filesLabel: "文件",
     files: (n: number) => `${n} 个文件`,
+    inSheet: (file: string, sheet: string) => `${file} 的工作表「${sheet}」`,
     updated: "更新时间",
     queryAsLabel: "查询名称",
     byMonth: "按月汇总",

@@ -51,7 +51,7 @@ use arrow_cast::display::{ArrayFormatter, FormatOptions};
 use arrow_cast::pretty::pretty_format_batches;
 use clap::{Parser, Subcommand};
 use iceberg::io::FileIO;
-use oikome_api::Api;
+use oikome_api::{Api, Caller};
 use oikome_catalog::registry::OIKOME_DIR;
 use oikome_catalog::{OikomeCatalog, StorageKind};
 use oikome_connect::csv::CsvSource;
@@ -208,29 +208,23 @@ enum IdentityCommand {
 
 #[derive(Subcommand)]
 enum BackupCommand {
-    /// Restore the newest backup into this node's data directory, which
-    /// must hold nothing yet; the recovery key is read from standard input.
-    /// For RustFS the keys are read from OIKOME_BACKUP_ACCESS_KEY and
-    /// OIKOME_BACKUP_SECRET_KEY; for WebDAV the password from
-    /// OIKOME_BACKUP_PASSWORD. Start the node afterwards.
+    /// Turn this data center back to a backup of this very data directory:
+    /// the newest one at the first backup place, or the one asked for. It
+    /// takes effect when the node next starts. If the node's identity no
+    /// longer opens the backups, the recovery key is read from standard
+    /// input.
     Restore {
-        /// The folder chosen for backups, on this computer or a disk
-        /// attached to it.
-        #[arg(long, conflicts_with_all = ["rustfs", "webdav"])]
+        /// A folder on this computer holding the backups, instead of the
+        /// backup places set in Settings.
+        #[arg(long, conflicts_with = "place")]
         from: Option<PathBuf>,
-        /// A RustFS address (`http(s)://host:port`); with --bucket.
-        #[arg(long, requires = "bucket", conflicts_with = "webdav")]
-        rustfs: Option<String>,
+        /// Which backup place, counted from 1 as Settings lists them.
         #[arg(long)]
-        bucket: Option<String>,
-        /// A NAS's WebDAV address; with --username.
+        place: Option<u32>,
+        /// Which backup, by its id; the newest of this data directory when
+        /// left out.
         #[arg(long)]
-        webdav: Option<String>,
-        #[arg(long)]
-        username: Option<String>,
-        /// The folder chosen for backups, in the bucket or on the NAS.
-        #[arg(long, default_value = "")]
-        path: String,
+        backup: Option<String>,
     },
 }
 
@@ -901,66 +895,46 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             command:
                 BackupCommand::Restore {
                     from,
-                    rustfs,
-                    bucket,
-                    webdav,
-                    username,
-                    path,
+                    place,
+                    backup,
                 },
         } => {
-            let secret = |name: &str| {
-                std::env::var(name).map_err(|_| format!("set {name} to restore from RustFS"))
+            let (catalog, engines) =
+                open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
+            let api = Api::new(catalog, engines);
+            let mut request = oikome_api::RestoreBackup {
+                place: match (&from, place) {
+                    (Some(_), _) => None,
+                    (None, Some(n)) => Some(n.saturating_sub(1)),
+                    (None, None) => Some(0),
+                },
+                folder: from.map(|f| f.to_string_lossy().into_owned()),
+                backup,
+                recovery_key: None,
             };
-            let source = match (from, rustfs, webdav) {
-                (Some(from), None, None) => oikome_api::BackupSource::Folder {
-                    path: from.to_string_lossy().into_owned(),
-                },
-                (None, Some(address), None) => oikome_api::BackupSource::Rustfs {
-                    address,
-                    bucket: bucket.unwrap_or_default(),
-                    access_key: secret("OIKOME_BACKUP_ACCESS_KEY")?,
-                    secret_key: secret("OIKOME_BACKUP_SECRET_KEY")?,
-                    path,
-                },
-                (None, None, Some(address)) => oikome_api::BackupSource::Webdav {
-                    address,
-                    username,
-                    password: std::env::var("OIKOME_BACKUP_PASSWORD").ok(),
-                    path,
-                },
-                _ => return Err("say where the backups are: --from, --rustfs or --webdav".into()),
-            };
-            std::fs::create_dir_all(&cli.root)?;
-            let root = cli.root.canonicalize()?;
-            let catalog = OikomeCatalog::open(
-                FileIO::new_with_fs(),
-                root.to_str()
-                    .ok_or("the data directory path must be valid UTF-8")?,
-            )?;
-            eprintln!("Type or paste the recovery key, then press Enter:");
-            let mut key = String::new();
-            std::io::stdin().read_line(&mut key)?;
-            let restored = oikome_api::prepare_restore(
-                &catalog,
-                oikome_api::RestoreBackup {
-                    source,
-                    recovery_key: key.clone(),
-                },
-            )
-            .await;
-            // The key is the identity: do not keep it around.
-            key.replace_range(.., &"\0".repeat(key.len()));
+            let mut restored = api
+                .restore_from_backup(&Caller::Owner, request.clone())
+                .await;
+            if matches!(&restored, Err(e) if e.reason.as_deref() == Some("backup_key_needed")) {
+                eprintln!("This node's identity does not open these backups.");
+                eprintln!("Type or paste the recovery key, then press Enter:");
+                let mut key = String::new();
+                std::io::stdin().read_line(&mut key)?;
+                request.recovery_key = Some(key.clone());
+                // The key is the identity: do not keep it around.
+                key.replace_range(.., &"\0".repeat(key.len()));
+                restored = api.restore_from_backup(&Caller::Owner, request).await;
+            }
             let restored = restored?;
-            oikome_api::apply_pending_restore(&root)?;
-            println!("Restored {} ({} files).", restored.did, restored.files);
+            println!(
+                "The backup ({} files) is ready; it takes effect when the node next starts.",
+                restored.files
+            );
             for missing in &restored.missing_originals {
                 println!(
                     "{}: {} files are not in {} any more.",
                     missing.collection, missing.missing, missing.folder
                 );
-            }
-            for storage in &restored.sign_in_again {
-                println!("Sign in to {storage} again in Settings.");
             }
         }
         Command::Web {
@@ -1059,6 +1033,18 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             let access_log = AccessLog::open(&catalog_dir)?;
             let api =
                 Api::new(catalog.clone(), engines.clone()).with_access_log(access_log.clone());
+            // Backups are made at the time the owner set, and a time missed
+            // while the node was off is made up (PR 30). The same API as the
+            // web app's, so its page follows a backup under way.
+            let backup_api = api.clone();
+            let _backups = AbortOnDrop(tokio::spawn(async move {
+                let mut every = tokio::time::interval(Duration::from_secs(60));
+                every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    every.tick().await;
+                    backup_api.back_up_when_due().await;
+                }
+            }));
             let service = OikomeFlightService::new(catalog.clone(), engines.clone())?
                 .with_access_log(access_log.clone())
                 .with_public_api(api.clone());

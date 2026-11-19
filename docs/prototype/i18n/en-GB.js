@@ -19,4 +19,7 @@
   'dm.body': 'It can’t open your data centre any more. Add it again to bring it back.',
   'key.warn': 'Anyone who has this key can be your data centre. Show it only where no one can see your screen.',
   'err.contactName': 'Give them a name you will recognise.',
+  'bk.what': 'Backups hold this data centre’s data folder, encrypted with a key from your recovery key. Original files that collections view where they are, passwords and sign-ins are not included.',
+  'rs.keyHint': 'The key saved when this data centre was first set up. It opens the backups.',
+  'rs.restartBody': 'It then opens as the restored data centre.',
 };

@@ -74,6 +74,8 @@ pub struct Snapshot {
     pub files: u64,
     /// What it added to the repository, after deduplication and compression.
     pub added: u64,
+    /// The data folder it is a backup of, as its catalog names it.
+    pub data_root: String,
 }
 
 impl From<&rustic_core::repofile::SnapshotFile> for Snapshot {
@@ -85,6 +87,7 @@ impl From<&rustic_core::repofile::SnapshotFile> for Snapshot {
             bytes: summary.map_or(0, |s| s.total_bytes_processed),
             files: summary.map_or(0, |s| s.total_files_processed),
             added: summary.map_or(0, |s| s.data_added_packed),
+            data_root: snap.label.clone(),
         }
     }
 }
@@ -129,7 +132,14 @@ impl Repository {
     /// Keep the staged copy at `staging` as a new backup (making the
     /// repository first if there is none), then let go of the backups
     /// `keep` does not keep and of what only they held.
-    pub fn back_up(&self, staging: &Path, keep: &Keep) -> Result<Snapshot, BackupError> {
+    /// `data_root`, the data folder as its catalog names it, is kept as the
+    /// backup's label, so a backup says whose it is without being read.
+    pub fn back_up(
+        &self,
+        staging: &Path,
+        data_root: &str,
+        keep: &Keep,
+    ) -> Result<Snapshot, BackupError> {
         let rustic = self.rustic()?;
         let repo = if rustic.config_id().map_err(repo_err)?.is_some() {
             rustic.open(&self.credentials).map_err(repo_err)?
@@ -151,7 +161,10 @@ impl Repository {
             .sanitize()
             .map_err(repo_err)?;
         let options = BackupOptions::default().as_path(Some(PathBuf::from(AS_PATH)));
-        let snapshot = SnapshotOptions::default().to_snapshot().map_err(repo_err)?;
+        let snapshot = SnapshotOptions::default()
+            .label(Some(data_root.to_string()))
+            .to_snapshot()
+            .map_err(repo_err)?;
         let made = repo.backup(&options, &source, snapshot).map_err(repo_err)?;
 
         let keep = KeepOptions::default()

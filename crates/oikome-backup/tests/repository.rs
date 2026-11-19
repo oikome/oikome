@@ -65,7 +65,7 @@ async fn a_backup_is_restored_whole_and_a_damaged_one_is_found() {
     let first = {
         let (at, staged) = (at.clone(), staged.clone());
         let repo = repository(&at, &seed);
-        blocking(move || repo.back_up(&staged, &Keep::default()))
+        blocking(move || repo.back_up(&staged, "/data", &Keep::default()))
             .await
             .unwrap()
     };
@@ -82,7 +82,7 @@ async fn a_backup_is_restored_whole_and_a_damaged_one_is_found() {
     stage(&root, &staged_again, serde_json::Value::Null, None).unwrap();
     let second = {
         let repo = repository(&at, &seed);
-        blocking(move || repo.back_up(&staged_again, &Keep::default()))
+        blocking(move || repo.back_up(&staged_again, "/data", &Keep::default()))
             .await
             .unwrap()
     };
@@ -98,7 +98,7 @@ async fn a_backup_is_restored_whole_and_a_damaged_one_is_found() {
     stage(&root, &staged_third, serde_json::Value::Null, None).unwrap();
     let third = {
         let repo = repository(&at, &seed);
-        blocking(move || repo.back_up(&staged_third, &Keep::default()))
+        blocking(move || repo.back_up(&staged_third, "/data", &Keep::default()))
             .await
             .unwrap()
     };

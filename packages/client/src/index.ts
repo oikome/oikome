@@ -128,7 +128,8 @@ import type {
   SourceRef,
   ConvertSource,
   ConvertedSource,
-  BackupDestination,
+  BackupSettings,
+  BackupPlaceRef,
   BackupInfo,
   BackupItem,
   RestoreBackup,
@@ -224,15 +225,17 @@ export interface NodeClient {
   convertSourceToFile(request: ConvertSource): Promise<ConvertedSource>;
   /** Settings › Backup: where backups go, the job under way and how the last ones ended. */
   backupInfo(): Promise<BackupInfo>;
-  /** Choose where backups go. */
-  setBackupDestination(request: BackupDestination): Promise<BackupInfo>;
-  /** The backups kept, the newest first. */
-  listBackups(): Promise<BackupItem[]>;
+  /** Turn backups on, or change where they go and when; nothing is backed up until the time comes. */
+  setBackup(request: BackupSettings): Promise<BackupInfo>;
+  /** Turn backups off; the places, the time and the backups made stay. */
+  turnOffBackup(): Promise<BackupInfo>;
+  /** The backups kept at one place, the newest first. */
+  listBackups(request: BackupPlaceRef): Promise<BackupItem[]>;
   /** Back up now, in the background; follow it with backupInfo. */
   backUpNow(): Promise<BackupInfo>;
   /** Read the whole backup place back, in the background. */
   checkBackup(): Promise<BackupInfo>;
-  /** On a new data center: make the newest backup ready, to take effect when Oikome is started again. */
+  /** Turn this data center back to a backup of this data folder, when Oikome is started again. */
   restoreFromBackup(request: RestoreBackup): Promise<RestoredBackup>;
   showSourceFiles(request: SourceRef): Promise<Empty>;
   findPlaces(): Promise<FoundPlace[]>;
@@ -609,12 +612,16 @@ export class HttpClient implements NodeClient {
     return this.#json("backup_info", {});
   }
 
-  setBackupDestination(request: BackupDestination): Promise<BackupInfo> {
-    return this.#json("set_backup_destination", request);
+  setBackup(request: BackupSettings): Promise<BackupInfo> {
+    return this.#json("set_backup", request);
   }
 
-  listBackups(): Promise<BackupItem[]> {
-    return this.#json("list_backups", {});
+  turnOffBackup(): Promise<BackupInfo> {
+    return this.#json("turn_off_backup", {});
+  }
+
+  listBackups(request: BackupPlaceRef): Promise<BackupItem[]> {
+    return this.#json("list_backups", request);
   }
 
   backUpNow(): Promise<BackupInfo> {

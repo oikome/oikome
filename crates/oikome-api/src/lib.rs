@@ -73,7 +73,7 @@ use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
 use serde::{Deserialize, Serialize};
 
-pub use backup::{apply_pending_restore, prepare_restore};
+pub use backup::apply_pending_restore;
 pub use error::{ApiError, ErrorCode};
 pub use plugins::PLUGIN_SDK;
 pub use types::*;
@@ -150,13 +150,9 @@ struct NodeSettings {
     /// Source-save and overwrite confirmations, with their safety fingerprints.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     save_confirmations: Vec<editing::SaveConfirmation>,
-    /// Where backups go, once the owner chose.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    backup_destination: Option<BackupDestination>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_backup: Option<BackupResult>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_backup_check: Option<BackupResult>,
+    /// Backups: whether on, where they go, when, and how they ended.
+    #[serde(default, skip_serializing_if = "backup::BackupState::is_empty")]
+    backup: backup::BackupState,
 }
 
 /// The owner's own steps in Activity: setting up this data center, adding

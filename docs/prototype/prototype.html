@@ -667,6 +667,16 @@ textarea.fview__source { display: block; box-sizing: border-box; width: 100%; mi
 [data-theme="bold"] .swatch { border: 2px solid var(--edge); width: 14px; height: 14px; }
 [data-theme="bold"] .swatch.s0 { background: var(--paper); }
 .still .sbar i { animation: none !important; }
+/* Settings › Backup and restoring from a backup: a second heading inside a card, a job under way, a recovery key typed in. */
+.card__sub { border-top: 1px solid var(--line2); }
+[data-theme="bold"] .card__sub { border-top: 2px solid var(--edge); }
+.li__meta--wrap { white-space: normal; overflow-wrap: anywhere; }
+.job { display: grid; gap: 8px; }
+.job__row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.job__line { font: 400 12px/16px var(--mono); color: var(--ink3); }
+.job .bar > i { animation: none; transition: width .25s linear; }
+.input.input--area { height: auto; padding: 8px 12px; align-items: stretch; }
+.input--area textarea { flex: 1; min-width: 0; min-height: 64px; border: 0; outline: 0; background: transparent; color: inherit; resize: vertical; font: 400 13px/20px var(--mono); }
 
 /* ===================== Dark mode, and type for other scripts ===================== */
 [data-theme="ink"][data-mode="dark"] {
@@ -802,6 +812,7 @@ const P = {
   bolt: '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
   moon: '<path d="M19.5 14.6A7.6 7.6 0 0 1 9.4 4.5a7.6 7.6 0 1 0 10.1 10.1z"/>',
   calendar: '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+  archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.25"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
 };
 const I = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
 const Is = (n, s) => I(n).replace('<svg', `<svg width="${s}" height="${s}"`);
@@ -1510,7 +1521,76 @@ screens.settings = () => `
       <div class="li"><div class="li__main"><span class="li__meta">${t('version')}</span><span class="li__title mono" style="font-family:var(--mono)">1.0.0</span></div></div>
     </div></div>
     <div class="card w5"><div class="card__head"><span class="label">${t('recoveryKey')}</span>${S.keySkipped ? glyph('bad', t('key.notSaved')) : glyph('ok', t('key.savedOn', { date: md(S.keyDate) }))}</div><div class="card__body" style="display:flex;gap:16px;align-items:center"><span class="ico">${I('key')}</span><div style="flex:1" class="muted">${t('key.what')}</div><button class="btn" data-act="key">${t(S.keySkipped ? 'key.saveNow' : 'showAgain')}</button></div></div>
+    ${backupCard()}
   </div>`;
+
+/* ---------------- Backup: made only when the owner asks, into an oikome-backup folder at the place chosen once ---------------- */
+// Start with backups already made on an external disk; ?backup=none starts with no place chosen,
+// ?backup=failed with a backup that failed and a check that found a problem.
+const BACKUP_DISK = '/Volumes/Backup Disk';
+function backupStart(v) {
+  const list = [['2025-11-01T21:10', 18.0, [212, 'MB']], ['2025-10-29T20:02', 17.8, [96, 'MB']], ['2025-10-26T18:30', 17.7, [1.3, 'GB']], ['2025-10-19T10:41', 16.4, [48, 'MB']], ['2025-10-12T22:05', 16.3, [310, 'MB']], ['2025-09-28T19:20', 16.0, [2.1, 'GB']], ['2025-08-31T21:47', 13.9, [640, 'MB']]]
+    .map(([at, gb, added]) => ({ at, size: [gb, 'GB'], added }));
+  const b = { where: { kind: 'computer', path: BACKUP_DISK }, list, last: { at: list[0].at, ok: true, item: list[0] }, check: { at: '2025-10-26T18:52', ok: true }, run: null, all: false };
+  if (v === 'none') Object.assign(b, { where: null, list: [], last: null, check: null });
+  if (v === 'failed') Object.assign(b, { last: { at: '2025-11-02T09:12', error: 'disk' }, check: { at: '2025-10-30T20:40', error: 'read' } });
+  return b;
+}
+S.backup = backupStart(new URLSearchParams(location.search).get('backup'));
+let bkMinutes = 0;
+const bkClock = () => new Date(NOW.getTime() + 60000 * ++bkMinutes);
+const bkPath = (w) => (w.kind === 'computer' ? `${w.path}/oikome-backup` : `/${[w.within, 'oikome-backup'].filter(Boolean).join('/')}`);
+const bkLabel = (w) => (w.kind === 'computer' ? t('bk.thisComputer') : esc(placeName(w.place)));
+// A disk attached to this computer is named after its volume; a folder on this computer's own disk has no name of its own.
+const bkDisk = (w) => (w.kind === 'computer' && /^\/Volumes\/[^/]+/.test(w.path) ? w.path.split('/')[2] : '');
+const bkOwnDisk = (path) => !/^\/Volumes\/[^/]+/.test(path.trim());
+const bkSend = (w) => { const name = w.kind === 'computer' ? bkDisk(w) : placeName(w.place); return name ? t('bk.sending', { place: name }) : t('bk.sendingFolder'); };
+const bkWhy = (e) => (e === 'disk' ? t('bk.why.disk', { place: bkDisk(S.backup.where) || t('bk.thisComputer') }) : t('bk.why.read'));
+const bkSizeAdded = (x) => t('bk.sizeAdded', { size: sz(x.size), added: sz(x.added) });
+const bkBytes = (n) => (n >= 1e9 ? sz([n / 1e9, 'GB']) : n >= 1e6 ? sz([n / 1e6, 'MB']) : sz([n / 1e3, 'KB']));
+const bkRate = (n) => (n >= 1e9 ? nf(n / 1e9, { style: 'unit', unit: 'gigabyte-per-second', maximumFractionDigits: 1 }) : nf(n / 1e6, { style: 'unit', unit: 'megabyte-per-second', maximumFractionDigits: 0 }));
+const bkPlaces = (kind) => PLACES.filter((p) => p.kind === kind);
+const bkPlace = (D) => { const list = bkPlaces(D.kind); return (list.find((p) => p.name === D.place) || list[0] || {}).name || ''; };
+// A job under way: its steps as [label, bytes, bytes a second], each taking about three seconds here.
+function jobHTML(job) {
+  const [label, total] = job.steps[job.i], p = total ? job.done / total : 0;
+  return `<div class="job__row"><span data-j="step">${label()}</span><span class="job__line" data-j="pct">${nf(p, { style: 'percent' })}</span></div><div class="bar"><i style="width:${(p * 100).toFixed(1)}%"></i></div><span class="job__line" data-j="line">${t('nOf', { a: bkBytes(job.done), b: bkBytes(total) })}${job.rate ? ` · ${bkRate(job.rate)}` : ''}</span>`;
+}
+function paintJob(id, job) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const [label, total] = job.steps[job.i], p = total ? job.done / total : 0;
+  el.querySelector('[data-j="step"]').innerHTML = label();
+  el.querySelector('[data-j="pct"]').textContent = nf(p, { style: 'percent' });
+  el.querySelector('.bar > i').style.width = `${(p * 100).toFixed(1)}%`;
+  el.querySelector('[data-j="line"]').innerHTML = `${t('nOf', { a: bkBytes(job.done), b: bkBytes(total) })} · ${bkRate(job.rate)}`;
+}
+function runJob(job, id, done) {
+  const timer = setInterval(() => {
+    const total = job.steps[job.i][1];
+    if (job.done >= total) {
+      if (job.i === job.steps.length - 1) { clearInterval(timer); done(); return; }
+      job.i++; job.done = 0;
+    } else job.done = Math.min(total, job.done + total / 12);
+    job.rate = job.steps[job.i][2] * (0.92 + Math.random() * 0.16);
+    paintJob(id, job);
+  }, 250);
+}
+function backupCard() {
+  const b = S.backup, w = b.where, busy = !!b.run;
+  const head = `<div class="card__head"><span class="label">${t('bk.title')}</span></div>`;
+  if (!w) return `<div class="card w5" id="backup-settings">${head}<div class="card__body" style="display:flex;gap:16px;align-items:flex-start"><span class="ico">${I('archive')}</span><div style="flex:1;display:grid;gap:12px;justify-items:start"><span class="muted">${t('bk.what')}</span><button class="btn" data-act="bkwhere">${t('bk.chooseWhere')}</button></div></div></div>`;
+  const last = b.last, check = b.check, shown = b.all ? b.list : b.list.slice(0, 4);
+  return `<div class="card w5" id="backup-settings">${head}<div class="list">
+      <div class="li"><div class="li__main"><span class="li__meta">${t('bk.where')}</span><span class="li__title">${bkLabel(w)}</span><span class="li__meta li__meta--wrap">${esc(bkPath(w))}</span></div><button class="btn btn--ghost" data-act="bkwhere" ${busy ? 'disabled' : ''}>${t('change')}</button></div>
+      <div class="li"><div class="li__main"><span class="li__meta">${t('bk.lastBackup')}</span><span class="li__title">${last ? day(last.at) : t('notYet')}</span>${last ? `<span class="li__meta li__meta--wrap">${last.ok ? bkSizeAdded(last.item) : bkWhy(last.error)}</span>` : ''}</div>${last ? glyph(last.ok ? 'ok' : 'bad', t(last.ok ? 'st.done' : 'st.failed')) : ''}</div>
+      <div class="li"><div class="li__main"><span class="li__meta">${t('bk.lastCheck')}</span><span class="li__title">${check ? day(check.at) : t('notYet')}</span>${check && !check.ok ? `<span class="li__meta li__meta--wrap">${bkWhy(check.error)}</span>` : ''}</div>${check ? glyph(check.ok ? 'ok' : 'bad', t(check.ok ? 'bk.ok' : 'bk.problem')) : ''}</div>
+    </div>
+    <div class="card__head card__sub" style="display:grid;grid-template-columns:minmax(0,1fr) auto;row-gap:2px"><span class="label">${t('bk.list')}</span>${b.list.length > 4 && !b.all ? `<button class="btn btn--ghost" data-act="bkall" style="grid-row:span 2">${t('bk.showAll')}</button>` : ''}<span class="faint" style="grid-column:1;font-size:12px;line-height:16px">${t('bk.kept')}</span></div>
+    <div class="list">${shown.length ? shown.map((x) => `<div class="li"><span class="li__title" style="flex:1">${day(x.at)}</span><span class="li__meta">${bkSizeAdded(x)}</span></div>`).join('') : `<div class="li"><span class="muted">${t('bk.none')}</span></div>`}</div>
+    ${busy ? `<div class="card__body card__sub job" id="bk-run" role="status">${jobHTML(b.run)}</div>` : ''}
+    <div class="card__foot"><button class="btn" data-act="bkcheck" ${busy || !b.list.length ? 'disabled' : ''}>${t('bk.check')}</button><button class="btn btn--primary" data-act="bknow" ${busy ? 'disabled' : ''}>${t('bk.now')}</button></div></div>`;
+}
 // What the port is open for: shares allowed one at a time, or every active share once always allowed.
 const netOpen = () => (S.reach === 'never' ? [] : SHARES.filter((x) => !x.ended && (S.reach === 'always' || S.reachFor.includes(x.c + '|' + x.to))).map((x) => [x.c, x.to]));
 const networkEntry = (cls) => { const open = netOpen().length > 0, state = t(open ? 'net.direct' : 'net.local'); return `<button class="btn btn--ghost icon-btn network-entry ${cls}" data-act="network" title="${t('net.title')}: ${state}" aria-label="${t('net.title')}: ${state}">${I('globe')}<i class="network-entry__dot ${open ? 'network-entry__dot--ok' : ''}" aria-hidden="true"></i></button>`; };
@@ -1540,7 +1620,9 @@ screens.welcome = () => {
     ${S.wadded.length ? `<div class="wadded"><span class="label">${t('w.alsoAdded')}</span>${S.wadded.map((n) => { const p = PLACES.find((x) => x.name === n); return `<div class="wadded__row"><span class="ico">${I(p.ico)}</span><b>${esc(placeName(p.name))}</b><span class="faint mono">${esc(p.addr || '')}</span></div>`; }).join('')}</div>` : ''}
     <button class="wadd" data-act="addplace"><span class="wadd__ico">${Is('plus', 16)}</span><span class="wadd__text"><b>${t('w.addMore')}</b><span>${t('w.addMore.sub')}</span></span></button>
     <button class="btn btn--primary" data-act="wnext" style="width:100%;height:40px" ${S.wplace === 'drive' && driveUnavailable(S.wpick) ? 'disabled' : ''}>${S.wplace === 'drive' ? driveGo(S.wpick, S.whow) : t('next')}</button>
+    <div style="text-align:center;margin-top:10px"><button class="btn btn--ghost" data-act="rsstart">${t('rs.link')}</button></div>
     ${foot2(t('w.step1'))}`;
+  else if (n === 'restore') inner = restoreStep();
   else if (n === 2) inner = `
     <span class="ico c5" style="width:40px;height:40px">${I('key')}</span>
     <h1>${t('key.remindTitle')}</h1><p class="muted" style="margin:0 0 18px">${t('w.keyBody')}</p>
@@ -1560,6 +1642,47 @@ screens.welcome = () => {
     ${foot2(t('w.step3'), true)}`;
   return `<div class="welcome"><div class="card welcome__card" style="animation:pop .3s var(--ease) both">${inner}</div></div>`;
 };
+// Restore from a backup, on the first run: where the backups are and the recovery key, the newest backup downloaded and
+// checked, then what it holds. Oikome opens as the restored data center only after it is quit and opened again.
+const RS_MISSING = [['Lisbon 2024', 3, '/Users/rosh/Pictures/Lisbon'], ['Scans', 61, '/Users/rosh/Pictures/Scans']];
+function restoreStep() {
+  const r = S.rs;
+  if (r.step === 'run') return `
+    <span class="ico c4" style="width:40px;height:40px">${I('archive')}</span>
+    <h1>${t('rs.runTitle')}</h1><p class="muted" style="margin:0 0 22px">${t('rs.runBody')}</p>
+    <div class="job" id="rs-run" role="status">${jobHTML(r.run)}</div>`;
+  if (r.step === 'done') {
+    const made = (S.backup.list[0] || {}).at || '2025-11-01T21:10';
+    const signIn = PLACES.filter((p) => ['nas', 'gdrive', 's3'].includes(p.kind));
+    return `
+    <span class="ico c2" style="width:40px;height:40px">${I('check')}</span>
+    <h1>${t('rs.ready')}</h1><p class="muted" style="margin:0 0 22px">${t('rs.readyBody', { date: dfmt(made, { dateStyle: 'long', timeStyle: 'short' }), n: 48213 })}</p>
+    <span class="label">${t('rs.missingTitle')}</span>
+    <div class="box" style="margin:8px 0 22px">${RS_MISSING.map(([c, n, folder]) => `<div class="row" style="align-items:flex-start;gap:8px"><span class="faint" style="margin-top:2px">${Is('folder', 15)}</span><span>${t('rs.missing', { c: bold(c), n, folder: H(`<span class="mono" style="overflow-wrap:anywhere">${esc(folder)}</span>`) })}</span></div>`).join('')}</div>
+    <span class="label">${t('rs.signInTitle')}</span>
+    <div class="wadded" style="margin:8px 0 6px">${signIn.map((p) => `<div class="wadded__row"><span class="ico">${I(p.ico)}</span><b>${esc(placeName(p.name))}</b><span class="faint mono">${esc(p.host || '')}</span></div>`).join('')}</div>
+    <p class="hint" style="margin:0 0 22px">${t('rs.signInBody')}</p>
+    <div class="box" style="grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px"><span class="ico c5">${I('sync')}</span><div><b>${t('rs.restart')}</b><div class="muted" style="font-size:13px">${t('rs.restartBody')}</div></div></div>`;
+  }
+  const field = (label, control, hint) => `<div class="field"><span class="label">${label}</span>${control}${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
+  const text = (bind, attrs) => `<div class="input"><input data-rbind="${bind}" value="${esc(r[bind])}" autocomplete="off" spellcheck="false" aria-label="${attrs.label}" ${attrs.mono ? 'class="mono"' : ''} placeholder="${attrs.ph || ''}"></div>`;
+  const secret = (label) => `<div class="input"><input type="password" autocomplete="off" aria-label="${label}"></div>`;
+  const kinds = [['computer', 'computer', t('bk.thisComputer'), t('bk.computerSub')], ['nas', 'nas', t('w.aNas'), t('rs.nasSub')], ['s3', 'bucket', t('ap.s3'), t('ap.s3.sub')]];
+  let form;
+  if (r.kind === 'computer') form = field(t('as.folder'), `<div class="row"><div class="input" style="flex:1;min-width:0"><input class="mono" size="1" data-rbind="path" value="${esc(r.path)}" autocomplete="off" spellcheck="false" aria-label="${t('as.folder')}"></div><button class="btn" data-act="rspick">${t('bk.choose')}</button></div>`, t('rs.folderHint'));
+  else if (r.kind === 'nas') form = field(t('ap.address'), text('addr', { label: t('ap.address'), ph: 'https://nas.local:5006' })) + field(t('ap.user'), text('user', { label: t('ap.user') })) + field(t('place.password'), secret(t('place.password'))) + field(t('as.folder'), text('within', { label: t('as.folder'), mono: true, ph: '/oikome' }), t('rs.folderHint'));
+  else form = field(t('ap.address'), text('addr', { label: t('ap.address'), ph: 'http://192.168.1.20:9000' })) + field(t('ap.bucket'), text('bucket', { label: t('ap.bucket') })) + field(t('ap.accessKey'), text('access', { label: t('ap.accessKey') })) + field(t('ap.secretKey'), secret(t('ap.secretKey'))) + field(t('as.folder'), text('within', { label: t('as.folder'), mono: true, ph: '/' }), t('rs.folderHint'));
+  return `
+    <span class="ico c4" style="width:40px;height:40px">${I('archive')}</span>
+    <h1>${t('rs.title')}</h1><p class="muted" style="margin:0 0 22px">${t('rs.sub')}</p>
+    <span class="label">${t('rs.where')}</span>
+    <div class="opts" style="margin:8px 0 18px">${kinds.map(([v, ic, title, sub]) => `<div class="opt ${r.kind === v ? 'on' : ''}" data-act="rskind" data-v="${v}" role="radio" aria-checked="${r.kind === v}"><span class="radio"></span><span class="ico">${I(ic)}</span>${twoLine(title, sub)}</div>`).join('')}</div>
+    <div style="display:grid;gap:14px;margin-bottom:22px">${form}
+      ${field(t('recoveryKey'), `<div class="input input--area"><textarea data-rbind="key" rows="3" spellcheck="false" autocomplete="off" autocapitalize="characters" placeholder="XXXX XXXX XXXX XXXX …" aria-label="${t('recoveryKey')}">${esc(r.key)}</textarea></div><div class="row" style="align-items:flex-start;gap:8px 12px;flex-wrap:wrap"><span class="hint" style="flex:1 1 14em">${t('rs.keyHint')}</span><button class="btn btn--ghost" data-act="rskeyfile">${Is('file', 15)}${t('rs.keyFile')}</button></div>`)}
+      ${r.err ? `<span class="err" role="alert">${r.err}</span>` : ''}</div>
+    <button class="btn btn--primary ${r.busy ? 'spin' : ''}" data-act="rsgo" style="width:100%;height:40px" ${r.busy ? 'disabled' : ''}>${r.busy ? Is('sync', 15) : ''}${t('rs.go')}</button>
+    <div class="welcome__foot faint"><button class="btn btn--ghost" data-act="rsback" style="height:28px;padding:0 8px" ${r.busy ? 'disabled' : ''}>${t('back')}</button><span></span></div>`;
+}
 
 /* ---------------- Dialogs ---------------- */
 const DLG = {};
@@ -1934,6 +2057,24 @@ DLG.key = (D) => (D.step === 'warn'
 DLG.rename = (D) => dlg(t('rename'), `<div class="field"><span class="label">${t(D.label || 'name')}</span><div class="input"><input data-bind="v" value="${esc(D.v)}" autocomplete="off" data-autofocus></div><span class="hint">${t(D.hint)}</span></div>`, foot('', `${cancel()}<button class="btn btn--primary" data-act="renameok">${t('save')}</button>`), 'dialog--s');
 
 DLG.folder = (D) => dlg(t('fd.title'), `<div class="opts">${[['~/Oikome', 'fd.home'], ['~/Documents/Oikome', 'fd.docs'], ['/Volumes/Backup/Oikome', null]].map(([n, m]) => opt('pick', n, D.pick, `<span class="ico">${I('folder')}</span>${nameCell(n, m ? t(m) : t('ap.external', { free: sz([1.8, 'TB']) }))}`)).join('')}</div>`, foot('', `${cancel()}<button class="btn btn--primary" data-act="folderok">${t('fd.choose')}</button>`), 'dialog--s');
+
+// Where backups go: a folder on this computer or a disk attached to it, or a NAS or RustFS place already added.
+DLG.bkwhere = (D) => {
+  const placeSub = (kind) => { const list = bkPlaces(kind); return list.length ? lst(list.map((p) => placeName(p.name))) : t('bk.noneAdded'); };
+  const kinds = [['computer', 'computer', t('bk.thisComputer'), t('bk.computerSub')], ['nas', 'nas', t('placeKind.nas'), placeSub('nas')], ['s3', 'bucket', t('placeKind.s3'), placeSub('s3')]]
+    .map(([v, ic, title, sub]) => opt('kind', v, D.kind, `<span class="ico">${I(ic)}</span>${twoLine(title, sub)}`)).join('');
+  const place = bkPlace(D);
+  let form;
+  if (D.kind === 'computer') form = `<div class="field"><span class="label">${t('as.folder')}</span><div class="row"><div class="input" style="flex:1;min-width:0"><input class="mono" size="1" data-bind="path" value="${esc(D.path)}" autocomplete="off" spellcheck="false" aria-label="${t('as.folder')}"></div><button class="btn" data-act="bkpick">${t('bk.choose')}</button></div><span class="hint">${t('bk.goesInto')}${bkOwnDisk(D.path) ? ` ${t('bk.ownDisk')}` : ''}</span></div>`;
+  else if (place) form = `<div class="field"><span class="label">${t(`placeKind.${D.kind}`)}</span><div class="opts">${bkPlaces(D.kind).map((p) => opt('place', p.name, place, `<span class="ico">${I(p.ico)}</span>${twoLine(esc(placeName(p.name)), esc(p.kind === 'nas' ? `${p.host}${p.folder || ''}` : p.addr))}`)).join('')}</div></div>
+    <div class="field"><span class="label">${t('bk.within')}</span><div class="input"><input class="mono" data-bind="within" value="${esc(D.within)}" placeholder="backups" autocomplete="off" spellcheck="false" aria-label="${t('bk.within')}"></div><span class="hint">${t('bk.goesInto')}</span></div>`;
+  else form = `<div class="box">${t(D.kind === 'nas' ? 'bk.noNas' : 'bk.noS3')}</div><div>${btn(`${I('plus')}${t('addPlace')}`, 'data-act="bkaddplace"')}</div>`;
+  return dlg(t('bk.whereTitle'), `<p class="muted" style="margin:0">${t('bk.what')}</p><div class="opts">${kinds}</div>${form}${D.err ? `<span class="err">${D.err}</span>` : ''}`,
+    foot(S.backup.where ? t('bk.changeNote') : '', `${cancel()}<button class="btn btn--primary" data-act="bkwhereok" ${D.kind !== 'computer' && !place ? 'disabled' : ''}>${t('save')}</button>`), 'dialog--top');
+};
+// A folder for backups, or the folder they are in, as the system's folder picker would offer it.
+DLG.bkfolder = (D) => dlg(t('fd.title'), `<div class="opts">${[[BACKUP_DISK, t('ap.external', { free: sz([1.8, 'TB']) })], ['/Volumes/Archive', t('ap.external', { free: sz([3.6, 'TB']) })], ['~/Backups', t('ap.thisComputer', { free: sz([412, 'GB']) })]].map(([n, m]) => opt('pick', n, D.pick, `<span class="ico">${I('folder')}</span>${nameCell(n, m)}`)).join('')}</div>`,
+  foot('', `<button class="btn" data-act="bkfolderback">${t('cancel')}</button><button class="btn btn--primary" data-act="bkfolderok">${t('fd.choose')}</button>`), 'dialog--s');
 
 DLG.addcard = () => {
   const builtIn = [['recent', 'note'], ['photo', 'photo'], ['totals', 'table'], ['latest', 'thermo'], ['activity', 'activity'], ['places', 'nas']];
@@ -2372,7 +2513,9 @@ const ACT = {
       p = { ico: 'folder', name: D.fpick.split('/').pop(), kind: 'folder', addr: `${D.fpick}/Oikome`, free: ext ? [1.8, 'TB'] : [412, 'GB'], used: ext ? [200, 'GB'] : [588, 'GB'], total: ext ? [2, 'TB'] : [1, 'TB'], p: ext ? 10 : 59, oik: [0, 'MB'], oikP: 0, other: ext ? [200, 'GB'] : [588, 'GB'], enc: false };
     }
     if (PLACES.some((x) => x.name === p.name)) return upd({ err: t('err.placeTaken', { place: p.name }) });
+    const back = D.back;
     PLACES.push(p); if (location.hash === '#welcome') S.wadded.push(p.name); close(); render(true); toast(t('toast.placeAdded', { place: p.name }));
+    if (back) open(back.name, Object.assign(back, { place: p.name, err: '' }));
   },
   placemore: (el) => {
     const p = PLACES[+el.dataset.i];
@@ -2422,6 +2565,83 @@ const ACT = {
   wplace: (el, e) => { if (e.target.closest('[data-act="pickdir"]')) return; S.wplace = el.dataset.v; render(true); },
   pickdir: () => open('folder', { pick: S.dataDir }),
   folderok: () => { S.dataDir = D.pick; close(); render(true); },
+  bkwhere: () => { const w = S.backup.where; open('bkwhere', { kind: w ? w.kind : 'computer', path: w && w.kind === 'computer' ? w.path : BACKUP_DISK, place: (w && w.place) || '', within: (w && w.within) || '', err: '' }); },
+  bkpick: () => open('bkfolder', { pick: D.path.trim(), back: Object.assign({}, D) }),
+  bkfolderok: () => { const back = D.back, pick = D.pick; if (back) { open(back.name, Object.assign(back, { path: pick, err: '' })); return; } S.rs.path = pick; S.rs.err = ''; close(); render(true); },
+  bkfolderback: () => { const back = D.back; if (back) open(back.name, back); else close(); },
+  bkaddplace: () => open('addplace', { kind: D.kind, fpick: '/Volumes/Backup', pick: 'Google Drive', how: '', addr: '', folder: '/oikome', user: '', bucket: '', err: '', back: Object.assign({}, D) }),
+  bkwhereok: () => {
+    const b = S.backup;
+    let w;
+    if (D.kind === 'computer') {
+      const path = D.path.trim().replace(/\/+$/, '');
+      if (!/^(\/|~\/)./.test(path) || path.split('/').includes('..')) return upd({ err: t('err.backupFolder') });
+      if (path === S.dataDir || path.startsWith(S.dataDir + '/') || S.dataDir.startsWith(path + '/')) return upd({ err: t('err.backupInside') });
+      w = { kind: 'computer', path };
+    } else {
+      const place = bkPlace(D);
+      if (!place) return;
+      const within = D.within.trim().replace(/^\/+|\/+$/g, '');
+      if (within.split('/').includes('..')) return upd({ err: t('err.within') });
+      w = { kind: D.kind, place, within };
+    }
+    // Another place holds none of the backups made so far: they stay where they are.
+    if (!b.where || b.where.kind !== w.kind || b.where.place !== w.place || bkPath(b.where) !== bkPath(w)) Object.assign(b, { list: [], last: null, check: null, all: false });
+    b.where = w; close(); render(true);
+    toast(t('toast.backupWhere', { where: w.kind === 'computer' ? bkPath(w) : `${placeName(w.place)} · ${bkPath(w)}` }));
+  },
+  bkall: () => { S.backup.all = true; render(true); },
+  bknow: () => {
+    const b = S.backup;
+    if (b.run || !b.where) return;
+    const size = (b.list[0] ? b.list[0].size[0] : 18.1) * 1e9;
+    b.run = { steps: [[() => t('bk.copying'), size, 1.3e9], [() => bkSend(b.where), size, b.where.kind === 'computer' ? 640e6 : 108e6]], i: 0, done: 0, rate: 0 };
+    render(true);
+    runJob(b.run, 'bk-run', () => {
+      const prev = b.list[0], at = bkClock();
+      const today = prev && new Date(prev.at).toDateString() === at.toDateString();
+      const added = !prev ? [15.2, 'GB'] : today ? [2.4, 'MB'] : [186, 'MB'];
+      const item = { at, size: [prev ? Math.round((prev.size[0] + (today ? 0 : 0.12)) * 10) / 10 : 18.1, 'GB'], added };
+      // One a day is kept: a second backup on the same day takes the first one's place.
+      if (today) b.list[0] = item; else b.list.unshift(item);
+      b.last = { at, ok: true, item }; b.run = null;
+      if (location.hash === '#settings') render(true);
+      toast(t('toast.backedUp', { added: sz(added) }));
+    });
+  },
+  bkcheck: () => {
+    const b = S.backup;
+    if (b.run || !b.list.length) return;
+    b.run = { steps: [[() => t('bk.checking'), b.list[0].size[0] * 1.09e9, b.where.kind === 'computer' ? 520e6 : 104e6]], i: 0, done: 0, rate: 0 };
+    render(true);
+    runJob(b.run, 'bk-run', () => {
+      b.check = { at: bkClock(), ok: true }; b.run = null;
+      if (location.hash === '#settings') render(true);
+      toast(t('toast.backupChecked'));
+    });
+  },
+  rsstart: () => { S.rs = { step: 'where', kind: 'computer', path: BACKUP_DISK, addr: '', user: '', bucket: '', access: '', within: '', key: '', err: '', busy: false }; S.welcome = 'restore'; render(); },
+  rskind: (el) => { S.rs.kind = el.dataset.v; S.rs.err = ''; render(true); },
+  rspick: () => open('bkfolder', { pick: S.rs.path.trim(), back: null }),
+  rskeyfile: () => { S.rs.key = KEY.join(' '); S.rs.err = ''; render(true); },
+  rsback: () => { S.rs = null; S.welcome = 1; render(); },
+  rsgo: () => {
+    const r = S.rs;
+    const missing = r.kind === 'computer' ? !r.path.trim() && 'err.rsFolder' : r.kind === 'nas' ? !r.addr.trim() && 'err.addr' : (!r.addr.trim() || !r.bucket.trim() || !r.access.trim()) && 'err.s3';
+    if (missing || !r.key.trim()) { r.err = t(missing || 'err.rsKey'); render(true); return; }
+    r.busy = true; r.err = ''; render(true);
+    // Opening the backups with the key comes first; only the prototype's own key opens them.
+    setTimeout(() => {
+      if (S.rs !== r || location.hash !== '#welcome') return;
+      r.busy = false;
+      if (r.key.replace(/[^0-9a-z]/gi, '').toUpperCase() !== KEY.join('')) { r.err = t('err.rsWrongKey'); render(true); return; }
+      const size = 18.1e9;
+      r.step = 'run';
+      r.run = { steps: [[() => t('rs.downloading'), size, r.kind === 'computer' ? 690e6 : 112e6], [() => t('rs.verifying'), size, 1.4e9]], i: 0, done: 0, rate: 0 };
+      render(true);
+      runJob(r.run, 'rs-run', () => { r.step = 'done'; if (S.rs === r && S.welcome === 'restore' && location.hash === '#welcome') render(true); });
+    }, 700);
+  },
   wnext: () => { if (S.welcome === 2 && !S.wsaved) return; if (S.welcome === 2) { S.keySkipped = false; S.keyDate = '2025-11-02'; } S.welcome++; render(); },
   wback: () => { S.welcome--; render(); },
   wskip: () => { S.keySkipped = true; S.welcome = 3; render(); },
@@ -2509,6 +2729,7 @@ document.addEventListener('input', (e) => {
   if (el.id === 'q' && D && D.name === 'cmdk') { D.q = el.value; D.sel = 0; layer.querySelector('#hits').innerHTML = hitsHTML(D); return; }
   if (el.dataset.bind && D) D[el.dataset.bind] = el.value;
   if (el.dataset.wbind) S[el.dataset.wbind] = el.value;
+  if (el.dataset.rbind && S.rs) S.rs[el.dataset.rbind] = el.value;
 });
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open('cmdk', { q: '', scope: '', sel: 0 }); return; }

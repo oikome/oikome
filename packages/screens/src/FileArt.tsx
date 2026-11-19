@@ -10,7 +10,7 @@ import { withoutTagLines } from "./content";
 const PdfThumbnail = lazy(async () => ({ default: (await import("./PdfView")).PdfThumbnail }));
 const SafeSvgThumbnail = lazy(async () => ({ default: (await import("./SafeSvgImage")).SafeSvgThumbnail }));
 
-function headRows(name: string, text: string): string[][] {
+export function headRows(name: string, text: string): string[][] {
   const separator = name.toLowerCase().endsWith(".tsv") ? "\t" : ",";
   return text
     .split("\n")

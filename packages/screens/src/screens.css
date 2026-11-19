@@ -2584,6 +2584,28 @@ a.screen-list__row:hover .screen-list__thumb {
 .screen-subfolders {
   margin-bottom: var(--space-6);
 }
+/* Folders inside a folder are the size of the files after them, as in a
+   file manager, not of the collections on the Collections page. */
+.screen-covers.screen-subfolders {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-4) var(--space-3);
+}
+.screen-subfolders .screen-cover__art {
+  aspect-ratio: 4 / 3;
+  box-shadow: none;
+}
+.screen-subfolders .screen-cover__art--plain .oik-icon {
+  width: 34px;
+  height: 34px;
+  color: var(--ink3);
+}
+.screen-cover__art--rows {
+  display: block;
+  padding: 6px 10px;
+}
+.screen-cover__art--rows .screen-cover__table {
+  width: 100%;
+}
 /* The first rows of a CSV file in its tile. */
 .screen-ftile__art.screen-ftile__art--rows {
   padding: 6px 10px;

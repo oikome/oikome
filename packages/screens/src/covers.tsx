@@ -8,7 +8,7 @@ import { AvatarStack, Icon, Tile } from "@oikome/ui";
 import type { TileTone } from "@oikome/ui";
 import type { FileFolder, FileItem, Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
-import { FileArt } from "./FileArt";
+import { FileArt, headRows } from "./FileArt";
 import { PREVIEW_ROWS, loadPreview, plainText, withoutTagLines } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
@@ -248,9 +248,10 @@ export function Cover({
 }
 
 /**
- * A folder inside a folder viewed in place, as a collection of its own: its
- * cover shows its newest photos or its newest note, the folder sign only
- * beside its name. The whole card opens it.
+ * A folder inside a folder viewed in place, the size of the files beside
+ * it, as in a file manager: its cover shows its newest photos, else its
+ * newest note, else its newest table's first rows, else the folder sign.
+ * The whole card opens it.
  */
 export function FolderCover({
   folder,
@@ -263,7 +264,11 @@ export function FolderCover({
   onOpen: () => void;
 }) {
   const photos = items.filter((item) => item.image).slice(0, 3);
-  const note = photos.length === 0 ? items.find((item) => item.text) : undefined;
+  // A note is the cover only when the folder's cover holds one.
+  const hasNote = folder.cover.some((file) => file.kind === "note");
+  const note = photos.length === 0 && hasNote ? items.find((item) => item.text) : undefined;
+  const table = folder.cover.find((file) => file.kind === "table" && file.text);
+  const rows = photos.length === 0 && !note && table?.text ? headRows(table.name, table.text) : [];
   const holds =
     folder.photos > 0
       ? s.count(Number(folder.photos), "photos")
@@ -288,9 +293,23 @@ export function FolderCover({
             <span className="screen-paper__text">{plainText(withoutTagLines(note.text))}</span>
             {folder.notes > 1 && <span className="screen-paper__more">{s.moreNotes(Number(folder.notes) - 1)}</span>}
           </span>
+        ) : rows.length > 0 ? (
+          <span aria-hidden="true" className="screen-cover__art screen-cover__art--rows">
+            <table className="screen-cover__table">
+              <tbody>
+                {rows.map((row, r) => (
+                  <tr key={r}>
+                    {row.map((value, c) => (
+                      <td key={c}>{value || "—"}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </span>
         ) : (
           <span aria-hidden="true" className="screen-cover__art screen-cover__art--plain">
-            <span className="screen-cover__empty">{s.folderFiles(Number(folder.files))}</span>
+            <Icon name="folder" />
           </span>
         )}
       </span>

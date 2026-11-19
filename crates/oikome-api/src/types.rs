@@ -2768,3 +2768,172 @@ pub struct KnowledgeText {
     pub total_chars: u64,
     pub text: String,
 }
+
+/// `set_backup_destination`: where backups go. A folder on this computer
+/// (an absolute path, another disk's too), or a folder within a storage (a
+/// NAS, RustFS); the backups are kept in `oikome-backup` inside it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct BackupDestination {
+    /// A storage's name; this computer when left out.
+    #[serde(default)]
+    pub place: Option<String>,
+    pub path: String,
+}
+
+/// Where backups go, as the owner reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupWhere {
+    pub place: Option<String>,
+    pub path: String,
+    /// The storage's label, or "This computer".
+    pub label: String,
+}
+
+/// What a backup job does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum BackupWork {
+    BackUp,
+    Check,
+}
+
+/// The step a running job is at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum BackupStep {
+    /// Making a consistent copy of the data folder on this computer.
+    Copying,
+    /// Sending what is new to the backup place, then letting go of old backups.
+    Sending,
+    /// Reading the whole backup place back.
+    Checking,
+}
+
+/// A job under way.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupProgress {
+    pub work: BackupWork,
+    pub step: BackupStep,
+    /// Bytes done of the step, and the step's whole.
+    #[ts(type = "number")]
+    pub done: u64,
+    #[ts(type = "number")]
+    pub total: u64,
+    #[ts(type = "number")]
+    pub started_at_ms: u64,
+}
+
+/// A backup kept at the backup place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupItem {
+    pub id: String,
+    #[ts(type = "number")]
+    pub made_at_ms: i64,
+    /// The size of what it holds.
+    #[ts(type = "number")]
+    pub bytes: u64,
+    #[ts(type = "number")]
+    pub files: u64,
+    /// What it added at the backup place, after deduplication.
+    #[ts(type = "number")]
+    pub added: u64,
+}
+
+/// How the last job of a kind ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupResult {
+    pub work: BackupWork,
+    #[ts(type = "number")]
+    pub at_ms: u64,
+    /// Why it failed, when it did.
+    pub error: Option<String>,
+    /// The backup made, for a backup that worked.
+    pub backup: Option<BackupItem>,
+}
+
+/// `backup_info`: Settings › Backup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupInfo {
+    pub destination: Option<BackupWhere>,
+    /// Kept: one a day for so many days, one a week for so many weeks, one
+    /// a month for so many months.
+    pub keep_daily: u32,
+    pub keep_weekly: u32,
+    pub keep_monthly: u32,
+    pub running: Option<BackupProgress>,
+    pub last_backup: Option<BackupResult>,
+    pub last_check: Option<BackupResult>,
+}
+
+/// Where the backups are, for a data center that knows no storages yet:
+/// the folder that was chosen for backups (or its `oikome-backup` folder).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum BackupSource {
+    /// A folder on this computer or a disk attached to it.
+    Folder { path: String },
+    /// A folder in a bucket on RustFS.
+    #[serde(rename_all = "camelCase")]
+    Rustfs {
+        address: String,
+        bucket: String,
+        access_key: String,
+        secret_key: String,
+        #[serde(default)]
+        path: String,
+    },
+    /// A folder on a NAS, over WebDAV.
+    #[serde(rename_all = "camelCase")]
+    Webdav {
+        address: String,
+        #[serde(default)]
+        username: Option<String>,
+        #[serde(default)]
+        password: Option<String>,
+        #[serde(default)]
+        path: String,
+    },
+}
+
+/// `restore_from_backup`: the newest backup at `source`, opened with the
+/// recovery key, for this new data center.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreBackup {
+    pub source: BackupSource,
+    pub recovery_key: String,
+}
+
+/// Originals a collection views where they are, not found where they were.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingOriginals {
+    pub collection: String,
+    pub folder: String,
+    #[ts(type = "number")]
+    pub missing: u64,
+    /// A few of them, as paths within the folder.
+    pub some: Vec<String>,
+}
+
+/// A restore made ready: it takes effect when Oikome next starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoredBackup {
+    /// The identity the data center will have again.
+    pub did: String,
+    #[ts(type = "number")]
+    pub made_at_ms: u64,
+    #[ts(type = "number")]
+    pub files: u64,
+    pub missing_originals: Vec<MissingOriginals>,
+    /// Storages whose sign-in is not in a backup: to sign in to again.
+    pub sign_in_again: Vec<String>,
+}

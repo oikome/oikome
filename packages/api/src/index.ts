@@ -504,6 +504,115 @@ table: string | null,
 previous: string, };
 
 /**
+ * `set_backup_destination`: where backups go. A folder on this computer
+ * (an absolute path, another disk's too), or a folder within a storage (a
+ * NAS, RustFS); the backups are kept in `oikome-backup` inside it.
+ */
+export type BackupDestination = {
+/**
+ * A storage's name; this computer when left out.
+ */
+place?: string, path: string, };
+
+/**
+ * Where backups go, as the owner reads it.
+ */
+export type BackupWhere = { place: string | null, path: string,
+/**
+ * The storage's label, or "This computer".
+ */
+label: string, };
+
+/**
+ * What a backup job does.
+ */
+export type BackupWork = "backUp" | "check";
+
+/**
+ * The step a running job is at.
+ */
+export type BackupStep = "copying" | "sending" | "checking";
+
+/**
+ * A job under way.
+ */
+export type BackupProgress = { work: BackupWork, step: BackupStep,
+/**
+ * Bytes done of the step, and the step's whole.
+ */
+done: number, total: number, startedAtMs: number, };
+
+/**
+ * A backup kept at the backup place.
+ */
+export type BackupItem = { id: string, madeAtMs: number,
+/**
+ * The size of what it holds.
+ */
+bytes: number, files: number,
+/**
+ * What it added at the backup place, after deduplication.
+ */
+added: number, };
+
+/**
+ * How the last job of a kind ended.
+ */
+export type BackupResult = { work: BackupWork, atMs: number,
+/**
+ * Why it failed, when it did.
+ */
+error: string | null,
+/**
+ * The backup made, for a backup that worked.
+ */
+backup: BackupItem | null, };
+
+/**
+ * `backup_info`: Settings › Backup.
+ */
+export type BackupInfo = { destination: BackupWhere | null,
+/**
+ * Kept: one a day for so many days, one a week for so many weeks, one
+ * a month for so many months.
+ */
+keepDaily: number, keepWeekly: number, keepMonthly: number, running: BackupProgress | null, lastBackup: BackupResult | null, lastCheck: BackupResult | null, };
+
+/**
+ * Where the backups are, for a data center that knows no storages yet:
+ * the folder that was chosen for backups (or its `oikome-backup` folder).
+ */
+export type BackupSource = { "type": "folder", path: string, } | { "type": "rustfs", address: string, bucket: string, accessKey: string, secretKey: string, path: string, } | { "type": "webdav", address: string, username: string | null, password: string | null, path: string, };
+
+/**
+ * `restore_from_backup`: the newest backup at `source`, opened with the
+ * recovery key, for this new data center.
+ */
+export type RestoreBackup = { source: BackupSource, recoveryKey: string, };
+
+/**
+ * Originals a collection views where they are, not found where they were.
+ */
+export type MissingOriginals = { collection: string, folder: string, missing: number,
+/**
+ * A few of them, as paths within the folder.
+ */
+some: Array<string>, };
+
+/**
+ * A restore made ready: it takes effect when Oikome next starts.
+ */
+export type RestoredBackup = {
+/**
+ * The identity the data center will have again.
+ */
+did: string, madeAtMs: number, files: number, missingOriginals: Array<MissingOriginals>,
+/**
+ * Storages whose sign-in is not in a backup: to sign in to again.
+ */
+signInAgain: Array<string>, };
+
+/**
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */

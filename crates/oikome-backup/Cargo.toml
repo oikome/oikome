@@ -11,6 +11,9 @@ oikome-vfs = { path = "../oikome-vfs" }
 # restic-format repositories (encrypted, deduplicated, readable by restic):
 # Apache-2.0 OR MIT, checked on crates.io (0.14.0, 2026-11-17).
 rustic_core = "0.14"
+# Iceberg's manifests, rewritten when a restore moves the data folder; the
+# version Iceberg already brings (Apache-2.0).
+apache-avro = { version = "0.21", features = ["snappy", "zstandard"] }
 blake3 = { workspace = true }
 bytes = { workspace = true }
 rusqlite = { workspace = true }

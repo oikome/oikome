@@ -26,6 +26,7 @@ use rustic_core::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::meter::{Bars, Meter};
 use crate::stage::{verify, Manifest};
 use crate::{io, repo_err, BackupError, StoreBackend};
 
@@ -92,6 +93,7 @@ impl From<&rustic_core::repofile::SnapshotFile> for Snapshot {
 pub struct Repository {
     backends: RepositoryBackends,
     credentials: Credentials,
+    bars: Bars,
 }
 
 impl Repository {
@@ -99,11 +101,24 @@ impl Repository {
         Repository {
             backends: RepositoryBackends::new(Arc::new(backend), None),
             credentials: Credentials::Password(password),
+            bars: Bars::default(),
         }
     }
 
+    /// Count the bytes of what follows into `meter`.
+    #[must_use]
+    pub fn with_meter(mut self, meter: Arc<Meter>) -> Self {
+        self.bars = Bars(Some(meter));
+        self
+    }
+
     fn rustic(&self) -> Result<Rustic<()>, BackupError> {
-        Rustic::new(&RepositoryOptions::default(), &self.backends).map_err(repo_err)
+        Rustic::new_with_progress(
+            &RepositoryOptions::default(),
+            &self.backends,
+            self.bars.clone(),
+        )
+        .map_err(repo_err)
     }
 
     /// Whether a repository is there yet.

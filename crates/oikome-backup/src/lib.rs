@@ -28,10 +28,14 @@
 //! A restore ([`Repository::restore`]) goes to a scratch folder and is
 //! checked against its manifest ([`verify`]) before anything uses it.
 
+mod meter;
+mod relocate;
 mod repo;
 mod stage;
 mod store;
 
+pub use meter::Meter;
+pub use relocate::relocate;
 pub use repo::{repository_password, Keep, Repository, Snapshot};
 pub use stage::{stage, verify, Manifest, ManifestFile, SqliteTable, MANIFEST_FILE};
 pub use store::StoreBackend;

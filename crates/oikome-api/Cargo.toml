@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+oikome-backup = { path = "../oikome-backup" }
 oikome-catalog = { path = "../oikome-catalog" }
 oikome-connect = { path = "../oikome-connect" }
 oikome-core = { path = "../oikome-core" }

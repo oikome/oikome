@@ -207,6 +207,34 @@ enum IdentityCommand {
 }
 
 #[derive(Subcommand)]
+enum BackupCommand {
+    /// Restore the newest backup into this node's data directory, which
+    /// must hold nothing yet; the recovery key is read from standard input.
+    /// For RustFS the keys are read from OIKOME_BACKUP_ACCESS_KEY and
+    /// OIKOME_BACKUP_SECRET_KEY; for WebDAV the password from
+    /// OIKOME_BACKUP_PASSWORD. Start the node afterwards.
+    Restore {
+        /// The folder chosen for backups, on this computer or a disk
+        /// attached to it.
+        #[arg(long, conflicts_with_all = ["rustfs", "webdav"])]
+        from: Option<PathBuf>,
+        /// A RustFS address (`http(s)://host:port`); with --bucket.
+        #[arg(long, requires = "bucket", conflicts_with = "webdav")]
+        rustfs: Option<String>,
+        #[arg(long)]
+        bucket: Option<String>,
+        /// A NAS's WebDAV address; with --username.
+        #[arg(long)]
+        webdav: Option<String>,
+        #[arg(long)]
+        username: Option<String>,
+        /// The folder chosen for backups, in the bucket or on the NAS.
+        #[arg(long, default_value = "")]
+        path: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum WebCommand {
     /// Open the running node's web app in the default browser, logged in
     /// with the one-time link `serve --web` keeps in the data directory.
@@ -367,6 +395,11 @@ enum Command {
         #[command(subcommand)]
         command: ComputeCommand,
     },
+    /// Backups of this node's data directory.
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
     /// Print this node's DID.
     Identity {
         #[command(subcommand)]
@@ -485,6 +518,11 @@ fn open_node(
 ) -> Result<(Arc<OikomeCatalog>, Arc<EngineRegistry>), BoxError> {
     std::fs::create_dir_all(root)?;
     let root = root.canonicalize()?;
+    // A restore made ready on the last run takes effect before anything
+    // opens the data folder.
+    if oikome_api::apply_pending_restore(&root)? {
+        eprintln!("Restored this data center from its backup.");
+    }
     let config = NodeConfig {
         allow_http,
         duckdb: duckdb_config(&root, extension_dir),
@@ -858,6 +896,72 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             // The key is the identity: do not keep it around.
             key.replace_range(.., &"\0".repeat(key.len()));
             println!("Restored {}. If this node is running, restart it.", did?);
+        }
+        Command::Backup {
+            command:
+                BackupCommand::Restore {
+                    from,
+                    rustfs,
+                    bucket,
+                    webdav,
+                    username,
+                    path,
+                },
+        } => {
+            let secret = |name: &str| {
+                std::env::var(name).map_err(|_| format!("set {name} to restore from RustFS"))
+            };
+            let source = match (from, rustfs, webdav) {
+                (Some(from), None, None) => oikome_api::BackupSource::Folder {
+                    path: from.to_string_lossy().into_owned(),
+                },
+                (None, Some(address), None) => oikome_api::BackupSource::Rustfs {
+                    address,
+                    bucket: bucket.unwrap_or_default(),
+                    access_key: secret("OIKOME_BACKUP_ACCESS_KEY")?,
+                    secret_key: secret("OIKOME_BACKUP_SECRET_KEY")?,
+                    path,
+                },
+                (None, None, Some(address)) => oikome_api::BackupSource::Webdav {
+                    address,
+                    username,
+                    password: std::env::var("OIKOME_BACKUP_PASSWORD").ok(),
+                    path,
+                },
+                _ => return Err("say where the backups are: --from, --rustfs or --webdav".into()),
+            };
+            std::fs::create_dir_all(&cli.root)?;
+            let root = cli.root.canonicalize()?;
+            let catalog = OikomeCatalog::open(
+                FileIO::new_with_fs(),
+                root.to_str()
+                    .ok_or("the data directory path must be valid UTF-8")?,
+            )?;
+            eprintln!("Type or paste the recovery key, then press Enter:");
+            let mut key = String::new();
+            std::io::stdin().read_line(&mut key)?;
+            let restored = oikome_api::prepare_restore(
+                &catalog,
+                oikome_api::RestoreBackup {
+                    source,
+                    recovery_key: key.clone(),
+                },
+            )
+            .await;
+            // The key is the identity: do not keep it around.
+            key.replace_range(.., &"\0".repeat(key.len()));
+            let restored = restored?;
+            oikome_api::apply_pending_restore(&root)?;
+            println!("Restored {} ({} files).", restored.did, restored.files);
+            for missing in &restored.missing_originals {
+                println!(
+                    "{}: {} files are not in {} any more.",
+                    missing.collection, missing.missing, missing.folder
+                );
+            }
+            for storage in &restored.sign_in_again {
+                println!("Sign in to {storage} again in Settings.");
+            }
         }
         Command::Web {
             command: WebCommand::Open,

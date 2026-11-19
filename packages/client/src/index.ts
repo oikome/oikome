@@ -128,6 +128,11 @@ import type {
   SourceRef,
   ConvertSource,
   ConvertedSource,
+  BackupDestination,
+  BackupInfo,
+  BackupItem,
+  RestoreBackup,
+  RestoredBackup,
   SourceRun,
   FoundPlace,
   FolderRef,
@@ -217,6 +222,18 @@ export interface NodeClient {
   removeSource(request: SourceRef): Promise<SourceSummary[]>;
   /** A CSV source's file joins a file collection; its analysis table is made and the source stops. */
   convertSourceToFile(request: ConvertSource): Promise<ConvertedSource>;
+  /** Settings › Backup: where backups go, the job under way and how the last ones ended. */
+  backupInfo(): Promise<BackupInfo>;
+  /** Choose where backups go. */
+  setBackupDestination(request: BackupDestination): Promise<BackupInfo>;
+  /** The backups kept, the newest first. */
+  listBackups(): Promise<BackupItem[]>;
+  /** Back up now, in the background; follow it with backupInfo. */
+  backUpNow(): Promise<BackupInfo>;
+  /** Read the whole backup place back, in the background. */
+  checkBackup(): Promise<BackupInfo>;
+  /** On a new data center: make the newest backup ready, to take effect when Oikome is started again. */
+  restoreFromBackup(request: RestoreBackup): Promise<RestoredBackup>;
   showSourceFiles(request: SourceRef): Promise<Empty>;
   findPlaces(): Promise<FoundPlace[]>;
   listFolders(request?: FolderRef): Promise<FolderListing>;
@@ -586,6 +603,30 @@ export class HttpClient implements NodeClient {
 
   convertSourceToFile(request: ConvertSource): Promise<ConvertedSource> {
     return this.#json("convert_source_to_file", request);
+  }
+
+  backupInfo(): Promise<BackupInfo> {
+    return this.#json("backup_info", {});
+  }
+
+  setBackupDestination(request: BackupDestination): Promise<BackupInfo> {
+    return this.#json("set_backup_destination", request);
+  }
+
+  listBackups(): Promise<BackupItem[]> {
+    return this.#json("list_backups", {});
+  }
+
+  backUpNow(): Promise<BackupInfo> {
+    return this.#json("back_up_now", {});
+  }
+
+  checkBackup(): Promise<BackupInfo> {
+    return this.#json("check_backup", {});
+  }
+
+  restoreFromBackup(request: RestoreBackup): Promise<RestoredBackup> {
+    return this.#json("restore_from_backup", request);
   }
 
   showSourceFiles(request: SourceRef): Promise<Empty> {

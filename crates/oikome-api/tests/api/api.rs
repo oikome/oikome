@@ -768,6 +768,204 @@ async fn an_identity_is_restored_only_into_an_empty_node() {
     assert_eq!(e.code, ErrorCode::Conflict);
 }
 
+/// Wait for the backup or check under way to end.
+async fn backup_done(n: &Node) -> BackupInfo {
+    for _ in 0..600 {
+        let info = n.api.backup_info(&OWNER, Empty {}).await.unwrap();
+        if info.running.is_none() {
+            return info;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("the backup did not end");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn backups_go_where_the_owner_chose_and_are_kept_and_checked() {
+    let n = node();
+    notes(&n).await;
+    let info = n.api.backup_info(&OWNER, Empty {}).await.unwrap();
+    assert!(info.destination.is_none());
+    assert_eq!(
+        (info.keep_daily, info.keep_weekly, info.keep_monthly),
+        (7, 4, 12)
+    );
+    let not_yet = n.api.back_up_now(&OWNER, Empty {}).await.unwrap_err();
+    assert_eq!(not_yet.code, ErrorCode::Invalid);
+
+    // Not inside the data folder.
+    let inside = n
+        .api
+        .set_backup_destination(
+            &OWNER,
+            BackupDestination {
+                place: None,
+                path: n.catalog.root_path().to_string(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(inside.code, ErrorCode::Invalid);
+
+    let disk = tempfile::tempdir().unwrap();
+    let chosen = n
+        .api
+        .set_backup_destination(
+            &OWNER,
+            BackupDestination {
+                place: None,
+                path: disk.path().to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(chosen.destination.unwrap().label, "This computer");
+
+    n.api.back_up_now(&OWNER, Empty {}).await.unwrap();
+    let done = backup_done(&n).await;
+    let last = done.last_backup.unwrap();
+    assert_eq!(last.error, None);
+    let made = last.backup.unwrap();
+    assert!(made.files > 0 && made.bytes > 0);
+    assert!(disk.path().join("oikome-backup/config").is_file());
+    assert!(
+        !n.catalog
+            .oikome_dir()
+            .join("backup")
+            .read_dir()
+            .unwrap()
+            .any(|_| true),
+        "the staging copy is gone"
+    );
+    let listed = n.api.list_backups(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, made.id);
+
+    n.api.check_backup(&OWNER, Empty {}).await.unwrap();
+    let checked = backup_done(&n).await;
+    assert_eq!(checked.last_check.unwrap().error, None);
+
+    // Backups made with another recovery key are not mixed with these.
+    let other = node();
+    let refused = other
+        .api
+        .set_backup_destination(
+            &OWNER,
+            BackupDestination {
+                place: None,
+                path: disk.path().to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        refused.message.contains("another recovery key"),
+        "{refused}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_data_center_is_restored_from_a_backup_in_another_folder() {
+    let old = node();
+    notes(&old).await;
+    old.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "ledger".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(
+        &old,
+        "CREATE TABLE ledger.entries (id BIGINT PRIMARY KEY, amount DOUBLE); \
+         INSERT INTO ledger.entries VALUES (1, 12.5), (2, 30)",
+    )
+    .await;
+    let key = old.api.recovery_key(&OWNER, Empty {}).await.unwrap().key;
+    let old_did = old.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    let disk = tempfile::tempdir().unwrap();
+    old.api
+        .set_backup_destination(
+            &OWNER,
+            BackupDestination {
+                place: None,
+                path: disk.path().to_string_lossy().into_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    old.api.back_up_now(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(backup_done(&old).await.last_backup.unwrap().error, None);
+    // The old data folder is gone, as with a lost computer.
+    drop(old);
+
+    let fresh = node();
+    let source = || BackupSource::Folder {
+        path: disk.path().to_string_lossy().into_owned(),
+    };
+    let another_key = node().api.recovery_key(&OWNER, Empty {}).await.unwrap().key;
+    let wrong = fresh
+        .api
+        .restore_from_backup(
+            &OWNER,
+            RestoreBackup {
+                source: source(),
+                recovery_key: another_key,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(wrong.code, ErrorCode::Invalid, "{wrong}");
+    let restored = fresh
+        .api
+        .restore_from_backup(
+            &OWNER,
+            RestoreBackup {
+                source: source(),
+                recovery_key: key,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(restored.did, old_did);
+    assert!(restored.files > 0);
+
+    // Started again: the old data center, in its new folder.
+    let root = fresh._dir.path().to_path_buf();
+    assert!(apply_pending_restore(&root).unwrap());
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), root.to_str().unwrap()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
+    let again = Api::new(catalog, engines);
+    assert_eq!(
+        again.node_info(&OWNER, Empty {}).await.unwrap().did,
+        old_did
+    );
+    for (query, rows) in [
+        ("SELECT * FROM notes.memos", 3),
+        ("SELECT * FROM ledger.entries", 2),
+    ] {
+        let read = again
+            .run_sql(
+                &OWNER,
+                RunSql {
+                    sql: query.into(),
+                    space: None,
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{query}: {e}"));
+        let SqlResult::Rows(read) = read else {
+            panic!("{query}: no rows");
+        };
+        assert_eq!(row_count(&read), rows, "{query}");
+    }
+}
+
 #[tokio::test]
 async fn object_storage_needs_its_bucket_and_keys() {
     let n = node();

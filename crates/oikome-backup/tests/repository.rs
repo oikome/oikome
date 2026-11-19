@@ -60,7 +60,7 @@ async fn a_backup_is_restored_whole_and_a_damaged_one_is_found() {
 
     let staging = tempfile::tempdir().unwrap();
     let staged = staging.path().join("copy");
-    stage(&root, &staged, serde_json::json!({"collections": []})).unwrap();
+    stage(&root, &staged, serde_json::json!({"collections": []}), None).unwrap();
     let at = target.path().to_path_buf();
     let first = {
         let (at, staged) = (at.clone(), staged.clone());
@@ -79,7 +79,7 @@ async fn a_backup_is_restored_whole_and_a_damaged_one_is_found() {
     // A second backup after a change adds about the change.
     write(&root, "photos/trips/data/c.parquet", b"a few new rows");
     let staged_again = staging.path().join("again");
-    stage(&root, &staged_again, serde_json::Value::Null).unwrap();
+    stage(&root, &staged_again, serde_json::Value::Null, None).unwrap();
     let second = {
         let repo = repository(&at, &seed);
         blocking(move || repo.back_up(&staged_again, &Keep::default()))
@@ -95,7 +95,7 @@ async fn a_backup_is_restored_whole_and_a_damaged_one_is_found() {
     // the oldest, which starts the period, until a later day's comes.
     write(&root, "photos/trips/data/d.parquet", b"more rows");
     let staged_third = staging.path().join("third");
-    stage(&root, &staged_third, serde_json::Value::Null).unwrap();
+    stage(&root, &staged_third, serde_json::Value::Null, None).unwrap();
     let third = {
         let repo = repository(&at, &seed);
         blocking(move || repo.back_up(&staged_third, &Keep::default()))

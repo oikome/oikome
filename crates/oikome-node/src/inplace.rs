@@ -2175,7 +2175,7 @@ pub fn list_deep(
 
 /// A file of a folder viewed in place, as knowledge preparation sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct IndexedFile {
+pub struct IndexedFile {
     pub path: String,
     pub name: String,
     pub size: u64,
@@ -2183,7 +2183,7 @@ pub(crate) struct IndexedFile {
 }
 
 /// Every file the index of a folder viewed in place lists, by path.
-pub(crate) fn indexed_files(
+pub fn indexed_files(
     catalog: &OikomeCatalog,
     location: &Location,
 ) -> Result<Vec<IndexedFile>, SessionError> {

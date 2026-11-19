@@ -6451,6 +6451,7 @@ dependencies = [
  "iceberg",
  "image",
  "k256",
+ "oikome-backup",
  "oikome-catalog",
  "oikome-connect",
  "oikome-core",
@@ -6481,6 +6482,7 @@ dependencies = [
 name = "oikome-backup"
 version = "0.1.0"
 dependencies = [
+ "apache-avro",
  "blake3",
  "bytes",
  "oikome-vfs",

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! A consistent copy of a data folder, and its manifest.
+//! A consistent copy of a data folder, and its manifest. Tables' data
+//! files are linked rather than copied where the disk allows; SQLite files
+//! are copied through `VACUUM INTO`, as they are written in place.
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -21,7 +23,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
-use crate::{io, BackupError};
+use crate::{io, BackupError, Meter};
 
 /// The manifest's name at the top of a staged or restored copy.
 pub const MANIFEST_FILE: &str = "oikome-backup.json";
@@ -55,6 +57,11 @@ const LEFT_OUT_FILES: [&str; 4] = [
 pub struct Manifest {
     /// When the copy was made, in milliseconds since the Unix epoch.
     pub made_at_ms: u64,
+    /// The data folder it is a copy of, as the catalog names it (the tables
+    /// keep paths under it): a restore elsewhere moves them (see
+    /// [`crate::relocate`]).
+    #[serde(default)]
+    pub data_root: String,
     /// Every file, by its path within the data folder (`/`-separated).
     pub files: Vec<ManifestFile>,
     /// Every table of every SQLite file, with its rows.
@@ -139,6 +146,14 @@ fn files_of(data: &Path) -> Result<Vec<(String, PathBuf)>, BackupError> {
     Ok(out)
 }
 
+/// A table's data file, which its format never changes once written.
+fn never_rewritten(relative: &str) -> bool {
+    Path::new(relative)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e, "parquet" | "lance"))
+}
+
 fn is_sqlite(path: &Path) -> bool {
     let mut header = [0u8; 16];
     std::fs::File::open(path)
@@ -183,16 +198,29 @@ pub fn stage(
     data: &Path,
     staging: &Path,
     originals: serde_json::Value,
+    meter: Option<&Meter>,
 ) -> Result<Manifest, BackupError> {
     std::fs::create_dir_all(staging).map_err(io)?;
     let mut manifest = Manifest {
         made_at_ms: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX)),
+        // As the catalog names it, which is how the tables wrote it.
+        data_root: data.to_string_lossy().into_owned(),
         originals,
         ..Manifest::default()
     };
-    for (relative, from) in files_of(data)? {
+    let files = files_of(data)?;
+    if let Some(meter) = meter {
+        meter.start(
+            files
+                .iter()
+                .filter_map(|(_, from)| std::fs::metadata(from).ok())
+                .map(|m| m.len())
+                .sum(),
+        );
+    }
+    for (relative, from) in files {
         let to = staging.join(&relative);
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent).map_err(io)?;
@@ -211,14 +239,25 @@ pub fn stage(
                 });
             }
         } else {
-            match std::fs::copy(&from, &to) {
-                Ok(_) => {}
+            // A table's data file (Parquet, Lance) is never changed once
+            // written, so a link keeps it as it is now and takes no room;
+            // anything else may be rewritten in place and is copied.
+            let linked = if never_rewritten(&relative) {
+                std::fs::hard_link(&from, &to).or_else(|_| std::fs::copy(&from, &to).map(|_| ()))
+            } else {
+                std::fs::copy(&from, &to).map(|_| ())
+            };
+            match linked {
+                Ok(()) => {}
                 // Removed while the copy was made: not in this backup.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(io(format!("{relative}: {e}"))),
             }
         }
         let size = std::fs::metadata(&to).map_err(io)?.len();
+        if let Some(meter) = meter {
+            meter.add(size);
+        }
         manifest.files.push(ManifestFile {
             blake3: hash_of(&to)?,
             path: relative,
@@ -311,7 +350,7 @@ mod tests {
             .unwrap();
 
         let staging = tempfile::tempdir().unwrap();
-        let manifest = stage(root, staging.path(), serde_json::Value::Null).unwrap();
+        let manifest = stage(root, staging.path(), serde_json::Value::Null, None).unwrap();
         let kept: Vec<&str> = manifest.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(
             kept,
@@ -336,7 +375,11 @@ mod tests {
         assert_eq!(verify(staging.path()).unwrap(), manifest);
 
         // A changed file is found.
-        std::fs::write(staging.path().join("photos/trips/data/a.parquet"), "other").unwrap();
+        std::fs::write(
+            staging.path().join(".oikome/spaces.json"),
+            "{\"changed\":1}",
+        )
+        .unwrap();
         assert!(matches!(
             verify(staging.path()),
             Err(BackupError::Damaged(_))

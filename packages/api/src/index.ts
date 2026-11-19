@@ -469,6 +469,41 @@ upserted: number, deleted: number, count: number, };
 export type SourceRef = { source: string, };
 
 /**
+ * `convert_source_to_file`: a CSV source's file joins a file collection,
+ * read where it is; its analysis table is made and the source stops.
+ */
+export type ConvertSource = { source: string,
+/**
+ * An existing file collection; a new one when left out.
+ */
+space?: string,
+/**
+ * The new collection's name; made from the file's folder when left out.
+ */
+name?: string, };
+
+/**
+ * What `convert_source_to_file` did.
+ */
+export type ConvertedSource = {
+/**
+ * The file collection the file is in now.
+ */
+space: SpaceSummary,
+/**
+ * The file's path in it.
+ */
+path: string,
+/**
+ * Its analysis table, if one could be made.
+ */
+table: string | null,
+/**
+ * The collection the source wrote, left as it was with its shares.
+ */
+previous: string, };
+
+/**
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */

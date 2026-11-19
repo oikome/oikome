@@ -301,6 +301,19 @@ fn content_of(
     }
 }
 
+/// `name`, or the first of "name 2", "name 3"… (a file's number before its
+/// extension) that is not `taken`.
+fn numbered(name: &str, file: bool, taken: &std::collections::BTreeSet<String>) -> String {
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if file && !stem.is_empty() => (stem, format!(".{extension}")),
+        _ => (name, String::new()),
+    };
+    std::iter::once(name.to_string())
+        .chain((2..).map(|n| format!("{stem} {n}{extension}")))
+        .find(|candidate| !taken.contains(candidate))
+        .unwrap_or_else(|| name.to_string())
+}
+
 fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
     let kind = kind_of(&entry.kind);
     let modified_ms = u64::try_from(entry.modified_ms).unwrap_or(0);
@@ -1197,10 +1210,7 @@ impl Api {
         }
         let mut taken = inplace::top_names(&self.catalog, &location)?;
         taken.extend(sources.iter().flatten().filter_map(|s| s.mount.clone()));
-        let mount = std::iter::once(label.clone())
-            .chain((2..).map(|n| format!("{label} {n}")))
-            .find(|name| !taken.contains(name))
-            .unwrap_or(label);
+        let mount = numbered(&label, false, &taken);
         self.catalog.add_in_place_mount(
             &req.space,
             oikome_catalog::InPlaceSource {
@@ -1212,6 +1222,67 @@ impl Api {
         )?;
         self.session(None).refresh_in_place(&req.space).await?;
         self.summary_of(caller, &req.space).await
+    }
+
+    /// Add one file on this computer to a file collection, read where it
+    /// is, at the collection's top under its own name (numbered on a clash);
+    /// a file the collection has already is left where it is. The paths of
+    /// the files already in it stay as they are. Its path in the collection.
+    pub(crate) async fn add_file_by_reference(
+        &self,
+        space: &str,
+        file: &Path,
+    ) -> Result<String, ApiError> {
+        let location = self.in_place_of(space)?;
+        let LocationFormat::InPlace {
+            place,
+            path,
+            sources,
+        } = &location.format
+        else {
+            return Err(ApiError::invalid("choose a file collection"));
+        };
+        let file_text = file.to_string_lossy().into_owned();
+        if let Some(added) = sources
+            .iter()
+            .flatten()
+            .find(|s| s.place.is_none() && s.mount.is_some() && s.root == file_text)
+        {
+            return Ok(added.mount.clone().unwrap_or_default());
+        }
+        if place.is_none() {
+            let own = Path::new(path)
+                .canonicalize()
+                .ok()
+                .and_then(|root| file.strip_prefix(root).ok().map(Path::to_path_buf));
+            if let Some(own) = own {
+                let own = own.to_string_lossy().replace('\\', "/");
+                if inplace::file(&self.catalog, &location, &own)?.is_some() {
+                    return Ok(own);
+                }
+            }
+        }
+        let name = file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.starts_with('.'))
+            .ok_or_else(|| {
+                ApiError::invalid(format!("{} is not a file Oikome can add", file.display()))
+            })?;
+        let mut taken = inplace::top_names(&self.catalog, &location)?;
+        taken.extend(sources.iter().flatten().filter_map(|s| s.mount.clone()));
+        let mount = numbered(name, true, &taken);
+        self.catalog.add_in_place_mount(
+            space,
+            oikome_catalog::InPlaceSource {
+                root: file_text,
+                files: None,
+                place: None,
+                mount: Some(mount.clone()),
+            },
+        )?;
+        self.session(None).refresh_in_place(space).await?;
+        Ok(mount)
     }
 
     /// Open an indexed file on this computer with its default application.

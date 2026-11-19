@@ -412,6 +412,31 @@ test("the examples are files: edit one, read it again, and it shows", async () =
   await api("add_source", { kind: "csv", path: readings, space: "home-climate" });
 });
 
+test("a CSV source becomes its file in a file collection, with an analysis table", async () => {
+  const dir = mkdtempSync(join(homedir(), "oikome-convert-"));
+  try {
+    const csv = join(dir, "meter.csv");
+    writeFileSync(csv, "day,kwh,room\n2026-11-01,4.2,Kitchen\n2026-11-02,3.8,Office\n");
+    await api("create_space", { name: "meter-readings", kind: "transactional" });
+    const added = await api("add_source", { kind: "csv", path: csv, space: "meter-readings", name: "meter-import" });
+    await page.goto(`${base}/sources/${added.name}`);
+    await page.getByRole("button", { name: "Convert to File…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Convert to File" });
+    // The collection it wrote stays, and says so.
+    await expect(dialog).toContainText("meter-readings stays as it is");
+    await expect(dialog.getByLabel("New Collection Name")).toHaveValue("meter");
+    await dialog.getByRole("button", { name: "Convert", exact: true }).click();
+    await expect(page).toHaveURL(`${base}/collections/meter`);
+    await expect(page.locator(".oik-toasts")).toContainText("meter.csv is now in meter.");
+    await expect(page.getByText("meter.csv", { exact: true }).first()).toBeVisible();
+    expect((await api("list_sources")).some((source) => source.name === "meter-import")).toBe(false);
+    await page.getByRole("radio", { name: "Analysis", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "meter", exact: true })).toBeVisible();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("every data source is a plugin's, and File Import puts a folder into a chosen collection", async () => {
   const dir = mkdtempSync(join(homedir(), "oikome-source-target-"));
   const vault = join(dir, "vault");

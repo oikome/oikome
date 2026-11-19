@@ -226,7 +226,8 @@ impl Place {
     /// the collection's own folder; each added folder is asked on its own.
     pub async fn reachable(&self) -> bool {
         match self {
-            Place::Local(path) => path.is_dir(),
+            // A folder, or a file added on its own.
+            Place::Local(path) => path.exists(),
             Place::Remote { store, .. } => {
                 matches!(
                     tokio::time::timeout(REACH_FOR, store.list_owned("")).await,
@@ -274,7 +275,7 @@ impl Place {
     /// The file on this computer, when it is on this computer.
     pub fn local_file(&self, path: &str) -> Option<PathBuf> {
         match self.route(path) {
-            (Place::Local(root), rest) => Some(root.join(rest)),
+            (Place::Local(root), rest) => Some(within(root, rest)),
             _ => None,
         }
     }
@@ -303,7 +304,7 @@ impl Place {
             Place::Several { .. } => Err(io("a folder of several places has no single file here")),
             Place::Local(root) => {
                 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-                let full = root.join(path);
+                let full = within(root, path);
                 let meta = tokio::fs::symlink_metadata(&full).await.map_err(io)?;
                 if !meta.is_file() {
                     return Err(io(format!("{path} is not a file")));
@@ -761,8 +762,21 @@ async fn walk(
                 .flatten()
                 .find(|s| s.mount.as_deref() == Some(mount.name.as_str()))
                 .and_then(|s| s.files.clone());
-            // A folder no one can reach now keeps what it had.
-            let listed = if mount.place.reachable().await {
+            // A file added on its own is listed under its name; a folder
+            // no one can reach now keeps what it had.
+            let file = match &mount.place {
+                Place::Local(path) => std::fs::metadata(path).ok().filter(|m| m.is_file()),
+                _ => None,
+            };
+            let listed = if let Some(meta) = file {
+                BTreeMap::from([(
+                    mount.name.clone(),
+                    Listed {
+                        size: meta.len(),
+                        modified_ms: meta.modified().map(millis).unwrap_or(0),
+                    },
+                )])
+            } else if mount.place.reachable().await {
                 match walk_one(&mount.place, files.as_deref()).await {
                     Ok(listed) => listed
                         .into_iter()
@@ -789,6 +803,16 @@ async fn walk(
         }
     }
     Ok(out)
+}
+
+/// `rest` under `root`; a file added on its own is its root, with nothing
+/// after it.
+fn within(root: &Path, rest: &str) -> PathBuf {
+    if rest.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(rest)
+    }
 }
 
 fn folder_of(path: &str) -> &str {
@@ -1322,6 +1346,10 @@ pub async fn refresh(
     let dir = catalog.index_dir(location);
     let lock = lock_for(&dir);
     let _held = lock.lock().await;
+    // As the collection is now: a scan started before a folder or file was
+    // added to it (the first, in the background) must not drop it.
+    let current = catalog.get_location(&location.id).ok();
+    let location = current.as_ref().unwrap_or(location);
     let place = place_of(catalog, engines, location)?;
     let reachable = place.reachable().await;
     remember_reachable(&dir, reachable);

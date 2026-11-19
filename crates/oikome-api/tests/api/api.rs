@@ -1895,6 +1895,153 @@ async fn activity_names_who_it_was() {
 }
 
 #[tokio::test]
+async fn a_csv_source_becomes_its_file_in_a_file_collection() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    std::fs::create_dir_all(root.join("bank")).unwrap();
+    std::fs::create_dir_all(root.join("household")).unwrap();
+    let statement = root.join("bank/statement.csv");
+    std::fs::write(
+        &statement,
+        "day,amount,category\n2026-01-01,12.50,Groceries\n2026-01-02,18.25,Books\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("household/statement.csv"),
+        "day,amount\n2025-12-01,40\n",
+    )
+    .unwrap();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "finance".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let source = |path: &std::path::Path, name: &str| NewSource {
+        kind: SourceKind::Csv,
+        path: path.to_string_lossy().into_owned(),
+        space: Some("finance".into()),
+        table: Some(name.replace('-', "_")),
+        name: Some(name.into()),
+    };
+    n.api
+        .add_source(&OWNER, source(&statement, "bank-import"))
+        .await
+        .unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: root.join("household").to_string_lossy().into_owned(),
+                name: Some("household".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let convert = |space: Option<&str>, name: Option<&str>, source: &str| ConvertSource {
+        source: source.into(),
+        space: space.map(Into::into),
+        name: name.map(Into::into),
+    };
+
+    // Not into the collection it writes.
+    let own = n
+        .api
+        .convert_source_to_file(&OWNER, convert(Some("finance"), None, "bank-import"))
+        .await;
+    assert_eq!(own.unwrap_err().code, ErrorCode::Invalid);
+
+    // Into a file collection: at its top under its own name, numbered past
+    // the collection's own statement.csv, with an analysis table.
+    let converted = n
+        .api
+        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .await
+        .unwrap();
+    assert_eq!(converted.space.name, "household");
+    assert_eq!(converted.path, "statement 2.csv");
+    assert_eq!(converted.table.as_deref(), Some("statement_2"));
+    assert_eq!(converted.previous, "finance");
+    let rows = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "household".into(),
+                path: "statement 2.csv".into(),
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+    let analysis = n
+        .api
+        .file_analysis(
+            &OWNER,
+            SpaceRef {
+                space: "household".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let made = analysis
+        .tables
+        .iter()
+        .find(|table| table.name == "statement_2")
+        .unwrap();
+    assert_eq!(made.rows, 2);
+    assert!(analysis
+        .tables
+        .iter()
+        .any(|table| table.name == "statement"));
+
+    // The source stopped; the collection it wrote stays with its table.
+    let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    assert!(sources.iter().all(|s| s.name != "bank-import"));
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "finance".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(tables.iter().any(|table| table.name == "bank_import"));
+    let again = n
+        .api
+        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .await;
+    assert!(again.is_err(), "the source is gone");
+
+    // Or into a new collection of its own.
+    let card = root.join("bank/card.csv");
+    std::fs::write(&card, "day,amount\n2026-02-01,9.90\n").unwrap();
+    n.api
+        .add_source(&OWNER, source(&card, "card-import"))
+        .await
+        .unwrap();
+    let converted = n
+        .api
+        .convert_source_to_file(&OWNER, convert(None, Some("card"), "card-import"))
+        .await
+        .unwrap();
+    assert_eq!(converted.space.name, "card");
+    assert_eq!(converted.path, "card.csv");
+    assert_eq!(converted.table.as_deref(), Some("card"));
+}
+
+#[tokio::test]
 async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinations() {
     let n = node();
     n.api

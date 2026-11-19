@@ -3,12 +3,28 @@
 //
 // A source, opened: what it brings into which collection, how it is doing,
 // its recent syncs, and its settings (how often it is read, pausing it, and
-// removing it), as the prototype's source page.
+// removing it), as the prototype's source page. A CSV source can become its
+// file in a file collection.
 
 import { useState } from "react";
-import { Banner, Button, Card, ConfirmDialog, EmptyState, ErrorText, Segmented, Status, Switch, useToast } from "@oikome/ui";
-import type { SourceRun, SourceSummary } from "@oikome/client";
+import {
+  Banner,
+  Button,
+  Card,
+  ConfirmDialog,
+  Dialog,
+  EmptyState,
+  ErrorText,
+  Segmented,
+  Select,
+  Status,
+  Switch,
+  TextField,
+  useToast,
+} from "@oikome/ui";
+import type { SourceRun, SourceSummary, SpaceSummary } from "@oikome/client";
 import { forgetPreviews } from "../content";
+import { nameFromFolder } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
 import { dayAndTime, homeRelative, listNames, sameDayTime } from "../format";
 import { ScreenHeader } from "../parts";
@@ -17,6 +33,9 @@ import { strings } from "../strings";
 import { Holds, lastText, nextText, placeName, statusOf } from "./Sources";
 
 const s = strings.sources;
+const c = strings.collections;
+const NAME = /^[A-Za-z_-][A-Za-z0-9_-]{0,63}$/;
+const NEW = "__new__";
 
 /** Where a value set apart goes in a sentence. */
 const PLACE = "\u0000";
@@ -42,6 +61,95 @@ function runText(run: SourceRun): string {
   return parts.length > 0 ? listNames(parts as string[]) : `${s.runNothing}${since}`;
 }
 
+/** A CSV source's file into a file collection, an existing one or a new
+ * one; the collection the source wrote stays. */
+function ConvertToFile({
+  source,
+  spaces,
+  onClose,
+}: {
+  source: SourceSummary;
+  spaces: SpaceSummary[];
+  onClose: () => void;
+}) {
+  const client = useClient();
+  const toast = useToast();
+  const converting = useAction();
+  const file = source.place.split(/[\\/]/).pop() ?? source.place;
+  const collections = spaces.filter((space) => space.kind !== "remote" && space.inPlace);
+  const [into, setInto] = useState(NEW);
+  const taken = new Set(spaces.map((space) => space.name));
+  const base = nameFromFolder(file.replace(/\.[^.]+$/, ""));
+  const free = [base, ...Array.from({ length: 98 }, (_, i) => `${base}-${i + 2}`)].find((x) => !taken.has(x)) ?? base;
+  const [typed, setTyped] = useState<string>();
+  const name = typed ?? free;
+  const nameOk = into !== NEW || (NAME.test(name) && !taken.has(name));
+
+  const convert = async () => {
+    const done = await converting.run(() =>
+      client.convertSourceToFile({ source: source.name, ...(into === NEW ? { name } : { space: into }) }),
+    );
+    if (!done) return;
+    forgetPreviews();
+    toast(s.converted(file, done.space.name));
+    onClose();
+    navigate(`/collections/${encodeURIComponent(done.space.name)}`);
+  };
+
+  return (
+    <Dialog
+      title={s.convertTitle}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" disabled={!nameOk || converting.busy} onClick={() => void convert()}>
+            {converting.busy ? s.converting : s.convertYes}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{s.convertBody(file)}</p>
+      <Select
+        label={c.addTo}
+        value={into}
+        onChange={(value) => {
+          setInto(value);
+          converting.clear();
+        }}
+        options={[
+          ...collections.map((space) => ({ value: space.name, label: space.name })),
+          { value: NEW, label: c.newCollection },
+        ]}
+      />
+      {into === NEW && (
+        <>
+          <TextField
+            name="converted-collection-name"
+            label={c.collectionNameLabel}
+            hint={c.importNameHint}
+            value={name}
+            mono
+            onChange={(value) => {
+              setTyped(value);
+              converting.clear();
+            }}
+          />
+          {taken.has(name) && <ErrorText>{c.nameTaken(name)}</ErrorText>}
+        </>
+      )}
+      <p className="screen-help">{s.convertKeeps(source.space)}</p>
+      {converting.busy && (
+        <span className="screen-progress" role="progressbar" aria-label={s.converting}>
+          <i />
+        </span>
+      )}
+      {converting.error && <ErrorText>{converting.error}</ErrorText>}
+    </Dialog>
+  );
+}
+
 export function SourceDetail({ name }: { name: string }) {
   const client = useClient();
   const toast = useToast();
@@ -52,6 +160,7 @@ export function SourceDetail({ name }: { name: string }) {
   const change = useAction();
   const remove = useAction();
   const [removing, setRemoving] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   if (sources.error) return <ErrorText>{sources.error}</ErrorText>;
   if (!sources.data) return <div className="screen-page-skeleton oik-skel" aria-hidden="true" />;
@@ -102,6 +211,7 @@ export function SourceDetail({ name }: { name: string }) {
         >
           {s.syncNow}
         </Button>
+        {source.kind === "csv" && <Button onClick={() => setConverting(true)}>{s.convert}</Button>}
       </ScreenHeader>
       {sync.error && <ErrorText>{sync.error}</ErrorText>}
 
@@ -206,6 +316,9 @@ export function SourceDetail({ name }: { name: string }) {
         </section>
       </div>
 
+      {converting && (
+        <ConvertToFile source={source} spaces={spaces.data ?? []} onClose={() => setConverting(false)} />
+      )}
       {removing && (
         <ConfirmDialog
           title={s.removeTitle(title)}

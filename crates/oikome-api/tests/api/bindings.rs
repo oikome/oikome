@@ -79,6 +79,8 @@ fn bindings() -> String {
         SetSourceEvery,
         SourceRun,
         SourceRef,
+        ConvertSource,
+        ConvertedSource,
         FoundPlace,
         FolderRef,
         FolderListing,

@@ -1078,6 +1078,35 @@ pub struct SourceRef {
     pub source: String,
 }
 
+/// `convert_source_to_file`: a CSV source's file joins a file collection,
+/// read where it is; its analysis table is made and the source stops.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ConvertSource {
+    pub source: String,
+    /// An existing file collection; a new one when left out.
+    #[serde(default)]
+    pub space: Option<String>,
+    /// The new collection's name; made from the file's folder when left out.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// What `convert_source_to_file` did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertedSource {
+    /// The file collection the file is in now.
+    pub space: SpaceSummary,
+    /// The file's path in it.
+    pub path: String,
+    /// Its analysis table, if one could be made.
+    pub table: Option<String>,
+    /// The collection the source wrote, left as it was with its shares.
+    pub previous: String,
+}
+
 /// `start_dropbox`: connect the owner's Dropbox through their own app and
 /// OAuth + PKCE. The drive is always encrypted. App folder or Full Dropbox
 /// access is chosen in Dropbox's App Console (`read_all` records the latter).

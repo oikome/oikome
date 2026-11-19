@@ -36,6 +36,16 @@ allow = [
 crate = "libbz2-rs-sys"
 allow = ["bzip2-1.0.6"]
 
+# option-ext (three small helpers on Option) is MPL-2.0, a file-level
+# copyleft: used unmodified, it places no obligation on Oikome's own code,
+# closed or open; NOTICE names it and where its source is. It reaches us
+# only through rustic_core -> dirs -> dirs-sys (backups), and no newer dirs
+# drops it. Scoped to this one crate (decided 2026-11-19); any change to its
+# files would have to be published.
+[[licenses.exceptions]]
+crate = "option-ext"
+allow = ["MPL-2.0"]
+
 # Workspace crates are Apache-2.0 but unpublished.
 [licenses.private]
 ignore = true

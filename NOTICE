@@ -189,6 +189,10 @@ zip (zip; reading flomo exports and official plugin packages)
   https://github.com/zip-rs/zip2  -  MIT License
   Copyright (c) 2014 Mathijs van de Nes
 
+calamine (calamine; reading Excel and OpenDocument spreadsheets for analysis)
+  https://github.com/tafia/calamine  -  MIT License
+  Copyright (c) 2016 Johann Tuffe
+
 keyring-rs (keyring-core, apple-native-keyring-store, windows-native-keyring-store;
   storage credentials in the OS keychain)
   https://github.com/open-source-cooperative/keyring-rs  -  MIT License or Apache License 2.0

@@ -182,13 +182,19 @@ pub struct ViewInPlace {
     pub files: Option<Vec<String>>,
 }
 
-/// `add_in_place_folder`: add a whole local folder to an existing file collection.
+/// `add_in_place_folder`: add a whole folder, on this computer or a storage, to an
+/// existing file collection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AddInPlaceFolder {
     pub space: String,
-    /// Absolute path of the folder on this computer.
+    /// The folder: absolute on this computer, else within `place`.
     pub path: String,
+    /// A storage's name: the folder is on it and joins the collection as a
+    /// folder of its own, read where it is. This computer when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub place: Option<String>,
 }
 
 /// `add_in_place_files`: add original local files to a file collection.
@@ -483,6 +489,8 @@ pub struct AnalysisSource {
     pub name: String,
     /// Its files' paths within the collection.
     pub files: Vec<String>,
+    /// The sheet it is, for a spreadsheet's table.
+    pub sheet: Option<String>,
 }
 
 /// An analysis table of a folder collection: made from its files, kept in
@@ -492,6 +500,8 @@ pub struct AnalysisSource {
 pub struct AnalysisTable {
     pub name: String,
     pub files: Vec<String>,
+    /// The sheet it was made of, for a spreadsheet's table.
+    pub sheet: Option<String>,
     #[ts(type = "number")]
     pub rows: u64,
     /// Its columns, with what each is for, as proposed or as corrected.
@@ -1070,6 +1080,35 @@ pub struct PauseSource {
 #[serde(rename_all = "camelCase")]
 pub struct SourceRef {
     pub source: String,
+}
+
+/// `convert_source_to_file`: a CSV source's file joins a file collection,
+/// read where it is; its analysis table is made and the source stops.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct ConvertSource {
+    pub source: String,
+    /// An existing file collection; a new one when left out.
+    #[serde(default)]
+    pub space: Option<String>,
+    /// The new collection's name; made from the file's folder when left out.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// What `convert_source_to_file` did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertedSource {
+    /// The file collection the file is in now.
+    pub space: SpaceSummary,
+    /// The file's path in it.
+    pub path: String,
+    /// Its analysis table, if one could be made.
+    pub table: Option<String>,
+    /// The collection the source wrote, left as it was with its shares.
+    pub previous: String,
 }
 
 /// `start_dropbox`: connect the owner's Dropbox through their own app and

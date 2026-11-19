@@ -126,6 +126,8 @@ import type {
   PauseSource,
   SetSourceEvery,
   SourceRef,
+  ConvertSource,
+  ConvertedSource,
   SourceRun,
   FoundPlace,
   FolderRef,
@@ -213,6 +215,8 @@ export interface NodeClient {
   setSourceEvery(request: SetSourceEvery): Promise<SourceSummary>;
   listSourceRuns(request: SourceRef): Promise<SourceRun[]>;
   removeSource(request: SourceRef): Promise<SourceSummary[]>;
+  /** A CSV source's file joins a file collection; its analysis table is made and the source stops. */
+  convertSourceToFile(request: ConvertSource): Promise<ConvertedSource>;
   showSourceFiles(request: SourceRef): Promise<Empty>;
   findPlaces(): Promise<FoundPlace[]>;
   listFolders(request?: FolderRef): Promise<FolderListing>;
@@ -578,6 +582,10 @@ export class HttpClient implements NodeClient {
 
   removeSource(request: SourceRef): Promise<SourceSummary[]> {
     return this.#json("remove_source", request);
+  }
+
+  convertSourceToFile(request: ConvertSource): Promise<ConvertedSource> {
+    return this.#json("convert_source_to_file", request);
   }
 
   showSourceFiles(request: SourceRef): Promise<Empty> {

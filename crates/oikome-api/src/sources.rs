@@ -26,8 +26,8 @@ use oikome_connect::csv::CsvSource;
 use oikome_connect::{Connector, SourceConfig, Value};
 
 use crate::{
-    Api, ApiError, Caller, Empty, ErrorCode, NewSource, PauseSource, SetSourceEvery, SourceKind,
-    SourceRef, SourceRun, SourceSummary,
+    Api, ApiError, Caller, ConvertSource, ConvertedSource, Empty, ErrorCode, NewSource,
+    PauseSource, SetSourceEvery, SourceKind, SourceRef, SourceRun, SourceSummary, ViewInPlace,
 };
 
 /// Sources are read again this often while the node runs.
@@ -498,6 +498,86 @@ impl Api {
             self.update_settings(|s| s.removed_sources.insert(place, def.space().to_string()))?;
         }
         self.list_sources(caller, Empty {}).await
+    }
+
+    /// Turn a CSV source into its file: the file joins a file collection
+    /// (an existing one at its top under its own name, or a new one), read
+    /// where it is; its analysis table is made; then the source stops. The
+    /// collection the source wrote stays as it is, with its shares and
+    /// grants, until the owner removes it.
+    pub async fn convert_source_to_file(
+        &self,
+        caller: &Caller,
+        req: ConvertSource,
+    ) -> Result<ConvertedSource, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let def = self.catalog.get_source(&req.source)?;
+        let Ok(SourceConfig::Csv { path, .. }) = serde_json::from_value(def.config.clone()) else {
+            return Err(ApiError::invalid("only a CSV source can become its file"));
+        };
+        let file = Path::new(&path)
+            .canonicalize()
+            .ok()
+            .filter(|file| file.is_file())
+            .ok_or_else(|| ApiError::invalid(format!("{path} is not there any more")))?;
+        let previous = def.space().to_string();
+        let target = req
+            .space
+            .as_deref()
+            .map(str::trim)
+            .filter(|space| !space.is_empty());
+        let (space, at) = match target {
+            Some(space) => {
+                if space == previous {
+                    return Err(ApiError::invalid(
+                        "choose a file collection; this is the collection the source writes",
+                    ));
+                }
+                let at = self.add_file_by_reference(space, &file).await?;
+                (space.to_string(), at)
+            }
+            None => {
+                let made = self
+                    .view_in_place(
+                        caller,
+                        ViewInPlace {
+                            place: None,
+                            path: String::new(),
+                            name: req.name.clone().filter(|name| !name.trim().is_empty()),
+                            files: Some(vec![file.to_string_lossy().into_owned()]),
+                        },
+                    )
+                    .await?;
+                let at = file
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                (made.name, at)
+            }
+        };
+        let analysis = self
+            .build_analysis(
+                caller,
+                crate::SpaceRef {
+                    space: space.clone(),
+                },
+            )
+            .await?;
+        let table = analysis
+            .tables
+            .iter()
+            .find(|table| table.files.iter().any(|f| *f == at))
+            .map(|table| table.name.clone());
+        self.remove_source(caller, SourceRef { source: req.source })
+            .await?;
+
+        Ok(ConvertedSource {
+            space: self.summary_of(caller, &space).await?,
+            path: at,
+            table,
+            previous,
+        })
     }
 
     /// Open the folder a source reads, or show its file, in this computer's

@@ -469,6 +469,41 @@ upserted: number, deleted: number, count: number, };
 export type SourceRef = { source: string, };
 
 /**
+ * `convert_source_to_file`: a CSV source's file joins a file collection,
+ * read where it is; its analysis table is made and the source stops.
+ */
+export type ConvertSource = { source: string,
+/**
+ * An existing file collection; a new one when left out.
+ */
+space?: string,
+/**
+ * The new collection's name; made from the file's folder when left out.
+ */
+name?: string, };
+
+/**
+ * What `convert_source_to_file` did.
+ */
+export type ConvertedSource = {
+/**
+ * The file collection the file is in now.
+ */
+space: SpaceSummary,
+/**
+ * The file's path in it.
+ */
+path: string,
+/**
+ * Its analysis table, if one could be made.
+ */
+table: string | null,
+/**
+ * The collection the source wrote, left as it was with its shares.
+ */
+previous: string, };
+
+/**
  * A place on this computer found to keep Spaces in: a cloud drive's
  * folder, or a drive plugged in.
  */
@@ -1097,13 +1132,19 @@ export type AddInPlaceFiles = { space: string,
 files: Array<string>, };
 
 /**
- * `add_in_place_folder`: add a whole local folder to an existing file collection.
+ * `add_in_place_folder`: add a whole folder, on this computer or a storage, to an
+ * existing file collection.
  */
 export type AddInPlaceFolder = { space: string,
 /**
- * Absolute path of the folder on this computer.
+ * The folder: absolute on this computer, else within `place`.
  */
-path: string, };
+path: string,
+/**
+ * A storage's name: the folder is on it and joins the collection as a
+ * folder of its own, read where it is. This computer when left out.
+ */
+place?: string, };
 
 /**
  * One file deliberately copied from the owner's browser into a new collection.
@@ -1370,13 +1411,21 @@ name: string,
 /**
  * Its files' paths within the collection.
  */
-files: Array<string>, };
+files: Array<string>,
+/**
+ * The sheet it is, for a spreadsheet's table.
+ */
+sheet: string | null, };
 
 /**
  * An analysis table of a folder collection: made from its files, kept in
  * Iceberg, rebuilt when they change; queried as `<collection>.<name>`.
  */
-export type AnalysisTable = { name: string, files: Array<string>, rows: number,
+export type AnalysisTable = { name: string, files: Array<string>,
+/**
+ * The sheet it was made of, for a spreadsheet's table.
+ */
+sheet: string | null, rows: number,
 /**
  * Its columns, with what each is for, as proposed or as corrected.
  */

@@ -1894,6 +1894,382 @@ async fn activity_names_who_it_was() {
     assert_eq!(items.iter().filter(|i| i.who == AccessWho::You).count(), 1);
 }
 
+/// A workbook as Excel writes one: shared strings, a date style, formulas
+/// with the values last calculated, and `sheets` as (name, rows of cells
+/// already in Excel's XML).
+fn workbook(path: &std::path::Path, sheets: &[(&str, &[&str])], strings: &[&str]) {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut put = |name: &str, body: String| {
+        zip.start_file(name, stored).unwrap();
+        zip.write_all(body.as_bytes()).unwrap();
+    };
+    let main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+    let rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let mut types = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>"#,
+    );
+    let mut listed = String::new();
+    let mut rels = String::new();
+    for (i, (name, _)) in sheets.iter().enumerate() {
+        let n = i + 1;
+        types.push_str(&format!(r#"<Override PartName="/xl/worksheets/sheet{n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#));
+        listed.push_str(&format!(
+            r#"<sheet name="{name}" sheetId="{n}" r:id="rId{n}"/>"#
+        ));
+        rels.push_str(&format!(
+            r#"<Relationship Id="rId{n}" Type="{rel}/worksheet" Target="worksheets/sheet{n}.xml"/>"#
+        ));
+    }
+    let n = sheets.len();
+    rels.push_str(&format!(
+        r#"<Relationship Id="rId{}" Type="{rel}/styles" Target="styles.xml"/><Relationship Id="rId{}" Type="{rel}/sharedStrings" Target="sharedStrings.xml"/>"#,
+        n + 1,
+        n + 2
+    ));
+    put("[Content_Types].xml", format!("{types}</Types>"));
+    put(
+        "_rels/.rels",
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="{rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+        ),
+    );
+    put(
+        "xl/workbook.xml",
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="{main}" xmlns:r="{rel}"><sheets>{listed}</sheets></workbook>"#
+        ),
+    );
+    put(
+        "xl/_rels/workbook.xml.rels",
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{rels}</Relationships>"#
+        ),
+    );
+    // Style 1 is Excel's short date (number format 14).
+    put(
+        "xl/styles.xml",
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="{main}"><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>"#
+        ),
+    );
+    let shared: String = strings
+        .iter()
+        .map(|t| format!("<si><t>{t}</t></si>"))
+        .collect();
+    put(
+        "xl/sharedStrings.xml",
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><sst xmlns="{main}" count="{0}" uniqueCount="{0}">{shared}</sst>"#,
+            strings.len()
+        ),
+    );
+    for (i, (_, rows)) in sheets.iter().enumerate() {
+        let rows: String = rows
+            .iter()
+            .enumerate()
+            .map(|(r, cells)| format!(r#"<row r="{}">{cells}</row>"#, r + 1))
+            .collect();
+        put(
+            &format!("xl/worksheets/sheet{}.xml", i + 1),
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="{main}"><sheetData>{rows}</sheetData></worksheet>"#
+            ),
+        );
+    }
+    zip.finish().unwrap();
+}
+
+#[tokio::test]
+async fn a_spreadsheet_s_sheets_become_analysis_tables() {
+    let n = node();
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path().join("ledger");
+    std::fs::create_dir_all(&root).unwrap();
+    let book = root.join("Budget.xlsx");
+    // Shared strings: 0 Date, 1 Category, 2 Amount, 3 With tip, 4 Groceries,
+    // 5 Books.
+    let strings = [
+        "Date",
+        "Category",
+        "Amount",
+        "With tip",
+        "Groceries",
+        "Books",
+    ];
+    let spending_cells: &[&str] = &[
+        r#"<c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c>"#,
+        // 2026-01-01, 2026-01-02 and 2026-02-03 as Excel's day numbers.
+        r#"<c r="A2" s="1"><v>46023</v></c><c r="B2" t="s"><v>4</v></c><c r="C2"><v>12.5</v></c><c r="D2"><f>C2*1.1</f><v>13.75</v></c>"#,
+        r#"<c r="A3" s="1"><v>46024</v></c><c r="B3" t="s"><v>5</v></c><c r="C3"><v>30</v></c><c r="D3"><f>C3*1.1</f><v>33</v></c>"#,
+        r#"<c r="A4" s="1"><v>46056</v></c><c r="B4" t="s"><v>4</v></c><c r="C4"><v>7.25</v></c><c r="D4"><f>C4*1.1</f><v>7.975</v></c>"#,
+    ];
+    // Text written in the cell itself, as other programs write it.
+    let rates: &[&str] = &[
+        r#"<c r="A1" t="inlineStr"><is><t>Currency</t></is></c><c r="B1" t="inlineStr"><is><t>Rate</t></is></c>"#,
+        r#"<c r="A2" t="inlineStr"><is><t>EUR</t></is></c><c r="B2"><v>1</v></c>"#,
+        r#"<c r="A3" t="inlineStr"><is><t>USD</t></is></c><c r="B3"><v>1.08</v></c>"#,
+    ];
+    workbook(
+        &book,
+        &[
+            ("Spending", spending_cells),
+            ("Notes", &[]),
+            ("Rates", rates),
+        ],
+        &strings,
+    );
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("ledger".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let ledger = || SpaceRef {
+        space: "ledger".into(),
+    };
+
+    // Each sheet with something in it can become a table; the empty one not.
+    let found = n.api.file_analysis(&OWNER, ledger()).await.unwrap();
+    let sources: Vec<_> = found
+        .sources
+        .iter()
+        .map(|s| (s.name.as_str(), s.sheet.as_deref()))
+        .collect();
+    assert_eq!(
+        sources,
+        [
+            ("budget_spending", Some("Spending")),
+            ("budget_rates", Some("Rates"))
+        ]
+    );
+    let made = n.api.build_analysis(&OWNER, ledger()).await.unwrap();
+    let spending = made
+        .tables
+        .iter()
+        .find(|t| t.name == "budget_spending")
+        .unwrap();
+    assert_eq!(spending.rows, 3);
+    assert_eq!(spending.files, ["Budget.xlsx"]);
+    assert_eq!(spending.problem, None);
+    let date = spending.fields.iter().find(|f| f.name == "Date").unwrap();
+    assert_eq!(date.role, FieldRole::Time, "a date column is a time");
+
+    // Dates are dates and formulas give the values Excel saved.
+    let read = sql(
+        &n,
+        "SELECT CAST(min(\"Date\") AS VARCHAR), CAST(round(sum(\"With tip\"), 3) AS VARCHAR), \
+         CAST(count(DISTINCT \"_source_file\") AS VARCHAR) FROM ledger.budget_spending",
+    )
+    .await;
+    let SqlResult::Rows(rows) = read else {
+        panic!("expected rows, got {read:?}");
+    };
+    let batch = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    let text = |c: usize| {
+        batch
+            .column(c)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .value(0)
+            .to_string()
+    };
+    assert_eq!(text(0), "2026-01-01");
+    assert_eq!(text(1), "54.725");
+    assert_eq!(text(2), "1");
+    let read = sql(
+        &n,
+        "SELECT CAST(sum(\"Rate\") AS VARCHAR) FROM ledger.budget_rates WHERE \"Currency\" = 'USD'",
+    )
+    .await;
+    let SqlResult::Rows(rows) = read else {
+        panic!("expected rows, got {read:?}");
+    };
+    let usd = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    let usd = usd
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::StringArray>()
+        .unwrap()
+        .value(0)
+        .to_string();
+    assert_eq!(usd, "1.08");
+
+    // Saved with one sheet only, it is one table named after the file, and
+    // the sheets' tables go.
+    workbook(&book, &[("Spending", spending_cells)], &strings);
+    n.api.refresh_space(&OWNER, ledger()).await.unwrap();
+    let again = n.api.build_analysis(&OWNER, ledger()).await.unwrap();
+    let names: Vec<_> = again.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["budget"]);
+    assert_eq!(again.tables[0].rows, 3);
+    assert_eq!(again.tables[0].sheet.as_deref(), Some("Spending"));
+}
+
+#[tokio::test]
+async fn a_csv_source_becomes_its_file_in_a_file_collection() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    std::fs::create_dir_all(root.join("bank")).unwrap();
+    std::fs::create_dir_all(root.join("household")).unwrap();
+    let statement = root.join("bank/statement.csv");
+    std::fs::write(
+        &statement,
+        "day,amount,category\n2026-01-01,12.50,Groceries\n2026-01-02,18.25,Books\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("household/statement.csv"),
+        "day,amount\n2025-12-01,40\n",
+    )
+    .unwrap();
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "finance".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let source = |path: &std::path::Path, name: &str| NewSource {
+        kind: SourceKind::Csv,
+        path: path.to_string_lossy().into_owned(),
+        space: Some("finance".into()),
+        table: Some(name.replace('-', "_")),
+        name: Some(name.into()),
+    };
+    n.api
+        .add_source(&OWNER, source(&statement, "bank-import"))
+        .await
+        .unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: root.join("household").to_string_lossy().into_owned(),
+                name: Some("household".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let convert = |space: Option<&str>, name: Option<&str>, source: &str| ConvertSource {
+        source: source.into(),
+        space: space.map(Into::into),
+        name: name.map(Into::into),
+    };
+
+    // Not into the collection it writes.
+    let own = n
+        .api
+        .convert_source_to_file(&OWNER, convert(Some("finance"), None, "bank-import"))
+        .await;
+    assert_eq!(own.unwrap_err().code, ErrorCode::Invalid);
+
+    // Into a file collection: at its top under its own name, numbered past
+    // the collection's own statement.csv, with an analysis table.
+    let converted = n
+        .api
+        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .await
+        .unwrap();
+    assert_eq!(converted.space.name, "household");
+    assert_eq!(converted.path, "statement 2.csv");
+    assert_eq!(converted.table.as_deref(), Some("statement_2"));
+    assert_eq!(converted.previous, "finance");
+    let rows = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "household".into(),
+                path: "statement 2.csv".into(),
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+    let analysis = n
+        .api
+        .file_analysis(
+            &OWNER,
+            SpaceRef {
+                space: "household".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let made = analysis
+        .tables
+        .iter()
+        .find(|table| table.name == "statement_2")
+        .unwrap();
+    assert_eq!(made.rows, 2);
+    assert!(analysis
+        .tables
+        .iter()
+        .any(|table| table.name == "statement"));
+
+    // The source stopped; the collection it wrote stays with its table.
+    let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
+    assert!(sources.iter().all(|s| s.name != "bank-import"));
+    let tables = n
+        .api
+        .list_tables(
+            &OWNER,
+            SpaceRef {
+                space: "finance".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(tables.iter().any(|table| table.name == "bank_import"));
+    let again = n
+        .api
+        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .await;
+    assert!(again.is_err(), "the source is gone");
+
+    // Or into a new collection of its own.
+    let card = root.join("bank/card.csv");
+    std::fs::write(&card, "day,amount\n2026-02-01,9.90\n").unwrap();
+    n.api
+        .add_source(&OWNER, source(&card, "card-import"))
+        .await
+        .unwrap();
+    let converted = n
+        .api
+        .convert_source_to_file(&OWNER, convert(None, Some("card"), "card-import"))
+        .await
+        .unwrap();
+    assert_eq!(converted.space.name, "card");
+    assert_eq!(converted.path, "card.csv");
+    assert_eq!(converted.table.as_deref(), Some("card"));
+}
+
 #[tokio::test]
 async fn a_csv_source_targets_an_existing_collection_and_keeps_legacy_destinations() {
     let n = node();
@@ -3686,6 +4062,7 @@ async fn a_whole_folder_joins_an_existing_file_collection() {
             AddInPlaceFolder {
                 space: "notes".into(),
                 path: second.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await
@@ -3727,10 +4104,182 @@ async fn a_whole_folder_joins_an_existing_file_collection() {
             AddInPlaceFolder {
                 space: "notes".into(),
                 path: second.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await;
     assert_eq!(duplicate.unwrap_err().code, ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn a_folder_on_a_storage_joins_a_collection_by_reference() {
+    let n = node();
+    let root = std::path::PathBuf::from(n.catalog.root_path());
+    let notes = root.join("notes");
+    std::fs::create_dir_all(notes.join("trips")).unwrap();
+    std::fs::write(notes.join("one.md"), "own note").unwrap();
+    std::fs::write(notes.join("trips/plan.md"), "own plan").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: notes.to_string_lossy().into_owned(),
+                name: Some("notes".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+    // A folder on another place, with a table in it.
+    let picked = tempfile::tempdir().unwrap();
+    let archive = n
+        .api
+        .add_storage(
+            &OWNER,
+            NewStorage {
+                label: "Archive".into(),
+                kind: StorageType::Folder,
+                address: picked.path().to_str().unwrap().into(),
+                username: None,
+                password: None,
+                bucket: None,
+                encrypted: None,
+                make_default: Some(false),
+            },
+        )
+        .await
+        .unwrap();
+    let on_archive = std::path::PathBuf::from(&archive.place);
+    std::fs::create_dir_all(on_archive.join("2025/trips")).unwrap();
+    std::fs::write(on_archive.join("2025/trips/lisbon.md"), "Lisbon, slowly").unwrap();
+    std::fs::write(
+        on_archive.join("2025/trips/costs.csv"),
+        "day,amount\n2025-05-01,12.5\n2025-05-02,30\n",
+    )
+    .unwrap();
+    let add = |path: &str| AddInPlaceFolder {
+        space: "notes".into(),
+        path: path.into(),
+        place: archive.name.clone(),
+    };
+    n.api
+        .add_in_place_folder(&OWNER, add("2025/trips"))
+        .await
+        .unwrap();
+
+    // It sits at the top under its own name, numbered past the
+    // collection's own "trips"; the collection's files keep their paths.
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "notes".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    let folders: Vec<_> = listed.folders.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(folders, ["trips", "trips 2"], "{folders:?}");
+    let own = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "trips/plan.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(own.text.as_deref(), Some("own plan"));
+
+    // Its files are read where they are, and not edited from Oikome.
+    let added = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "trips 2/lisbon.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(added.text.as_deref(), Some("Lisbon, slowly"));
+    assert!(!added.content.capabilities.edit);
+    assert!(added
+        .content
+        .edit_unavailable_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("added from another place")));
+
+    // Its tables read like the collection's own.
+    let costs = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "notes".into(),
+                path: "trips 2/costs.csv".into(),
+                limit: Some(10),
+                offset: Some(0),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&costs), 2);
+
+    // The same folder twice is refused; the place's root is named after it.
+    let twice = n.api.add_in_place_folder(&OWNER, add("2025/trips")).await;
+    assert_eq!(twice.unwrap_err().code, ErrorCode::Conflict);
+    std::fs::write(on_archive.join("readme.md"), "the archive").unwrap();
+    n.api.add_in_place_folder(&OWNER, add("")).await.unwrap();
+    let whole = n
+        .api
+        .read_file(
+            &OWNER,
+            FileRef {
+                space: "notes".into(),
+                path: "archive/readme.md".into(),
+            },
+        )
+        .await;
+    assert!(whole.is_ok(), "{whole:?}");
+
+    // A folder of a storage needs a file collection.
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "ledger".into(),
+                kind: Some(SpaceKind::Analytical),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let wrong = n
+        .api
+        .add_in_place_folder(
+            &OWNER,
+            AddInPlaceFolder {
+                space: "ledger".into(),
+                path: "2025/trips".into(),
+                place: archive.name.clone(),
+            },
+        )
+        .await;
+    assert_eq!(wrong.unwrap_err().code, ErrorCode::Invalid);
 }
 
 #[tokio::test]
@@ -3777,6 +4326,7 @@ async fn an_empty_analytical_collection_accepts_a_folder() {
             AddInPlaceFolder {
                 space: "source-destination".into(),
                 path: vault.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await
@@ -3789,6 +4339,7 @@ async fn an_empty_analytical_collection_accepts_a_folder() {
             AddInPlaceFolder {
                 space: "file-library".into(),
                 path: vault.to_string_lossy().into_owned(),
+                place: None,
             },
         )
         .await

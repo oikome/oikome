@@ -385,25 +385,34 @@ impl Catalog {
     }
 
     /// The oldest queued conversion that may still be tried.
+    #[cfg(test)]
     pub(crate) fn next_job(&self) -> Result<Option<Job>, SessionError> {
+        self.next_job_outside(&[])
+    }
+
+    /// The next queued conversion of a file whose path starts with none of
+    /// `away` (the folders that cannot be read now); theirs wait.
+    pub(crate) fn next_job_outside(&self, away: &[String]) -> Result<Option<Job>, SessionError> {
+        let mut query = String::from(
+            "SELECT c.conversion_id, c.asset_id, a.path, a.name, a.size, c.attempts \
+             FROM conversions c JOIN assets a USING (asset_id) \
+             WHERE c.status = 'queued' AND a.state = 'present'",
+        );
+        for n in 1..=away.len() {
+            query.push_str(&format!(" AND substr(a.path, 1, length(?{n})) <> ?{n}"));
+        }
+        query.push_str(" ORDER BY c.created_ms, a.path LIMIT 1");
         self.conn()
-            .query_row(
-                "SELECT c.conversion_id, c.asset_id, a.path, a.name, a.size, c.attempts \
-                 FROM conversions c JOIN assets a USING (asset_id) \
-                 WHERE c.status = 'queued' AND a.state = 'present' \
-                 ORDER BY c.created_ms, a.path LIMIT 1",
-                [],
-                |r| {
-                    Ok(Job {
-                        conversion_id: r.get(0)?,
-                        asset_id: r.get(1)?,
-                        path: r.get(2)?,
-                        name: r.get(3)?,
-                        size: u64::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
-                        attempts: r.get(5)?,
-                    })
-                },
-            )
+            .query_row(&query, rusqlite::params_from_iter(away.iter()), |r| {
+                Ok(Job {
+                    conversion_id: r.get(0)?,
+                    asset_id: r.get(1)?,
+                    path: r.get(2)?,
+                    name: r.get(3)?,
+                    size: u64::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
+                    attempts: r.get(5)?,
+                })
+            })
             .optional()
             .map_err(sql)
     }
@@ -678,6 +687,26 @@ mod tests {
         assert_eq!(state.error.as_deref(), Some("not UTF-8 text"));
         assert_eq!(cat.retry_failed("v1").unwrap(), 1);
         assert!(cat.next_job().unwrap().is_some());
+    }
+
+    #[test]
+    fn files_in_a_folder_that_is_away_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let cat = Catalog::open(dir.path()).unwrap();
+        cat.reconcile(
+            "docs",
+            &files(&[("archive/a.md", 10, 1), ("archive 2/b.md", 5, 1)]),
+            conv,
+            "v1",
+        )
+        .unwrap();
+        let away = ["archive/".to_string()];
+        let job = cat.next_job_outside(&away).unwrap().unwrap();
+        assert_eq!(job.path, "archive 2/b.md");
+        cat.finish(&job, 1).unwrap();
+        assert!(cat.next_job_outside(&away).unwrap().is_none());
+        // Back again, its file is converted.
+        assert_eq!(cat.next_job().unwrap().unwrap().path, "archive/a.md");
     }
 
     #[test]

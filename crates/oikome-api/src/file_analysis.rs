@@ -13,22 +13,25 @@
 // limitations under the License.
 
 //! Data Analysis of a folder collection: each data file (CSV, TSV,
-//! Parquet, JSON Lines), or each folder of them, becomes an analysis table
-//! of the collection. The tables are kept in Iceberg under the collection's
+//! Parquet, JSON Lines), or each folder of them, and each sheet of a
+//! spreadsheet (xlsx, xlsm, xls, xlsb, ods) becomes an analysis table of
+//! the collection. The tables are kept in Iceberg under the collection's
 //! name, carry the path of the file each row came from, and are made again
 //! when their files change; the originals are only read. What each column
 //! is for is proposed from its name and type, and the owner may correct it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use arrow_array::{Array, Float64Array, RecordBatch, StringArray};
+use arrow_array::{Array, ArrayRef, Float64Array, RecordBatch, StringArray};
+use arrow_schema::{Field, Schema, SchemaRef};
 use futures::TryStreamExt;
 use iceberg::arrow::arrow_schema_to_schema_auto_assign_ids;
 use iceberg::{Catalog, NamespaceIdent, TableCreation, TableIdent};
 use oikome_catalog::Space;
 use oikome_engine::{QualifiedName, TableSource};
-use oikome_node::inplace::{self, DataFile};
+use oikome_node::inplace::{self, DataFile, SheetFile};
 use oikome_node::QueryResult;
 use oikome_semantic::rewrite::quote_ident;
 use oikome_storage::write_data_file;
@@ -44,6 +47,8 @@ use crate::{
 pub(crate) const SOURCE_FILE: &str = "_source_file";
 /// Where a table's files are attached while it is made.
 const SCRATCH: &str = "__oikome_analysis";
+/// A spreadsheet larger than this is not read: its sheets are read whole.
+const MAX_BOOK_BYTES: u64 = 64 * 1024 * 1024;
 
 /// What was made of a collection's files, kept beside the catalog.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -54,6 +59,10 @@ struct Kept {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct KeptTable {
     files: Vec<KeptFile>,
+    /// The sheet it was made of, for a spreadsheet's table (empty when the
+    /// spreadsheet could not be read).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sheet: Option<String>,
     /// Roles the owner chose, by column.
     #[serde(default)]
     roles: BTreeMap<String, FieldRole>,
@@ -80,10 +89,69 @@ impl From<&DataFile> for KeptFile {
     }
 }
 
-/// The tables a collection's data files make: a top-level file on its own;
-/// in a subfolder, the files of one format together, named after the
-/// folder (a lone file after itself). Names are made unique.
-fn sources_of(files: Vec<DataFile>) -> Vec<(String, Vec<DataFile>)> {
+impl From<&SheetFile> for KeptFile {
+    fn from(file: &SheetFile) -> Self {
+        KeptFile {
+            path: file.path.clone(),
+            size: file.size,
+            modified_ms: file.modified_ms,
+        }
+    }
+}
+
+/// What one analysis table is made of.
+enum Input {
+    /// Data files the engine reads: one, or a folder's of one format.
+    Files(Vec<DataFile>),
+    /// A sheet of a spreadsheet, with its rows when the spreadsheet was
+    /// just read, or why it could not be (the sheet is then empty).
+    Sheet {
+        file: SheetFile,
+        sheet: String,
+        read: Option<Result<RecordBatch, String>>,
+    },
+}
+
+impl Input {
+    fn kept_files(&self) -> Vec<KeptFile> {
+        match self {
+            Input::Files(files) => files.iter().map(KeptFile::from).collect(),
+            Input::Sheet { file, .. } => vec![KeptFile::from(file)],
+        }
+    }
+
+    fn paths(&self) -> Vec<String> {
+        match self {
+            Input::Files(files) => files.iter().map(|f| f.path.clone()).collect(),
+            Input::Sheet { file, .. } => vec![file.path.clone()],
+        }
+    }
+
+    fn sheet(&self) -> Option<String> {
+        match self {
+            Input::Files(_) => None,
+            Input::Sheet { sheet, .. } => Some(sheet.clone()),
+        }
+    }
+}
+
+/// A spreadsheet and its sheets, each with what reading it gave.
+type Book = (
+    SheetFile,
+    Vec<(String, Option<Result<RecordBatch, String>>)>,
+);
+
+/// A sheet's name for its table, or none (`None` when it is not shown).
+fn shown_sheet(sheet: Option<&String>) -> Option<String> {
+    sheet.filter(|s| !s.is_empty()).cloned()
+}
+
+/// The tables a collection's data files and spreadsheets make: a top-level
+/// file on its own; in a subfolder, the files of one format together,
+/// named after the folder (a lone file after itself); a spreadsheet's
+/// sheet, named after the file (`<file>_<sheet>` when it has several).
+/// Names are made unique; data files are named first.
+fn sources_of(files: Vec<DataFile>, books: Vec<Book>) -> Vec<(String, Input)> {
     let mut groups: BTreeMap<(String, String), Vec<DataFile>> = BTreeMap::new();
     for file in files {
         let folder = file
@@ -102,13 +170,7 @@ fn sources_of(files: Vec<DataFile>) -> Vec<(String, Vec<DataFile>)> {
     let mut groups: Vec<_> = groups.into_iter().collect();
     groups.sort_by_key(|((key, format), _)| (!format.is_empty(), key.clone()));
     let mut taken: Vec<String> = vec![inplace::FILES.to_string()];
-    let mut out = Vec::new();
-    for ((folder, _), files) in groups {
-        let base = if files.len() == 1 {
-            inplace::table_name(&files[0].path)
-        } else {
-            inplace::table_name(folder.rsplit('/').next().unwrap_or(&folder))
-        };
+    let mut unique = |base: String| {
         let mut name = base.clone();
         let mut n = 2;
         while taken.contains(&name) {
@@ -116,9 +178,70 @@ fn sources_of(files: Vec<DataFile>) -> Vec<(String, Vec<DataFile>)> {
             n += 1;
         }
         taken.push(name.clone());
-        out.push((name, files));
+        name
+    };
+    let mut out = Vec::new();
+    for ((folder, _), files) in groups {
+        let base = if files.len() == 1 {
+            inplace::table_name(&files[0].path)
+        } else {
+            inplace::table_name(folder.rsplit('/').next().unwrap_or(&folder))
+        };
+        out.push((unique(base), Input::Files(files)));
+    }
+    for (file, sheets) in books {
+        let several = sheets.len() > 1;
+        let stem = inplace::table_name(&file.path);
+        for (sheet, read) in sheets {
+            let base = if several {
+                inplace::name_for_table(&format!("{stem}_{sheet}"))
+            } else {
+                stem.clone()
+            };
+            let input = Input::Sheet {
+                file: file.clone(),
+                sheet,
+                read,
+            };
+            out.push((unique(base), input));
+        }
     }
     out
+}
+
+/// `batch` with the file its rows came from as a last column.
+fn with_source(batch: RecordBatch, path: &str) -> Result<(SchemaRef, RecordBatch), ApiError> {
+    let mut fields: Vec<Field> = batch
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| f.as_ref().clone())
+        .collect();
+    fields.push(Field::new(SOURCE_FILE, arrow_schema::DataType::Utf8, false));
+    let schema = Arc::new(Schema::new(fields));
+    let mut columns: Vec<ArrayRef> = batch.columns().to_vec();
+    columns.push(Arc::new(StringArray::from(vec![path; batch.num_rows()])));
+    let batch = RecordBatch::try_new(schema.clone(), columns).map_err(ApiError::internal)?;
+    Ok((schema, batch))
+}
+
+/// Every sheet of the spreadsheet `file` worth a table, read now.
+async fn read_book(file: &SheetFile) -> Result<Vec<(String, RecordBatch)>, String> {
+    let Some(local) = file.local.clone() else {
+        return Err(format!("{} can't be read right now", file.path));
+    };
+    if file.size > MAX_BOOK_BYTES {
+        return Err(format!(
+            "{} is larger than {} MB, the most a spreadsheet read for analysis may be",
+            file.path,
+            MAX_BOOK_BYTES / 1024 / 1024
+        ));
+    }
+    tokio::task::spawn_blocking(move || oikome_connect::sheets::read(&local))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|sheets| sheets.into_iter().map(|s| (s.name, s.batch)).collect())
+        .map_err(|e| e.to_string())
 }
 
 /// A string as a DuckDB literal: single quotes doubled (DuckDB reads no
@@ -157,15 +280,45 @@ impl Api {
         std::fs::rename(&tmp, &path).map_err(ApiError::internal)
     }
 
-    /// The folder collection `space`, its data files and what they make.
+    /// The folder collection `space`, its data files and spreadsheets and
+    /// what they make. A spreadsheet is read only when it is new or changed
+    /// since its tables were made; otherwise their sheets are as kept.
     async fn analysis_sources(
         &self,
         space: &str,
-    ) -> Result<(Space, Vec<(String, Vec<DataFile>)>), ApiError> {
+        kept: &Kept,
+    ) -> Result<(Space, Vec<(String, Input)>), ApiError> {
         let location = self.in_place_of(space)?;
         let space = self.catalog.get_space(space)?;
         let files = inplace::data_files(&self.catalog, &self.engines, &location).await?;
-        Ok((space, sources_of(files)))
+        let mut books = Vec::new();
+        for file in inplace::sheet_files(&self.catalog, &self.engines, &location).await? {
+            let now = vec![KeptFile::from(&file)];
+            let known: Vec<_> = kept
+                .tables
+                .values()
+                .filter(|table| table.files == now)
+                .filter_map(|table| table.sheet.clone())
+                .map(|sheet| (sheet, None))
+                .collect();
+            if !known.is_empty() {
+                books.push((file, known));
+                continue;
+            }
+            match read_book(&file).await {
+                // Nothing in it to analyze.
+                Ok(sheets) if sheets.is_empty() => {}
+                Ok(sheets) => {
+                    let sheets = sheets
+                        .into_iter()
+                        .map(|(sheet, batch)| (sheet, Some(Ok(batch))))
+                        .collect();
+                    books.push((file, sheets));
+                }
+                Err(e) => books.push((file, vec![(String::new(), Some(Err(e)))])),
+            }
+        }
+        Ok((space, sources_of(files, books)))
     }
 
     /// Read `files` into one table and keep it in Iceberg as
@@ -219,8 +372,48 @@ impl Api {
             let _ = engine.detach(scratch).await;
         }
         let (schema, batches) = read.map_err(|e| ApiError::invalid(e.to_string()))?;
-        let rows = batches.iter().map(|b| b.num_rows() as u64).sum();
+        self.write_table(space, name, &schema, &batches).await
+    }
 
+    /// A sheet of `file` as the table `name`: from the rows just read, or
+    /// read again.
+    async fn make_sheet_table(
+        &self,
+        space: &Space,
+        name: &str,
+        file: &SheetFile,
+        sheet: &str,
+        read: Option<Result<RecordBatch, String>>,
+    ) -> Result<u64, ApiError> {
+        let batch = match read {
+            Some(read) => read.map_err(ApiError::invalid)?,
+            None => read_book(file)
+                .await
+                .map_err(ApiError::invalid)?
+                .into_iter()
+                .find(|(name, _)| name == sheet)
+                .map(|(_, batch)| batch)
+                .ok_or_else(|| {
+                    ApiError::invalid(format!(
+                        "{} has no sheet {sheet} with anything in it",
+                        file.path
+                    ))
+                })?,
+        };
+        let (schema, batch) = with_source(batch, &file.path)?;
+        self.write_table(space, name, &schema, &[batch]).await
+    }
+
+    /// Keep `batches` in Iceberg as `<space>.<name>`, replacing what was
+    /// there. The row count.
+    async fn write_table(
+        &self,
+        space: &Space,
+        name: &str,
+        schema: &SchemaRef,
+        batches: &[RecordBatch],
+    ) -> Result<u64, ApiError> {
+        let rows = batches.iter().map(|b| b.num_rows() as u64).sum();
         let namespace = NamespaceIdent::new(space.name.clone());
         if !self
             .catalog
@@ -247,7 +440,7 @@ impl Api {
                 .map_err(ApiError::internal)?;
         }
         let iceberg_schema =
-            arrow_schema_to_schema_auto_assign_ids(&schema).map_err(ApiError::internal)?;
+            arrow_schema_to_schema_auto_assign_ids(schema).map_err(ApiError::internal)?;
         self.catalog
             .create_table(
                 &namespace,
@@ -271,7 +464,7 @@ impl Api {
         let mut written = Vec::new();
         for batch in batches.iter().filter(|b| b.num_rows() > 0) {
             written.push(
-                write_data_file(self.catalog.file_io(), &location, &schema, batch, &temp)
+                write_data_file(self.catalog.file_io(), &location, schema, batch, &temp)
                     .await
                     .map_err(ApiError::internal)?,
             );
@@ -303,8 +496,8 @@ impl Api {
     /// changed is made again, one whose files are gone is dropped; with
     /// `make_new`, tables not made yet are made too.
     async fn follow_files(&self, space: &str, make_new: bool) -> Result<FileAnalysis, ApiError> {
-        let (found, sources) = self.analysis_sources(space).await?;
         let mut kept = self.kept(space)?;
+        let (found, sources) = self.analysis_sources(space, &kept).await?;
         let mut changed = false;
         for name in kept.tables.keys().cloned().collect::<Vec<_>>() {
             if !sources.iter().any(|(source, _)| *source == name) {
@@ -313,9 +506,12 @@ impl Api {
                 changed = true;
             }
         }
-        for (name, files) in &sources {
-            let now: Vec<KeptFile> = files.iter().map(KeptFile::from).collect();
-            let entry = kept.tables.get(name);
+        let mut listed = Vec::new();
+        for (name, input) in sources {
+            let now = input.kept_files();
+            let sheet = input.sheet();
+            listed.push((name.clone(), input.paths(), sheet.clone()));
+            let entry = kept.tables.get(&name);
             let due = match entry {
                 Some(table) => table.files != now,
                 None => make_new,
@@ -324,10 +520,17 @@ impl Api {
                 continue;
             }
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
-            let made = self.make_table(&found, name, files).await;
+            let made = match input {
+                Input::Files(files) => self.make_table(&found, &name, &files).await,
+                Input::Sheet { file, sheet, read } => {
+                    self.make_sheet_table(&found, &name, &file, &sheet, read)
+                        .await
+                }
+            };
             let table = match made {
                 Ok(rows) => KeptTable {
                     files: now,
+                    sheet,
                     roles,
                     built_at_ms: crate::now_ms(),
                     rows,
@@ -335,13 +538,14 @@ impl Api {
                 },
                 Err(e) => KeptTable {
                     files: now,
+                    sheet,
                     roles,
                     built_at_ms: crate::now_ms(),
                     rows: 0,
                     problem: Some(e.to_string()),
                 },
             };
-            kept.tables.insert(name.clone(), table);
+            kept.tables.insert(name, table);
             changed = true;
         }
         if changed {
@@ -379,6 +583,7 @@ impl Api {
                 AnalysisTable {
                     name: name.clone(),
                     files: table.files.iter().map(|f| f.path.clone()).collect(),
+                    sheet: shown_sheet(table.sheet.as_ref()),
                     rows: table.rows,
                     fields,
                     built_at_ms: table.built_at_ms,
@@ -388,12 +593,13 @@ impl Api {
             .collect();
         Ok(FileAnalysis {
             space: space.to_string(),
-            sources: sources
+            sources: listed
                 .into_iter()
-                .filter(|(name, _)| !kept.tables.contains_key(name))
-                .map(|(name, files)| AnalysisSource {
+                .filter(|(name, _, _)| !kept.tables.contains_key(name))
+                .map(|(name, files, sheet)| AnalysisSource {
                     name,
-                    files: files.into_iter().map(|f| f.path).collect(),
+                    files,
+                    sheet: shown_sheet(sheet.as_ref()),
                 })
                 .collect(),
             tables,
@@ -600,24 +806,48 @@ mod tests {
 
     #[test]
     fn a_folder_of_files_is_one_table_and_a_top_file_its_own() {
-        let sources = sources_of(vec![
+        let files = vec![
             file("readings.csv", FileFormat::Csv),
             file("spending/2026-09.csv", FileFormat::Csv),
             file("spending/2026-10.csv", FileFormat::Csv),
             file("trips/2024/lisbon.parquet", FileFormat::Parquet),
             file("steps.jsonl", FileFormat::Json),
             file("other/readings.csv", FileFormat::Csv),
-        ]);
-        let names: Vec<(&str, usize)> =
-            sources.iter().map(|(n, f)| (n.as_str(), f.len())).collect();
+        ];
+        let book = |path: &str, sheets: &[&str]| {
+            let file = SheetFile {
+                path: path.into(),
+                size: 1,
+                modified_ms: 1,
+                local: None,
+            };
+            (file, sheets.iter().map(|s| (s.to_string(), None)).collect())
+        };
+        let sources = sources_of(
+            files,
+            vec![
+                book("Budget 2026.xlsx", &["Q1 (Jan–Mar)", "Q2"]),
+                book("money/steps.ods", &["Sheet1"]),
+            ],
+        );
+        let names: Vec<(&str, usize, Option<String>)> = sources
+            .iter()
+            .map(|(n, input)| (n.as_str(), input.paths().len(), input.sheet()))
+            .collect();
+        let sheet = |s: &str| Some(s.to_string());
         assert_eq!(
             names,
             vec![
-                ("readings", 1),
-                ("steps", 1),
-                ("readings_2", 1),
-                ("spending", 2),
-                ("lisbon", 1),
+                ("readings", 1, None),
+                ("steps", 1, None),
+                ("readings_2", 1, None),
+                ("spending", 2, None),
+                ("lisbon", 1, None),
+                // A workbook of several sheets: a table each, named after
+                // both; of one sheet, after the file.
+                ("budget_2026_q1_jan_mar", 1, sheet("Q1 (Jan–Mar)")),
+                ("budget_2026_q2", 1, sheet("Q2")),
+                ("steps_2", 1, sheet("Sheet1")),
             ]
         );
     }

@@ -41,9 +41,10 @@ function suggestedName(file: File): string {
 }
 
 /** Add folders or files to a collection. `origin` is the data source it
- * was opened from: File Import adds from this computer; RustFS adds a
- * folder of a bucket, viewed where it is as a collection of its own. With
- * none (Add Files in Collections) every place that can be viewed is offered. */
+ * was opened from: File Import adds from this computer or a storage; RustFS
+ * adds a folder of a bucket. A folder from a storage is viewed where it is,
+ * as a collection of its own or as a folder of an existing one. With none
+ * (Add Files in Collections) every place that can be viewed is offered. */
 export function AddFiles({
   target,
   origin,
@@ -79,8 +80,17 @@ export function AddFiles({
   const makingNew = !target && destination === NEW;
   const total = files.reduce((sum, file) => sum + file.size, 0);
   const duplicateNames = new Set(files.map((file) => file.name)).size !== files.length;
-  const collections = (spaces.data ?? []).filter(
-    (space) => space.kind !== "remote" && ((space.inPlace && !space.inPlace.place) || (!space.inPlace && space.kind === "analytical")),
+  // A whole folder joins a collection as files do.
+  const whole = source === "folder" && !target;
+  // A folder, rather than files, is added: it may come from any place and
+  // join any file collection, on this computer or a storage.
+  const folderJoins = mode === "reference" && (fromBucket || whole);
+  const collections = (spaces.data ?? []).filter((space) =>
+    space.kind === "remote"
+      ? false
+      : space.inPlace
+        ? !space.inPlace.place || folderJoins
+        : space.kind === "analytical" && !fromBucket,
   );
   const places = (storages.data ?? []).filter(
     (storage) =>
@@ -88,12 +98,20 @@ export function AddFiles({
       storage.name !== null &&
       (origin === undefined || (storage.type === "s3") === fromBucket),
   );
-  // From a bucket, the first RustFS is chosen until another is.
-  const currentPlace = !makingNew ? LOCAL : fromBucket ? (place || (places[0]?.name ?? LOCAL)) : place;
+  // A folder for a new or a file collection may come from a storage; from
+  // a bucket, the first RustFS is chosen until another is.
+  const chosen = collections.find((space) => space.name === destination);
+  const choosesPlace = mode === "reference" && (makingNew || fromBucket || (whole && Boolean(chosen?.inPlace)));
+  const currentPlace = !choosesPlace ? LOCAL : fromBucket ? (place || (places[0]?.name ?? LOCAL)) : place;
   const remote = places.find((storage) => storage.name === currentPlace);
   const noBucket = fromBucket && storages.data !== undefined && places.length === 0;
-  // A whole folder joins a collection as files do.
-  const whole = source === "folder" && !target;
+
+  // A collection that no longer takes what is being added is unchosen.
+  useEffect(() => {
+    if (spaces.data && destination !== "" && destination !== NEW && !collections.some((space) => space.name === destination)) {
+      setDestination("");
+    }
+  }, [spaces.data, destination, collections]);
 
   useEffect(() => {
     if (makingNew && !nameEdited && files[0]) setName(suggestedName(files[0]));
@@ -130,10 +148,10 @@ export function AddFiles({
       ? false
       : mode === "copy"
         ? (!makingNew || NAME.test(name)) && files.length > 0 && total <= MAX_IMPORT_BYTES
-        : fromBucket
-          ? currentPlace !== LOCAL
-          : makingNew && currentPlace !== LOCAL
-            ? true
+        : currentPlace !== LOCAL
+          ? true
+          : fromBucket
+            ? false
             : whole
               ? path !== undefined
               : originals.length > 0;
@@ -147,6 +165,9 @@ export function AddFiles({
         });
       }
       if (!makingNew) {
+        if (currentPlace !== LOCAL) {
+          return client.addInPlaceFolder({ space: destination, path: within.trim(), place: currentPlace });
+        }
         return whole
           ? client.addInPlaceFolder({ space: destination, path: path! })
           : client.addInPlaceFiles({ space: target?.space ?? destination, files: originals });
@@ -184,7 +205,7 @@ export function AddFiles({
             {s.noRustfs} <Link to="/settings">{strings.nav.settings}</Link>
           </p>
         )}
-        {fromBucket ? null : target ? (
+        {target ? (
           <p className="screen-path" translate="no">
             {target.label}
           </p>
@@ -218,7 +239,7 @@ export function AddFiles({
           ]}
         />
         )}
-        {mode === "reference" && makingNew && places.length > (fromBucket ? 1 : 0) && (
+        {choosesPlace && places.length > (fromBucket ? 1 : 0) && (
           <Select
             label={s.viewOn}
             value={currentPlace}
@@ -232,7 +253,7 @@ export function AddFiles({
             ]}
           />
         )}
-        {mode === "reference" && makingNew && currentPlace !== LOCAL ? (
+        {currentPlace !== LOCAL ? (
           <div className="oik-field">
             <span className="oik-field__label">{s.folderOn(remote?.label ?? currentPlace)}</span>
             <div className="screen-source-pick">
@@ -241,6 +262,9 @@ export function AddFiles({
               </span>
               <Button onClick={() => setBrowsing("place")}>{s.chooseFolder}</Button>
             </div>
+            {!makingNew && destination !== "" && (
+              <p className="screen-help">{s.joinsAsFolder(destination, remote?.label ?? currentPlace)}</p>
+            )}
           </div>
         ) : fromBucket ? null : mode === "reference" ? (
           <>

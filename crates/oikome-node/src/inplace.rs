@@ -197,6 +197,19 @@ pub enum Place {
         store: Box<RemoteStore>,
         label: String,
     },
+    /// The collection's own folder, and folders added to it later from
+    /// anywhere, each at a top-level folder of its own.
+    Several {
+        base: Box<Place>,
+        mounts: Vec<Mount>,
+    },
+}
+
+/// A folder added to a collection, and the top-level folder it appears as.
+#[derive(Clone, Debug)]
+pub struct Mount {
+    pub name: String,
+    pub place: Place,
 }
 
 impl Place {
@@ -205,20 +218,76 @@ impl Place {
         match self {
             Place::Local(path) => path.display().to_string(),
             Place::Remote { label, .. } => label.clone(),
+            Place::Several { base, .. } => base.label(),
         }
     }
 
-    /// Whether it can be reached now (briefly asked).
+    /// Whether it can be reached now (briefly asked). For several places,
+    /// the collection's own folder; each added folder is asked on its own.
     pub async fn reachable(&self) -> bool {
         match self {
-            Place::Local(path) => path.is_dir(),
+            // A folder, or a file added on its own.
+            Place::Local(path) => path.exists(),
             Place::Remote { store, .. } => {
                 matches!(
                     tokio::time::timeout(REACH_FOR, store.list_owned("")).await,
                     Ok(Ok(_))
                 )
             }
+            Place::Several { base, .. } => Box::pin(base.reachable()).await,
         }
+    }
+
+    /// The added folders that cannot be reached now, as path prefixes
+    /// (`name/`).
+    pub async fn away(&self) -> Vec<String> {
+        let Place::Several { mounts, .. } = self else {
+            return Vec::new();
+        };
+        let mut away = Vec::new();
+        for mount in mounts {
+            if !Box::pin(mount.place.reachable()).await {
+                away.push(format!("{}/", mount.name));
+            }
+        }
+        away
+    }
+
+    /// The single place a file is on, and its path there.
+    pub fn route<'a>(&'a self, path: &'a str) -> (&'a Place, &'a str) {
+        if let Place::Several { base, mounts } = self {
+            for mount in mounts {
+                if path == mount.name {
+                    return (&mount.place, "");
+                }
+                if let Some(rest) = path
+                    .strip_prefix(mount.name.as_str())
+                    .and_then(|rest| rest.strip_prefix('/'))
+                {
+                    return (&mount.place, rest);
+                }
+            }
+            return (base, path);
+        }
+        (self, path)
+    }
+
+    /// The file on this computer, when it is on this computer.
+    pub fn local_file(&self, path: &str) -> Option<PathBuf> {
+        match self.route(path) {
+            (Place::Local(root), rest) => Some(within(root, rest)),
+            _ => None,
+        }
+    }
+
+    /// The added folder a file is in, if it is in one.
+    pub fn mount_of(&self, path: &str) -> Option<&Mount> {
+        let Place::Several { mounts, .. } = self else {
+            return None;
+        };
+        mounts
+            .iter()
+            .find(|m| path == m.name || path.starts_with(&format!("{}/", m.name)))
     }
 
     /// `range` of the file at `path` (relative, `/`-separated), at most `max`
@@ -230,10 +299,12 @@ impl Place {
         max: u64,
     ) -> Result<Vec<u8>, SessionError> {
         check_owner_path(path).map_err(io)?;
-        match self {
+        let (place, path) = self.route(path);
+        match place {
+            Place::Several { .. } => Err(io("a folder of several places has no single file here")),
             Place::Local(root) => {
                 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-                let full = root.join(path);
+                let full = within(root, path);
                 let meta = tokio::fs::symlink_metadata(&full).await.map_err(io)?;
                 if !meta.is_file() {
                     return Err(io(format!("{path} is not a file")));
@@ -268,16 +339,46 @@ pub fn place_of(
     engines: &EngineRegistry,
     location: &Location,
 ) -> Result<Place, SessionError> {
-    let LocationFormat::InPlace { place, path, .. } = &location.format else {
+    let LocationFormat::InPlace {
+        place,
+        path,
+        sources,
+    } = &location.format
+    else {
         return Err(SessionError::Unsupported(format!(
             "location '{}' is not a folder viewed in place",
             location.id
         )));
     };
-    let Some(storage) = place else {
-        return Ok(Place::Local(PathBuf::from(path)));
+    let base = match place {
+        None => Place::Local(PathBuf::from(path)),
+        Some(storage) => place_on(catalog, engines, storage, path)?,
     };
-    place_on(catalog, engines, storage, path)
+    let mounts: Vec<Mount> = sources
+        .iter()
+        .flatten()
+        .filter_map(|source| {
+            let name = source.mount.clone()?;
+            let place = match &source.place {
+                None => Place::Local(PathBuf::from(&source.root)),
+                Some(storage) => {
+                    place_on(catalog, engines, storage, &source.root).unwrap_or_else(|e| {
+                        // A storage removed since: its folder cannot be reached.
+                        tracing::warn!(storage, error = %e, "a mounted folder's storage");
+                        Place::Local(PathBuf::new())
+                    })
+                }
+            };
+            Some(Mount { name, place })
+        })
+        .collect();
+    if mounts.is_empty() {
+        return Ok(base);
+    }
+    Ok(Place::Several {
+        base: Box::new(base),
+        mounts,
+    })
 }
 
 /// The folder `path` on the storage `storage`, to view or to browse.
@@ -562,58 +663,156 @@ fn walk_local_selected(
     Ok(out)
 }
 
+/// Every file of one folder, or of its selected files.
+async fn walk_one(
+    place: &Place,
+    files: Option<&[String]>,
+) -> Result<BTreeMap<String, Listed>, SessionError> {
+    match place {
+        Place::Local(root) => {
+            let root = root.clone();
+            let files = files.map(<[String]>::to_vec);
+            tokio::task::spawn_blocking(move || match files {
+                Some(files) => walk_local_selected(&root, &files),
+                None => walk_local(&root),
+            })
+            .await
+            .map_err(io)?
+        }
+        Place::Remote { store, .. } => {
+            let mut all = walk_remote(store).await?;
+            if let Some(files) = files {
+                all.retain(|path, _| files.iter().any(|f| f == path));
+            }
+            Ok(all)
+        }
+        Place::Several { base, .. } => Box::pin(walk_one(base, files)).await,
+    }
+}
+
+/// What the index knew under `prefix/` last time: an added folder that
+/// cannot be reached keeps its files listed, as a whole folder does.
+fn indexed_under(dir: &Path, prefix: &str) -> Result<BTreeMap<String, Listed>, SessionError> {
+    let conn = open_index(dir)?;
+    let mut stmt = conn
+        .prepare("SELECT path, size, modified_ms FROM files WHERE substr(path, 1, ?2) = ?1")
+        .map_err(sql)?;
+    let start = format!("{prefix}/");
+    let rows = stmt
+        .query_map(params![start, start.chars().count() as i64], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                Listed {
+                    size: u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    modified_ms: r.get::<_, i64>(2)?,
+                },
+            ))
+        })
+        .map_err(sql)?
+        .collect::<Result<BTreeMap<_, _>, _>>()
+        .map_err(sql);
+    rows
+}
+
 async fn walk(
     place: &Place,
     location: &Location,
+    dir: &Path,
 ) -> Result<BTreeMap<String, Listed>, SessionError> {
     let LocationFormat::InPlace { sources, .. } = &location.format else {
         return Err(io("not a folder viewed in place"));
     };
-    let Some(sources) = sources else {
-        return match place {
-            Place::Local(root) => {
-                let root = root.clone();
-                tokio::task::spawn_blocking(move || walk_local(&root))
-                    .await
+    let base = match place {
+        Place::Several { base, .. } => base.as_ref(),
+        place => place,
+    };
+    let own: Vec<_> = sources
+        .iter()
+        .flatten()
+        .filter(|source| source.mount.is_none())
+        .collect();
+    let mut out = if own.is_empty() {
+        walk_one(base, None).await?
+    } else {
+        let Place::Local(common) = base else {
+            return Err(io(
+                "multiple file references are available only on this computer",
+            ));
+        };
+        let mut out = BTreeMap::new();
+        for source in own {
+            let root = PathBuf::from(&source.root);
+            let listed = walk_one(&Place::Local(root.clone()), source.files.as_deref()).await?;
+            for (relative, file) in listed {
+                let full = root.join(relative);
+                let path = full
+                    .strip_prefix(common)
                     .map_err(io)?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.insert(path, file);
             }
-            Place::Remote { store, .. } => walk_remote(store).await,
-        };
+        }
+        out
     };
-    let Place::Local(common) = place else {
-        return Err(io(
-            "multiple file references are available only on this computer",
-        ));
-    };
-    let mut out = BTreeMap::new();
-    for source in sources {
-        let root = PathBuf::from(&source.root);
-        let listed = match &source.files {
-            Some(files) => {
-                let root = root.clone();
-                let files = files.clone();
-                tokio::task::spawn_blocking(move || walk_local_selected(&root, &files))
-                    .await
-                    .map_err(io)??
+    if let Place::Several { mounts, .. } = place {
+        for mount in mounts {
+            let files = sources
+                .iter()
+                .flatten()
+                .find(|s| s.mount.as_deref() == Some(mount.name.as_str()))
+                .and_then(|s| s.files.clone());
+            // A file added on its own is listed under its name; a folder
+            // no one can reach now keeps what it had.
+            let file = match &mount.place {
+                Place::Local(path) => std::fs::metadata(path).ok().filter(|m| m.is_file()),
+                _ => None,
+            };
+            let listed = if let Some(meta) = file {
+                BTreeMap::from([(
+                    mount.name.clone(),
+                    Listed {
+                        size: meta.len(),
+                        modified_ms: meta.modified().map(millis).unwrap_or(0),
+                    },
+                )])
+            } else if mount.place.reachable().await {
+                match walk_one(&mount.place, files.as_deref()).await {
+                    Ok(listed) => listed
+                        .into_iter()
+                        .map(|(path, file)| (format!("{}/{path}", mount.name), file))
+                        .collect(),
+                    Err(e) => {
+                        tracing::warn!(mount = %mount.name, error = %e, "reading an added folder");
+                        indexed_under(dir, &mount.name)?
+                    }
+                }
+            } else {
+                indexed_under(dir, &mount.name)?
+            };
+            // An added folder owns its name: a folder of the same name that
+            // appears in the collection's own folder later is not shown, as
+            // its files could not be told apart.
+            let start = format!("{}/", mount.name);
+            let before = out.len();
+            out.retain(|path, _| *path != mount.name && !path.starts_with(&start));
+            if out.len() != before {
+                tracing::warn!(mount = %mount.name, "a folder of the same name as an added folder is hidden");
             }
-            None => {
-                let root = root.clone();
-                tokio::task::spawn_blocking(move || walk_local(&root))
-                    .await
-                    .map_err(io)??
-            }
-        };
-        for (relative, file) in listed {
-            let full = root.join(relative);
-            let path = full
-                .strip_prefix(common)
-                .map_err(io)?
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.insert(path, file);
+            out.extend(listed);
         }
     }
     Ok(out)
+}
+
+/// `rest` under `root`; a file added on its own is its root, with nothing
+/// after it.
+fn within(root: &Path, rest: &str) -> PathBuf {
+    if rest.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(rest)
+    }
 }
 
 fn folder_of(path: &str) -> &str {
@@ -1147,13 +1346,17 @@ pub async fn refresh(
     let dir = catalog.index_dir(location);
     let lock = lock_for(&dir);
     let _held = lock.lock().await;
+    // As the collection is now: a scan started before a folder or file was
+    // added to it (the first, in the background) must not drop it.
+    let current = catalog.get_location(&location.id).ok();
+    let location = current.as_ref().unwrap_or(location);
     let place = place_of(catalog, engines, location)?;
     let reachable = place.reachable().await;
     remember_reachable(&dir, reachable);
     let mut changed = false;
     let mut read = 0;
     if reachable {
-        let listed = walk(&place, location).await?;
+        let listed = walk(&place, location, &dir).await?;
         let dir_owned = dir.clone();
         changed = tokio::task::spawn_blocking(move || {
             let mut conn = open_index(&dir_owned)?;
@@ -1200,7 +1403,13 @@ pub struct Bound {
 /// A table name for a data file: its name without the extension, in
 /// lowercase letters, digits and `_`.
 pub fn table_name(file: &str) -> String {
-    let stem = stem_of(file).to_lowercase();
+    name_for_table(&stem_of(file))
+}
+
+/// `text` (a file's stem, a sheet's name) as a table's name: lower case,
+/// letters, digits and `_`, not starting with a digit.
+pub fn name_for_table(text: &str) -> String {
+    let stem = text.to_lowercase();
     let mut out = String::new();
     for c in stem.chars() {
         if c.is_ascii_alphanumeric() {
@@ -1235,6 +1444,71 @@ pub struct DataFile {
     pub modified_ms: i64,
     pub format: FileFormat,
     pub local: Option<PathBuf>,
+}
+
+/// A spreadsheet of a folder viewed in place, read for its sheets: on this
+/// computer where it is, a NAS's or a bucket's through the cache. `local` is
+/// `None` when it cannot be read now.
+#[derive(Debug, Clone)]
+pub struct SheetFile {
+    pub path: String,
+    pub size: u64,
+    pub modified_ms: i64,
+    pub local: Option<PathBuf>,
+}
+
+/// Every spreadsheet (xlsx, xlsm, xls, xlsb, ods) of a folder viewed in
+/// place, in every subfolder.
+pub async fn sheet_files(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    location: &Location,
+) -> Result<Vec<SheetFile>, SessionError> {
+    let dir = catalog.index_dir(location);
+    let rows = tokio::task::spawn_blocking(move || {
+        let conn = open_index(&dir)?;
+        let mut stmt = conn
+            .prepare("SELECT path, size, modified_ms FROM files WHERE kind = ?1 ORDER BY path")
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(params![OTHER], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    r.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(sql)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sql)?;
+        Ok::<_, SessionError>(rows)
+    })
+    .await
+    .map_err(io)??;
+    let place = place_of(catalog, engines, location)?;
+    let reachable = place.reachable().await;
+    let mut out = Vec::new();
+    for (path, size, modified_ms) in rows {
+        if !oikome_connect::sheets::is_spreadsheet(&path) {
+            continue;
+        }
+        let local = if !reachable {
+            None
+        } else if let Some(file) = place.local_file(&path) {
+            Some(file)
+        } else {
+            cached(catalog, location, &place, &path, size, modified_ms)
+                .await
+                .ok()
+        };
+        out.push(SheetFile {
+            path,
+            size,
+            modified_ms,
+            local,
+        });
+    }
+    Ok(out)
 }
 
 /// Every readable data file (CSV, TSV, Parquet, JSON Lines) of a folder
@@ -1279,13 +1553,15 @@ pub async fn data_files(
         else {
             continue;
         };
-        let local = match &place {
-            _ if !reachable => None,
-            Place::Local(root) => Some(root.join(&path)).filter(|file| safe_for_sql(file)),
-            Place::Remote { .. } => cached(catalog, location, &place, &path, size, modified_ms)
+        let local = if !reachable {
+            None
+        } else if let Some(file) = place.local_file(&path) {
+            Some(file).filter(|file| safe_for_sql(file))
+        } else {
+            cached(catalog, location, &place, &path, size, modified_ms)
                 .await
                 .ok()
-                .filter(|file| safe_for_sql(file)),
+                .filter(|file| safe_for_sql(file))
         };
         out.push(DataFile {
             path,
@@ -1377,22 +1653,19 @@ pub async fn bound(
                 message: format!("{} can't be reached right now", place.label()),
             }
         } else {
-            match &place {
-                Place::Local(root) => {
-                    let file = root.join(&path);
+            match place.local_file(&path) {
+                Some(file) => {
                     if !safe_for_sql(&file) {
                         continue;
                     }
                     TableSource::File { path: file, format }
                 }
-                Place::Remote { .. } => {
-                    match cached(catalog, location, &place, &path, size, modified_ms).await {
-                        Ok(file) => TableSource::File { path: file, format },
-                        Err(e) => TableSource::Unavailable {
-                            message: e.to_string(),
-                        },
-                    }
-                }
+                None => match cached(catalog, location, &place, &path, size, modified_ms).await {
+                    Ok(file) => TableSource::File { path: file, format },
+                    Err(e) => TableSource::Unavailable {
+                        message: e.to_string(),
+                    },
+                },
             }
         };
         taken.insert(name.clone());
@@ -1934,6 +2207,23 @@ pub(crate) fn indexed_files(
 }
 
 /// One file of a folder viewed in place, with all of a note's text.
+/// The names at the top of a folder viewed in place, files and folders,
+/// as the index knows them: an added folder takes a name not among them.
+pub fn top_names(
+    catalog: &OikomeCatalog,
+    location: &Location,
+) -> Result<BTreeSet<String>, SessionError> {
+    let conn = open_index(&catalog.index_dir(location))?;
+    let mut stmt = conn.prepare("SELECT path FROM files").map_err(sql)?;
+    let names = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(sql)?
+        .filter_map(Result::ok)
+        .filter_map(|path| path.split('/').next().map(str::to_string))
+        .collect();
+    Ok(names)
+}
+
 pub fn file(
     catalog: &OikomeCatalog,
     location: &Location,
@@ -1974,14 +2264,13 @@ pub async fn file_rows(
         .and_then(FileFormat::of_extension)
         .ok_or_else(|| SessionError::Unsupported(format!("{path} is not a table to view")))?;
     let place = place_of(catalog, engines, location)?;
-    if !place.reachable().await {
-        return Err(offline(&place.label()));
+    let (on, _) = place.route(path);
+    if !on.reachable().await {
+        return Err(offline(&on.label()));
     }
-    let local = match &place {
-        Place::Local(root) => root.join(path),
-        Place::Remote { .. } => {
-            cached(catalog, location, &place, path, file.size, file.modified_ms).await?
-        }
+    let local = match place.local_file(path) {
+        Some(local) => local,
+        None => cached(catalog, location, &place, path, file.size, file.modified_ms).await?,
     };
     let name = file.name.clone();
     tokio::task::spawn_blocking(move || {

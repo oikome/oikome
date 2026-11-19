@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { crc32 } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import { BIN, ENV, oikome } from "./node.mjs";
@@ -47,6 +48,106 @@ function write(root, path, contents) {
   if (!file.startsWith(resolve(root) + "/")) throw new Error(`Invalid acceptance path ${path}`);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, contents);
+}
+
+/** A zip of `entries` ({name: text}), stored as is, as office files are
+ * zips; only what a reader needs. */
+function storedZip(entries) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(name, "utf8");
+    const data = Buffer.from(text, "utf8");
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(0, 10);
+    local.writeUInt16LE(0x21, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    local.writeUInt16LE(0, 28);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(20, 6);
+    header.writeUInt16LE(0x0800, 8);
+    header.writeUInt16LE(0, 10);
+    header.writeUInt16LE(0, 12);
+    header.writeUInt16LE(0x21, 14);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(data.length, 20);
+    header.writeUInt32LE(data.length, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    parts.push(local, nameBytes, data);
+    central.push(header, nameBytes);
+    offset += local.length + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(Object.keys(entries).length, 8);
+  end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...parts, directory, end]);
+}
+
+/** An Excel workbook as Excel saves one: `sheets` maps a sheet's name to
+ * its rows, each a list of cells already in Excel's XML (text inline, dates
+ * in style 1, Excel's short date, formulas with the values last
+ * calculated). */
+function xlsx(sheets) {
+  const main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+  const rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const names = Object.keys(sheets);
+  const entries = {
+    "[Content_Types].xml":
+      `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
+      names.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") +
+      "</Types>",
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="${main}" xmlns:r="${rel}"><sheets>${names.map((name, i) => `<sheet name="${name}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels":
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+      names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") +
+      `<Relationship Id="rId${names.length + 1}" Type="${rel}/styles" Target="styles.xml"/></Relationships>`,
+    "xl/styles.xml": `<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="${main}"><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>`,
+  };
+  names.forEach((name, i) => {
+    const rows = sheets[name].map((cells, r) => `<row r="${r + 1}">${cells.join("")}</row>`).join("");
+    entries[`xl/worksheets/sheet${i + 1}.xml`] = `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${main}"><sheetData>${rows}</sheetData></worksheet>`;
+  });
+  return storedZip(entries);
+}
+
+/** A household's utility bills as the owner keeps them in Excel: a sheet
+ * per utility, the cost a formula of the use. */
+function utilities() {
+  const text = (ref, value) => `<c r="${ref}" t="inlineStr"><is><t>${value}</t></is></c>`;
+  // 1 September, October and November 2026 as Excel's day numbers.
+  const months = [46266, 46296, 46327];
+  const sheet = (unit, price, uses) => [
+    [text("A1", "Month"), text("B1", unit), text("C1", "Cost")],
+    ...uses.map((use, i) => {
+      const r = i + 2;
+      return [
+        `<c r="A${r}" s="1"><v>${months[i]}</v></c>`,
+        `<c r="B${r}"><v>${use}</v></c>`,
+        `<c r="C${r}"><f>B${r}*${price}</f><v>${Number((use * price).toFixed(4))}</v></c>`,
+      ];
+    }),
+  ];
+  return xlsx({
+    Electricity: sheet("kWh", 0.21, [182, 205, 241]),
+    Water: sheet("m3", 2.35, [7.4, 6.9, 7.1]),
+  });
 }
 
 function writeWav(root) {
@@ -233,6 +334,7 @@ function generateFiles(root) {
     steps.push(JSON.stringify({ date: `2026-11-${String(day).padStart(2, "0")}`, steps: 5200 + ((day * 977) % 6400), city: day % 6 === 0 ? "Porto" : "Lisbon" }));
   }
   write(root, "household/steps.jsonl", steps.join("\n") + "\n");
+  write(root, "household/utilities.xlsx", utilities());
   // A reading list kept in the folder a cloud drive's client syncs.
   write(root, "drive-sync/Oikome/reading-list/books.csv", "title,author,status,finished\nThe Book of Disquiet,Fernando Pessoa,Reading,\nBlindness,José Saramago,Read,2026-08-14\nPereira Maintains,Antonio Tabucchi,Next,\n");
 }
@@ -246,6 +348,9 @@ async function fillBucket(rustfs) {
     "archive/tickets/2024/Tram 28E.txt": "Carris · Tram 28E · Martim Moniz → Campo de Ourique · 2024-05-11 · EUR 3.10\n",
     "archive/tickets/2024/prices.csv": "date,line,price\n2024-05-11,28E,3.10\n2024-05-12,15E,3.10\n2024-05-13,Metro,1.85\n",
     "archive/README.md": "# Archive\n\nScans and tickets kept on RustFS. Oikome views this folder where it is.\n",
+    // Last year's receipts, moved off the computer to the bucket.
+    "household/receipts-2024/receipts.csv":
+      "date,category,amount,shop\n2024-10-03,Groceries,41.20,Pingo Doce\n2024-10-17,Books,18.90,Bertrand\n2024-11-05,Groceries,36.75,Mercado de Campo de Ourique\n2024-12-12,Eating out,27.40,Cervejaria Ramiro\n",
   };
   for (const [key, contents] of Object.entries(files)) await putObject(rustfs, "acceptance", key, contents);
 }
@@ -336,6 +441,9 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     });
     // The folder in the bucket, as the RustFS data source adds it.
     await call("view_in_place", { place: object.name, path: "archive", name: "rustfs-archive" });
+    // Last year's receipts in the bucket, added to the household's own
+    // collection by reference: a folder of it, read where it is.
+    await call("add_in_place_folder", { space: "household", path: "household/receipts-2024", place: object.name });
 
     await call("add_contact", { did: peerDid, name: "Acceptance Peer" });
     return call("share_space", { space: "photos", did: peerDid });

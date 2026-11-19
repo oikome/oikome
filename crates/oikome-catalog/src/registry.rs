@@ -670,6 +670,59 @@ impl OikomeCatalog {
         })
     }
 
+    /// Add a folder from anywhere to an existing file collection as the
+    /// top-level folder `source.mount`, leaving every other path as it is.
+    pub fn add_in_place_mount(
+        &self,
+        name: &str,
+        source: InPlaceSource,
+    ) -> Result<Location, CatalogError> {
+        let Some(mount) = source.mount.clone() else {
+            return Err(CatalogError::Registry(
+                "a mounted folder needs its name".to_string(),
+            ));
+        };
+        self.mutate_registry(|reg| {
+            let space = reg
+                .spaces
+                .get(name)
+                .ok_or_else(|| CatalogError::SpaceNotFound(name.to_string()))?;
+            let location = reg
+                .locations
+                .get_mut(&space.location)
+                .ok_or_else(|| CatalogError::LocationNotFound(space.location.clone()))?;
+            let LocationFormat::InPlace {
+                place,
+                path,
+                sources,
+            } = &mut location.format
+            else {
+                return Err(CatalogError::Registry(format!(
+                    "space '{name}' is not a file collection"
+                )));
+            };
+            let list = sources.get_or_insert_with(|| {
+                // A single local root becomes the collection's one own root;
+                // a storage's root stays the Location's own.
+                if place.is_none() {
+                    vec![InPlaceSource::local(path.clone(), None)]
+                } else {
+                    Vec::new()
+                }
+            });
+            if list
+                .iter()
+                .any(|s| s.mount.as_deref() == Some(mount.as_str()))
+            {
+                return Err(CatalogError::Registry(format!(
+                    "'{mount}' is already a folder of '{name}'"
+                )));
+            }
+            list.push(source);
+            Ok(location.clone())
+        })
+    }
+
     /// Look up a Location by id.
     pub fn get_location(&self, id: &str) -> Result<Location, CatalogError> {
         self.with_registry(|reg| {

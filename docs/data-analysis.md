@@ -76,11 +76,11 @@ Safe additive changes can be accepted automatically. Type widening is allowed wh
 
 Delivered as the first concrete form of "Generate analysis data" for files:
 
-- **What becomes a table.** Every CSV, TSV, Parquet and JSON Lines file of a folder collection, at any depth (captions files excepted). A top-level file is a table of its own, named after the file; the files of one format in one subfolder are read as one table, named after the folder, with `UNION ALL BY NAME`. Names are made unique; top-level files keep their own.
+- **What becomes a table.** Every CSV, TSV, Parquet and JSON Lines file of a folder collection, at any depth (captions files excepted), and each visible, non-empty sheet of its spreadsheets (xlsx, xlsm, xls, xlsb, ods; PR 29), named `<file>_<sheet>`, or after the file when it has one such sheet. A top-level file is a table of its own, named after the file; the files of one format in one subfolder are read as one table, named after the folder, with `UNION ALL BY NAME`. Names are made unique; top-level files keep their own.
 - **Where it is kept.** An Iceberg table in the node's catalog under the namespace named after the collection, whatever the collection's own location; binding a folder collection attaches these tables beside its file tables and lets one stand in for the file table of the same name. Each row carries `_source_file`.
 - **Following the files.** The size and modification time of each file are kept with the table (`.oikome/analysis/<collection>.json`, with the owner's role corrections). When the folder is read again and they differ, the table is made again whole; when its files are gone, it is dropped. Removing the collection drops its tables and the namespace.
 - **Roles.** Proposed from names and types (time, amount, category, title, key, other), corrected per column by the owner; the summary sums the Amount column by month and by category, or counts rows.
-- **Not yet.** Excel sheets, photo metadata and note front matter as tables; tables joining files across folders; aggregations other than sum and count.
+- **Not yet.** Photo metadata and note front matter as tables; tables joining files across folders; aggregations other than sum and count.
 
 ## Delivery order
 
@@ -91,7 +91,7 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 5. **PR 28:** data sources as plugins and analysis tables of a folder collection's files (above). K1 and K2 of knowledge landed with PR 27.
 6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
 7. **PR 30–31:** backup and restore, then read-only Iceberg/Lance/Parquet datasets and deliberate migration.
-8. **PR 32–33:** media recognition (knowledge K4), then the plugin sandbox and RAW previews.
+8. **PR 32:** the plugin sandbox and RAW previews. Media recognition (knowledge K4) is not planned (2026-11-19).
 9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
 
 Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.

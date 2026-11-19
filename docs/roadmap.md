@@ -114,13 +114,13 @@ Remembered source-save and overwrite confirmations live in `.oikome/node.json`, 
 
 ## Order after PR 28 (agreed 2026-11-18)
 
-D (finish file sources) → E (backup and restore, then read-only datasets) → C (media recognition, then RAW). A (freer analysis through a third-party library in a plugin) and B (tables as knowledge, K3) follow. The research behind each stage, with sources, is in [`research/next-phases.md`](research/next-phases.md). Each stage's open decisions are listed with it and are settled at the start of that PR.
+D (finish file sources) → E (backup and restore, then read-only datasets) → C (the plugin sandbox and RAW previews). A (freer analysis through a third-party library in a plugin) and B (tables as knowledge, K3) follow. Media recognition (knowledge K4) was taken out of the plan on 2026-11-19; see Not planned below. The research behind each stage, with sources, is in [`research/next-phases.md`](research/next-phases.md). Each stage's open decisions are listed with it and are settled at the start of that PR.
 
 ## PR 29: file sources across places, CSV sources as files, Excel (D)
 
-- **Folders from several places in one collection.** A RustFS folder (and a NAS or drive folder) joins an existing collection by reference, as a local folder does: `InPlaceSource` gains the storage it is on. Local roots keep their paths; each remote root appears as a top-level folder named after itself, numbered on a clash. Reads, the cache, previews, analysis and knowledge resolve the place per root; a remote root that cannot be reached shows its files unavailable while the rest keep working. The RustFS data source offers an existing collection as well as a new one.
-- **CSV sources to files.** A registered CSV source's page offers Convert to File: the file joins a file collection the owner chooses, by reference, its analysis table is made, and the source stops. The old table collection stays until the owner removes it; the dialog says its shares and grants do not move.
-- **Excel.** xlsx, xls, xlsb and ods files become analysis tables, one per sheet (`<file>_<sheet>`), read with calamine (MIT); the NOTICE and `cargo deny` record it.
+- **Folders from several places in one collection.** A RustFS folder (and a NAS or drive folder) joins an existing collection by reference, as a local folder does: `InPlaceSource` gains the storage it is on. Local roots keep their paths; each remote root appears as a top-level folder named after itself, numbered on a clash. Reads, the cache, previews, analysis and knowledge resolve the place per root; a remote root that cannot be reached shows its files unavailable while the rest keep working. The RustFS data source, and File Import for a whole folder, offer an existing collection as well as a new one. An added folder is read where it is and is not edited or copied into from Oikome; knowledge waits for one that is away instead of marking its files failed. Removing an added folder from a collection is not offered yet (nor for local folders).
+- **CSV sources to files.** A registered CSV source's page offers Convert to File: the file joins a file collection the owner chooses, by reference, its analysis table is made, and the source stops. The old table collection stays until the owner removes it; the dialog says its shares and grants do not move. Done as: into an existing file collection the file appears at its top under its own name (numbered on a clash, the other paths unchanged), or a new collection holds just the file; the collection's analysis tables are made, the file's among them.
+- **Excel.** xlsx, xls, xlsb and ods files become analysis tables, one per sheet (`<file>_<sheet>`), read with calamine (MIT); the NOTICE and `cargo deny` record it. Done as: xlsm too; visible worksheets with anything in them (hidden and empty sheets make no table); the first row with anything in it names the columns; formulas give the values last saved; a column of dates is dates, of numbers numbers, any other mix text; a workbook of one such sheet makes one table named after the file; a workbook is read again only when it changes, and one over 64 MB is not read.
 - Validation: a collection with a local folder and a RustFS folder (browse, open, search, analyze, one place offline), restart and re-index without moving existing paths, Convert to File with a shared CSV collection, real Excel files (dates, formulas' values, several sheets, an empty sheet), and the acceptance workspace.
 
 ## PR 30: backup and restore (E1)
@@ -139,18 +139,7 @@ D (finish file sources) → E (backup and restore, then read-only datasets) → 
 - REST catalogs come later. Moving from DuckDB 1.5 (supported until March 2027) to 2.0 is its own step.
 - Validation: real datasets of each kind locally and on RustFS (RustFS with `httpfs` is to be tested), offline behavior, snapshot pinning, grants on connected tables, and a migration checked against its source.
 
-## PR 32: media recognition (C1, knowledge K4)
-
-The schema is in [`knowledge-schema.md`](knowledge-schema.md) (`media` dataset; OCR and transcript chunks pointing into the media by box or time). Every model is chosen by the owner, downloaded with progress from a pinned revision checked against SHA-256, and runs on this computer.
-
-- **Speech to text** for audio and video: Whisper large-v3-turbo (MIT) in candle, on a Mac's GPU, with Whisper small as the faster choice without a GPU; candle's Whisper on Metal is measured before the default is fixed. Qwen3-ASR (Apache-2.0, better Chinese) is the later upgrade once it runs in candle.
-- **Text in images and scans:** Apple Vision on macOS (no download); PP-OCRv5 mobile (Apache-2.0, ~21 MB) through ONNX Runtime on Windows and Linux.
-- **Image search:** SigLIP 2 base (Apache-2.0) in candle; Qwen3-VL-Embedding-2B if Chinese queries need it.
-- Results join the collection's index: one search finds what is written on a photo and what is said in a recording, with the place in the original.
-- Validation: real Chinese and English recordings and scans, timing on a Mac and on a CPU-only computer, model download consent and resume, rebuild after a model change, MCP search over transcripts and OCR.
-- To settle at the start: the default speech model, and adding ONNX Runtime for OCR outside macOS.
-
-## PR 33: plugin sandbox and RAW previews (C2)
+## PR 32: plugin sandbox and RAW previews (C)
 
 - **A sandbox for plugin code:** wasmtime (Apache-2.0) with the component model; each call gets its own store with a memory limit and an epoch deadline, no network or environment, and reads exactly one granted file through a host interface. Preview declarations (PR 24) become executable through it.
 - **Plugin pages on origins of their own.** Each plugin's page is served from an origin of its own (a name per plugin on this computer; another port when the app is opened by address from another device) instead of an opaque sandbox origin, so module workers and modern libraries run, while it still cannot reach the app's cookies or API and its CSP still forbids the network. Plugins stay apart from each other.
@@ -158,10 +147,14 @@ The schema is in [`knowledge-schema.md`](knowledge-schema.md) (`media` dataset; 
 - **RAW previews** as an official plugin: most RAW files embed a full-size JPEG, extracted by a small permissively licensed reader (TIFF-based CR2, NEF, ARW, DNG, ORF, PEF; CR3; RAF). Every Rust RAW decoder found is LGPL or GPL, so none enters the core; a full decode, if ever needed, stays inside the plugin.
 - Validation: real RAW samples from several makers, resource limits and failure isolation, package size, and a plugin that tries to read another file or reach the network.
 
-## After PR 33
+## After PR 32
 
 - **A — BI on the node's DuckDB.** All analysis is SQL executed by Oikome's DuckDB behind one SQL gateway (the caller's principal, queries only, the semantic layer's grant and row-policy rewrite, only granted tables listed, time and memory limits, the access log); every way in is a door in front of it. First door: **Perspective as Oikome's own component in the Analysis view** (grid, pivot, filters, aggregates and charts), with an executor in the node that runs Perspective's generated SQL as single read-only queries (its temporary views kept per session, never created in DuckDB) — proven in the 2026-11-19 spike, see `research/next-phases.md` §5. Assistants make views over MCP as Perspective view configurations (JSON) that Oikome renders, so the expressive power of charts made for the owner is Perspective's. Later doors, each only after its own spike: Quack once Oikome and the client are on DuckDB 2.0 (Superset through duckdb-engine), or the PostgreSQL wire protocol for BI products that need it; Superset can then be a bundled companion. Starts with the app-CSP review (WebAssembly compilation, `blob:` workers) and a design for the owner. A and B can be one stage.
 - **B — tables as knowledge (K3).** Analysis tables gain units and `measure`, `text` and `place` roles; text columns become `table_row` chunks; assistants get read-only `query_table`.
+
+## Not planned
+
+- **Media recognition (knowledge K4)**: speech to text for audio and video, text in images and scans, and image search. Taken out of the plan on 2026-11-19 and left undecided for later. The models compared and the `media` schema stay in [`research/next-phases.md`](research/next-phases.md) §3 and [`knowledge-schema.md`](knowledge-schema.md), so it can be taken up again without new research.
 
 ## Open decisions (2026-11-19)
 

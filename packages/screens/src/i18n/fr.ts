@@ -279,6 +279,16 @@ export const fr: Strings = {
       `${p.name} est partagée avec vous. Un plugin ne lit que vos propres collections.`,
     storage_s3_incomplete: "RustFS demande son adresse, son bucket, sa clé d’accès et sa clé secrète.",
     google_client_incomplete: "Google Drive a besoin de l’ID client et du code secret de votre application Google.",
+    backup_no_place: "Choisissez d’abord où vont les sauvegardes.",
+    backup_running: "Une sauvegarde ou une vérification est en cours. Réessayez quand elle sera terminée.",
+    backup_other_key: "Les sauvegardes de ce dossier ont été faites par un autre centre de données. Choisissez un autre dossier.",
+    backup_key_needed:
+      "L’identité de ce centre de données n’ouvre pas ces sauvegardes. Saisissez sa clé de récupération pour les ouvrir.",
+    backup_wrong_key: "Cette clé de récupération n’ouvre pas ces sauvegardes. Vérifiez-la et saisissez-la de nouveau.",
+    backup_none_here:
+      "Aucune sauvegarde de ce dossier de données n’a été trouvée à cet endroit. Restaurer la sauvegarde d’un autre dossier de données, sur un autre ordinateur ou dans un autre dossier, fait partie de l’édition commerciale d’Oikome.",
+    backup_elsewhere:
+      "Cette sauvegarde est celle d’un autre dossier de données. La restauration sur un autre ordinateur ou dans un autre dossier fait partie de l’édition commerciale d’Oikome.",
   },
 
   errors: {
@@ -1305,6 +1315,104 @@ export const fr: Strings = {
     networkFootnote:
       "Oikome demande à votre routeur d’ouvrir un seul port pour lui. Ses pages et vos assistants IA restent sur cet ordinateur.",
     networkSaved: "Enregistré.",
+  },
+
+  dataBackup: {
+    title: "Sauvegarde",
+    automatic: "Sauvegardes planifiées",
+    what: "Les sauvegardes contiennent le dossier de données de ce centre de données, chiffré avec une clé issue de sa clé de récupération. Les fichiers originaux que les collections consultent sur place, les mots de passe et les connexions n’en font pas partie.",
+    off: "Les sauvegardes sont désactivées. Activez-les pour choisir où et quand elles sont faites.",
+    offKept:
+      "Les sauvegardes sont désactivées. Les emplacements et l’heure choisis sont conservés pour les réactiver, et les sauvegardes déjà faites restent où elles sont.",
+    turnOn: "Activer…",
+    thisComputer: "Cet ordinateur",
+    lastBackup: "Dernière sauvegarde",
+    lastCheck: "Dernière vérification",
+    notBackedUp: "Pas encore sauvegardé",
+    notChecked: "Pas encore vérifié",
+    sizeAdded: (size: string, added: string) => `${size} · ${added} ajoutés`,
+    done: "Terminée",
+    failed: "Échec",
+    ok: "Aucun problème",
+    problem: "Problème détecté",
+    showBackups: "Afficher les sauvegardes",
+    schedule: "Planification",
+    everyDay: (time: string) => `Tous les jours à ${time}`,
+    everyWeek: (weekday: string, time: string) => `Chaque ${weekday} à ${time}`,
+    next: (when: string) => `Prochaine sauvegarde : ${when}`,
+    kept: (days: number, weeks: number, months: number) =>
+      days === 7 && weeks === 4 && months === 12
+        ? "Conservées : une par jour pendant une semaine, une par semaine pendant un mois, une par mois pendant un an."
+        : `Conservées : une par jour pendant ${num(days)} ${pl(days, { one: "jour", other: "jours" })}, une par semaine pendant ${num(weeks)} ${pl(weeks, { one: "semaine", other: "semaines" })}, une par mois pendant ${num(months)} mois.`,
+    backUpNow: "Sauvegarder maintenant",
+    check: "Vérifier la sauvegarde",
+    change: "Modifier…",
+    restore: "Restaurer depuis une sauvegarde…",
+    preparing: "Préparation…",
+    copying: "Copie du dossier de données",
+    sending: (place: string, index: number, of: number) => `Envoi : ${place} (${index} sur ${of})`,
+    checking: (place: string, index: number, of: number) => `Vérification : ${place} (${index} sur ${of})`,
+    turnedOn: (when: string) => `Les sauvegardes sont activées. Prochaine sauvegarde : ${when}.`,
+    saved: "Réglages de sauvegarde enregistrés.",
+    turnedOff: "Les sauvegardes sont désactivées. Les sauvegardes déjà faites restent où elles sont.",
+    setupTitle: "Activer les sauvegardes",
+    changeTitle: "Modifier les sauvegardes",
+    place: "Emplacement",
+    placeN: (n: number) => `Emplacement ${num(n)}`,
+    folder: "Dossier",
+    folderWithin: "Dossier à l’intérieur",
+    noFolder: "Aucun dossier choisi",
+    topLevel: "Racine du stockage",
+    choose: "Choisir…",
+    keptIn: (path: string) => `Les sauvegardes sont conservées dans ${path}.`,
+    ownDisk:
+      "Une sauvegarde sur le disque de cet ordinateur est perdue avec l’ordinateur ; un dossier sur un autre disque est plus sûr.",
+    insideData: "Choisissez un dossier en dehors du dossier de données, par exemple sur un autre disque.",
+    badWithin: "Un nom de dossier ne peut pas être « .. ».",
+    addPlace: "Ajouter un emplacement",
+    removePlace: (place: string) => `Retirer ${place}`,
+    when: "Quand",
+    daily: "Chaque jour",
+    weekly: "Chaque semaine",
+    day: "Jour",
+    time: "Heure",
+    timing:
+      "Rien n’est sauvegardé avant cette heure, sauf si vous cliquez sur « Sauvegarder maintenant ». Une heure manquée pendant qu’Oikome ne fonctionne pas est rattrapée à son prochain démarrage.",
+    turnOnAction: "Activer",
+    listTitle: (place: string) => `Sauvegardes – ${place}`,
+    noneYet: "Aucune sauvegarde ici pour l’instant.",
+    otherFolder: "Autre dossier de données",
+    restoreTitle: "Restaurer depuis une sauvegarde",
+    restoreBody:
+      "Ramenez ce centre de données à l’une de ses sauvegardes. Choisissez où se trouvent les sauvegardes, puis laquelle.",
+    restoreFrom: "Emplacement des sauvegardes",
+    anotherFolder: "Un autre dossier sur cet ordinateur…",
+    anotherHint:
+      "Le dossier choisi pour les sauvegardes, ou le dossier oikome-backup qu’il contient. La sauvegarde la plus récente de ce dossier de données qui s’y trouve est restaurée.",
+    whichBackup: "Sauvegarde",
+    elsewhere:
+      "Les sauvegardes d’un autre dossier de données ne peuvent pas être restaurées ici. La restauration sur un autre ordinateur ou dans un autre dossier fait partie de l’édition commerciale d’Oikome.",
+    continue: "Continuer",
+    back: "Retour",
+    replaces: (date: string) =>
+      `La sauvegarde du ${date} remplace le contenu actuel de ce centre de données : ses collections, ses tables et ses réglages. Les modifications faites depuis sont perdues.`,
+    replacesNewest: (folder: string) =>
+      `La sauvegarde la plus récente de ce dossier de données dans ${folder} remplace le contenu actuel de ce centre de données : ses collections, ses tables et ses réglages. Les modifications faites depuis sont perdues.`,
+    originals: "Les fichiers originaux sur le disque ne sont pas modifiés.",
+    atNextStart: "La restauration prend effet au prochain démarrage d’Oikome.",
+    keyLabel: "Clé de récupération",
+    keyHint: "La clé enregistrée lors de la configuration de ce centre de données.",
+    restoreAction: "Restaurer",
+    restoring: "Restauration…",
+    restoringBody: "La sauvegarde est téléchargée et vérifiée. Cela peut prendre un certain temps.",
+    ready: (date: string, files: number) =>
+      `La sauvegarde du ${date} est prête à être restaurée. Elle contient ${num(files)} ${pl(files, { one: "fichier", many: "de fichiers", other: "fichiers" })}.`,
+    missingTitle: "Fichiers originaux qui ne sont plus à leur place",
+    missing: (collection: string, n: number, folder: string) =>
+      `${collection} : ${num(n)} ${pl(n, { one: "fichier n’est", many: "de fichiers ne sont", other: "fichiers ne sont" })} plus dans ${folder}.`,
+    missingSome: (names: string) => `Notamment : ${names}`,
+    restart: "Quittez Oikome et redémarrez-le pour terminer.",
+    pending: (date: string) => `La sauvegarde du ${date} est prête à être restaurée.`,
   },
   analysis: {
     menu: "Analyser…", title: (name: string) => `Analyser ${name}`,

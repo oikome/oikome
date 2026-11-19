@@ -445,6 +445,19 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     // collection by reference: a folder of it, read where it is.
     await call("add_in_place_folder", { space: "household", path: "household/receipts-2024", place: object.name });
 
+    // Backups to a folder standing for an external disk, every day at 03:00;
+    // one is made now, so Restore from Backup has something to offer.
+    const disk = join(files, "backup-disk");
+    mkdirSync(disk, { recursive: true });
+    await call("set_backup", {
+      destinations: [{ path: disk }],
+      schedule: { every: "daily", hour: 3, minute: 0 },
+    });
+    await call("back_up_now");
+    for (let i = 0; i < 600 && (await call("backup_info")).running; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
     await call("add_contact", { did: peerDid, name: "Acceptance Peer" });
     return call("share_space", { space: "photos", did: peerDid });
   });

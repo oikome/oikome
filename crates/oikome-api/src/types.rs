@@ -2914,6 +2914,10 @@ pub struct BackupInfo {
     pub keep_weekly: u32,
     pub keep_monthly: u32,
     pub running: Option<BackupProgress>,
+    /// A restore made ready, waiting for Oikome's next start: when its
+    /// backup was made.
+    #[ts(type = "number | null")]
+    pub pending_restore_at_ms: Option<u64>,
 }
 
 /// A backup place, by its position in Settings › Backup.

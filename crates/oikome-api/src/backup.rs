@@ -331,6 +331,12 @@ impl Api {
             keep_weekly: to_u32(keep.weekly),
             keep_monthly: to_u32(keep.monthly),
             running: self.backup_job.progress(),
+            pending_restore_at_ms: std::fs::read(
+                pending_dir(Path::new(self.catalog.root_path())).join(MANIFEST_FILE),
+            )
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Manifest>(&b).ok())
+            .map(|m| m.made_at_ms),
         })
     }
 

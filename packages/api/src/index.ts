@@ -617,7 +617,12 @@ nextAtMs: number | null,
  * Kept: one a day for so many days, one a week for so many weeks, one
  * a month for so many months.
  */
-keepDaily: number, keepWeekly: number, keepMonthly: number, running: BackupProgress | null, };
+keepDaily: number, keepWeekly: number, keepMonthly: number, running: BackupProgress | null,
+/**
+ * A restore made ready, waiting for Oikome's next start: when its
+ * backup was made.
+ */
+pendingRestoreAtMs: number | null, };
 
 /**
  * A backup place, by its position in Settings › Backup.

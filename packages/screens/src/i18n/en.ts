@@ -276,6 +276,15 @@ export const en = {
     plugin_shared: (p: { name: string }) => `${p.name} is shared with you; a plugin reads only your own collections.`,
     storage_s3_incomplete: "RustFS needs its address, bucket, access key and secret key.",
     google_client_incomplete: "Google Drive needs your Google app's client ID and secret.",
+    backup_no_place: "Choose where backups go first.",
+    backup_running: "A backup or a check is under way. Try again when it has finished.",
+    backup_other_key: "The backups in that folder were made by another data center. Choose another folder.",
+    backup_key_needed: "This data center's identity does not open these backups. Enter its recovery key to open them.",
+    backup_wrong_key: "This recovery key does not open these backups. Check it and enter it again.",
+    backup_none_here:
+      "No backup of this data folder was found there. Restoring a backup of another data folder, onto another computer or into another folder, is part of Oikome's commercial edition.",
+    backup_elsewhere:
+      "This backup is of another data folder. Restoring onto another computer or into another folder is part of Oikome's commercial edition.",
   },
 
   errors: {
@@ -1285,6 +1294,110 @@ export const en = {
     networkFootnote:
       "Oikome asks your router to open one port for itself. Its own pages and your MCP clients stay on this computer.",
     networkSaved: "Saved.",
+  },
+
+  /** Settings › Backup: backups of the data folder, and restoring one (PR 30). */
+  dataBackup: {
+    title: "Backup",
+    automatic: "Scheduled backups",
+    what: "Backups hold this data center's data folder, encrypted with a key from its recovery key. Original files that collections view where they are, passwords and sign-ins are not included.",
+    off: "Backups are off. Turn them on to choose where they go and when.",
+    offKept:
+      "Backups are off. Where they go and when are kept for turning them on again, and the backups made so far stay where they are.",
+    turnOn: "Turn On…",
+    thisComputer: "This computer",
+    lastBackup: "Last backup",
+    lastCheck: "Last check",
+    notBackedUp: "Not backed up yet",
+    notChecked: "Not checked yet",
+    sizeAdded: (size: string, added: string) => `${size} · ${added} added`,
+    done: "Done",
+    failed: "Failed",
+    ok: "OK",
+    problem: "Problem found",
+    showBackups: "Show Backups",
+    schedule: "Schedule",
+    /** The time as the language writes it ("3:00 AM", "03:00"). */
+    everyDay: (time: string) => `Every day at ${time}`,
+    /** The weekday as `Intl` writes it in the language ("Monday", "lundi"). */
+    everyWeek: (weekday: string, time: string) => `Every ${weekday} at ${time}`,
+    next: (when: string) => `Next backup: ${when}`,
+    kept: (days: number, weeks: number, months: number) =>
+      days === 7 && weeks === 4 && months === 12
+        ? "Kept: one a day for a week, one a week for a month, one a month for a year."
+        : `Kept: one a day for ${days === 1 ? "a day" : `${days} days`}, one a week for ${weeks === 1 ? "a week" : `${weeks} weeks`}, one a month for ${months === 1 ? "a month" : `${months} months`}.`,
+    backUpNow: "Back Up Now",
+    check: "Check Backup",
+    change: "Change…",
+    restore: "Restore from Backup…",
+    preparing: "Preparing…",
+    copying: "Copying the data folder",
+    sending: (place: string, index: number, of: number) => `Sending to ${place} (${index} of ${of})`,
+    checking: (place: string, index: number, of: number) => `Checking ${place} (${index} of ${of})`,
+    turnedOn: (when: string) => `Backups are on. Next backup: ${when}.`,
+    saved: "Backup settings saved.",
+    turnedOff: "Backups are off. The backups made so far stay where they are.",
+    // Turning backups on, or changing where they go and when
+    setupTitle: "Turn On Backups",
+    changeTitle: "Change Backups",
+    place: "Place",
+    placeN: (n: number) => `Place ${n}`,
+    folder: "Folder",
+    folderWithin: "Folder within it",
+    noFolder: "No folder chosen yet",
+    topLevel: "Its top level",
+    choose: "Choose…",
+    keptIn: (path: string) => `Backups are kept in ${path}.`,
+    ownDisk: "A backup on this computer's own disk is lost with the computer; a folder on another disk is safer.",
+    insideData: "Choose a folder outside the data folder, such as one on another disk.",
+    badWithin: "A folder name cannot be “..”.",
+    addPlace: "Add Another Place",
+    removePlace: (place: string) => `Remove ${place}`,
+    when: "When",
+    daily: "Daily",
+    weekly: "Weekly",
+    day: "Day",
+    time: "Time",
+    timing:
+      "Nothing is backed up until then, or until you click Back Up Now. A time missed while Oikome is not running is made up when it runs again.",
+    turnOnAction: "Turn On",
+    // The backups kept at a place
+    listTitle: (place: string) => `Backups at ${place}`,
+    noneYet: "No backups here yet.",
+    otherFolder: "Another data folder",
+    // Restore from Backup
+    restoreTitle: "Restore from Backup",
+    restoreBody: "Turn this data center back to one of its backups. Choose where the backups are, then which one.",
+    restoreFrom: "Where the backups are",
+    anotherFolder: "Another folder on this computer…",
+    anotherHint:
+      "The folder chosen for backups, or the oikome-backup folder in it. The newest backup of this data folder there is restored.",
+    whichBackup: "Backup",
+    elsewhere:
+      "Backups of another data folder cannot be restored here. Restoring onto another computer or into another folder is part of Oikome's commercial edition.",
+    continue: "Continue",
+    back: "Back",
+    replaces: (date: string) =>
+      `The backup from ${date} replaces what this data center holds now: its collections, tables and settings. Changes made since then are lost.`,
+    replacesNewest: (folder: string) =>
+      `The newest backup of this data folder in ${folder} replaces what this data center holds now: its collections, tables and settings. Changes made since then are lost.`,
+    originals: "Original files on disk are not touched.",
+    atNextStart: "The restore takes effect when Oikome is started again.",
+    keyLabel: "Recovery key",
+    keyHint: "The key saved when this data center was set up.",
+    restoreAction: "Restore",
+    restoring: "Restoring…",
+    restoringBody: "The backup is being downloaded and checked. This can take a while.",
+    ready: (date: string, files: number) =>
+      `The backup from ${date} is ready to restore. It holds ${files === 1 ? "1 file" : `${files.toLocaleString("en")} files`}.`,
+    missingTitle: "Original files no longer where they were",
+    missing: (collection: string, n: number, folder: string) =>
+      n === 1
+        ? `${collection}: 1 file is not in ${folder} any more.`
+        : `${collection}: ${n.toLocaleString("en")} files are not in ${folder} any more.`,
+    missingSome: (names: string) => `Among them: ${names}`,
+    restart: "Quit Oikome and start it again to finish.",
+    pending: (date: string) => `The backup from ${date} is ready to restore.`,
   },
 
   analysis: {

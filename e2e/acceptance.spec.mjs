@@ -217,6 +217,12 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.goto(`${running.base}/collections/rustfs-archive`);
     await expect(page.getByText("scans", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("tickets", { exact: true }).first()).toBeVisible();
+    // Backups go to a folder standing for an external disk; one was made.
+    await page.goto(`${running.base}/settings`);
+    const backup = page.locator(".oik-group").filter({ has: page.getByText("Backup", { exact: true }) });
+    await expect(backup.getByText("backup-disk", { exact: false }).first()).toBeVisible();
+    await expect(backup.getByText("Done", { exact: true }).first()).toBeVisible();
+    await expect(backup.getByRole("button", { name: "Back Up Now" })).toBeVisible();
     await page.goto(`${running.base}/sharing`);
     await expect(page.getByText("Acceptance Peer").first()).toBeVisible();
 

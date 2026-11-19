@@ -12,7 +12,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Checkbox, ChoiceList, Dialog, ErrorText, Icon, IconButton, InsetWell, Select, TextField } from "@oikome/ui";
-import type { Choice } from "@oikome/ui";
+import type { Choice, IconName, TileTone } from "@oikome/ui";
 import type { DropboxSignIn, FolderListing, GoogleReturn, NewStorage, StartDropbox, StorageSummary } from "@oikome/client";
 import { useAction, useClient, useLoad } from "./data";
 import { homeRelative } from "./format";
@@ -20,6 +20,17 @@ import { strings } from "./strings";
 
 const s = strings.storage;
 const DATA_FOLDER = "Oikome";
+
+/** Each kind of storage's glyph and tile, wherever a storage is listed. */
+export const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
+  disk: ["computer", "stone"],
+  webdav: ["nas", "sage"],
+  folder: ["folder", "oat"],
+  drive: ["drive", "periwinkle"],
+  s3: ["bucket", "apricot"],
+  gdrive: ["drive", "mist"],
+  dropbox: ["drive", "periwinkle"],
+};
 
 /** The folder Oikome keeps its files in for a picked one, as the node does. */
 function keptIn(picked: string): string {

@@ -91,7 +91,7 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 5. **PR 28:** data sources as plugins and analysis tables of a folder collection's files (above). K1 and K2 of knowledge landed with PR 27.
 6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
 7. **PR 30–31:** backup and restore, then read-only Iceberg/Lance/Parquet datasets and deliberate migration.
-8. **PR 32–33:** media recognition (knowledge K4), then the plugin sandbox and RAW previews.
+8. **PR 32:** the plugin sandbox and RAW previews. Media recognition (knowledge K4) is not planned (2026-11-19).
 9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
 
 Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.

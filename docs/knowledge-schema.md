@@ -1,6 +1,6 @@
 # Knowledge and Analysis Schema
 
-> **Status**: K1 and K2 landed with PR 27 (2026-11-18). K4 (media) is planned for PR 32 and K3 (tables) after PR 33; models and runtimes are compared in [`research/next-phases.md`](research/next-phases.md). It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
+> **Status**: K1 and K2 landed with PR 27 (2026-11-18). K4 (media) is not planned (2026-11-19, undecided for later) and K3 (tables) comes after PR 32; models and runtimes are compared in [`research/next-phases.md`](research/next-phases.md). It builds on PR 27 (precise source targets, dataset profiles and derived analyses). The research behind it is in [`research/knowledge-bases.md`](research/knowledge-bases.md). Decisions taken and questions still open are in §11.
 
 ## 1. Goal
 
@@ -192,9 +192,9 @@ In K2 skills come with Prepare: in a collection prepared for AI, every folder ho
 |----------|-----------|----------|---------------------|
 | Markdown, text, code, notes | Split by headings, then paragraphs, keeping the heading path | `text` chunks | Node (Rust) |
 | PDF with a text layer | Text per page with positions | `text` chunks with page and box | Node |
-| Scanned PDF, photos of documents | OCR | `ocr` chunks with page and box | Later (K4) |
-| Photos | EXIF, thumbnail (exists), optional caption, image vector | `media` row, `caption` chunk | Node for EXIF; captions and vectors later (K4) |
-| Audio, video | Speech to text, keyframes | `media` clips, `transcript` chunks with times | Later (K4) |
+| Scanned PDF, photos of documents | OCR | `ocr` chunks with page and box | Not planned (K4) |
+| Photos | EXIF, thumbnail (exists), optional caption, image vector | `media` row, `caption` chunk | Node for EXIF; captions and vectors not planned (K4) |
+| Audio, video | Speech to text, keyframes | `media` clips, `transcript` chunks with times | Not planned (K4) |
 | CSV, TSV, Parquet, JSON Lines, Excel | Sniff types, infer roles, write Iceberg | Analysis table; `table_row` chunks for text fields | Node (DuckDB) |
 | Connector records (flomo memos) | Long text fields become chunks | `text` chunks | Node |
 | Skill folders | Parse front matter | Skill registry, `skill` chunks | Node |
@@ -205,7 +205,7 @@ Defaults follow the original: documents and media go to knowledge, tables to ana
 ### 8.1 Runtimes
 
 - **Node.** Splitting, PDF text, EXIF, table sniffing and profiles, and the default text-embedding model (Qwen3-Embedding-0.6B) through candle, so a collection can be prepared without anything else installed. The model is downloaded only when the owner chooses it, with its size shown first (no hidden downloads, roadmap PR 28).
-- **Media recognition (K4).** OCR, speech to text, captions and image vectors need larger models. Their runtime is decided when K4 starts: candle has Rust implementations of Whisper, TrOCR, PaddleOCR-VL and SigLIP, and a content plugin with a sandbox (PR 28's RAW plugin host) is the other route. Vane is not integrated (decided 2026-11-17). Whatever runs them, the node decides channels, clips and provenance and commits the results itself, so it stays the single writer of the dataset (architecture principle 2).
+- **Media recognition (K4).** Not planned (2026-11-19); kept here for when it is taken up. OCR, speech to text, captions and image vectors need larger models. Their runtime is decided when K4 starts: candle has Rust implementations of Whisper, TrOCR, PaddleOCR-VL and SigLIP, and a content plugin with a sandbox (PR 28's RAW plugin host) is the other route. Vane is not integrated (decided 2026-11-17). Whatever runs them, the node decides channels, clips and provenance and commits the results itself, so it stays the single writer of the dataset (architecture principle 2).
 - **Provider.** An embedding or vision API the owner configures with their own key, kept like storage credentials. Never the default and not part of K1 or K2: it sends content off the computer, and the apps say so before the first use.
 
 ### 8.2 In the apps
@@ -281,6 +281,6 @@ Still open:
 | K1 (done) | `assets`, `conversions` as jobs, `chunk_overrides`; Markdown, text, code and PDF text to `chunks`; full-text search over chunks; retrieval test; MCP `search` and `read` over chunks | Prepare a collection of documents and let an assistant read it with sources |
 | K2 (done) | Qwen3-Embedding-0.6B in the node, `vec_<model>`, hybrid search, model download and rebuild; skills in prepared collections and Oikome's own, MCP `list_skills` and `get_skill` | Search by meaning; give assistants skills |
 | K3 | Table profiles (PR 27) extended with units and column usage; `table_row` chunks; `query_table` | Analyze a spreadsheet as a table and ask about it |
-| K4 | OCR, speech to text, captions, image vectors; `media` (runtime decided when it starts) | Find what is written on photos and said in recordings |
+| K4 | OCR, speech to text, captions, image vectors; `media` (runtime decided when it starts) | Find what is written on photos and said in recordings (not planned, 2026-11-19) |
 
 The acceptance workspace's `oikome-docs` collection (this project's own documents) is the first real knowledge base for K1 and K2.

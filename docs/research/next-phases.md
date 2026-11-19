@@ -1,8 +1,8 @@
 # Next Phases: Research
 
-> **Status**: research notes, checked 2026-11-18, for the plan in [`../roadmap.md`](../roadmap.md) (PR 29–33 and later). Libraries and models move quickly; versions are given with each claim. Claims marked *unverified* came from secondary sources or could not be confirmed in the primary one. Nothing here is implemented.
+> **Status**: research notes, checked 2026-11-18, for the plan in [`../roadmap.md`](../roadmap.md) (PR 29–32 and later). Libraries and models move quickly; versions are given with each claim. Claims marked *unverified* came from secondary sources or could not be confirmed in the primary one. Nothing here is implemented.
 
-The agreed order is D (finish file sources) → E (backup and restore, then read-only datasets) → C (media recognition, then RAW). A (freer analysis through a third-party library in a plugin) and B (tables as knowledge, K3) come after.
+The agreed order is D (finish file sources) → E (backup and restore, then read-only datasets) → C (the plugin sandbox and RAW). A (freer analysis through a third-party library in a plugin) and B (tables as knowledge, K3) come after. Media recognition was taken out of the plan on 2026-11-19; §3.1–3.3 are kept for when it is taken up again.
 
 ## 1. D: file sources across places, CSV sources as files, Excel
 
@@ -55,7 +55,7 @@ Under the data folder: `.oikome/` (JSON registries such as `spaces.json`, `locat
 
 **First scope.** Lance datasets by path, then on RustFS, latest version; Iceberg tables from an explicit `metadata.json`, local or on RustFS, pinned to the snapshot seen when connecting and refreshed when the owner asks; Parquet and CSV on RustFS. Only SELECT runs on them; secrets are temporary, from the keychain per session; an offline dataset keeps its last-known schema and is shown unavailable. REST catalogs and migration come second: migrating copies the current snapshot into a new Oikome table (history dropped) for Iceberg, and the dataset folder for Lance (versions kept), recording the source URI, snapshot or version and hashes.
 
-## 3. C: media recognition, then RAW
+## 3. C: RAW and the plugin sandbox; media recognition (not planned)
 
 candle 0.11.1 (2026-10-31), which the node already runs, has `whisper`, `siglip` (SigLIP 2 included), `paddleocr_vl`, `chinese_clip`, `blip` and `qwen3_vl` ([models](https://docs.rs/candle-transformers/latest/candle_transformers/models/index.html)).
 

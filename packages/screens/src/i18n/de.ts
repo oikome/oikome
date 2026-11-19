@@ -1353,6 +1353,7 @@ export const de: Strings = {
     turnOnAction: "Einschalten",
     listTitle: (place: string) => `Backups – ${place}`,
     noneYet: "Hier gibt es noch keine Backups.",
+    opening: "Backups werden geöffnet…",
     otherFolder: "Anderer Datenordner",
     restoreTitle: "Aus Backup wiederherstellen",
     restoreBody: "Setze dieses Datenzentrum auf eines seiner Backups zurück. Wähle aus, wo die Backups liegen, und dann welches.",

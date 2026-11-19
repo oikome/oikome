@@ -167,6 +167,19 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.tokenizers]
 opt-level = 3
+# Opening an encrypted backup derives its key with scrypt: seconds unoptimised.
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.ctr]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
 
 [profile.wasm]
 inherits = "release"

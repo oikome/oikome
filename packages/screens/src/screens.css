@@ -3847,6 +3847,7 @@ tr.screen-source {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  min-width: 0;
   margin-top: var(--space-3);
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border: var(--bw) solid var(--line);
@@ -4844,10 +4845,13 @@ tr.screen-source {
 /* Where backups go, in the dialog that turns them on: each place in a box. */
 .screen-backup-places {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
+  min-width: 0;
 }
 .screen-backup-place {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   min-width: 0;
   padding: var(--space-3) var(--space-4) var(--space-4);
@@ -4861,6 +4865,9 @@ tr.screen-source {
 .screen-backup-place .screen-help,
 .screen-backup-place .screen-source-pick {
   margin: 0;
+}
+.screen-backup-place .screen-help {
+  overflow-wrap: anywhere;
 }
 .screen-backup-place__head {
   display: flex;
@@ -4914,10 +4921,6 @@ tr.screen-source {
   font: var(--text-meta);
   color: var(--ink3);
   overflow-wrap: anywhere;
-}
-.screen-backup-list__wait {
-  display: block;
-  height: 44px;
 }
 /* A restore made ready: the originals no longer where they were, and the
    one thing left to do. */

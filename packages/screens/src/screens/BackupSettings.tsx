@@ -585,6 +585,18 @@ function BackupSetup({
   );
 }
 
+/** While the backups at a place are opened, which takes a moment: their key is worked out anew each time. */
+function Opening() {
+  return (
+    <div className="screen-backup-busy" role="status">
+      <span className="screen-progress" aria-hidden="true">
+        <i />
+      </span>
+      <p className="screen-help">{d.opening}</p>
+    </div>
+  );
+}
+
 /** The backups kept at a place, the newest first. */
 function BackupList({
   index,
@@ -614,7 +626,7 @@ function BackupList({
         {placePath(place)}
       </p>
       {list.error && <ErrorText>{list.error}</ErrorText>}
-      {!list.data && !list.error && <span className="screen-backup-list__wait oik-skel" aria-hidden="true" />}
+      {!list.data && !list.error && <Opening />}
       {list.data?.length === 0 && <p className="oik-dialog__text">{d.noneYet}</p>}
       {list.data && list.data.length > 0 && (
         <ul className="screen-backup-list" aria-label={d.listTitle(placeLabel(place))}>
@@ -805,7 +817,7 @@ function RestoreDialog({
         ) : list.error ? (
           <ErrorText>{list.error}</ErrorText>
         ) : !list.data || list.loading ? (
-          <span className="screen-backup-list__wait oik-skel" aria-hidden="true" />
+          <Opening />
         ) : items.length === 0 ? (
           <p className="oik-dialog__text">{d.noneYet}</p>
         ) : (

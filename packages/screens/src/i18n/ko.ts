@@ -1356,6 +1356,7 @@ export const ko: Strings = {
     turnOnAction: "켜기",
     listTitle: (place: string) => `${place}의 백업`,
     noneYet: "아직 이곳에 백업이 없어요.",
+    opening: "백업을 여는 중…",
     otherFolder: "다른 데이터 폴더",
     restoreTitle: "백업에서 복원",
     restoreBody: "이 데이터 센터를 백업 중 하나의 상태로 되돌려요. 백업이 있는 위치를 선택한 후 복원할 백업을 선택하세요.",

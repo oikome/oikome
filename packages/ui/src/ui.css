@@ -1303,6 +1303,7 @@
    rhythm, not each part's margins. */
 .oik-dialog__body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   padding: var(--space-5);
 }

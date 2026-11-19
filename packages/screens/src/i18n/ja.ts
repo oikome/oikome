@@ -1327,8 +1327,9 @@ export const ja: Strings = {
     timing:
       "その時刻になるか、「今すぐバックアップ」をクリックするまで、何もバックアップされません。Oikome が動作していない間に過ぎた時刻の分は、次に動作したときに実行されます。",
     turnOnAction: "オンにする",
-    listTitle: (place: string) => `${place} のバックアップ`,
+    listTitle: (place: string) => `${place}のバックアップ`,
     noneYet: "ここにはまだバックアップがありません。",
+    opening: "バックアップを開いています…",
     otherFolder: "別のデータフォルダ",
     restoreTitle: "バックアップから復元",
     restoreBody: "このデータセンターを、いずれかのバックアップの状態に戻します。バックアップの場所を選び、次に復元するバックアップを選んでください。",

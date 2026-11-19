@@ -1381,6 +1381,7 @@ export const fr: Strings = {
     turnOnAction: "Activer",
     listTitle: (place: string) => `Sauvegardes – ${place}`,
     noneYet: "Aucune sauvegarde ici pour l’instant.",
+    opening: "Ouverture des sauvegardes…",
     otherFolder: "Autre dossier de données",
     restoreTitle: "Restaurer depuis une sauvegarde",
     restoreBody:

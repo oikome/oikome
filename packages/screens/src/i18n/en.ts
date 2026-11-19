@@ -1364,6 +1364,7 @@ export const en = {
     // The backups kept at a place
     listTitle: (place: string) => `Backups at ${place}`,
     noneYet: "No backups here yet.",
+    opening: "Opening the backups…",
     otherFolder: "Another data folder",
     // Restore from Backup
     restoreTitle: "Restore from Backup",

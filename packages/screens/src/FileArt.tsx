@@ -44,7 +44,7 @@ export function fileIcon(file: FileItem): IconName {
   if (file.content.views.includes("video")) return "video";
   if (file.kind === "image") return "photo";
   if (file.kind === "note") return "note";
-  if (file.kind === "table") return "table";
+  if (file.kind === "table" || file.kind === "dataset") return "table";
   return "collection";
 }
 

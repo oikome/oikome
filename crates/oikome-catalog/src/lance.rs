@@ -67,6 +67,8 @@ pub struct LanceVersion {
     /// Data, deletion and index files the manifest references, relative to
     /// the dataset directory, sorted.
     pub files: Vec<String>,
+    /// When the version was written, in milliseconds since the epoch.
+    pub written_at_ms: Option<i64>,
 }
 
 #[cfg(feature = "lance")]
@@ -170,6 +172,9 @@ mod read {
             schema: Arc::new(Schema::from(&manifest.schema)),
             manifest: relative(location.path.as_ref())?,
             files: files.into_iter().collect(),
+            written_at_ms: i64::try_from(manifest.timestamp_nanos / 1_000_000)
+                .ok()
+                .filter(|ms| *ms > 0),
         })
     }
 }

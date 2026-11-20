@@ -40,6 +40,9 @@ oikome-network = { path = "../oikome-network" }
 oikome-semantic = { path = "../oikome-semantic" }
 oikome-storage = { path = "../oikome-storage" }
 oikome-vfs = { path = "../oikome-vfs" }
+# Iceberg manifest lists and manifests of datasets in folders (PR 31); the
+# version Iceberg already brings (Apache-2.0), as in oikome-backup.
+apache-avro = { version = "0.21", features = ["snappy", "zstandard"] }
 arrow-array = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-schema = { workspace = true }

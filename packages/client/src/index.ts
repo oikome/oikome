@@ -16,6 +16,9 @@ import type {
   AnalyzeDataset,
   AnalysisSummary,
   AnalysisTableRef,
+  CopiedToOikome,
+  CopyToOikome,
+  ExtensionRef,
   FileAnalysis,
   SetAnalysisField,
   AnalysisProfile,
@@ -171,6 +174,8 @@ export interface NodeClient {
   fileAnalysis(request: SpaceRef): Promise<FileAnalysis>;
   /** Make every analysis table a folder collection's files can make. */
   buildAnalysis(request: SpaceRef): Promise<FileAnalysis>;
+  copyToOikome(request: CopyToOikome): Promise<CopiedToOikome>;
+  installExtension(request: ExtensionRef): Promise<ExtensionDownload>;
   /** Correct what a column of an analysis table is for. */
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
   /** An analysis table's totals by month and by category. */
@@ -466,6 +471,14 @@ export class HttpClient implements NodeClient {
 
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis> {
     return this.#json("set_analysis_field", request);
+  }
+
+  copyToOikome(request: CopyToOikome): Promise<CopiedToOikome> {
+    return this.#json("copy_to_oikome", request);
+  }
+
+  installExtension(request: ExtensionRef): Promise<ExtensionDownload> {
+    return this.#json("install_extension", request);
   }
 
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary> {

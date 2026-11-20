@@ -376,16 +376,27 @@ impl EngineRegistry {
             .await?)
     }
 
-    /// Install DuckDB's `lance` extension from a file the node downloaded
-    /// (knowledge shows the download's progress), into the node's extension
-    /// directory. DuckDB checks its signature when it loads it.
+    /// Install the DuckDB extension `name` (`lance`, `iceberg`, or `avro`,
+    /// which `iceberg` needs) from a file the node downloaded (the apps
+    /// show the download's progress), into the node's extension directory.
+    /// DuckDB checks its signature when it loads it.
     #[cfg(feature = "engine-duckdb")]
-    pub async fn install_lance_file(&self, file: &Path) -> Result<String, SessionError> {
+    pub async fn install_extension_file(
+        &self,
+        name: &str,
+        file: &Path,
+    ) -> Result<String, SessionError> {
+        let known = oikome_engine_duckdb::Extension::INSTALLABLE
+            .iter()
+            .any(|e| e.name() == name || e.requires().contains(&name));
+        if !known {
+            return Err(SessionError::Unsupported(format!(
+                "{name} is not an extension Oikome loads"
+            )));
+        }
         let installer =
             oikome_engine_duckdb::DuckDbEngine::open_in_memory(self.duckdb_config.clone())?;
-        Ok(installer
-            .install_extension_file(oikome_engine_duckdb::Extension::Lance, file)
-            .await?)
+        Ok(installer.install_extension_file(name, file).await?)
     }
 
     /// DuckDB's version and platform, which name where its extensions are.

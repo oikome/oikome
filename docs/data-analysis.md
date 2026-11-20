@@ -1,6 +1,6 @@
 # Data Analysis and Dataset Interoperability Plan
 
-> **Status**: agreed direction 2026-11-14. PR 21 establishes collection and source targets. It does not implement media embeddings, external Iceberg/Lance connections or migrations.
+> **Status**: agreed direction 2026-11-14. PR 21 establishes collection and source targets. PR 31 reads existing Lance datasets and Iceberg tables in a collection's folders and adds Copy to Oikome (migration); media embeddings are not implemented.
 
 ## Principles
 
@@ -35,11 +35,13 @@ Files, folders and application data enter a collection chosen by the owner. The 
 
 ### Existing technical datasets
 
-A later advanced Add Data Source flow connects existing Iceberg or Lance datasets, including datasets reached over S3. It reads their metadata, schema, partitions and versions in place, without first converting them. The default is a read-only external dataset; schema inference is unnecessary when the dataset already supplies authoritative metadata.
+Existing Lance datasets and Iceberg tables are not connected through a flow of their own (decided 2026-11-20, PR 31). A dataset is a folder, and it goes where files go: into a collection's folders, on this computer, a NAS, a drive or RustFS. Indexing recognises it and shows it as one item; it is a read-only table of the collection, read in place through DuckDB from its own metadata, schema and latest version, without first converting it, and followed as it changes like a file. Schema inference is unnecessary: the dataset supplies authoritative metadata, and only the roles of its columns are proposed. A dataset that refers to files outside its own folder is not read. REST catalogs come later.
 
 ### Migration
 
 Migration is not connection. It copies a dataset and its metadata into Oikome, identifies the target storage, states which versions can be retained and makes Oikome the single write master afterwards. Any continuing relationship with the original must be explicit. Archiving original files is a separate action and does not migrate an analysis dataset.
+
+In PR 31 migration is Copy to Oikome on a dataset's table: an Iceberg table's current snapshot is copied into an Iceberg collection (its history is not), a Lance dataset is copied whole, with its versions, into a Lance collection; the owner chooses an existing collection that fits or a new one. The source folder, the version copied and BLAKE3 hashes of the files read or copied are kept beside the copy (`.oikome/copies/<collection>/<table>.json`). The copy is in backups; the original is not changed.
 
 ## Internal dataset profile
 
@@ -90,8 +92,8 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 4. **PR 27:** precise source targets first, then internal analysis profiles as core computation: collection-contained files and tables, plugin capabilities, direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
 5. **PR 28:** data sources as plugins and analysis tables of a folder collection's files (above). K1 and K2 of knowledge landed with PR 27.
 6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
-7. **PR 30–31:** backup and restore, then read-only Iceberg/Lance/Parquet datasets and deliberate migration.
+7. **PR 30–31:** backup and restore, then read-only Lance and Iceberg datasets in collections' folders and deliberate migration (Copy to Oikome). Parquet and CSV on RustFS came with PR 29.
 8. **PR 32:** the plugin sandbox and RAW previews. Media recognition (knowledge K4) is not planned (2026-11-19).
 9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
 
-Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.
+Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface. Reading datasets and Copy to Oikome appear once PR 31's acceptance scenario passes.

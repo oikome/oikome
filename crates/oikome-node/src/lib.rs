@@ -30,6 +30,7 @@ mod acl;
 mod bind;
 pub mod capability;
 pub mod compute;
+pub mod datasets;
 mod ddl;
 mod dml;
 pub mod error;

@@ -69,8 +69,9 @@ use oikome_api::{
     SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
-    FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation, SaveTextFile,
-    SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
+    CopyToOikome, ExtensionRef, FileRef, FinishDropbox, GoogleCallback, ListFiles,
+    RevokeSaveConfirmation, SaveTextFile, SaveTo, SetNetwork, ShowFolder, StartDropbox,
+    StartGoogleDrive, ViewInPlace,
 };
 use oikome_api::{
     KnowledgeChunksRequest, ModelRef, RetrievalTest, SetKnowledgeChunk, SetKnowledgeModel,
@@ -472,6 +473,8 @@ impl WebState {
             "build_analysis" => json_op!(boxed build_analysis, SpaceRef),
             "set_analysis_field" => json_op!(boxed set_analysis_field, SetAnalysisField),
             "analysis_summary" => json_op!(boxed analysis_summary, AnalysisTableRef),
+            "copy_to_oikome" => json_op!(boxed copy_to_oikome, CopyToOikome),
+            "install_extension" => json_op!(boxed install_extension, ExtensionRef),
             "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
             "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),
             "prepare_knowledge" => json_op!(boxed prepare_knowledge, SpaceRef),

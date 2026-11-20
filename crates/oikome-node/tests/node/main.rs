@@ -17,6 +17,7 @@
 //! crate keeps builds smaller and faster (AGENT.md §6.2.1).
 //! `cargo t --test node -- federation::` runs one area.
 
+mod datasets;
 mod federation;
 mod graph;
 mod inplace;

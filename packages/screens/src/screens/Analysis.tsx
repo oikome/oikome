@@ -5,17 +5,25 @@
 // (each file, or each folder of them, read as one table), what each column
 // is for, and the table's totals by month and by category. The tables are
 // the collection's, queried as <collection>.<table> by SQL and assistants;
-// the files are only read.
+// the files are only read. A dataset in its folders (a Lance dataset, an
+// Iceberg table) is a table too, read where it is, and can be copied into a
+// collection as Oikome's own table.
 
-import { useState } from "react";
-import { Button, Card, EmptyState, ErrorText, Group, Row, Segmented, Select, Status } from "@oikome/ui";
-import type { AnalysisPoint, AnalysisTable, FieldRole, FileAnalysis } from "@oikome/client";
+import { useEffect, useState } from "react";
+import { Button, Card, Dialog, EmptyState, ErrorText, Group, Row, Segmented, Select, Status, TextField, useToast } from "@oikome/ui";
+import type { AnalysisPoint, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
+import { forgetPreviews } from "../content";
 import { useAction, useClient, useLoad } from "../data";
+import { homeRelative } from "../format";
+import { TransferProgress } from "../progress";
+import { navigate } from "../router";
 import { since } from "./Sources";
 import { strings } from "../strings";
 import { locale } from "../i18n/languages";
 
 const a = strings.analysisView;
+const NAME = /^[A-Za-z_-][A-Za-z0-9_-]{0,63}$/;
+const NEW = "__new__";
 const ROLES: FieldRole[] = ["time", "amount", "category", "title", "key", "other"];
 
 /** A column's type in words: date, date and time, text, number, yes or no. */
@@ -63,29 +71,197 @@ function Bars({ points, label, vertical = false }: { points: AnalysisPoint[]; la
 }
 
 /** One analysis table: its facts, its columns and what each is for, and its totals. */
-function TableView({ space, table, onChange }: { space: string; table: AnalysisTable; onChange: (next: FileAnalysis) => void }) {
+/** What this computer lacks to read a dataset: DuckDB's extension, its
+ * download offered and followed. */
+function DatasetReader({ dataset, onReady }: { dataset: DatasetFacts; onReady: () => void }) {
+  const client = useClient();
+  const install = useAction();
+  const extension = dataset.extension;
+  const going = extension?.state === "downloading" || extension?.state === "installing";
+  const failed = extension?.state === "failed";
+  return (
+    <Card className="screen-analysis__reader">
+      <p>{a.needsExtension(dataset.kind)}</p>
+      {going && extension ? (
+        <TransferProgress
+          done={extension.done}
+          total={extension.total}
+          label={a.downloadLabel(dataset.kind)}
+          installing={extension.state === "installing"}
+          note={strings.knowledge.download.savedTo(homeRelative(extension.path))}
+        />
+      ) : (
+        <Button
+          variant="primary"
+          disabled={install.busy}
+          onClick={async () => {
+            if (await install.run(() => client.installExtension({ name: dataset.kind }))) onReady();
+          }}
+        >
+          {failed ? a.downloadAgain : a.download}
+        </Button>
+      )}
+      {failed && extension?.error && <ErrorText>{extension.error}</ErrorText>}
+      {install.error && <ErrorText>{install.error}</ErrorText>}
+    </Card>
+  );
+}
+
+/** A dataset's table into a collection as Oikome's own: an existing one
+ * that holds tables of its kind, or a new one. */
+function CopyToOikome({ space, table, onClose }: { space: string; table: AnalysisTable; onClose: () => void }) {
+  const client = useClient();
+  const toast = useToast();
+  const copying = useAction();
+  const spaces = useLoad(() => client.listSpaces(), []);
+  const kind = table.dataset!.kind;
+  const fits = (spaces.data ?? []).filter(
+    (x) => x.kind === "analytical" && !x.readonly && !x.inPlace && x.format === kind,
+  );
+  const taken = new Set((spaces.data ?? []).map((x) => x.name));
+  const base = table.name.replace(/_/g, "-");
+  const free = [base, ...Array.from({ length: 98 }, (_, i) => `${base}-${i + 2}`)].find((x) => !taken.has(x)) ?? base;
+  const [into, setInto] = useState(NEW);
+  const [typed, setTyped] = useState<string>();
+  const name = typed ?? free;
+  const nameOk = into !== NEW || (NAME.test(name) && !taken.has(name));
+
+  const copy = async () => {
+    const done = await copying.run(() =>
+      client.copyToOikome({ space, table: table.name, to: into === NEW ? name : into, new: into === NEW }),
+    );
+    if (!done) return;
+    forgetPreviews();
+    toast(a.copied(done.table, done.space));
+    onClose();
+    navigate(`/collections/${encodeURIComponent(done.space)}`);
+  };
+
+  return (
+    <Dialog
+      title={a.copyTitle(table.name)}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" disabled={!nameOk || copying.busy || !spaces.data} onClick={() => void copy()}>
+            {copying.busy ? a.copying : a.copyYes}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{kind === "lance" ? a.copyLance : a.copyIceberg}</p>
+      <Select
+        label={a.copyTo}
+        value={into}
+        onChange={(value) => {
+          setInto(value);
+          copying.clear();
+        }}
+        options={[
+          ...fits.map((x) => ({ value: x.name, label: x.name })),
+          { value: NEW, label: strings.collections.newCollection },
+        ]}
+      />
+      {into === NEW && (
+        <>
+          <TextField
+            name="copied-collection-name"
+            label={strings.collections.collectionNameLabel}
+            value={name}
+            mono
+            onChange={(value) => {
+              setTyped(value);
+              copying.clear();
+            }}
+          />
+          {taken.has(name) && <ErrorText>{strings.collections.nameTaken(name)}</ErrorText>}
+        </>
+      )}
+      <p className="screen-help">{a.copyKeeps}</p>
+      {copying.busy && (
+        <span className="screen-progress" role="progressbar" aria-label={a.copying}>
+          <i />
+        </span>
+      )}
+      {copying.error && <ErrorText>{copying.error}</ErrorText>}
+    </Dialog>
+  );
+}
+
+function TableView({
+  space,
+  table,
+  onChange,
+  onReload,
+}: {
+  space: string;
+  table: AnalysisTable;
+  onChange: (next: FileAnalysis) => void;
+  onReload: () => void;
+}) {
   const client = useClient();
   const setRole = useAction();
+  const [copying, setCopying] = useState(false);
+  const dataset = table.dataset;
+  const readable = !table.problem;
   const summary = useLoad(
-    () => client.analysisSummary({ space, table: table.name }),
-    [space, table.name, table.fields.map((f) => `${f.name}:${f.role}`).join(",")],
+    async () => (readable ? client.analysisSummary({ space, table: table.name }) : undefined),
+    [space, table.name, readable, table.fields.map((f) => `${f.name}:${f.role}`).join(",")],
   );
+  // While a reader downloads, look again every second.
+  const downloading = dataset?.extension?.state === "downloading" || dataset?.extension?.state === "installing";
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setTimeout(onReload, 1000);
+    return () => clearTimeout(timer);
+  }, [downloading, table, onReload]);
   const data = summary.data;
   const measure = data?.amount ? a.sumOf(data.amount) : a.countRows;
   return (
     <div className="screen-analysis__table">
-      {table.problem && (
-        <ErrorText>
-          {a.problem} {table.problem}
-        </ErrorText>
+      {dataset?.extension ? (
+        <DatasetReader dataset={dataset} onReady={onReload} />
+      ) : (
+        table.problem && (
+          <ErrorText>
+            {dataset ? a.datasetProblem : a.problem} {table.problem}
+          </ErrorText>
+        )
       )}
-      <dl className="oik-card screen-facts screen-analysis__facts">
-        <div>
-          <dt className="oik-label">{a.rowsLabel}</dt>
-          <dd>{a.rows(table.rows)}</dd>
+      {dataset && (
+        <div className="screen-analysis__dataset">
+          <p className="screen-help">{a.readInPlace}</p>
+          <Button disabled={!readable} onClick={() => setCopying(true)}>
+            {a.copy}
+          </Button>
         </div>
+      )}
+      {copying && <CopyToOikome space={space} table={table} onClose={() => setCopying(false)} />}
+      <dl className="oik-card screen-facts screen-analysis__facts">
+        {dataset && (
+          <div>
+            <dt className="oik-label">{a.kindLabel}</dt>
+            <dd>{a.datasetKinds[dataset.kind]}</dd>
+          </div>
+        )}
+        {dataset?.version && (
+          <div>
+            <dt className="oik-label">{a.versionLabel}</dt>
+            <dd translate="no">
+              {dataset.writtenAtMs ? a.version(dataset.version, since(dataset.writtenAtMs)) : dataset.version}
+            </dd>
+          </div>
+        )}
+        {readable && (
+          <div>
+            <dt className="oik-label">{a.rowsLabel}</dt>
+            <dd>{a.rows(table.rows)}</dd>
+          </div>
+        )}
         <div>
-          <dt className="oik-label">{a.filesLabel}</dt>
+          <dt className="oik-label">{dataset ? a.folderLabel : a.filesLabel}</dt>
           <dd translate="no" title={table.files.join("\n")}>
             {table.sheet
               ? a.inSheet(table.files[0], table.sheet)
@@ -95,7 +271,7 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
           </dd>
         </div>
         <div>
-          <dt className="oik-label">{a.updated}</dt>
+          <dt className="oik-label">{dataset ? a.read : a.updated}</dt>
           <dd>{since(table.builtAtMs)}</dd>
         </div>
         <div>
@@ -106,34 +282,38 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
         </div>
       </dl>
 
-      <div className="screen-analysis__charts">
-        <Card className="screen-analysis__chart">
-          <h3 className="oik-label">{a.byMonth}</h3>
-          <p className="screen-help">{measure}</p>
-          {summary.error ? (
-            <ErrorText>{summary.error}</ErrorText>
-          ) : !data ? (
-            <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-          ) : data.byMonth.length > 0 ? (
-            <Bars points={data.byMonth} label={a.byMonth} vertical />
-          ) : (
-            <p className="screen-help">{a.needTime}</p>
-          )}
-        </Card>
-        <Card className="screen-analysis__chart">
-          <h3 className="oik-label">{a.byCategory}</h3>
-          <p className="screen-help">{data?.category ? `${data.category} · ${measure}` : measure}</p>
-          {summary.error ? null : !data ? (
-            <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-          ) : data.byCategory.length > 0 ? (
-            <Bars points={data.byCategory} label={a.byCategory} />
-          ) : (
-            <p className="screen-help">{a.needCategory}</p>
-          )}
-        </Card>
-      </div>
+      {/* Totals need the rows: none while the table can't be read. */}
+      {readable && (
+        <div className="screen-analysis__charts">
+          <Card className="screen-analysis__chart">
+            <h3 className="oik-label">{a.byMonth}</h3>
+            <p className="screen-help">{measure}</p>
+            {summary.error ? (
+              <ErrorText>{summary.error}</ErrorText>
+            ) : !data ? (
+              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
+            ) : data.byMonth.length > 0 ? (
+              <Bars points={data.byMonth} label={a.byMonth} vertical />
+            ) : (
+              <p className="screen-help">{a.needTime}</p>
+            )}
+          </Card>
+          <Card className="screen-analysis__chart">
+            <h3 className="oik-label">{a.byCategory}</h3>
+            <p className="screen-help">{data?.category ? `${data.category} · ${measure}` : measure}</p>
+            {summary.error ? null : !data ? (
+              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
+            ) : data.byCategory.length > 0 ? (
+              <Bars points={data.byCategory} label={a.byCategory} />
+            ) : (
+              <p className="screen-help">{a.needCategory}</p>
+            )}
+          </Card>
+        </div>
+      )}
 
-      <Group title={a.fields} footnote={a.fieldsFootnote}>
+      {table.fields.length > 0 && (
+      <Group title={a.fields} footnote={dataset ? a.datasetFieldsFootnote : a.fieldsFootnote}>
         {table.fields
           .filter((field) => field.name !== "_source_file")
           .map((field) => (
@@ -158,6 +338,7 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
             />
           ))}
       </Group>
+      )}
       {setRole.error && <ErrorText>{setRole.error}</ErrorText>}
     </div>
   );
@@ -202,11 +383,13 @@ export function AnalysisView({ space }: { space: string }) {
                   {source.name}
                 </span>
                 <span className="screen-help" translate="no" title={source.files.join("\n")}>
-                  {source.sheet
-                    ? a.inSheet(source.files[0], source.sheet)
-                    : source.files.length === 1
-                      ? source.files[0]
-                      : a.files(source.files.length)}
+                  {source.dataset
+                    ? a.datasetAt(a.datasetKinds[source.dataset]!, source.files[0]!)
+                    : source.sheet
+                      ? a.inSheet(source.files[0], source.sheet)
+                      : source.files.length === 1
+                        ? source.files[0]
+                        : a.files(source.files.length)}
                 </span>
               </li>
             ))}
@@ -239,7 +422,16 @@ export function AnalysisView({ space }: { space: string }) {
         )}
       </div>
       {build.error && <ErrorText>{build.error}</ErrorText>}
-      <TableView key={current.name} space={space} table={current} onChange={setFresh} />
+      <TableView
+        key={current.name}
+        space={space}
+        table={current}
+        onChange={setFresh}
+        onReload={() => {
+          setFresh(undefined);
+          analysis.reload();
+        }}
+      />
     </div>
   );
 }

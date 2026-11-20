@@ -6918,3 +6918,262 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .join("analysis/household.json")
         .exists());
 }
+
+/// A node that loads DuckDB's extensions, shared by the tests that need
+/// them and downloaded on first use.
+fn node_with_extensions() -> Node {
+    let dir = tempfile::tempdir().unwrap();
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
+    let config = NodeConfig {
+        duckdb: oikome_engine_duckdb::DuckDbConfig {
+            extension_dir: Some(
+                std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("duckdb-extensions"),
+            ),
+            allow_extension_install: true,
+            ..Default::default()
+        },
+        ..test_config()
+    };
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), config).unwrap());
+    let api = Api::new(catalog.clone(), engines.clone());
+    Node {
+        _dir: dir,
+        catalog,
+        engines,
+        api,
+    }
+}
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+async fn count_of(n: &Node, table: &str) -> i64 {
+    let read = sql(n, &format!("SELECT CAST(count(*) AS BIGINT) FROM {table}")).await;
+    let SqlResult::Rows(rows) = read else {
+        panic!("expected rows, got {read:?}");
+    };
+    StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::Int64Array>()
+        .unwrap()
+        .value(0)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn datasets_in_a_folder_are_analysis_tables_and_can_be_copied_to_oikome() {
+    let n = node_with_extensions();
+    // Another program's Iceberg table and Lance dataset: this node's own,
+    // as Iceberg and Lance write them, copied into the owner's folder.
+    sql(
+        &n,
+        "CREATE SPACE shop; CREATE TABLE shop.orders (id BIGINT, item VARCHAR, amount DOUBLE); \
+         INSERT INTO shop.orders VALUES (1, 'tea', 3.5), (2, 'rice', 2.0); \
+         INSERT INTO shop.orders VALUES (3, 'salt', 1.0)",
+    )
+    .await;
+    sql(
+        &n,
+        "CREATE SPACE notes WITH FORMAT = 'lance'; \
+         CREATE TABLE notes.items (id BIGINT, title VARCHAR); \
+         INSERT INTO notes.items VALUES (1, 'a'), (2, 'b')",
+    )
+    .await;
+    let data = std::path::PathBuf::from(n.catalog.root_path());
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path().join("lab");
+    copy_tree(&data.join("shop/orders"), &root.join("exports/orders"));
+    copy_tree(
+        &data.join(".oikome/lance/notes/items.lance"),
+        &root.join("vectors/items.lance"),
+    );
+    std::fs::write(root.join("readings.csv"), "day,kwh\n1,3\n2,4\n").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("lab".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let lab = || SpaceRef {
+        space: "lab".into(),
+    };
+
+    // Each dataset is one item of its folder, and opens as a table.
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "lab".into(),
+                folder: Some("exports".into()),
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.files.len(), 1, "{:?}", listed.files);
+    let orders = &listed.files[0];
+    assert_eq!(orders.kind, FileKind::Dataset);
+    assert_eq!(orders.content.format, "iceberg");
+    assert_eq!(orders.content.views, [ContentView::Table]);
+    let rows = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "lab".into(),
+                path: "exports/orders".into(),
+                limit: Some(2),
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+
+    // Data Analysis offers them with the CSV, and reads them where they are.
+    let found = n.api.file_analysis(&OWNER, lab()).await.unwrap();
+    let mut sources: Vec<_> = found
+        .sources
+        .iter()
+        .map(|s| (s.name.as_str(), s.dataset))
+        .collect();
+    sources.sort_by_key(|(name, _)| *name);
+    assert_eq!(
+        sources,
+        [
+            ("items", Some(DatasetKind::Lance)),
+            ("orders", Some(DatasetKind::Iceberg)),
+            ("readings", None),
+        ]
+    );
+    let made = n.api.build_analysis(&OWNER, lab()).await.unwrap();
+    let table = |name: &str| made.tables.iter().find(|t| t.name == name).unwrap().clone();
+    let orders = table("orders");
+    assert_eq!(orders.problem, None);
+    assert_eq!(orders.rows, 3);
+    let facts = orders.dataset.clone().unwrap();
+    assert_eq!(facts.kind, DatasetKind::Iceberg);
+    assert!(facts.version.is_some() && facts.written_at_ms.is_some());
+    assert_eq!(facts.extension, None);
+    assert!(orders.fields.iter().any(|f| f.name == "amount"));
+    assert_eq!(table("items").rows, 2);
+    assert_eq!(
+        table("items").dataset.unwrap().version.as_deref(),
+        Some("2")
+    );
+    let summary = n
+        .api
+        .analysis_summary(
+            &OWNER,
+            AnalysisTableRef {
+                space: "lab".into(),
+                table: "orders".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.amount.as_deref(), Some("amount"));
+    // Nothing was made in Iceberg for them: they are read where they are,
+    // values and all.
+    assert_eq!(count_of(&n, "lab.orders").await, 3);
+    assert_eq!(
+        count_of(&n, "lab.orders WHERE item = 'tea' AND amount = 3.5").await,
+        1
+    );
+
+    // Copy to Oikome: the Iceberg table's current data into a new
+    // collection, the Lance dataset whole into another.
+    let copied = n
+        .api
+        .copy_to_oikome(
+            &OWNER,
+            CopyToOikome {
+                space: "lab".into(),
+                table: "orders".into(),
+                to: "archive".into(),
+                new: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (copied.space.as_str(), copied.table.as_str(), copied.rows),
+        ("archive", "orders", 3)
+    );
+    assert!(copied.files >= 3, "{copied:?}");
+    let wrong = n
+        .api
+        .copy_to_oikome(
+            &OWNER,
+            CopyToOikome {
+                space: "lab".into(),
+                table: "items".into(),
+                to: "archive".into(),
+                new: false,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(wrong.message.contains("can't hold"), "{wrong}");
+    let vectors = n
+        .api
+        .copy_to_oikome(
+            &OWNER,
+            CopyToOikome {
+                space: "lab".into(),
+                table: "items".into(),
+                to: "vectors".into(),
+                new: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(vectors.rows, 2);
+    // Where each came from is kept with it, the files' hashes included.
+    let kept: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(n.catalog.oikome_dir().join("copies/archive/orders.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(kept["path"], "exports/orders");
+    assert_eq!(kept["kind"], "iceberg");
+    assert!(kept["files"][0]["blake3"]
+        .as_str()
+        .is_some_and(|h| h.len() == 64));
+    // The copies no longer depend on the originals.
+    std::fs::remove_dir_all(root.join("exports")).unwrap();
+    std::fs::remove_dir_all(root.join("vectors")).unwrap();
+    assert_eq!(count_of(&n, "archive.orders").await, 3);
+    assert_eq!(count_of(&n, "vectors.items").await, 2);
+    // Values and all: the copy holds the table's data, not empty rows.
+    assert_eq!(
+        count_of(&n, "archive.orders WHERE item = 'rice' AND amount = 2.0").await,
+        1
+    );
+}

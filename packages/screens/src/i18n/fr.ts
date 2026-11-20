@@ -1463,7 +1463,7 @@ export const fr: Strings = {
       unreadable: "Illisible",
       no_model: "Modèle d’embedding non installé",
     } as Record<string, string>,
-    chunks: (n: number) => (n === 1 ? "1 passage" : `${n} passages`),
+    chunks: (n: number) => `${n} passage${n > 1 ? "s" : ""}`,
     passages: "Fichiers et passages",
     showChunks: "Afficher les passages",
     hideChunks: "Masquer les passages",

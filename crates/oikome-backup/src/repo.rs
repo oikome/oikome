@@ -197,7 +197,7 @@ impl Repository {
             .iter()
             .map(Snapshot::from)
             .collect();
-        snapshots.sort_by(|a, b| b.made_at_ms.cmp(&a.made_at_ms));
+        snapshots.sort_by_key(|s| std::cmp::Reverse(s.made_at_ms));
         Ok(snapshots)
     }
 

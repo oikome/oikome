@@ -40,12 +40,21 @@ fn move_json(value: &mut serde_json::Value, old: &str, new: &str) -> bool {
             }
             None => false,
         },
-        serde_json::Value::Array(items) => items
-            .iter_mut()
-            .fold(false, |any, v| move_json(v, old, new) || any),
-        serde_json::Value::Object(map) => map
-            .values_mut()
-            .fold(false, |any, v| move_json(v, old, new) || any),
+        // Every value is moved: no stopping at the first.
+        serde_json::Value::Array(items) => {
+            let mut moved = false;
+            for v in items {
+                moved |= move_json(v, old, new);
+            }
+            moved
+        }
+        serde_json::Value::Object(map) => {
+            let mut moved = false;
+            for v in map.values_mut() {
+                moved |= move_json(v, old, new);
+            }
+            moved
+        }
         _ => false,
     }
 }

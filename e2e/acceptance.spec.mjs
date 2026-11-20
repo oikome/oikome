@@ -186,8 +186,9 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
     await expect(page.getByText("No Analysis Tables")).toBeVisible();
     await page.getByRole("button", { name: "Make Analysis Tables" }).click();
-    // The utility bills' workbook: a table per sheet.
-    for (const table of ["readings", "receipts_2024", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+    // The utility bills' workbook: a table per sheet. Last year's receipts
+    // folder holds one file, and its table is named after it.
+    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();

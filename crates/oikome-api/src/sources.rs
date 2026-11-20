@@ -567,7 +567,7 @@ impl Api {
         let table = analysis
             .tables
             .iter()
-            .find(|table| table.files.iter().any(|f| *f == at))
+            .find(|table| table.files.contains(&at))
             .map(|table| table.name.clone());
         self.remove_source(caller, SourceRef { source: req.source })
             .await?;

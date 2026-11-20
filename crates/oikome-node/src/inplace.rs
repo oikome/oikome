@@ -1944,6 +1944,25 @@ SELECT f.path, f.name, f.kind, f.size, f.modified, f.title, f.taken, f.written, 
 FROM numbered n JOIN files f ON f.rowid = n.id LEFT JOIN thumbs t ON t.path = f.path
 WHERE n.n <= ?3 ORDER BY n.child, n.n";
 
+/// A folder's newest table with its first lines read, for a folder of
+/// tables with no photo or note to show.
+const COVER_TABLES: &str = "
+WITH under AS (
+  SELECT f.rowid AS id, f.modified AS at,
+         CASE WHEN ?1 = '' THEN f.folder ELSE substr(f.folder, length(?1) + 2) END AS rest
+  FROM files f
+  WHERE f.kind = 'table' AND f.text IS NOT NULL AND f.folder != ?1 AND (?1 = '' OR f.folder LIKE ?2 ESCAPE '\\')
+), ranked AS (
+  SELECT id, CASE WHEN instr(rest, '/') > 0 THEN substr(rest, 1, instr(rest, '/') - 1) ELSE rest END AS child, at
+  FROM under
+), numbered AS (
+  SELECT id, child, row_number() OVER (PARTITION BY child ORDER BY at DESC, id) AS n FROM ranked
+)
+SELECT f.path, f.name, f.kind, f.size, f.modified, f.title, f.taken, f.written, f.place, f.credit,
+       f.text, t.path IS NOT NULL, f.modified_ms, n.child
+FROM numbered n JOIN files f ON f.rowid = n.id LEFT JOIN thumbs t ON t.path = f.path
+WHERE n.n <= ?3 ORDER BY n.child, n.n";
+
 fn entry_of(r: &rusqlite::Row<'_>, excerpt: Option<usize>) -> rusqlite::Result<FileEntry> {
     let text: Option<String> = r.get(10)?;
     Ok(FileEntry {
@@ -2046,9 +2065,13 @@ pub fn list(
     if !counts.is_empty() {
         let prefix = format!("{}/%", like_escape(folder));
         // A folder's newest photos are its cover; its newest note only when
-        // it has none.
-        for (sql_text, per, only_without) in [(COVER_PHOTOS, 3_i64, false), (COVER_NOTES, 1, true)]
-        {
+        // it has none, and its newest table's first lines when it has
+        // neither.
+        for (sql_text, per, only_without) in [
+            (COVER_PHOTOS, 3_i64, false),
+            (COVER_NOTES, 1, true),
+            (COVER_TABLES, 1, true),
+        ] {
             let mut stmt = conn.prepare(sql_text).map_err(sql)?;
             let rows = stmt
                 .query_map(params![folder, prefix, per], |r| {
@@ -2175,7 +2198,7 @@ pub fn list_deep(
 
 /// A file of a folder viewed in place, as knowledge preparation sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct IndexedFile {
+pub struct IndexedFile {
     pub path: String,
     pub name: String,
     pub size: u64,
@@ -2183,7 +2206,7 @@ pub(crate) struct IndexedFile {
 }
 
 /// Every file the index of a folder viewed in place lists, by path.
-pub(crate) fn indexed_files(
+pub fn indexed_files(
     catalog: &OikomeCatalog,
     location: &Location,
 ) -> Result<Vec<IndexedFile>, SessionError> {

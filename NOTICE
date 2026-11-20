@@ -193,6 +193,15 @@ calamine (calamine; reading Excel and OpenDocument spreadsheets for analysis)
   https://github.com/tafia/calamine  -  MIT License
   Copyright (c) 2016 Johann Tuffe
 
+rustic_core (rustic_core; backups in restic-format repositories)
+  https://github.com/rustic-rs/rustic_core  -  MIT License or Apache License 2.0
+  Copyright (c) the rustic-rs team
+
+option-ext (option-ext, via rustic_core -> dirs -> dirs-sys)
+  https://github.com/soc/option-ext  -  Mozilla Public License 2.0
+  Used unmodified. Its source is available at https://crates.io/crates/option-ext
+  and from the repository above; the license is at https://mozilla.org/MPL/2.0/.
+
 keyring-rs (keyring-core, apple-native-keyring-store, windows-native-keyring-store;
   storage credentials in the OS keychain)
   https://github.com/open-source-cooperative/keyring-rs  -  MIT License or Apache License 2.0

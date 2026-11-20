@@ -6,7 +6,7 @@
 // model that runs on this computer), where each original is, its passages,
 // its skills, and a retrieval test that searches the way an assistant does.
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   Button,
@@ -35,6 +35,7 @@ import type {
 } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { bytes, homeRelative } from "../format";
+import { TransferProgress } from "../progress";
 import { strings } from "../strings";
 
 const k = strings.knowledge;
@@ -90,48 +91,14 @@ function DownloadProgress({
   label: string;
   installing?: boolean;
 }) {
-  const [rate, setRate] = useState<number>();
-  const last = useRef<{ at: number; done: number } | undefined>(undefined);
-  useEffect(() => {
-    const at = performance.now();
-    const before = last.current;
-    if (before && done > before.done && at > before.at) {
-      const now = ((done - before.done) * 1000) / (at - before.at);
-      setRate((old) => (old ? old * 0.6 + now * 0.4 : now));
-    }
-    last.current = { at, done };
-  }, [done]);
-  const pct = total ? Math.min(100, Math.floor((done / total) * 100)) : undefined;
-  const parts: string[] = [];
-  if (installing) {
-    parts.push(k.download.installing);
-  } else if (!done && !total) {
-    parts.push(k.download.connecting);
-  } else {
-    parts.push(total ? k.download.progress(bytes(done), bytes(total)) : bytes(done));
-    if (rate) {
-      parts.push(k.download.speed(bytes(Math.round(rate))));
-      if (total) {
-        const left = Math.max(0, (total - done) / rate);
-        parts.push(
-          k.download.remaining(
-            left < 60 ? k.download.seconds(Math.max(1, Math.round(left))) : k.download.minutes(Math.ceil(left / 60)),
-          ),
-        );
-      }
-    }
-  }
   return (
-    <div className="screen-download" role="status">
-      <div className="screen-download__bar">
-        <progress max={100} value={installing ? undefined : pct} aria-label={label} />
-        {pct !== undefined && !installing && <span className="screen-download__pct">{`${pct}%`}</span>}
-      </div>
-      <p className="screen-download__line">{parts.join(" · ")}</p>
-      <p className="screen-download__path" translate="no">
-        {k.download.savedTo(homeRelative(path))}
-      </p>
-    </div>
+    <TransferProgress
+      done={done}
+      total={total}
+      label={label}
+      installing={installing}
+      note={k.download.savedTo(homeRelative(path))}
+    />
   );
 }
 

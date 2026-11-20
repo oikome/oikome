@@ -1,8 +1,8 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// Settings, as grouped rows: the recovery key, the data center itself,
-// where collections are kept, language.
+// Settings, as grouped rows: the recovery key, the data center itself and
+// its backups, where collections are kept, language.
 
 import { useEffect, useState } from "react";
 import {
@@ -23,30 +23,20 @@ import {
   Tile,
   useToast,
 } from "@oikome/ui";
-import type { IconName, TileTone } from "@oikome/ui";
 import type { Network, NodeInfo, ReachPolicy, StorageSummary } from "@oikome/client";
 import type { StatusKind } from "@oikome/ui";
 import { useAction, useClient, useLoad } from "../data";
 import { LanguageSelect, RecoveryKeyPanel, ScreenHeader } from "../parts";
 import { bytes, dateFromMs, homeRelative, listNames } from "../format";
-import { AddStorage, googleMessage } from "../storage";
+import { AddStorage, STORAGE_LOOK, googleMessage } from "../storage";
 import { applyTheme, savedTheme } from "../theme";
 import type { Theme } from "../theme";
 import { navigate } from "../router";
+import { BackupSettings } from "./BackupSettings";
 import { ModelsSettings } from "./Knowledge";
 import { strings } from "../strings";
 
 const s = strings.settings;
-
-const STORAGE_LOOK: Record<StorageSummary["type"], [IconName, TileTone]> = {
-  disk: ["computer", "stone"],
-  webdav: ["nas", "sage"],
-  folder: ["folder", "oat"],
-  drive: ["drive", "periwinkle"],
-  s3: ["bucket", "apricot"],
-  gdrive: ["drive", "mist"],
-  dropbox: ["drive", "periwinkle"],
-};
 
 /** Free space and a bar, where the place says. */
 function Room({ place }: { place: StorageSummary }) {
@@ -523,7 +513,7 @@ export function Settings({
                     variant={info.recoveryKeySaved ? "secondary" : "primary"}
                     onClick={() => setShowKey(true)}
                   >
-                    {info.recoveryKeySaved ? s.showAgain : strings.backup.backUpNow}
+                    {info.recoveryKeySaved ? s.showAgain : strings.recovery.title}
                   </Button>
                 )
               }
@@ -543,6 +533,7 @@ export function Settings({
               </GroupPanel>
             )}
           </Group>
+          <BackupSettings dataDir={info.dataDir} />
         </div>
       </div>
     </>

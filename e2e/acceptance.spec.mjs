@@ -186,8 +186,9 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
     await expect(page.getByText("No Analysis Tables")).toBeVisible();
     await page.getByRole("button", { name: "Make Analysis Tables" }).click();
-    // The utility bills' workbook: a table per sheet.
-    for (const table of ["readings", "receipts_2024", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+    // The utility bills' workbook: a table per sheet. Last year's receipts
+    // folder holds one file, and its table is named after it.
+    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();
@@ -217,6 +218,12 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.goto(`${running.base}/collections/rustfs-archive`);
     await expect(page.getByText("scans", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("tickets", { exact: true }).first()).toBeVisible();
+    // Backups go to a folder standing for an external disk; one was made.
+    await page.goto(`${running.base}/settings`);
+    const backup = page.locator(".oik-group").filter({ has: page.getByText("Backup", { exact: true }) });
+    await expect(backup.getByText("backup-disk", { exact: false }).first()).toBeVisible();
+    await expect(backup.getByText("Done", { exact: true }).first()).toBeVisible();
+    await expect(backup.getByRole("button", { name: "Back Up Now" })).toBeVisible();
     await page.goto(`${running.base}/sharing`);
     await expect(page.getByText("Acceptance Peer").first()).toBeVisible();
 

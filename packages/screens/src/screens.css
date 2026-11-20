@@ -2584,6 +2584,28 @@ a.screen-list__row:hover .screen-list__thumb {
 .screen-subfolders {
   margin-bottom: var(--space-6);
 }
+/* Folders inside a folder are the size of the files after them, as in a
+   file manager, not of the collections on the Collections page. */
+.screen-covers.screen-subfolders {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-4) var(--space-3);
+}
+.screen-subfolders .screen-cover__art {
+  aspect-ratio: 4 / 3;
+  box-shadow: none;
+}
+.screen-subfolders .screen-cover__art--plain .oik-icon {
+  width: 34px;
+  height: 34px;
+  color: var(--ink3);
+}
+.screen-cover__art--rows {
+  display: block;
+  padding: 6px 10px;
+}
+.screen-cover__art--rows .screen-cover__table {
+  width: 100%;
+}
 /* The first rows of a CSV file in its tile. */
 .screen-ftile__art.screen-ftile__art--rows {
   padding: 6px 10px;
@@ -3825,6 +3847,7 @@ tr.screen-source {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  min-width: 0;
   margin-top: var(--space-3);
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border: var(--bw) solid var(--line);
@@ -4789,6 +4812,148 @@ tr.screen-source {
   font: var(--text-meta);
   color: var(--ink3);
   overflow-wrap: anywhere;
+}
+/* The step a transfer is at, above its bar ("Sending to Home NAS (1 of 2)"). */
+.screen-download__step {
+  margin: 0;
+  font: var(--text);
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Settings › Backup (PR 30). A place's last backup and check sit under its
+   name, lined up with it and with no rule between them. */
+.screen-backup-indent {
+  flex: none;
+  width: 34px;
+}
+.oik-group__item:has(> .oik-row > .screen-backup-indent),
+[data-theme="bold"] .oik-group__item:has(> .oik-row > .screen-backup-indent) {
+  border-top: 0;
+}
+.oik-row:has(> .screen-backup-indent) {
+  padding-top: 2px;
+}
+.screen-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+/* Where backups go, in the dialog that turns them on: each place in a box. */
+.screen-backup-places {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+.screen-backup-place {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: var(--bw) solid var(--line2);
+  border-radius: var(--r-card);
+}
+[data-theme="bold"] .screen-backup-place {
+  border-color: var(--line);
+}
+.screen-backup-place .oik-field,
+.screen-backup-place .screen-help,
+.screen-backup-place .screen-source-pick {
+  margin: 0;
+}
+.screen-backup-place .screen-help {
+  overflow-wrap: anywhere;
+}
+.screen-backup-place__head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.screen-backup-place__head > .oik-field {
+  flex: 1;
+  min-width: 0;
+}
+.screen-backup-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+}
+.screen-backup-when > .oik-field {
+  margin: 0;
+}
+.screen-backup-when .oik-select-wrap {
+  min-width: 150px;
+}
+/* The backups kept at a place, newest first. */
+.screen-backup-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--bw) solid var(--line2);
+  border-radius: var(--r-card);
+}
+[data-theme="bold"] .screen-backup-list {
+  border-color: var(--line);
+}
+.screen-backup-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: 10px var(--space-4);
+}
+.screen-backup-list > li + li {
+  border-top: 1px solid var(--line2);
+}
+.screen-backup-list__when {
+  font-weight: 500;
+  color: var(--ink);
+}
+.screen-backup-list__meta {
+  font: var(--text-meta);
+  color: var(--ink3);
+  overflow-wrap: anywhere;
+}
+/* A restore made ready: the originals no longer where they were, and the
+   one thing left to do. */
+.screen-backup-missing {
+  display: grid;
+  gap: var(--space-2);
+}
+.screen-backup-missing h3 {
+  margin: 0;
+}
+.screen-backup-missing ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.screen-backup-missing li {
+  display: grid;
+  gap: 2px;
+  color: var(--ink2);
+}
+.screen-backup-restart {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+.screen-backup-busy {
+  display: grid;
+  gap: var(--space-2);
+}
+.screen-backup-busy .screen-help {
+  margin: 0;
 }
 
 /* A skill's folder, beside it. */

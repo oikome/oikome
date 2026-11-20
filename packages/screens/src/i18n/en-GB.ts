@@ -16,6 +16,8 @@ export const enGB: Strings = overlay(en, {
   },
   reasons: {
     invite_other: "This invite is for another data centre; ask them to share with your ID, from Settings.",
+    backup_other_key: "The backups in that folder were made by another data centre. Choose another folder.",
+    backup_key_needed: "This data centre's identity does not open these backups. Enter its recovery key to open them.",
   },
   backup: {
     bannerBody:
@@ -59,5 +61,14 @@ export const enGB: Strings = overlay(en, {
     recoveryBody:
       "It is your identity. With it, this data centre can be brought back on a new computer.",
     centerTitle: "Data Centre Details",
+  },
+  dataBackup: {
+    what: "Backups hold this data centre's data folder, encrypted with a key from its recovery key. Original files that collections view where they are, passwords and sign-ins are not included.",
+    restoreBody: "Turn this data centre back to one of its backups. Choose where the backups are, then which one.",
+    replaces: (date: string) =>
+      `The backup from ${date} replaces what this data centre holds now: its collections, tables and settings. Changes made since then are lost.`,
+    replacesNewest: (folder: string) =>
+      `The newest backup of this data folder in ${folder} replaces what this data centre holds now: its collections, tables and settings. Changes made since then are lost.`,
+    keyHint: "The key saved when this data centre was set up.",
   },
 });

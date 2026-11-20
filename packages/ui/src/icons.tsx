@@ -8,6 +8,7 @@ import type { ReactElement } from "react";
 export type IconName =
   | "activity"
   | "ai"
+  | "archive"
   | "audio"
   | "back"
   | "check"
@@ -54,6 +55,13 @@ export type IconName =
 const PATHS: Record<IconName, ReactElement> = {
   activity: <path d="M3 12h4l3-7 4 14 3-7h4" />,
   ai: <path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 10.9 10.1 9z" />,
+  // A box with its lid: what is kept, put away (backups).
+  archive: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="4.5" rx="1.25" />
+      <path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" />
+    </>
+  ),
   audio: (
     <>
       <path d="M9 18V6l10-2v12" />

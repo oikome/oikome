@@ -2124,6 +2124,92 @@ test("Settings › Network says what the port is open for, and Don't ask again s
   }
 });
 
+test("Settings › Backup is off until turned on, backs up when asked, and restores at the next start", async () => {
+  test.setTimeout(240_000);
+  // A folder standing for another disk, in the home folder the folder browser opens at.
+  const disk = mkdtempSync(join(homedir(), "oikome-backup-disk-"));
+  const diskName = disk.split(/[\\/]/).pop();
+  const pending = join(owner, ".oikome", "backup", "pending");
+  try {
+    await page.goto(`${base}/settings`);
+    const card = page.getByRole("region", { name: "Backup", exact: true });
+    // Off until the owner turns it on.
+    await expect(card).toContainText("Backups are off.");
+    await expect(card.getByRole("switch", { name: "Scheduled backups" })).toHaveAttribute("aria-checked", "false");
+    await card.getByRole("button", { name: "Turn On…" }).click();
+
+    // Where: a folder on this computer, picked in the folder browser. When:
+    // every day, half a day from now, so the schedule starts none meanwhile.
+    const setup = page.getByRole("dialog", { name: "Turn On Backups" });
+    await expect(setup.getByLabel("Place")).toHaveValue("");
+    await expect(setup).toContainText("No folder chosen yet");
+    await expect(setup.getByRole("button", { name: "Turn On", exact: true })).toBeDisabled();
+    await setup.getByRole("button", { name: "Choose…" }).click();
+    const browse = page.getByRole("dialog", { name: "Choose a Folder" });
+    await browse.getByRole("button", { name: diskName, exact: true }).click();
+    await expect(browse).toContainText(`Backups are kept in ~/${diskName}/oikome-backup.`);
+    await browse.getByRole("button", { name: "Choose This Folder" }).click();
+    await expect(setup).toContainText(`~/${diskName}`);
+    await expect(setup.getByRole("radio", { name: "Daily" })).toHaveAttribute("aria-checked", "true");
+    const hour = (new Date().getHours() + 12) % 24;
+    await setup.getByLabel("Time").selectOption(`${String(hour).padStart(2, "0")}:00`);
+    await setup.getByRole("button", { name: "Turn On", exact: true }).click();
+    await expect(setup).toHaveCount(0);
+    await expect(page.locator(".oik-toasts")).toContainText("Backups are on. Next backup:");
+
+    // On, and nothing backed up yet: the place, the time and the next one.
+    await expect(card.getByRole("switch", { name: "Scheduled backups" })).toHaveAttribute("aria-checked", "true");
+    await expect(card).toContainText("This computer");
+    await expect(card).toContainText(`~/${diskName}`);
+    await expect(card).toContainText("Not backed up yet");
+    await expect(card).toContainText("Not checked yet");
+    await expect(card).toContainText(/Every day at \d{1,2}:00/);
+    await expect(card).toContainText("Next backup:");
+    await expect(card).toContainText("Kept: one a day for a week, one a week for a month, one a month for a year.");
+    const on = await api("backup_info");
+    expect(on).toMatchObject({ enabled: true, running: null, schedule: { every: "daily", hour, minute: 0 } });
+    expect(on.places).toHaveLength(1);
+    expect(on.places[0].lastBackup).toBeNull();
+    expect(await api("list_backups", { place: 0 })).toEqual([]);
+
+    // Back Up Now: the place shows the backup made, once the job is done.
+    await card.getByRole("button", { name: "Back Up Now" }).click();
+    const lastBackup = card.locator(".oik-row", { hasText: "Last backup" });
+    await expect(lastBackup.locator(".oik-status")).toHaveText("Done", { timeout: 120_000 });
+    await expect(lastBackup).toContainText("added");
+    await expect(card.getByRole("button", { name: "Back Up Now" })).toBeEnabled();
+    await card.getByRole("button", { name: "Show Backups" }).click();
+    const kept = page.getByRole("dialog", { name: "Backups at This computer" });
+    await expect(kept.locator(".screen-backup-list > li")).toHaveCount(1);
+    await expect(kept).toContainText("added");
+    await kept.getByRole("button", { name: "Done" }).click();
+
+    // Restore from Backup: the place, its one backup, a clear word on what
+    // it replaces, then what is left to do: start Oikome again.
+    await card.getByRole("button", { name: "Restore from Backup…" }).click();
+    const restore = page.getByRole("dialog", { name: "Restore from Backup" });
+    await expect(restore.getByLabel("Where the backups are")).toHaveValue("0");
+    await expect(restore.getByRole("radio")).toHaveCount(1);
+    await expect(restore.getByRole("radio")).toBeChecked();
+    await restore.getByRole("button", { name: "Continue" }).click();
+    await expect(restore).toContainText("replaces what this data center holds now");
+    await expect(restore).toContainText("Original files on disk are not touched.");
+    await restore.getByRole("button", { name: "Restore", exact: true }).click();
+    await expect(restore).toContainText("Quit Oikome and start it again to finish.", { timeout: 120_000 });
+    await restore.getByRole("button", { name: "Done" }).click();
+    await expect(card).toContainText("is ready to restore");
+    // It waits beside the data folder; the node puts it in place when it starts.
+    expect(existsSync(pending)).toBe(true);
+  } finally {
+    // The owner's node is not started again in this suite, so the restore
+    // would never be put in place; it is taken back all the same, and
+    // backups are turned off, as their folder goes now.
+    await api("turn_off_backup");
+    rmSync(pending, { recursive: true, force: true });
+    rmSync(disk, { recursive: true, force: true });
+  }
+});
+
 test("a folder is viewed where it is: browsed, opened, queried, offline, and shared to view", async () => {
   // A folder of the owner's, outside the data center: a photo, a table, notes in a folder.
   const trip = mkdtempSync(join(tmpdir(), "oikome-trip-"));

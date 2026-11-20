@@ -768,6 +768,303 @@ async fn an_identity_is_restored_only_into_an_empty_node() {
     assert_eq!(e.code, ErrorCode::Conflict);
 }
 
+/// Wait for the backup or check under way to end.
+async fn backup_done(n: &Node) -> BackupInfo {
+    for _ in 0..600 {
+        let info = n.api.backup_info(&OWNER, Empty {}).await.unwrap();
+        if info.running.is_none() {
+            return info;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("the backup did not end");
+}
+
+fn daily(hour: u8) -> BackupSchedule {
+    BackupSchedule {
+        every: BackupEvery::Daily,
+        weekday: None,
+        hour,
+        minute: 0,
+    }
+}
+
+fn to_folder(dir: &std::path::Path) -> BackupDestination {
+    BackupDestination {
+        place: None,
+        path: dir.to_string_lossy().into_owned(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn backups_are_turned_on_with_places_and_a_time_and_made_then_or_when_asked() {
+    let n = node();
+    notes(&n).await;
+    let info = n.api.backup_info(&OWNER, Empty {}).await.unwrap();
+    assert!(!info.enabled && info.places.is_empty() && info.next_at_ms.is_none());
+    assert_eq!(
+        (info.keep_daily, info.keep_weekly, info.keep_monthly),
+        (7, 4, 12)
+    );
+    let not_yet = n.api.back_up_now(&OWNER, Empty {}).await.unwrap_err();
+    assert_eq!(not_yet.reason.as_deref(), Some("backup_no_place"));
+
+    // Not inside the data folder.
+    let inside = n
+        .api
+        .set_backup(
+            &OWNER,
+            BackupSettings {
+                destinations: vec![to_folder(std::path::Path::new(n.catalog.root_path()))],
+                schedule: daily(3),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(inside.code, ErrorCode::Invalid);
+
+    // Two places, every day at three; nothing is backed up yet.
+    let (disk, nas) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let on = n
+        .api
+        .set_backup(
+            &OWNER,
+            BackupSettings {
+                destinations: vec![to_folder(disk.path()), to_folder(nas.path())],
+                schedule: daily(3),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(on.enabled);
+    assert_eq!(on.places.len(), 2);
+    assert_eq!(on.places[0].label, "This computer");
+    assert!(on.next_at_ms.is_some());
+    n.api.back_up_when_due().await;
+    let waiting = n.api.backup_info(&OWNER, Empty {}).await.unwrap();
+    assert!(
+        waiting.running.is_none(),
+        "turning backups on backs up nothing"
+    );
+    assert!(waiting.places.iter().all(|p| p.last_backup.is_none()));
+
+    // When asked: to both places.
+    n.api.back_up_now(&OWNER, Empty {}).await.unwrap();
+    let done = backup_done(&n).await;
+    for place in &done.places {
+        let last = place.last_backup.as_ref().unwrap();
+        assert_eq!(last.error, None, "{}", place.path);
+        assert!(last.backup.as_ref().unwrap().bytes > 0);
+    }
+    assert!(disk.path().join("oikome-backup/config").is_file());
+    assert!(nas.path().join("oikome-backup/config").is_file());
+    let listed = n
+        .api
+        .list_backups(&OWNER, BackupPlaceRef { place: 1 })
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].this_folder);
+    assert!(
+        !n.catalog
+            .oikome_dir()
+            .join("backup")
+            .read_dir()
+            .unwrap()
+            .any(|_| true),
+        "the staging copy is gone"
+    );
+
+    // A time missed while the node was off is made up when it runs.
+    let settings = n.catalog.oikome_dir().join("node.json");
+    let mut json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&settings).unwrap()).unwrap();
+    json["backup"]["enabled_at_ms"] = 0.into();
+    json["backup"]["last_started_ms"] = 0.into();
+    std::fs::write(&settings, serde_json::to_vec(&json).unwrap()).unwrap();
+    let before = done.places[0].last_backup.as_ref().unwrap().at_ms;
+    n.api.back_up_when_due().await;
+    let made_up = backup_done(&n).await;
+    assert!(made_up.places[0].last_backup.as_ref().unwrap().at_ms > before);
+
+    n.api.check_backup(&OWNER, Empty {}).await.unwrap();
+    let checked = backup_done(&n).await;
+    assert!(checked
+        .places
+        .iter()
+        .all(|p| p.last_check.as_ref().unwrap().error.is_none()));
+
+    // Off: the places and time stay, for turning them on again.
+    let off = n.api.turn_off_backup(&OWNER, Empty {}).await.unwrap();
+    assert!(!off.enabled && off.places.len() == 2 && off.next_at_ms.is_none());
+
+    // Another data center's backups are not mixed with these.
+    let other = node();
+    let refused = other
+        .api
+        .set_backup(
+            &OWNER,
+            BackupSettings {
+                destinations: vec![to_folder(disk.path())],
+                schedule: daily(3),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused.reason.as_deref(),
+        Some("backup_other_key"),
+        "{refused}"
+    );
+}
+
+async fn rows_in(api: &Api, query: &str) -> usize {
+    let read = api
+        .run_sql(
+            &OWNER,
+            RunSql {
+                sql: query.into(),
+                space: None,
+            },
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{query}: {e}"));
+    let SqlResult::Rows(read) = read else {
+        panic!("{query}: no rows");
+    };
+    row_count(&read)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_data_center_is_turned_back_to_a_backup_of_its_own_folder() {
+    let n = node();
+    notes(&n).await;
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "ledger".into(),
+                kind: Some(SpaceKind::Transactional),
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(
+        &n,
+        "CREATE TABLE ledger.entries (id BIGINT PRIMARY KEY, amount DOUBLE); \
+         INSERT INTO ledger.entries VALUES (1, 12.5), (2, 30)",
+    )
+    .await;
+    let disk = tempfile::tempdir().unwrap();
+    n.api
+        .set_backup(
+            &OWNER,
+            BackupSettings {
+                destinations: vec![to_folder(disk.path())],
+                schedule: daily(3),
+            },
+        )
+        .await
+        .unwrap();
+    n.api.back_up_now(&OWNER, Empty {}).await.unwrap();
+    assert_eq!(
+        backup_done(&n).await.places[0]
+            .last_backup
+            .as_ref()
+            .unwrap()
+            .error,
+        None
+    );
+
+    // Afterwards: a row more, and a collection made.
+    sql(&n, "INSERT INTO ledger.entries VALUES (3, 7.25)").await;
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "later".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    sql(
+        &n,
+        "CREATE TABLE later.things (id BIGINT); INSERT INTO later.things VALUES (1)",
+    )
+    .await;
+
+    // Another data center's backup cannot be restored here, even with its key.
+    let other = node();
+    let elsewhere = tempfile::tempdir().unwrap();
+    other
+        .api
+        .set_backup(
+            &OWNER,
+            BackupSettings {
+                destinations: vec![to_folder(elsewhere.path())],
+                schedule: daily(3),
+            },
+        )
+        .await
+        .unwrap();
+    other.api.back_up_now(&OWNER, Empty {}).await.unwrap();
+    backup_done(&other).await;
+    let from_there = |key: Option<String>| RestoreBackup {
+        place: None,
+        folder: Some(elsewhere.path().to_string_lossy().into_owned()),
+        backup: None,
+        recovery_key: key,
+    };
+    let needs_key = n
+        .api
+        .restore_from_backup(&OWNER, from_there(None))
+        .await
+        .unwrap_err();
+    assert_eq!(needs_key.reason.as_deref(), Some("backup_key_needed"));
+    let their_key = other.api.recovery_key(&OWNER, Empty {}).await.unwrap().key;
+    let theirs = n
+        .api
+        .restore_from_backup(&OWNER, from_there(Some(their_key)))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        theirs.reason.as_deref(),
+        Some("backup_none_here"),
+        "{theirs}"
+    );
+
+    // This data center's own: made ready, put in place at the next start.
+    let restored = n
+        .api
+        .restore_from_backup(
+            &OWNER,
+            RestoreBackup {
+                place: Some(0),
+                folder: None,
+                backup: None,
+                recovery_key: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(restored.files > 0);
+    let root = n._dir.path().to_path_buf();
+    let did = n.api.node_info(&OWNER, Empty {}).await.unwrap().did;
+    assert!(apply_pending_restore(&root).unwrap());
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), root.to_str().unwrap()).unwrap());
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), test_config()).unwrap());
+    let again = Api::new(catalog.clone(), engines);
+    assert_eq!(again.node_info(&OWNER, Empty {}).await.unwrap().did, did);
+    assert_eq!(rows_in(&again, "SELECT * FROM ledger.entries").await, 2);
+    assert_eq!(rows_in(&again, "SELECT * FROM notes.memos").await, 3);
+    assert!(catalog.get_space("later").is_err(), "made after the backup");
+    assert!(!root.join(".oikome/backup/pending").exists());
+}
+
 #[tokio::test]
 async fn object_storage_needs_its_bucket_and_keys() {
     let n = node();

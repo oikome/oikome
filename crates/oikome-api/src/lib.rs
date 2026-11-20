@@ -30,6 +30,7 @@
 mod analysis;
 mod assistant_config;
 mod assistants;
+mod backup;
 mod borrowing;
 mod dropbox;
 mod editing;
@@ -72,6 +73,7 @@ use oikome_semantic::rewrite::quote_ident;
 use oikome_semantic::{split_statements, IssueUcanRequest};
 use serde::{Deserialize, Serialize};
 
+pub use backup::apply_pending_restore;
 pub use error::{ApiError, ErrorCode};
 pub use plugins::PLUGIN_SDK;
 pub use types::*;
@@ -148,6 +150,9 @@ struct NodeSettings {
     /// Source-save and overwrite confirmations, with their safety fingerprints.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     save_confirmations: Vec<editing::SaveConfirmation>,
+    /// Backups: whether on, where they go, when, and how they ended.
+    #[serde(default, skip_serializing_if = "backup::BackupState::is_empty")]
+    backup: backup::BackupState,
 }
 
 /// The owner's own steps in Activity: setting up this data center, adding
@@ -263,6 +268,8 @@ pub struct Api {
     /// The independent official plugin catalog, or a test's.
     registry: registry::Endpoints,
     public_live: public::LiveState,
+    /// The backup or check under way.
+    backup_job: backup::Job,
 }
 
 impl std::fmt::Debug for Api {
@@ -377,6 +384,7 @@ impl Api {
             rooms: Arc::default(),
             registry: registry::Endpoints::default(),
             public_live: public::LiveState::default(),
+            backup_job: backup::Job::default(),
         }
     }
 

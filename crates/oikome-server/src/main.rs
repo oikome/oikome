@@ -51,7 +51,7 @@ use arrow_cast::display::{ArrayFormatter, FormatOptions};
 use arrow_cast::pretty::pretty_format_batches;
 use clap::{Parser, Subcommand};
 use iceberg::io::FileIO;
-use oikome_api::Api;
+use oikome_api::{Api, Caller};
 use oikome_catalog::registry::OIKOME_DIR;
 use oikome_catalog::{OikomeCatalog, StorageKind};
 use oikome_connect::csv::CsvSource;
@@ -204,6 +204,28 @@ enum IdentityCommand {
     /// standard input. Only a node that holds nothing yet can be restored;
     /// restart a running node afterwards.
     Restore,
+}
+
+#[derive(Subcommand)]
+enum BackupCommand {
+    /// Turn this data center back to a backup of this very data directory:
+    /// the newest one at the first backup place, or the one asked for. It
+    /// takes effect when the node next starts. If the node's identity no
+    /// longer opens the backups, the recovery key is read from standard
+    /// input.
+    Restore {
+        /// A folder on this computer holding the backups, instead of the
+        /// backup places set in Settings.
+        #[arg(long, conflicts_with = "place")]
+        from: Option<PathBuf>,
+        /// Which backup place, counted from 1 as Settings lists them.
+        #[arg(long)]
+        place: Option<u32>,
+        /// Which backup, by its id; the newest of this data directory when
+        /// left out.
+        #[arg(long)]
+        backup: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -367,6 +389,11 @@ enum Command {
         #[command(subcommand)]
         command: ComputeCommand,
     },
+    /// Backups of this node's data directory.
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
     /// Print this node's DID.
     Identity {
         #[command(subcommand)]
@@ -485,6 +512,11 @@ fn open_node(
 ) -> Result<(Arc<OikomeCatalog>, Arc<EngineRegistry>), BoxError> {
     std::fs::create_dir_all(root)?;
     let root = root.canonicalize()?;
+    // A restore made ready on the last run takes effect before anything
+    // opens the data folder.
+    if oikome_api::apply_pending_restore(&root)? {
+        eprintln!("Restored this data center from its backup.");
+    }
     let config = NodeConfig {
         allow_http,
         duckdb: duckdb_config(&root, extension_dir),
@@ -859,6 +891,52 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             key.replace_range(.., &"\0".repeat(key.len()));
             println!("Restored {}. If this node is running, restart it.", did?);
         }
+        Command::Backup {
+            command:
+                BackupCommand::Restore {
+                    from,
+                    place,
+                    backup,
+                },
+        } => {
+            let (catalog, engines) =
+                open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
+            let api = Api::new(catalog, engines);
+            let mut request = oikome_api::RestoreBackup {
+                place: match (&from, place) {
+                    (Some(_), _) => None,
+                    (None, Some(n)) => Some(n.saturating_sub(1)),
+                    (None, None) => Some(0),
+                },
+                folder: from.map(|f| f.to_string_lossy().into_owned()),
+                backup,
+                recovery_key: None,
+            };
+            let mut restored = api
+                .restore_from_backup(&Caller::Owner, request.clone())
+                .await;
+            if matches!(&restored, Err(e) if e.reason.as_deref() == Some("backup_key_needed")) {
+                eprintln!("This node's identity does not open these backups.");
+                eprintln!("Type or paste the recovery key, then press Enter:");
+                let mut key = String::new();
+                std::io::stdin().read_line(&mut key)?;
+                request.recovery_key = Some(key.clone());
+                // The key is the identity: do not keep it around.
+                key.replace_range(.., &"\0".repeat(key.len()));
+                restored = api.restore_from_backup(&Caller::Owner, request).await;
+            }
+            let restored = restored?;
+            println!(
+                "The backup ({} files) is ready; it takes effect when the node next starts.",
+                restored.files
+            );
+            for missing in &restored.missing_originals {
+                println!(
+                    "{}: {} files are not in {} any more.",
+                    missing.collection, missing.missing, missing.folder
+                );
+            }
+        }
         Command::Web {
             command: WebCommand::Open,
         } => {
@@ -955,6 +1033,18 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             let access_log = AccessLog::open(&catalog_dir)?;
             let api =
                 Api::new(catalog.clone(), engines.clone()).with_access_log(access_log.clone());
+            // Backups are made at the time the owner set, and a time missed
+            // while the node was off is made up (PR 30). The same API as the
+            // web app's, so its page follows a backup under way.
+            let backup_api = api.clone();
+            let _backups = AbortOnDrop(tokio::spawn(async move {
+                let mut every = tokio::time::interval(Duration::from_secs(60));
+                every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    every.tick().await;
+                    backup_api.back_up_when_due().await;
+                }
+            }));
             let service = OikomeFlightService::new(catalog.clone(), engines.clone())?
                 .with_access_log(access_log.clone())
                 .with_public_api(api.clone());

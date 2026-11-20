@@ -14,6 +14,10 @@ debug = "line-tables-only"
 # instead of compiling DuckDB's C++ sources.
 [env]
 DUCKDB_DOWNLOAD_LIB = "1"
+# Test threads get the stack the server's runtime threads have (8 MiB,
+# oikome-server's THREAD_STACK_BYTES): reading an Iceberg table parses its
+# Avro schemas recursively, past 2 MiB in a debug build.
+RUST_MIN_STACK = "8388608"
 
 [build]
 rustflags = ["-C", "symbol-mangling-version=v0"]

@@ -96,7 +96,15 @@ fn mode_of(mode: node::SearchMode) -> SearchMode {
 }
 
 fn extension_of(session: &oikome_node::OikomeSession) -> ExtensionDownload {
-    let (state, dir) = session.knowledge_support();
+    extension_state(session, "lance")
+}
+
+/// How far the download of the DuckDB extension `name` is.
+pub(crate) fn extension_state(
+    session: &oikome_node::OikomeSession,
+    name: &str,
+) -> ExtensionDownload {
+    let (state, dir) = session.extension_support(name);
     let (state, done, total, error) = match state {
         SupportState::Idle => (DownloadState::Idle, 0, None, None),
         SupportState::Downloading { done, total } => {

@@ -38,6 +38,13 @@ pub enum TableSource {
     /// A data file read where it is, each time the table is read (a folder
     /// viewed in place, §7.7). The engine never writes it.
     File { path: PathBuf, format: FileFormat },
+    /// A Lance dataset another program wrote, read where it is: its latest
+    /// version each time it is read (PR 31). The engine never writes it.
+    LanceDataset { path: PathBuf },
+    /// An Iceberg table another program wrote, read from one of its
+    /// metadata files, whose every path the node has checked (PR 31). The
+    /// engine never writes it.
+    IcebergTable { metadata: PathBuf },
     /// A table that can't be read now: reading it fails with `message`
     /// (the place its file is on can't be reached).
     Unavailable { message: String },
@@ -79,6 +86,8 @@ impl TableSource {
             TableSource::SqliteFile { .. } => "sqlite file",
             TableSource::ArrowBatches { .. } => "arrow batches",
             TableSource::File { .. } => "file",
+            TableSource::LanceDataset { .. } => "lance dataset",
+            TableSource::IcebergTable { .. } => "iceberg table",
             TableSource::Unavailable { .. } => "unavailable table",
         }
     }

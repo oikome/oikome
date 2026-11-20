@@ -113,7 +113,7 @@ impl StorageEngine {
             .map_err(|e| StorageError::FlushFailed(e.to_string()))?;
         let data_file = write_data_file(
             &self.file_io,
-            table.metadata().location(),
+            table.metadata(),
             &self.buffer.schema,
             &merged,
             &self.temp_dir,

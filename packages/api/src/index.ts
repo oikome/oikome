@@ -1408,7 +1408,7 @@ export type FileSort = "name" | "modified" | "size" | "kind";
 /**
  * What a file is, as far as showing it goes.
  */
-export type FileKind = "image" | "note" | "table" | "other";
+export type FileKind = "image" | "note" | "table" | "dataset" | "other";
 
 /**
  * A presentation Oikome can offer for one file.
@@ -1579,7 +1579,35 @@ files: Array<string>,
 /**
  * The sheet it is, for a spreadsheet's table.
  */
-sheet: string | null, };
+sheet: string | null,
+/**
+ * What it is, for a dataset's table.
+ */
+dataset: DatasetKind | null, };
+
+/**
+ * What a dataset in a collection's folders is (PR 31).
+ */
+export type DatasetKind = "lance" | "iceberg";
+
+/**
+ * A dataset's table: read where the dataset is, never copied, its latest
+ * version each time.
+ */
+export type DatasetFacts = { kind: DatasetKind,
+/**
+ * The version read: Lance's version number, Iceberg's snapshot.
+ */
+version: string | null,
+/**
+ * When that version was written, in milliseconds since the epoch.
+ */
+writtenAtMs: number | null,
+/**
+ * The DuckDB extension that reads it, when this computer lacks it,
+ * and how far its download is.
+ */
+extension: ExtensionDownload | null, };
 
 /**
  * An analysis table of a folder collection: made from its files, kept in
@@ -1597,7 +1625,12 @@ fields: Array<FieldProfile>, builtAtMs: number,
 /**
  * Why it could not be made from its files, if it could not.
  */
-problem: string | null, };
+problem: string | null,
+/**
+ * For a dataset's table: what it is and the version read. It is not
+ * made from its files but read where it is.
+ */
+dataset: DatasetFacts | null, };
 
 /**
  * `file_analysis`: what a folder collection's files can make and has made.
@@ -1607,6 +1640,45 @@ export type FileAnalysis = { space: string,
  * Tables its files can make that are not made yet.
  */
 sources: Array<AnalysisSource>, tables: Array<AnalysisTable>, };
+
+/**
+ * `copy_to_oikome`: copy a dataset's table into a collection as
+ * Oikome's own table (migration). An Iceberg table's current data is
+ * copied into an Iceberg collection; a Lance dataset is copied whole, with
+ * its versions, into a Lance collection.
+ */
+export type CopyToOikome = { space: string, table: string,
+/**
+ * The collection it goes into.
+ */
+to: string,
+/**
+ * Make `to` as a new collection, on this computer.
+ */
+new: boolean, };
+
+/**
+ * What `copy_to_oikome` made.
+ */
+export type CopiedToOikome = {
+/**
+ * The collection and table the copy is.
+ */
+space: string, table: string, rows: number,
+/**
+ * The files copied (for Lance) or read (for Iceberg), with their
+ * BLAKE3 hashes, as kept with the copy.
+ */
+files: number, };
+
+/**
+ * `install_extension`: one of the DuckDB extensions Oikome loads.
+ */
+export type ExtensionRef = {
+/**
+ * `lance` or `iceberg`.
+ */
+name: string, };
 
 /**
  * `set_analysis_field`: correct what a column is for.
@@ -1766,8 +1838,8 @@ export type RetrievalResults = { hits: Array<KnowledgeChunk>, mode: SearchMode, 
 export type DownloadState = "idle" | "downloading" | "installing" | "failed";
 
 /**
- * `install_lance`, and in `knowledge_status`: the download and
- * installation of the DuckDB extension knowledge needs.
+ * `install_lance`, `install_extension`, in `knowledge_status` and for a
+ * dataset's table: the download and installation of a DuckDB extension.
  */
 export type ExtensionDownload = { state: DownloadState,
 /**

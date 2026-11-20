@@ -53,6 +53,8 @@ rustix = { version = "1.1", default-features = false, features = ["fs", "std", "
 
 [dev-dependencies]
 image = { workspace = true }
+# DuckDB's settings for a test node that loads extensions (datasets, PR 31).
+oikome-engine-duckdb = { path = "../oikome-engine-duckdb" }
 iceberg = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

@@ -83,7 +83,7 @@ impl CompactionService {
             arrow_select::concat::concat_batches(&schema, &batches).map_err(|e| failed(&e))?;
         let data_file = write_data_file(
             self.catalog.file_io(),
-            table.metadata().location(),
+            table.metadata(),
             &schema,
             &merged,
             &self.temp_dir,

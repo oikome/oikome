@@ -158,9 +158,26 @@ pub async fn bind_space(
                 if analysis.iter().any(|(name, _)| *name == table) {
                     continue;
                 }
-                engine
-                    .attach(&QualifiedName::new(&space.name, &table), source)
-                    .await?;
+                let name = QualifiedName::new(&space.name, &table);
+                let dataset = matches!(
+                    source,
+                    TableSource::LanceDataset { .. } | TableSource::IcebergTable { .. }
+                );
+                if let Err(e) = engine.attach(&name, source).await {
+                    // A dataset this computer can't read yet (its extension
+                    // is missing) leaves the collection's other tables be.
+                    if !dataset {
+                        return Err(e.into());
+                    }
+                    engine
+                        .attach(
+                            &name,
+                            TableSource::Unavailable {
+                                message: e.to_string(),
+                            },
+                        )
+                        .await?;
+                }
             }
             for (table, resolved) in analysis {
                 engine

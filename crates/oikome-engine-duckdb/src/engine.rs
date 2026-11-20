@@ -54,18 +54,31 @@ pub enum Extension {
     Lance,
     /// Property graphs and SQL/PGQ queries (community extension, §8).
     Duckpgq,
+    /// Iceberg tables another program wrote, read from a metadata file
+    /// (PR 31).
+    Iceberg,
 }
 
 impl Extension {
     /// Extensions `oikome extensions install` fetches.
-    pub const INSTALLABLE: [Extension; 3] =
-        [Extension::Sqlite, Extension::Lance, Extension::Duckpgq];
+    pub const INSTALLABLE: [Extension; 4] = [
+        Extension::Sqlite,
+        Extension::Lance,
+        Extension::Duckpgq,
+        Extension::Iceberg,
+    ];
+
+    /// The extension of `name`, as `INSTALL` names it.
+    pub fn named(name: &str) -> Option<Self> {
+        Self::INSTALLABLE.into_iter().find(|e| e.name() == name)
+    }
 
     pub fn name(self) -> &'static str {
         match self {
             Extension::Sqlite => "sqlite",
             Extension::Lance => "lance",
             Extension::Duckpgq => "duckpgq",
+            Extension::Iceberg => "iceberg",
         }
     }
 
@@ -75,17 +88,42 @@ impl Extension {
             Extension::Sqlite => Capabilities::READ_SQLITE,
             Extension::Lance => Capabilities::READ_LANCE,
             Extension::Duckpgq => Capabilities::EXT_GRAPH,
+            Extension::Iceberg => Capabilities::READ_ICEBERG,
         }
     }
 
-    /// `INSTALL` statement. Core extensions come from DuckDB's default
-    /// repository, community ones from DuckDB's community repository;
-    /// DuckDB checks the signature of both.
-    fn install_sql(self) -> String {
+    /// Core extensions it needs loaded first: `iceberg` reads manifests
+    /// with `avro`.
+    pub fn requires(self) -> &'static [&'static str] {
         match self {
+            Extension::Iceberg => &["avro"],
+            _ => &[],
+        }
+    }
+
+    /// `INSTALL` statement, with what it requires. Core extensions come
+    /// from DuckDB's default repository, community ones from DuckDB's
+    /// community repository; DuckDB checks the signature of both.
+    fn install_sql(self) -> String {
+        let mut sql: String = self
+            .requires()
+            .iter()
+            .map(|name| format!("INSTALL {name};"))
+            .collect();
+        sql.push_str(&match self {
             Extension::Duckpgq => format!("INSTALL {} FROM community;", self.name()),
             _ => format!("INSTALL {};", self.name()),
-        }
+        });
+        sql
+    }
+
+    /// `LOAD` statement, what it requires first.
+    fn load_sql(self) -> String {
+        self.requires()
+            .iter()
+            .chain(std::iter::once(&self.name()))
+            .map(|name| format!("LOAD {name};"))
+            .collect()
     }
 }
 
@@ -96,6 +134,8 @@ enum Attached {
     Sqlite(PathBuf, String),
     Arrow,
     File(PathBuf, FileFormat),
+    Lance(PathBuf),
+    Iceberg(PathBuf),
     Unavailable(String),
 }
 
@@ -222,7 +262,7 @@ impl DuckDbEngine {
             .run(move |conn| {
                 let conn = &fresh(conn)?;
                 let name = ext.name();
-                if let Err(load_err) = conn.execute_batch(&format!("LOAD {name};")) {
+                if let Err(load_err) = conn.execute_batch(&ext.load_sql()) {
                     if !allow_install {
                         return Err(EngineError::ExtensionUnavailable(
                             name.to_string(),
@@ -232,7 +272,7 @@ impl DuckDbEngine {
                             ),
                         ));
                     }
-                    conn.execute_batch(&format!("{} LOAD {name};", ext.install_sql()))
+                    conn.execute_batch(&format!("{} {}", ext.install_sql(), ext.load_sql()))
                         .map_err(|e| {
                             EngineError::ExtensionUnavailable(name.to_string(), e.to_string())
                         })?;
@@ -273,20 +313,20 @@ impl DuckDbEngine {
     /// download's progress. DuckDB checks its signature when it loads it.
     pub async fn install_extension_file(
         &self,
-        ext: Extension,
+        name: &str,
         file: &Path,
     ) -> Result<String, EngineError> {
         let sql = format!("INSTALL {};", quote_literal(&file.to_string_lossy()));
+        let name = name.to_string();
         self.worker
             .run(move |conn| {
                 let conn = &fresh(conn)?;
-                conn.execute_batch(&sql).map_err(|e| {
-                    EngineError::ExtensionUnavailable(ext.name().to_string(), e.to_string())
-                })?;
+                conn.execute_batch(&sql)
+                    .map_err(|e| EngineError::ExtensionUnavailable(name.clone(), e.to_string()))?;
                 conn.query_row(
                     "SELECT extension_version FROM duckdb_extensions() \
                      WHERE extension_name = $1 OR list_contains(aliases, $1)",
-                    [ext.name()],
+                    [&name],
                     |row| row.get::<_, String>(0),
                 )
                 .map_err(sql_err)
@@ -434,6 +474,42 @@ impl QueryEngine for DuckDbEngine {
                     quote_ident(&name.space),
                     name.quoted(),
                     path_literal(&path)
+                );
+                self.run_batch(sql).await?;
+                self.remember(name.clone(), what);
+                Ok(())
+            }
+            TableSource::LanceDataset { path } => {
+                let what = Attached::Lance(path.clone());
+                if self.already_attached(name, &what) {
+                    return Ok(());
+                }
+                self.ensure_extension(Extension::Lance).await?;
+                // Each statement opens the dataset afresh (see `fresh`), so
+                // the view reads its latest version.
+                let sql = format!(
+                    "CREATE SCHEMA IF NOT EXISTS {};\n\
+                     CREATE OR REPLACE VIEW {} AS SELECT * FROM __lance_scan({});",
+                    quote_ident(&name.space),
+                    name.quoted(),
+                    path_literal(&path)
+                );
+                self.run_batch(sql).await?;
+                self.remember(name.clone(), what);
+                Ok(())
+            }
+            TableSource::IcebergTable { metadata } => {
+                let what = Attached::Iceberg(metadata.clone());
+                if self.already_attached(name, &what) {
+                    return Ok(());
+                }
+                self.ensure_extension(Extension::Iceberg).await?;
+                let sql = format!(
+                    "CREATE SCHEMA IF NOT EXISTS {};\n\
+                     CREATE OR REPLACE VIEW {} AS SELECT * FROM iceberg_scan({});",
+                    quote_ident(&name.space),
+                    name.quoted(),
+                    path_literal(&metadata)
                 );
                 self.run_batch(sql).await?;
                 self.remember(name.clone(), what);

@@ -212,6 +212,7 @@ fn kind_of(kind: &str) -> FileKind {
         inplace::IMAGE => FileKind::Image,
         inplace::NOTE => FileKind::Note,
         inplace::TABLE => FileKind::Table,
+        inplace::DATASET => FileKind::Dataset,
         _ => FileKind::Other,
     }
 }
@@ -229,12 +230,15 @@ fn content_of(
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let format = match extension.as_str() {
-        "md" | "markdown" => "markdown",
-        "" => "file",
-        other => other,
+    // A dataset's kind is kept as its text: `lance` or `iceberg`.
+    let format = match (kind, extension.as_str()) {
+        (FileKind::Dataset, _) => text.unwrap_or("dataset"),
+        (_, "md" | "markdown") => "markdown",
+        (_, "") => "file",
+        (_, other) => other,
     };
     let media_type = match format {
+        _ if kind == FileKind::Dataset => None,
         "markdown" => Some("text/markdown"),
         "txt" => Some("text/plain"),
         "csv" => Some("text/csv"),
@@ -273,6 +277,7 @@ fn content_of(
         }
         FileKind::Table => vec![ContentView::Table],
         FileKind::Image => vec![ContentView::Image],
+        FileKind::Dataset => vec![ContentView::Table],
         FileKind::Other => original_view.into_iter().collect(),
     };
     let unavailable_reason = if !table_readable {
@@ -1515,6 +1520,7 @@ impl Api {
                 FileKind::Image => inplace::IMAGE,
                 FileKind::Note => inplace::NOTE,
                 FileKind::Table => inplace::TABLE,
+                FileKind::Dataset => inplace::DATASET,
                 FileKind::Other => inplace::OTHER,
             });
             inplace::list_deep(&self.catalog, &location, kind, offset, limit)?

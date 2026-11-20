@@ -32,8 +32,10 @@ const s = strings.collections;
 const PAGE_ROWS = 100;
 
 /** What a file is, in a word: a data file or original medium by its format. */
-export function fileKindLabel(name: string, kind: string, mediaType?: string | null): string {
+export function fileKindLabel(name: string, kind: string, mediaType?: string | null, format?: string): string {
   const extension = name.split(".").pop()?.toLowerCase() ?? "";
+  // A dataset's format is its kind: a Lance dataset, an Iceberg table.
+  if (kind === "dataset") return s.fileKinds[format ?? ""] ?? s.fileKinds.dataset!;
   if (kind === "table") {
     return extension === "parquet" ? "Parquet" : extension.startsWith("json") || extension === "ndjson" ? "JSON" : "CSV";
   }
@@ -202,7 +204,7 @@ export function FileView({
   const factsList: [string, ReactNode][] = file
     ? [
         [s.in_, space],
-        [s.colKind, fileKindLabel(file.name, file.kind, file.content.mediaType)],
+        [s.colKind, fileKindLabel(file.name, file.kind, file.content.mediaType, file.content.format)],
         [s.colSize, bytes(Number(file.size))],
         [s.colModified, changed],
         [s.keptOn, facts.keptOn],
@@ -449,7 +451,7 @@ export function FileView({
           {file && file.content.views.length === 0 && (
             <div className="screen-fileview__other">
               <Icon name="collection" />
-              <p>{fileKindLabel(file.name, file.kind, file.content.mediaType)}</p>
+              <p>{fileKindLabel(file.name, file.kind, file.content.mediaType, file.content.format)}</p>
               <p className="screen-muted">{bytes(Number(file.size))}</p>
               {file.content.unavailableReason && <p className="screen-muted">{file.content.unavailableReason}</p>}
               {local && (

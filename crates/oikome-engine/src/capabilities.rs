@@ -44,6 +44,8 @@ bitflags::bitflags! {
         const EXT_VECTOR = 1 << 10;
         /// Property graphs and SQL/PGQ `GRAPH_TABLE` queries (DuckPGQ).
         const EXT_GRAPH = 1 << 11;
+        /// Can read [`TableSource::IcebergTable`](crate::TableSource::IcebergTable).
+        const READ_ICEBERG = 1 << 12;
     }
 }
 

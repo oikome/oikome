@@ -305,6 +305,9 @@ pub enum FileKind {
     Note,
     /// A CSV, Parquet or JSON file: a table when it is at the top.
     Table,
+    /// A Lance dataset or an Iceberg table another program wrote: one item
+    /// for its folder, read as a table (PR 31).
+    Dataset,
     Other,
 }
 
@@ -491,6 +494,32 @@ pub struct AnalysisSource {
     pub files: Vec<String>,
     /// The sheet it is, for a spreadsheet's table.
     pub sheet: Option<String>,
+    /// What it is, for a dataset's table.
+    pub dataset: Option<DatasetKind>,
+}
+
+/// What a dataset in a collection's folders is (PR 31).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum DatasetKind {
+    Lance,
+    Iceberg,
+}
+
+/// A dataset's table: read where the dataset is, never copied, its latest
+/// version each time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetFacts {
+    pub kind: DatasetKind,
+    /// The version read: Lance's version number, Iceberg's snapshot.
+    pub version: Option<String>,
+    /// When that version was written, in milliseconds since the epoch.
+    #[ts(type = "number | null")]
+    pub written_at_ms: Option<i64>,
+    /// The DuckDB extension that reads it, when this computer lacks it,
+    /// and how far its download is.
+    pub extension: Option<ExtensionDownload>,
 }
 
 /// An analysis table of a folder collection: made from its files, kept in
@@ -510,6 +539,9 @@ pub struct AnalysisTable {
     pub built_at_ms: u64,
     /// Why it could not be made from its files, if it could not.
     pub problem: Option<String>,
+    /// For a dataset's table: what it is and the version read. It is not
+    /// made from its files but read where it is.
+    pub dataset: Option<DatasetFacts>,
 }
 
 /// `file_analysis`: what a folder collection's files can make and has made.
@@ -538,6 +570,45 @@ pub struct SetAnalysisField {
 pub struct AnalysisTableRef {
     pub space: String,
     pub table: String,
+}
+
+/// `copy_to_oikome`: copy a dataset's table into a collection as
+/// Oikome's own table (migration). An Iceberg table's current data is
+/// copied into an Iceberg collection; a Lance dataset is copied whole, with
+/// its versions, into a Lance collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyToOikome {
+    pub space: String,
+    pub table: String,
+    /// The collection it goes into.
+    pub to: String,
+    /// Make `to` as a new collection, on this computer.
+    #[serde(default)]
+    pub new: bool,
+}
+
+/// What `copy_to_oikome` made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct CopiedToOikome {
+    /// The collection and table the copy is.
+    pub space: String,
+    pub table: String,
+    #[ts(type = "number")]
+    pub rows: u64,
+    /// The files copied (for Lance) or read (for Iceberg), with their
+    /// BLAKE3 hashes, as kept with the copy.
+    #[ts(type = "number")]
+    pub files: u64,
+}
+
+/// `install_extension`: one of the DuckDB extensions Oikome loads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionRef {
+    /// `lance` or `iceberg`.
+    pub name: String,
 }
 
 /// A value of a summary: a month, or a category, and its total.
@@ -2699,8 +2770,8 @@ pub enum DownloadState {
     Failed,
 }
 
-/// `install_lance`, and in `knowledge_status`: the download and
-/// installation of the DuckDB extension knowledge needs.
+/// `install_lance`, `install_extension`, in `knowledge_status` and for a
+/// dataset's table: the download and installation of a DuckDB extension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionDownload {

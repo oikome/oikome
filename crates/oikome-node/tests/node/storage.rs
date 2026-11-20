@@ -824,7 +824,7 @@ async fn a_folder_on_a_nas_is_viewed_in_place() {
 /// running, the one `OIKOME_TEST_RUSTFS_ENDPOINT` names, with its keys in
 /// `OIKOME_TEST_RUSTFS_ACCESS_KEY` and `OIKOME_TEST_RUSTFS_SECRET_KEY`. Keys
 /// are never printed.
-struct Rustfs {
+pub(crate) struct Rustfs {
     endpoint: String,
     access_key: String,
     secret_key: String,
@@ -855,7 +855,7 @@ fn made_up(n: usize) -> String {
 impl Rustfs {
     /// A running RustFS, or `None` (the test is skipped, and says so) where
     /// there is none; on CI a missing RustFS fails the test.
-    async fn start() -> Option<Self> {
+    pub(crate) async fn start() -> Option<Self> {
         if let Ok(endpoint) = std::env::var("OIKOME_TEST_RUSTFS_ENDPOINT") {
             let key =
                 |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set"));
@@ -922,7 +922,7 @@ impl Rustfs {
 
     /// Make the bucket `name` (the storage's owner does this, not Oikome),
     /// with a request signed with AWS Signature Version 4.
-    async fn create_bucket(&self, name: &str) {
+    pub(crate) async fn create_bucket(&self, name: &str) {
         use hmac::{Hmac, Mac};
         use sha2::{Digest, Sha256};
         let hmac = |key: &[u8], data: &str| {
@@ -970,7 +970,7 @@ impl Rustfs {
         );
     }
 
-    fn kind(&self, bucket: &str) -> StorageKind {
+    pub(crate) fn kind(&self, bucket: &str) -> StorageKind {
         StorageKind::S3 {
             endpoint: self.endpoint.clone(),
             bucket: bucket.to_string(),
@@ -978,7 +978,7 @@ impl Rustfs {
         }
     }
 
-    fn credentials(&self) -> StorageCredentials {
+    pub(crate) fn credentials(&self) -> StorageCredentials {
         StorageCredentials {
             password: Some(Zeroizing::new(self.secret_key.clone())),
             ..Default::default()
@@ -986,7 +986,7 @@ impl Rustfs {
     }
 
     /// The bucket as the storage holds it, read with the owner's keys.
-    fn bucket(&self, bucket: &str) -> oikome_vfs::RemoteStore {
+    pub(crate) fn bucket(&self, bucket: &str) -> oikome_vfs::RemoteStore {
         let at = oikome_vfs::Bucket {
             endpoint: &self.endpoint,
             name: bucket,
@@ -995,7 +995,7 @@ impl Rustfs {
     }
 
     /// Every object in `bucket`, by key.
-    async fn objects(&self, bucket: &str) -> Vec<String> {
+    pub(crate) async fn objects(&self, bucket: &str) -> Vec<String> {
         let store = self.bucket(bucket);
         let mut out = Vec::new();
         let mut dirs = vec![String::new()];
@@ -1018,7 +1018,7 @@ impl Rustfs {
     }
 
     /// Whether any object of `bucket` holds `needle`.
-    async fn any_object_contains(&self, bucket: &str, needle: &[u8]) -> bool {
+    pub(crate) async fn any_object_contains(&self, bucket: &str, needle: &[u8]) -> bool {
         let store = self.bucket(bucket);
         for key in self.objects(bucket).await {
             let bytes = store.read_owned(&key, 0..u64::MAX, 64 << 20).await.unwrap();

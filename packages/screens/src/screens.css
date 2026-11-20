@@ -5132,6 +5132,30 @@ tr.screen-source {
   height: 160px;
   border-radius: var(--r-btn);
 }
+/* A dataset's table: that it is read where it is, and Copy to Oikome. */
+.screen-analysis__dataset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-analysis__dataset .screen-help {
+  flex: 1 1 280px;
+  margin: 0;
+}
+/* What reading a dataset needs: DuckDB's extension, and its download. */
+.screen-analysis__reader {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+.screen-analysis__reader p {
+  margin: 0;
+}
+.screen-analysis__reader > * {
+  max-width: 100%;
+}
 /* The files a table is made of, as a list under its name. */
 .screen-analysis__sources {
   display: grid;

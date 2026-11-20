@@ -6456,6 +6456,7 @@ dependencies = [
  "oikome-connect",
  "oikome-core",
  "oikome-engine",
+ "oikome-engine-duckdb",
  "oikome-identity",
  "oikome-network",
  "oikome-node",
@@ -6704,6 +6705,7 @@ dependencies = [
 name = "oikome-node"
 version = "0.1.0"
 dependencies = [
+ "apache-avro",
  "apple-native-keyring-store",
  "arrow-array",
  "arrow-cast",

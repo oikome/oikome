@@ -164,7 +164,7 @@ RustFS, a NAS and cloud drives as places where collections are kept (Places) are
 - `readings.csv` is no longer a collection of its own: it is a file in a collection (for example `home/readings.csv`), imported with File Import.
 - `reading-list` becomes a `books.csv` file in a collection kept on the drive.
 - A household ledger folder (monthly spending CSVs, an Excel sheet of utilities, a Parquet and a JSON Lines file) exists so Data Analysis can be tried end to end.
-- Iceberg tables written by another program sit in the household folder (an energy meter's export) and in the archive on RustFS (trams taken), so datasets can be read and copied to Oikome. Lance datasets are tried in the node and API tests: writing one needs DuckDB's 230 MB `lance` extension, too much to fetch for every acceptance run.
+- Datasets written by another program sit in the household folder (an energy meter's Iceberg table and a sleep tracker's Lance dataset) and in the archive on RustFS (trams taken, an Iceberg table), so datasets can be read and copied to Oikome. The acceptance nodes load DuckDB's extensions from one folder shared with the Rust tests (`target/tmp/duckdb-extensions`), fetched the first time only, so the 230 MB `lance` extension is not downloaded for every run; CI keeps that folder in its cache.
 
 ## Devices
 

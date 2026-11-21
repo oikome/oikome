@@ -18,7 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { crc32 } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
-import { BIN, ENV, oikome } from "./node.mjs";
+import { BIN, ENV, EXTENSIONS, oikome } from "./node.mjs";
 import { createBucket, putObject, startRustfs } from "./rustfs.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
@@ -340,16 +340,20 @@ function generateFiles(root) {
   write(root, "drive-sync/Oikome/reading-list/books.csv", "title,author,status,finished\nThe Book of Disquiet,Fernando Pessoa,Reading,\nBlindness,José Saramago,Read,2026-08-14\nPereira Maintains,Antonio Tabucchi,Next,\n");
 }
 
-/** Tables another program keeps as Iceberg (PR 31): an energy meter's
- * export, which the owner keeps in the household folder, and the trams
- * taken, kept in the archive on RustFS. A data center of their own writes
- * them (`oikome sql`, as any program writes Iceberg); they are then copied
- * where the owner keeps them, as a moved table is. Returns the trams'
- * folder, for the bucket. */
+/** Datasets another program keeps (PR 31): Iceberg tables of an energy
+ * meter's export, which the owner keeps in the household folder, and of the
+ * trams taken, kept in the archive on RustFS; and a sleep tracker's Lance
+ * dataset in the household folder. A data center of their own writes them
+ * (`oikome sql`, as any program writes Iceberg and Lance); they are then
+ * copied where the owner keeps them, as a moved dataset is. DuckDB's
+ * extensions come from EXTENSIONS, fetched there the first time
+ * (`extensions install` skips what is there), and the acceptance nodes read
+ * the datasets with them. Returns the trams' folder, for the bucket. */
 function writeDatasets(scenarioRoot, files) {
   const writer = join(scenarioRoot, "services", "writer");
   rmSync(writer, { recursive: true, force: true });
   mkdirSync(writer, { recursive: true });
+  oikome(writer, "--extension-dir", EXTENSIONS, "extensions", "install", "lance", "iceberg");
   const days = (month, base) =>
     Array.from({ length: 28 }, (_, i) => {
       const day = `2026-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;
@@ -367,7 +371,21 @@ function writeDatasets(scenarioRoot, files) {
       "INSERT INTO exports.trams VALUES (DATE '2026-11-03', '28E', 3.10), (DATE '2026-11-04', '15E', 3.10), " +
       "(DATE '2026-11-07', '12E', 3.10), (DATE '2026-11-12', '28E', 3.10)",
   );
+  const nights = Array.from({ length: 28 }, (_, i) => {
+    const night = `2026-11-${String(i + 1).padStart(2, "0")}`;
+    const hours = (6.4 + ((i * 5) % 9) * 0.25).toFixed(2);
+    return `(DATE '${night}', ${hours}, ${(hours * 0.22).toFixed(2)}, ${(i * 3) % 4})`;
+  }).join(", ");
+  oikome(
+    writer,
+    "--extension-dir", EXTENSIONS,
+    "sql",
+    "CREATE SPACE tracker WITH FORMAT = 'lance'; " +
+      "CREATE TABLE tracker.sleep (night DATE, hours DOUBLE, deep_hours DOUBLE, awakenings INTEGER); " +
+      `INSERT INTO tracker.sleep VALUES ${nights}`,
+  );
   cpSync(join(writer, "exports", "meter"), join(files, "household", "energy-meter"), { recursive: true });
+  cpSync(join(writer, ".oikome", "lance", "tracker", "sleep.lance"), join(files, "household", "sleep.lance"), { recursive: true });
   return join(writer, "exports", "trams");
 }
 
@@ -398,6 +416,7 @@ async function fillBucket(rustfs) {
 async function startNode(root, port, home, environment) {
   const child = spawn(BIN, [
     "--root", root,
+    "--extension-dir", EXTENSIONS,
     "serve",
     "--listen", "127.0.0.1:0",
     "--p2p-listen", "/ip4/127.0.0.1/tcp/0",

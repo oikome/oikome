@@ -179,6 +179,17 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     }
     await page.goto(`${running.base}/collections/household`);
     await expect(page.getByText("spending", { exact: true }).first()).toBeVisible();
+    // The energy meter's Iceberg table and the sleep tracker's Lance dataset
+    // are one item each, which opens with its rows (a date column among
+    // them); its kind is in its Info, as a file's is.
+    for (const [item, kind, first] of [["energy-meter", "Iceberg Table", "Oct 1, 2026"], ["sleep.lance", "Lance Dataset", "Nov 1, 2026"]]) {
+      await page.getByText(item, { exact: true }).first().click();
+      const opened = page.getByRole("dialog", { name: item });
+      await expect(opened.getByRole("gridcell", { name: first, exact: true })).toBeVisible();
+      await opened.getByRole("button", { name: "Info" }).click();
+      await expect(opened.locator(".screen-fileview__facts")).toContainText(kind);
+      await page.goto(`${running.base}/collections/household`);
+    }
     // Last year's receipts, kept in the bucket, are a folder of it.
     await expect(page.getByText("receipts-2024", { exact: true }).first()).toBeVisible();
     // Data Analysis: the household's table files become its analysis tables
@@ -188,17 +199,19 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.getByRole("button", { name: "Make Analysis Tables" }).click();
     // The utility bills' workbook: a table per sheet. Last year's receipts
     // folder holds one file, and its table is named after it. The energy
-    // meter's Iceberg table is one too, read where it is.
-    for (const table of ["energy_meter", "readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+    // meter's Iceberg table and the sleep tracker's Lance dataset are tables
+    // too, read where they are.
+    for (const table of ["energy_meter", "readings", "receipts", "sleep", "spending", "steps", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
-    // Reading it needs DuckDB's iceberg extension, which this node has not
-    // downloaded: the download is offered, and Copy to Oikome waits for it.
-    await page.getByRole("radio", { name: "energy_meter", exact: true }).click();
-    await expect(page.locator(".screen-analysis__facts")).toContainText("Iceberg table");
-    await expect(page.getByText("Reading it needs DuckDB’s official iceberg extension")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Download", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toBeDisabled();
+    // This node loads DuckDB's iceberg and lance extensions from the shared
+    // folder, so both are read, with totals by month, and can be copied.
+    for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
+      await page.getByRole("radio", { name: table, exact: true }).click();
+      await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
+      await expect(page.getByRole("list", { name: "By Month" }).getByText(month)).toBeVisible();
+      await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toBeEnabled();
+    }
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.getByText("household.spending")).toBeVisible();
     const months = page.getByRole("list", { name: "By Month" });

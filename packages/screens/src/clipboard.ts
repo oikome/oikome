@@ -22,14 +22,19 @@ export async function writeClipboard(text: string): Promise<void> {
   }
 }
 
-function cell(field: Table["schema"]["fields"][number], value: unknown): string {
-  const text = show(field, value) ?? "";
+function quoted(text: string): string {
   return /["\t\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function cell(field: Table["schema"]["fields"][number], value: unknown): string {
+  return quoted(show(field, value) ?? "");
 }
 
 export function tableText(table: Table): string {
   const fields = table.schema.fields;
-  const lines = [fields.map((field) => cell(field, columnLabel(field.name))).join("\t")];
+  // Column names are text, not values of their columns: a date column's name
+  // shown as a date is no date at all.
+  const lines = [fields.map((field) => quoted(columnLabel(field.name))).join("\t")];
   for (let row = 0; row < table.numRows; row++) {
     lines.push(fields.map((field, column) => cell(field, table.getChildAt(column)?.get(row) as unknown)).join("\t"));
   }

@@ -564,6 +564,16 @@ pub struct SetAnalysisField {
     pub role: FieldRole,
 }
 
+/// `build_analysis`: make the analysis tables the owner chose of a folder
+/// collection's files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildAnalysis {
+    pub space: String,
+    /// The tables to make, by the names `file_analysis` gives them.
+    pub tables: Vec<String>,
+}
+
 /// One analysis table of a collection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

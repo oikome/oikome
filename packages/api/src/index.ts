@@ -1686,6 +1686,16 @@ name: string, };
 export type SetAnalysisField = { space: string, table: string, field: string, role: FieldRole, };
 
 /**
+ * `build_analysis`: make the analysis tables the owner chose of a folder
+ * collection's files.
+ */
+export type BuildAnalysis = { space: string,
+/**
+ * The tables to make, by the names `file_analysis` gives them.
+ */
+tables: Array<string>, };
+
+/**
  * One analysis table of a collection.
  */
 export type AnalysisTableRef = { space: string, table: string, };

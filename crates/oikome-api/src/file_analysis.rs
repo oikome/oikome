@@ -15,10 +15,12 @@
 //! Data Analysis of a folder collection: each data file (CSV, TSV,
 //! Parquet, JSON Lines), or each folder of them, and each sheet of a
 //! spreadsheet (xlsx, xlsm, xls, xlsb, ods) becomes an analysis table of
-//! the collection. The tables are kept in Iceberg under the collection's
-//! name, carry the path of the file each row came from, and are made again
-//! when their files change; the originals are only read. What each column
-//! is for is proposed from its name and type, and the owner may correct it.
+//! the collection, when the owner chooses it. The tables are kept in
+//! Iceberg under the collection's name, carry the path of the file each row
+//! came from, and are made again when their files change; the originals are
+//! only read. What each column is for is proposed from its name and type,
+//! and the owner may correct it. The owner may stop analysing a table: it
+//! is dropped, and its files are read in place as before.
 //!
 //! A dataset in the collection's folders (a Lance dataset, an Iceberg
 //! table; PR 31) is a table of it too, but it is not made: it is read where
@@ -47,7 +49,7 @@ use crate::analysis::schema_profile;
 use crate::datasets::{capability_of, kind_of};
 use crate::{
     AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, Api, ApiError,
-    Caller, FieldRole, FileAnalysis, SetAnalysisField, SpaceRef,
+    BuildAnalysis, Caller, FieldRole, FileAnalysis, SetAnalysisField, SpaceRef,
 };
 
 /// The column every analysis table adds: the file a row came from.
@@ -651,11 +653,19 @@ impl Api {
     }
 
     /// Bring the tables made in line with the files: a table whose files
-    /// changed is made again, one whose files are gone is dropped; with
-    /// `make_new`, tables not made yet are made too.
-    async fn follow_files(&self, space: &str, make_new: bool) -> Result<FileAnalysis, ApiError> {
+    /// changed is made again, one whose files are gone is dropped; the
+    /// tables named in `make` are made too, when they are not yet.
+    async fn follow_files(&self, space: &str, make: &[String]) -> Result<FileAnalysis, ApiError> {
         let mut kept = self.kept(space)?;
         let (found, sources) = self.analysis_sources(space, &kept).await?;
+        if let Some(name) = make
+            .iter()
+            .find(|name| !sources.iter().any(|(source, _)| source == *name))
+        {
+            return Err(ApiError::invalid(format!(
+                "{space} has no files that make a table {name}"
+            )));
+        }
         let mut changed = false;
         for name in kept.tables.keys().cloned().collect::<Vec<_>>() {
             if !sources.iter().any(|(source, _)| *source == name) {
@@ -682,7 +692,7 @@ impl Api {
                 // A dataset is read where it is, nothing made from it, so it
                 // is an analysis table as soon as it is found; the owner
                 // makes the tables of files.
-                None => make_new || matches!(input, Input::Dataset(_)),
+                None => make.contains(&name) || matches!(input, Input::Dataset(_)),
             };
             if !due {
                 continue;
@@ -807,18 +817,52 @@ impl Api {
     ) -> Result<FileAnalysis, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        self.follow_files(&req.space, false).await
+        self.follow_files(&req.space, &[]).await
     }
 
-    /// Make every analysis table a folder collection's files can make.
+    /// Make the analysis tables the owner chose of a folder collection's
+    /// files, by the names `file_analysis` gives them.
     pub async fn build_analysis(
         &self,
         caller: &Caller,
-        req: SpaceRef,
+        req: BuildAnalysis,
     ) -> Result<FileAnalysis, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        self.follow_files(&req.space, true).await
+        if req.tables.is_empty() {
+            return Err(ApiError::invalid("choose the tables to make"));
+        }
+        self.follow_files(&req.space, &req.tables).await
+    }
+
+    /// Stop analysing a table made of files: it is dropped with what was
+    /// set for its columns, and it is not made again until the owner
+    /// chooses it. Its files are not touched; SQL reads them in place again.
+    /// A dataset's table is read where it is and is always analysed.
+    pub async fn stop_analysis(
+        &self,
+        caller: &Caller,
+        req: AnalysisTableRef,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        // A collection that views a folder: its name is checked before it
+        // names the file its tables are kept in.
+        self.in_place_of(&req.space)?;
+        let mut kept = self.kept(&req.space)?;
+        let table = kept.tables.get(&req.table).ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
+        if table.dataset.is_some() {
+            return Err(ApiError::invalid(format!(
+                "{} is a dataset, read where it is; it is always analysed",
+                req.table
+            )));
+        }
+        self.drop_analysis_table(&req.space, &req.table).await?;
+        kept.tables.remove(&req.table);
+        self.keep(&req.space, &kept)?;
+        self.follow_files(&req.space, &[]).await
     }
 
     /// Correct what a column of an analysis table is for.
@@ -859,7 +903,7 @@ impl Api {
         })?;
         table.roles.insert(req.field, req.role);
         self.keep(&req.space, &kept)?;
-        self.follow_files(&req.space, false).await
+        self.follow_files(&req.space, &[]).await
     }
 
     /// An analysis table's totals by month and by category.
@@ -869,7 +913,7 @@ impl Api {
         req: AnalysisTableRef,
     ) -> Result<AnalysisSummary, ApiError> {
         caller.require_owner()?;
-        let analysis = self.follow_files(&req.space, false).await?;
+        let analysis = self.follow_files(&req.space, &[]).await?;
         let table = analysis
             .tables
             .into_iter()

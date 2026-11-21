@@ -2348,7 +2348,17 @@ async fn a_spreadsheet_s_sheets_become_analysis_tables() {
             ("budget_rates", Some("Rates"))
         ]
     );
-    let made = n.api.build_analysis(&OWNER, ledger()).await.unwrap();
+    let made = n
+        .api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "ledger".into(),
+                tables: vec!["budget_spending".into(), "budget_rates".into()],
+            },
+        )
+        .await
+        .unwrap();
     let spending = made
         .tables
         .iter()
@@ -2413,7 +2423,17 @@ async fn a_spreadsheet_s_sheets_become_analysis_tables() {
     // the sheets' tables go.
     workbook(&book, &[("Spending", spending_cells)], &strings);
     n.api.refresh_space(&OWNER, ledger()).await.unwrap();
-    let again = n.api.build_analysis(&OWNER, ledger()).await.unwrap();
+    let again = n
+        .api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "ledger".into(),
+                tables: vec!["budget".into()],
+            },
+        )
+        .await
+        .unwrap();
     let names: Vec<_> = again.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(names, ["budget"]);
     assert_eq!(again.tables[0].rows, 3);
@@ -2525,10 +2545,15 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
         .find(|table| table.name == "statement_2")
         .unwrap();
     assert_eq!(made.rows, 2);
+    // Only its own: the collection's other file waits for the owner.
     assert!(analysis
         .tables
         .iter()
-        .any(|table| table.name == "statement"));
+        .all(|table| table.name != "statement"));
+    assert!(analysis
+        .sources
+        .iter()
+        .any(|source| source.name == "statement"));
 
     // The source stopped; the collection it wrote stays with its table.
     let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
@@ -6803,7 +6828,33 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .collect();
     assert_eq!(names, vec![("readings", 1), ("spending", 2)]);
 
-    let made = n.api.build_analysis(&OWNER, household()).await.unwrap();
+    // Only the tables the owner chooses are made; a name no files make is
+    // refused, and so is choosing none.
+    let build = |tables: &[&str]| BuildAnalysis {
+        space: "household".into(),
+        tables: tables.iter().map(|t| t.to_string()).collect(),
+    };
+    let err = n
+        .api
+        .build_analysis(&OWNER, build(&["spending", "trip"]))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+    assert!(n.api.build_analysis(&OWNER, build(&[])).await.is_err());
+    let made = n
+        .api
+        .build_analysis(&OWNER, build(&["spending"]))
+        .await
+        .unwrap();
+    let names: Vec<_> = made.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["readings"]);
+    let names: Vec<_> = made.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["spending"]);
+    let made = n
+        .api
+        .build_analysis(&OWNER, build(&["readings"]))
+        .await
+        .unwrap();
     assert!(made.sources.is_empty());
     let spending = made.tables.iter().find(|t| t.name == "spending").unwrap();
     assert_eq!(spending.rows, 3);
@@ -6892,6 +6943,50 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         )
         .await
         .is_err());
+
+    // Stopping the analysis of a table drops it with its corrected roles;
+    // its file stays and is read in place again, and the table is not made
+    // again until the owner chooses it.
+    let table_ref = |table: &str| AnalysisTableRef {
+        space: "household".into(),
+        table: table.into(),
+    };
+    let stopped = n
+        .api
+        .stop_analysis(&OWNER, table_ref("readings"))
+        .await
+        .unwrap();
+    let names: Vec<_> = stopped.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["spending"]);
+    let names: Vec<_> = stopped.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["readings"]);
+    assert!(root.join("readings.csv").is_file());
+    assert_eq!(count_of(&n, "household.readings").await, 1);
+    let later = n.api.file_analysis(&OWNER, household()).await.unwrap();
+    assert!(later.tables.iter().all(|t| t.name != "readings"));
+    let err = n
+        .api
+        .stop_analysis(&OWNER, table_ref("readings"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    assert!(n
+        .api
+        .stop_analysis(&Caller::Principal { did: did(9) }, table_ref("spending"))
+        .await
+        .is_err());
+    let again = n
+        .api
+        .build_analysis(&OWNER, build(&["readings"]))
+        .await
+        .unwrap();
+    let readings = again.tables.iter().find(|t| t.name == "readings").unwrap();
+    let celsius = readings
+        .fields
+        .iter()
+        .find(|f| f.name == "celsius")
+        .unwrap();
+    assert!(celsius.inferred, "its corrected role was forgotten");
 
     // A file changes: its table follows; a folder that goes takes its table.
     std::fs::write(
@@ -7065,8 +7160,30 @@ async fn datasets_in_a_folder_are_analysis_tables_and_can_be_copied_to_oikome() 
     let mut tables: Vec<_> = found.tables.iter().map(|t| t.name.as_str()).collect();
     tables.sort();
     assert_eq!(tables, ["items", "orders"]);
-    let made = n.api.build_analysis(&OWNER, lab()).await.unwrap();
+    let made = n
+        .api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "lab".into(),
+                tables: vec!["readings".into()],
+            },
+        )
+        .await
+        .unwrap();
     assert!(made.sources.is_empty(), "{:?}", made.sources);
+    let err = n
+        .api
+        .stop_analysis(
+            &OWNER,
+            AnalysisTableRef {
+                space: "lab".into(),
+                table: "orders".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "a dataset is always analysed");
     assert_eq!(made.tables.len(), 3);
     let table = |name: &str| made.tables.iter().find(|t| t.name == name).unwrap().clone();
     let orders = table("orders");

@@ -183,6 +183,7 @@ fn bindings() -> String {
         CopiedToOikome,
         ExtensionRef,
         SetAnalysisField,
+        BuildAnalysis,
         AnalysisTableRef,
         AnalysisPoint,
         AnalysisSummary,

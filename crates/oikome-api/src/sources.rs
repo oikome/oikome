@@ -556,14 +556,29 @@ impl Api {
                 (made.name, at)
             }
         };
-        let analysis = self
-            .build_analysis(
+        // The file's own analysis table, as its source's table was; the
+        // other files of the collection stay as the owner left them.
+        let found = self
+            .file_analysis(
                 caller,
                 crate::SpaceRef {
                     space: space.clone(),
                 },
             )
             .await?;
+        let analysis = match found.sources.iter().find(|s| s.files.contains(&at)) {
+            Some(source) => {
+                self.build_analysis(
+                    caller,
+                    crate::BuildAnalysis {
+                        space: space.clone(),
+                        tables: vec![source.name.clone()],
+                    },
+                )
+                .await?
+            }
+            None => found,
+        };
         let table = analysis
             .tables
             .iter()

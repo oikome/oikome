@@ -16,6 +16,7 @@ import type {
   AnalyzeDataset,
   AnalysisSummary,
   AnalysisTableRef,
+  BuildAnalysis,
   CopiedToOikome,
   CopyToOikome,
   ExtensionRef,
@@ -172,8 +173,10 @@ export interface NodeClient {
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis>;
   /** What a folder collection's data files can make for analysis, and the tables made. */
   fileAnalysis(request: SpaceRef): Promise<FileAnalysis>;
-  /** Make every analysis table a folder collection's files can make. */
-  buildAnalysis(request: SpaceRef): Promise<FileAnalysis>;
+  /** Make the analysis tables the owner chose of a folder collection's files. */
+  buildAnalysis(request: BuildAnalysis): Promise<FileAnalysis>;
+  /** Stop analysing a table made of files: it is dropped, its files are not touched. */
+  stopAnalysis(request: AnalysisTableRef): Promise<FileAnalysis>;
   copyToOikome(request: CopyToOikome): Promise<CopiedToOikome>;
   installExtension(request: ExtensionRef): Promise<ExtensionDownload>;
   /** Correct what a column of an analysis table is for. */
@@ -465,8 +468,12 @@ export class HttpClient implements NodeClient {
     return this.#json("file_analysis", request);
   }
 
-  buildAnalysis(request: SpaceRef): Promise<FileAnalysis> {
+  buildAnalysis(request: BuildAnalysis): Promise<FileAnalysis> {
     return this.#json("build_analysis", request);
+  }
+
+  stopAnalysis(request: AnalysisTableRef): Promise<FileAnalysis> {
+    return this.#json("stop_analysis", request);
   }
 
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis> {

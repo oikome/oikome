@@ -201,12 +201,38 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(page.getByRole("radio", { name: "energy_meter", exact: true })).toBeVisible();
     await expect(page.getByRole("radio", { name: "sleep", exact: true })).toBeVisible();
     await expect(page.getByText("6 more can be made")).toBeVisible();
-    await page.getByRole("button", { name: "Make Analysis Tables" }).click();
-    // The utility bills' workbook: a table per sheet. Last year's receipts
-    // folder holds one file, and its table is named after it.
-    for (const table of ["energy_meter", "readings", "receipts", "sleep", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+    // The owner chooses which files to analyse; nothing is chosen at first.
+    // The utility bills' workbook has a table per sheet, chosen together
+    // under it. Last year's receipts folder holds one file, and its table is
+    // named after it.
+    await page.getByRole("button", { name: "Make Analysis Tables…" }).click();
+    const pick = page.getByRole("dialog", { name: "Choose Files to Analyze" });
+    await expect(pick.getByText("0 of 6 selected")).toBeVisible();
+    await expect(pick.getByRole("button", { name: "Make", exact: true })).toBeDisabled();
+    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+      await expect(pick.getByRole("checkbox", { name: table })).not.toBeChecked();
+    }
+    await pick.getByRole("checkbox", { name: "spending" }).check();
+    await pick.getByRole("checkbox", { name: "utilities.xlsx" }).check();
+    await expect(pick.getByRole("checkbox", { name: "utilities_water" })).toBeChecked();
+    await pick.getByRole("button", { name: "Make 3 Tables" }).click();
+    await expect(pick).toHaveCount(0);
+    for (const table of ["energy_meter", "sleep", "spending", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
+    for (const table of ["readings", "receipts", "steps"]) {
+      await expect(page.getByRole("radio", { name: table, exact: true })).toHaveCount(0);
+    }
+    await expect(page.getByText("3 more can be made")).toBeVisible();
+    // Analysing a file's table can be stopped: the table goes, its file
+    // stays, and it can be chosen again.
+    await page.getByRole("radio", { name: "utilities_water", exact: true }).click();
+    await page.getByRole("button", { name: "Stop Analysis…" }).click();
+    const stop = page.getByRole("dialog", { name: "Stop analyzing utilities_water?" });
+    await expect(stop).toContainText("household.utilities_water");
+    await stop.getByRole("button", { name: "Stop Analysis" }).click();
+    await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
+    await expect(page.getByText("4 more can be made")).toBeVisible();
     // This node loads DuckDB's iceberg and lance extensions from the shared
     // folder, so both are read, with totals by month, and can be copied.
     for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
@@ -214,6 +240,8 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
       await expect(page.getByRole("list", { name: "By Month" }).getByText(month)).toBeVisible();
       await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toBeEnabled();
+      // A dataset is always analysed.
+      await expect(page.getByRole("button", { name: "Stop Analysis…" })).toHaveCount(0);
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.getByText("household.spending")).toBeVisible();

@@ -28,6 +28,15 @@ const theme = themeQuartz.withParams({
 
 type GridRow = Record<string, unknown> & { __row: number };
 
+/** How many narrow characters wide `text` is: Chinese, Japanese and Korean
+ * characters, and fullwidth forms, take two ("2026年10月1日" is 13, not 10). */
+function widthOf(text: string): number {
+  let width = 0;
+  for (const char of text) width += WIDE.test(char) ? 2 : 1;
+  return width;
+}
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
 export default function DataGrid({ table, label }: { table: Table; label: string }) {
   const fields = table.schema.fields;
   const rows = useMemo<GridRow[]>(
@@ -47,9 +56,9 @@ export default function DataGrid({ table, label }: { table: Table; label: string
           : undefined;
         const present = (value: unknown) =>
           float && typeof value === "number" && Number.isFinite(value) ? float.format(value) : show(field, value);
-        let longest = columnLabel(field.name).length;
+        let longest = widthOf(columnLabel(field.name));
         for (let row = 0; row < table.numRows; row++) {
-          longest = Math.max(longest, (present(table.getChildAt(column)?.get(row) as unknown) ?? "").length);
+          longest = Math.max(longest, widthOf(present(table.getChildAt(column)?.get(row) as unknown) ?? ""));
         }
         return {
           field: field.name,

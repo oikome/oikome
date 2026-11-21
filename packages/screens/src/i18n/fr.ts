@@ -1539,7 +1539,7 @@ export const fr: Strings = {
   },
   analysisView: {
     emptyTitle: "Aucune table d’analyse",
-    emptyBody: "Les fichiers CSV, TSV, Parquet, JSON Lines et Excel de cette collection, ainsi que ses jeux de données Lance et tables Iceberg, peuvent devenir des tables d’analyse pour les totaux, les regroupements et les tendances. Les originaux ne sont pas modifiés.",
+    emptyBody: "Les fichiers CSV, TSV, Parquet, JSON Lines et Excel de cette collection peuvent devenir des tables d’analyse pour les totaux, les regroupements et les tendances. Les fichiers d’origine ne sont pas modifiés.",
     noSources: "Cette collection ne contient aucun fichier de tableau à analyser.",
     willMake: "Tables à créer",
     make: "Créer les tables d’analyse",

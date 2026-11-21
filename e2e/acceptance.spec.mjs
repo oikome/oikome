@@ -195,12 +195,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // Data Analysis: the household's table files become its analysis tables
     // (a folder of monthly files read as one), with totals by month and category.
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
-    await expect(page.getByText("No Analysis Tables")).toBeVisible();
+    // The energy meter's Iceberg table and the sleep tracker's Lance dataset
+    // are analysis tables as soon as they are found; the files' tables wait
+    // for the owner.
+    await expect(page.getByRole("radio", { name: "energy_meter", exact: true })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "sleep", exact: true })).toBeVisible();
+    await expect(page.getByText("6 more can be made")).toBeVisible();
     await page.getByRole("button", { name: "Make Analysis Tables" }).click();
     // The utility bills' workbook: a table per sheet. Last year's receipts
-    // folder holds one file, and its table is named after it. The energy
-    // meter's Iceberg table and the sleep tracker's Lance dataset are tables
-    // too, read where they are.
+    // folder holds one file, and its table is named after it.
     for (const table of ["energy_meter", "readings", "receipts", "sleep", "spending", "steps", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }

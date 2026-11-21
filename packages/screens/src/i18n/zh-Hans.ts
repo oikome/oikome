@@ -1462,7 +1462,7 @@ export const zhHans: Strings = {
   },
   analysisView: {
     emptyTitle: "未创建分析表",
-    emptyBody: "资料库中的 CSV、TSV、Parquet、JSON Lines 和 Excel 文件，以及其中的 Lance 数据集和 Iceberg 表，可转换为分析表，用于汇总、分组和趋势分析。原数据不会被修改。",
+    emptyBody: "资料库中的 CSV、TSV、Parquet、JSON Lines 和 Excel 文件可转换为分析表，用于汇总、分组和趋势分析。原文件不会被修改。",
     noSources: "此资料库中没有可分析的表格文件。",
     willMake: "将创建的分析表",
     make: "创建分析表",

@@ -679,7 +679,10 @@ impl Api {
                 Some(table) => {
                     table.files != now || (table.dataset.is_some() && table.problem.is_some())
                 }
-                None => make_new,
+                // A dataset is read where it is, nothing made from it, so it
+                // is an analysis table as soon as it is found; the owner
+                // makes the tables of files.
+                None => make_new || matches!(input, Input::Dataset(_)),
             };
             if !due {
                 continue;

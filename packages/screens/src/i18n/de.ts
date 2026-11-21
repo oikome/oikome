@@ -1510,7 +1510,7 @@ export const de: Strings = {
   },
   analysisView: {
     emptyTitle: "Keine Analysetabellen",
-    emptyBody: "CSV-, TSV-, Parquet-, JSON-Lines- und Excel-Dateien dieser Sammlung sowie ihre Lance-Datensätze und Iceberg-Tabellen können zu Analysetabellen für Summen, Gruppierungen und Trends werden. Die Originale werden nicht verändert.",
+    emptyBody: "CSV-, TSV-, Parquet-, JSON-Lines- und Excel-Dateien dieser Sammlung können zu Analysetabellen für Summen, Gruppierungen und Trends werden. Die Originaldateien werden nicht verändert.",
     noSources: "Diese Sammlung enthält keine Tabellendateien zur Analyse.",
     willMake: "Zu erstellende Tabellen",
     make: "Analysetabellen erstellen",

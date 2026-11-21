@@ -1486,7 +1486,7 @@ export const ja: Strings = {
   },
   analysisView: {
     emptyTitle: "分析表はありません",
-    emptyBody: "このコレクションの CSV、TSV、Parquet、JSON Lines、Excel ファイルと、Lance データセット、Iceberg テーブルを分析表にして、集計、グループ化、傾向分析に使えます。元のデータは変更されません。",
+    emptyBody: "このコレクションの CSV、TSV、Parquet、JSON Lines、Excel ファイルを分析表にして、集計、グループ化、傾向分析に使えます。元のファイルは変更されません。",
     noSources: "このコレクションには分析できる表形式のファイルがありません。",
     willMake: "作成する分析表",
     make: "分析表を作成",

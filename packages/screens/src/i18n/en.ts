@@ -1544,7 +1544,7 @@ export const en = {
 
   analysisView: {
     emptyTitle: "No Analysis Tables",
-    emptyBody: "CSV, TSV, Parquet, JSON Lines and Excel files in this collection, and the Lance datasets and Iceberg tables in it, can become analysis tables for totals, grouping and trends. The originals are not changed.",
+    emptyBody: "CSV, TSV, Parquet, JSON Lines and Excel files in this collection can be made into analysis tables for totals, grouping and trends. The original files are not changed.",
     noSources: "This collection has no table files to analyze.",
     willMake: "Tables to make",
     make: "Make Analysis Tables",

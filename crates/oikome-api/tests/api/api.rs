@@ -7057,23 +7057,17 @@ async fn datasets_in_a_folder_are_analysis_tables_and_can_be_copied_to_oikome() 
         .unwrap();
     assert_eq!(row_count(&rows), 2);
 
-    // Data Analysis offers them with the CSV, and reads them where they are.
+    // Data Analysis reads the datasets where they are without being asked;
+    // the CSV's table waits until the owner makes it.
     let found = n.api.file_analysis(&OWNER, lab()).await.unwrap();
-    let mut sources: Vec<_> = found
-        .sources
-        .iter()
-        .map(|s| (s.name.as_str(), s.dataset))
-        .collect();
-    sources.sort_by_key(|(name, _)| *name);
-    assert_eq!(
-        sources,
-        [
-            ("items", Some(DatasetKind::Lance)),
-            ("orders", Some(DatasetKind::Iceberg)),
-            ("readings", None),
-        ]
-    );
+    let sources: Vec<_> = found.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(sources, ["readings"]);
+    let mut tables: Vec<_> = found.tables.iter().map(|t| t.name.as_str()).collect();
+    tables.sort();
+    assert_eq!(tables, ["items", "orders"]);
     let made = n.api.build_analysis(&OWNER, lab()).await.unwrap();
+    assert!(made.sources.is_empty(), "{:?}", made.sources);
+    assert_eq!(made.tables.len(), 3);
     let table = |name: &str| made.tables.iter().find(|t| t.name == name).unwrap().clone();
     let orders = table("orders");
     assert_eq!(orders.problem, None);

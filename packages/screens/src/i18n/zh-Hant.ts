@@ -1457,7 +1457,7 @@ export const zhHant: Strings = {
   },
   analysisView: {
     emptyTitle: "未建立分析表",
-    emptyBody: "資料庫中的 CSV、TSV、Parquet、JSON Lines 和 Excel 檔案，以及其中的 Lance 資料集和 Iceberg 表格，可轉換為分析表，用於彙總、分組和趨勢分析。原資料不會被修改。",
+    emptyBody: "資料庫中的 CSV、TSV、Parquet、JSON Lines 和 Excel 檔案可轉換為分析表，用於彙總、分組和趨勢分析。原檔案不會被修改。",
     noSources: "此資料庫中沒有可分析的表格檔案。",
     willMake: "將建立的分析表",
     make: "建立分析表",

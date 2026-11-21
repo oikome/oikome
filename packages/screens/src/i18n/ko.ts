@@ -1511,7 +1511,7 @@ export const ko: Strings = {
   },
   analysisView: {
     emptyTitle: "분석 표 없음",
-    emptyBody: "이 컬렉션의 CSV, TSV, Parquet, JSON Lines, Excel 파일과 Lance 데이터셋, Iceberg 테이블을 분석 표로 만들어 합계, 그룹화, 추세 분석에 사용할 수 있습니다. 원본은 변경되지 않습니다.",
+    emptyBody: "이 컬렉션의 CSV, TSV, Parquet, JSON Lines, Excel 파일을 분석 표로 만들어 합계, 그룹화, 추세 분석에 사용할 수 있습니다. 원본 파일은 변경되지 않습니다.",
     noSources: "이 컬렉션에는 분석할 수 있는 표 파일이 없습니다.",
     willMake: "만들 분석 표",
     make: "분석 표 만들기",

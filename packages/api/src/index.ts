@@ -1642,36 +1642,6 @@ export type FileAnalysis = { space: string,
 sources: Array<AnalysisSource>, tables: Array<AnalysisTable>, };
 
 /**
- * `copy_to_oikome`: copy a dataset's table into a collection as
- * Oikome's own table (migration). An Iceberg table's current data is
- * copied into an Iceberg collection; a Lance dataset is copied whole, with
- * its versions, into a Lance collection.
- */
-export type CopyToOikome = { space: string, table: string,
-/**
- * The collection it goes into.
- */
-to: string,
-/**
- * Make `to` as a new collection, on this computer.
- */
-new: boolean, };
-
-/**
- * What `copy_to_oikome` made.
- */
-export type CopiedToOikome = {
-/**
- * The collection and table the copy is.
- */
-space: string, table: string, rows: number,
-/**
- * The files copied (for Lance) or read (for Iceberg), with their
- * BLAKE3 hashes, as kept with the copy.
- */
-files: number, };
-
-/**
  * `install_extension`: one of the DuckDB extensions Oikome loads.
  */
 export type ExtensionRef = {

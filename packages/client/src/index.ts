@@ -17,8 +17,6 @@ import type {
   AnalysisSummary,
   AnalysisTableRef,
   BuildAnalysis,
-  CopiedToOikome,
-  CopyToOikome,
   ExtensionRef,
   FileAnalysis,
   SetAnalysisField,
@@ -175,9 +173,8 @@ export interface NodeClient {
   fileAnalysis(request: SpaceRef): Promise<FileAnalysis>;
   /** Make the analysis tables the owner chose of a folder collection's files. */
   buildAnalysis(request: BuildAnalysis): Promise<FileAnalysis>;
-  /** Stop analysing a table made of files: it is dropped, its files are not touched. */
-  stopAnalysis(request: AnalysisTableRef): Promise<FileAnalysis>;
-  copyToOikome(request: CopyToOikome): Promise<CopiedToOikome>;
+  /** Remove an analysis table made of files: it is dropped, its files are not touched. */
+  removeAnalysisTable(request: AnalysisTableRef): Promise<FileAnalysis>;
   installExtension(request: ExtensionRef): Promise<ExtensionDownload>;
   /** Correct what a column of an analysis table is for. */
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
@@ -472,16 +469,12 @@ export class HttpClient implements NodeClient {
     return this.#json("build_analysis", request);
   }
 
-  stopAnalysis(request: AnalysisTableRef): Promise<FileAnalysis> {
-    return this.#json("stop_analysis", request);
+  removeAnalysisTable(request: AnalysisTableRef): Promise<FileAnalysis> {
+    return this.#json("remove_analysis_table", request);
   }
 
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis> {
     return this.#json("set_analysis_field", request);
-  }
-
-  copyToOikome(request: CopyToOikome): Promise<CopiedToOikome> {
-    return this.#json("copy_to_oikome", request);
   }
 
   installExtension(request: ExtensionRef): Promise<ExtensionDownload> {

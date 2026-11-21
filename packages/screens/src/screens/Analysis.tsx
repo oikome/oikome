@@ -6,9 +6,8 @@
 // chooses them, what each column is for, and the table's totals by month
 // and by category. The tables are the collection's, queried as
 // <collection>.<table> by SQL and assistants; the files are only read, and
-// the owner may stop analysing a table. A dataset in its folders (a Lance
-// dataset, an Iceberg table) is a table too, always: read where it is, and
-// can be copied into a collection as Oikome's own table.
+// the owner may remove a table. A dataset in its folders (a Lance dataset,
+// an Iceberg table) is a table too, always, read where it is.
 
 import { useEffect, useState } from "react";
 import {
@@ -24,22 +23,17 @@ import {
   Segmented,
   Select,
   Status,
-  TextField,
   useToast,
 } from "@oikome/ui";
 import type { AnalysisPoint, AnalysisSource, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
-import { forgetPreviews } from "../content";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
 import { TransferProgress } from "../progress";
-import { navigate } from "../router";
 import { since } from "./Sources";
 import { strings } from "../strings";
 import { locale } from "../i18n/languages";
 
 const a = strings.analysisView;
-const NAME = /^[A-Za-z_-][A-Za-z0-9_-]{0,63}$/;
-const NEW = "__new__";
 const ROLES: FieldRole[] = ["time", "amount", "category", "title", "key", "other"];
 
 /** A column's type in words: date, date and time, text, number, yes or no. */
@@ -120,89 +114,6 @@ function DatasetReader({ dataset, onReady }: { dataset: DatasetFacts; onReady: (
       {failed && extension?.error && <ErrorText>{extension.error}</ErrorText>}
       {install.error && <ErrorText>{install.error}</ErrorText>}
     </Card>
-  );
-}
-
-/** A dataset's table into a collection as Oikome's own: an existing one
- * that holds tables of its kind, or a new one. */
-function CopyToOikome({ space, table, onClose }: { space: string; table: AnalysisTable; onClose: () => void }) {
-  const client = useClient();
-  const toast = useToast();
-  const copying = useAction();
-  const spaces = useLoad(() => client.listSpaces(), []);
-  const kind = table.dataset!.kind;
-  const fits = (spaces.data ?? []).filter(
-    (x) => x.kind === "analytical" && !x.readonly && !x.inPlace && x.format === kind,
-  );
-  const taken = new Set((spaces.data ?? []).map((x) => x.name));
-  const base = table.name.replace(/_/g, "-");
-  const free = [base, ...Array.from({ length: 98 }, (_, i) => `${base}-${i + 2}`)].find((x) => !taken.has(x)) ?? base;
-  const [into, setInto] = useState(NEW);
-  const [typed, setTyped] = useState<string>();
-  const name = typed ?? free;
-  const nameOk = into !== NEW || (NAME.test(name) && !taken.has(name));
-
-  const copy = async () => {
-    const done = await copying.run(() =>
-      client.copyToOikome({ space, table: table.name, to: into === NEW ? name : into, new: into === NEW }),
-    );
-    if (!done) return;
-    forgetPreviews();
-    toast(a.copied(done.table, done.space));
-    onClose();
-    navigate(`/collections/${encodeURIComponent(done.space)}`);
-  };
-
-  return (
-    <Dialog
-      title={a.copyTitle(table.name)}
-      closeLabel={strings.common.close}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button variant="primary" disabled={!nameOk || copying.busy || !spaces.data} onClick={() => void copy()}>
-            {copying.busy ? a.copying : a.copyYes}
-          </Button>
-        </>
-      }
-    >
-      <p className="oik-dialog__text">{kind === "lance" ? a.copyLance : a.copyIceberg}</p>
-      <Select
-        label={a.copyTo}
-        value={into}
-        onChange={(value) => {
-          setInto(value);
-          copying.clear();
-        }}
-        options={[
-          ...fits.map((x) => ({ value: x.name, label: x.name })),
-          { value: NEW, label: strings.collections.newCollection },
-        ]}
-      />
-      {into === NEW && (
-        <>
-          <TextField
-            name="copied-collection-name"
-            label={strings.collections.collectionNameLabel}
-            value={name}
-            mono
-            onChange={(value) => {
-              setTyped(value);
-              copying.clear();
-            }}
-          />
-          {taken.has(name) && <ErrorText>{strings.collections.nameTaken(name)}</ErrorText>}
-        </>
-      )}
-      <p className="screen-help">{a.copyKeeps}</p>
-      {copying.busy && (
-        <span className="screen-progress" role="progressbar" aria-label={a.copying}>
-          <i />
-        </span>
-      )}
-      {copying.error && <ErrorText>{copying.error}</ErrorText>}
-    </Dialog>
   );
 }
 
@@ -354,36 +265,36 @@ function MakeTables({
   );
 }
 
-/** Stop analysing a table made of files, once asked: the table goes with
- * the roles set for its columns; its files stay as they are. */
-function StopAnalysis({
+/** Remove an analysis table made of files, once asked: the table goes
+ * with the roles set for its columns; its files stay as they are. */
+function RemoveTable({
   space,
   table,
-  onStopped,
+  onRemoved,
   onClose,
 }: {
   space: string;
   table: AnalysisTable;
-  onStopped: (next: FileAnalysis) => void;
+  onRemoved: (next: FileAnalysis) => void;
   onClose: () => void;
 }) {
   const client = useClient();
   const toast = useToast();
-  const stopping = useAction();
+  const removing = useAction();
   return (
     <ConfirmDialog
-      title={a.stopTitle(table.name)}
-      body={a.stopBody(`${space}.${table.name}`)}
-      confirmLabel={stopping.busy ? a.stopping : a.stopYes}
+      title={a.removeTitle(table.name)}
+      body={a.removeBody(`${space}.${table.name}`)}
+      confirmLabel={removing.busy ? a.removing : a.removeYes}
       cancelLabel={strings.common.cancel}
-      busy={stopping.busy}
-      error={stopping.error}
+      busy={removing.busy}
+      error={removing.error}
       onCancel={onClose}
       onConfirm={async () => {
-        const next = await stopping.run(() => client.stopAnalysis({ space, table: table.name }));
+        const next = await removing.run(() => client.removeAnalysisTable({ space, table: table.name }));
         if (!next) return;
-        toast(a.stopped(table.name));
-        onStopped(next);
+        toast(a.removed(table.name));
+        onRemoved(next);
       }}
     />
   );
@@ -402,8 +313,7 @@ function TableView({
 }) {
   const client = useClient();
   const setRole = useAction();
-  const [copying, setCopying] = useState(false);
-  const [stopping, setStopping] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const dataset = table.dataset;
   const readable = !table.problem;
   const summary = useLoad(
@@ -431,26 +341,20 @@ function TableView({
         )
       )}
       {dataset ? (
-        <div className="screen-analysis__about">
-          <p className="screen-help">{a.readInPlace}</p>
-          <Button disabled={!readable} onClick={() => setCopying(true)}>
-            {a.copy}
-          </Button>
-        </div>
+        <p className="screen-help screen-analysis__about">{a.readInPlace}</p>
       ) : (
         <div className="screen-analysis__about">
           <p className="screen-help">{a.madeOfFiles}</p>
-          <Button onClick={() => setStopping(true)}>{a.stop}</Button>
+          <Button onClick={() => setRemoving(true)}>{a.remove}</Button>
         </div>
       )}
-      {copying && <CopyToOikome space={space} table={table} onClose={() => setCopying(false)} />}
-      {stopping && (
-        <StopAnalysis
+      {removing && (
+        <RemoveTable
           space={space}
           table={table}
-          onClose={() => setStopping(false)}
-          onStopped={(next) => {
-            setStopping(false);
+          onClose={() => setRemoving(false)}
+          onRemoved={(next) => {
+            setRemoving(false);
             onChange(next);
           }}
         />

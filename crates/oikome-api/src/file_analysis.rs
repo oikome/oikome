@@ -19,8 +19,8 @@
 //! Iceberg under the collection's name, carry the path of the file each row
 //! came from, and are made again when their files change; the originals are
 //! only read. What each column is for is proposed from its name and type,
-//! and the owner may correct it. The owner may stop analysing a table: it
-//! is dropped, and its files are read in place as before.
+//! and the owner may correct it. The owner may remove a table: it is
+//! dropped, and its files are read in place as before.
 //!
 //! A dataset in the collection's folders (a Lance dataset, an Iceberg
 //! table; PR 31) is a table of it too, but it is not made: it is read where
@@ -835,11 +835,11 @@ impl Api {
         self.follow_files(&req.space, &req.tables).await
     }
 
-    /// Stop analysing a table made of files: it is dropped with what was
+    /// Remove an analysis table made of files: it is dropped with what was
     /// set for its columns, and it is not made again until the owner
     /// chooses it. Its files are not touched; SQL reads them in place again.
     /// A dataset's table is read where it is and is always analysed.
-    pub async fn stop_analysis(
+    pub async fn remove_analysis_table(
         &self,
         caller: &Caller,
         req: AnalysisTableRef,

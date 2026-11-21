@@ -6953,7 +6953,7 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
     };
     let stopped = n
         .api
-        .stop_analysis(&OWNER, table_ref("readings"))
+        .remove_analysis_table(&OWNER, table_ref("readings"))
         .await
         .unwrap();
     let names: Vec<_> = stopped.tables.iter().map(|t| t.name.as_str()).collect();
@@ -6966,13 +6966,13 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
     assert!(later.tables.iter().all(|t| t.name != "readings"));
     let err = n
         .api
-        .stop_analysis(&OWNER, table_ref("readings"))
+        .remove_analysis_table(&OWNER, table_ref("readings"))
         .await
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
     assert!(n
         .api
-        .stop_analysis(&Caller::Principal { did: did(9) }, table_ref("spending"))
+        .remove_analysis_table(&Caller::Principal { did: did(9) }, table_ref("spending"))
         .await
         .is_err());
     let again = n
@@ -7071,7 +7071,7 @@ async fn count_of(n: &Node, table: &str) -> i64 {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn datasets_in_a_folder_are_analysis_tables_and_can_be_copied_to_oikome() {
+async fn datasets_in_a_folder_are_analysis_tables_read_in_place() {
     let n = node_with_extensions();
     // Another program's Iceberg table and Lance dataset: this node's own,
     // as Iceberg and Lance write them, copied into the owner's folder.
@@ -7174,7 +7174,7 @@ async fn datasets_in_a_folder_are_analysis_tables_and_can_be_copied_to_oikome() 
     assert!(made.sources.is_empty(), "{:?}", made.sources);
     let err = n
         .api
-        .stop_analysis(
+        .remove_analysis_table(
             &OWNER,
             AnalysisTableRef {
                 space: "lab".into(),
@@ -7216,75 +7216,6 @@ async fn datasets_in_a_folder_are_analysis_tables_and_can_be_copied_to_oikome() 
     assert_eq!(count_of(&n, "lab.orders").await, 3);
     assert_eq!(
         count_of(&n, "lab.orders WHERE item = 'tea' AND amount = 3.5").await,
-        1
-    );
-
-    // Copy to Oikome: the Iceberg table's current data into a new
-    // collection, the Lance dataset whole into another.
-    let copied = n
-        .api
-        .copy_to_oikome(
-            &OWNER,
-            CopyToOikome {
-                space: "lab".into(),
-                table: "orders".into(),
-                to: "archive".into(),
-                new: true,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        (copied.space.as_str(), copied.table.as_str(), copied.rows),
-        ("archive", "orders", 3)
-    );
-    assert!(copied.files >= 3, "{copied:?}");
-    let wrong = n
-        .api
-        .copy_to_oikome(
-            &OWNER,
-            CopyToOikome {
-                space: "lab".into(),
-                table: "items".into(),
-                to: "archive".into(),
-                new: false,
-            },
-        )
-        .await
-        .unwrap_err();
-    assert!(wrong.message.contains("can't hold"), "{wrong}");
-    let vectors = n
-        .api
-        .copy_to_oikome(
-            &OWNER,
-            CopyToOikome {
-                space: "lab".into(),
-                table: "items".into(),
-                to: "vectors".into(),
-                new: true,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(vectors.rows, 2);
-    // Where each came from is kept with it, the files' hashes included.
-    let kept: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(n.catalog.oikome_dir().join("copies/archive/orders.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(kept["path"], "exports/orders");
-    assert_eq!(kept["kind"], "iceberg");
-    assert!(kept["files"][0]["blake3"]
-        .as_str()
-        .is_some_and(|h| h.len() == 64));
-    // The copies no longer depend on the originals.
-    std::fs::remove_dir_all(root.join("exports")).unwrap();
-    std::fs::remove_dir_all(root.join("vectors")).unwrap();
-    assert_eq!(count_of(&n, "archive.orders").await, 3);
-    assert_eq!(count_of(&n, "vectors.items").await, 2);
-    // Values and all: the copy holds the table's data, not empty rows.
-    assert_eq!(
-        count_of(&n, "archive.orders WHERE item = 'rice' AND amount = 2.0").await,
         1
     );
 }

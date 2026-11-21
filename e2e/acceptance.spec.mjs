@@ -224,24 +224,24 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       await expect(page.getByRole("radio", { name: table, exact: true })).toHaveCount(0);
     }
     await expect(page.getByText("3 more can be made")).toBeVisible();
-    // Analysing a file's table can be stopped: the table goes, its file
+    // A file's analysis table can be removed: the table goes, its file
     // stays, and it can be chosen again.
     await page.getByRole("radio", { name: "utilities_water", exact: true }).click();
-    await page.getByRole("button", { name: "Stop Analysis…" }).click();
-    const stop = page.getByRole("dialog", { name: "Stop analyzing utilities_water?" });
+    await page.getByRole("button", { name: "Remove Analysis Table…" }).click();
+    const stop = page.getByRole("dialog", { name: "Remove the analysis table utilities_water?" });
     await expect(stop).toContainText("household.utilities_water");
-    await stop.getByRole("button", { name: "Stop Analysis" }).click();
+    await stop.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
     await expect(page.getByText("4 more can be made")).toBeVisible();
     // This node loads DuckDB's iceberg and lance extensions from the shared
-    // folder, so both are read, with totals by month, and can be copied.
+    // folder, so both are read, with totals by month.
     for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
       await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
       await expect(page.getByRole("list", { name: "By Month" }).getByText(month)).toBeVisible();
-      await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toBeEnabled();
-      // A dataset is always analysed.
-      await expect(page.getByRole("button", { name: "Stop Analysis…" })).toHaveCount(0);
+      // A dataset is always analysed, and is not copied from here.
+      await expect(page.getByRole("button", { name: "Remove Analysis Table…" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toHaveCount(0);
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.getByText("household.spending")).toBeVisible();

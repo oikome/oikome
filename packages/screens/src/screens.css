@@ -5132,9 +5132,9 @@ tr.screen-source {
   height: 160px;
   border-radius: var(--r-btn);
 }
-/* What a table is read from, and what can be done with it: a dataset's
-   Copy to Oikome, a file table's Stop Analysis. */
+/* What a table is read from, and for a file's table, removing it. */
 .screen-analysis__about {
+  margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -69,9 +69,8 @@ use oikome_api::{
     SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
 use oikome_api::{
-    CopyToOikome, ExtensionRef, FileRef, FinishDropbox, GoogleCallback, ListFiles,
-    RevokeSaveConfirmation, SaveTextFile, SaveTo, SetNetwork, ShowFolder, StartDropbox,
-    StartGoogleDrive, ViewInPlace,
+    ExtensionRef, FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation,
+    SaveTextFile, SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
 };
 use oikome_api::{
     KnowledgeChunksRequest, ModelRef, RetrievalTest, SetKnowledgeChunk, SetKnowledgeModel,
@@ -471,10 +470,9 @@ impl WebState {
             "analyze_dataset" => json_op!(boxed analyze_dataset, AnalyzeDataset),
             "file_analysis" => json_op!(boxed file_analysis, SpaceRef),
             "build_analysis" => json_op!(boxed build_analysis, BuildAnalysis),
-            "stop_analysis" => json_op!(boxed stop_analysis, AnalysisTableRef),
+            "remove_analysis_table" => json_op!(boxed remove_analysis_table, AnalysisTableRef),
             "set_analysis_field" => json_op!(boxed set_analysis_field, SetAnalysisField),
             "analysis_summary" => json_op!(boxed analysis_summary, AnalysisTableRef),
-            "copy_to_oikome" => json_op!(boxed copy_to_oikome, CopyToOikome),
             "install_extension" => json_op!(boxed install_extension, ExtensionRef),
             "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
             "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),

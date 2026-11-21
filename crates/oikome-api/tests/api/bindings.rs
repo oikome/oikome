@@ -179,8 +179,6 @@ fn bindings() -> String {
         DatasetFacts,
         AnalysisTable,
         FileAnalysis,
-        CopyToOikome,
-        CopiedToOikome,
         ExtensionRef,
         SetAnalysisField,
         BuildAnalysis,

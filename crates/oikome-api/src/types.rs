@@ -582,37 +582,6 @@ pub struct AnalysisTableRef {
     pub table: String,
 }
 
-/// `copy_to_oikome`: copy a dataset's table into a collection as
-/// Oikome's own table (migration). An Iceberg table's current data is
-/// copied into an Iceberg collection; a Lance dataset is copied whole, with
-/// its versions, into a Lance collection.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct CopyToOikome {
-    pub space: String,
-    pub table: String,
-    /// The collection it goes into.
-    pub to: String,
-    /// Make `to` as a new collection, on this computer.
-    #[serde(default)]
-    pub new: bool,
-}
-
-/// What `copy_to_oikome` made.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct CopiedToOikome {
-    /// The collection and table the copy is.
-    pub space: String,
-    pub table: String,
-    #[ts(type = "number")]
-    pub rows: u64,
-    /// The files copied (for Lance) or read (for Iceberg), with their
-    /// BLAKE3 hashes, as kept with the copy.
-    #[ts(type = "number")]
-    pub files: u64,
-}
-
 /// `install_extension`: one of the DuckDB extensions Oikome loads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

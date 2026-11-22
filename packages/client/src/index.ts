@@ -16,6 +16,8 @@ import type {
   AnalyzeDataset,
   AnalysisSummary,
   AnalysisTableRef,
+  BuildAnalysis,
+  ExtensionRef,
   FileAnalysis,
   SetAnalysisField,
   AnalysisProfile,
@@ -169,8 +171,11 @@ export interface NodeClient {
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis>;
   /** What a folder collection's data files can make for analysis, and the tables made. */
   fileAnalysis(request: SpaceRef): Promise<FileAnalysis>;
-  /** Make every analysis table a folder collection's files can make. */
-  buildAnalysis(request: SpaceRef): Promise<FileAnalysis>;
+  /** Make the analysis tables the owner chose of a folder collection's files. */
+  buildAnalysis(request: BuildAnalysis): Promise<FileAnalysis>;
+  /** Remove an analysis table made of files: it is dropped, its files are not touched. */
+  removeAnalysisTable(request: AnalysisTableRef): Promise<FileAnalysis>;
+  installExtension(request: ExtensionRef): Promise<ExtensionDownload>;
   /** Correct what a column of an analysis table is for. */
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
   /** An analysis table's totals by month and by category. */
@@ -460,12 +465,20 @@ export class HttpClient implements NodeClient {
     return this.#json("file_analysis", request);
   }
 
-  buildAnalysis(request: SpaceRef): Promise<FileAnalysis> {
+  buildAnalysis(request: BuildAnalysis): Promise<FileAnalysis> {
     return this.#json("build_analysis", request);
+  }
+
+  removeAnalysisTable(request: AnalysisTableRef): Promise<FileAnalysis> {
+    return this.#json("remove_analysis_table", request);
   }
 
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis> {
     return this.#json("set_analysis_field", request);
+  }
+
+  installExtension(request: ExtensionRef): Promise<ExtensionDownload> {
+    return this.#json("install_extension", request);
   }
 
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary> {

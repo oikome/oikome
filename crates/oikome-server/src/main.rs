@@ -21,14 +21,15 @@
 //! oikome [--root DIR] serve             serve this node's Spaces to peers
 //!                                       (--web: also the owner's web API)
 //! oikome [--root DIR] web open          open the web app, logged in
-//! oikome [--root DIR] extensions install
+//! oikome [--root DIR] extensions install [NAME...]
 //!                                       fetch the DuckDB extensions Oikome uses
 //! oikome [--root DIR] storage add|list|remove
 //!                                       manage storages (a NAS) for Spaces
 //! ```
 //!
-//! DuckDB extensions (`lance` for Lance Spaces, `duckpgq` for their graphs,
-//! `sqlite` for analytical Spaces over SQLite files) are loaded from
+//! DuckDB extensions (`lance` for Lance Spaces and datasets, `duckpgq` for
+//! their graphs, `sqlite` for analytical Spaces over SQLite files, `iceberg`
+//! for Iceberg tables in a collection's folders) are loaded from
 //! `<root>/.oikome/extensions`, or
 //! `--extension-dir` / `OIKOME_EXTENSION_DIR`. Queries never download them;
 //! `extensions install` does, signed by DuckDB.
@@ -106,8 +107,12 @@ struct Cli {
 #[derive(Subcommand)]
 enum ExtensionsCommand {
     /// Download the DuckDB extensions Oikome loads (`sqlite`, `lance`,
-    /// `duckpgq`) for the linked DuckDB version.
-    Install,
+    /// `duckpgq`, `iceberg` with `avro`) for the linked DuckDB version.
+    /// Those already downloaded are kept.
+    Install {
+        /// Only these extensions (by default, all of them).
+        names: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -578,13 +583,24 @@ fn print_result(result: &QueryResult, raw: bool) -> Result<(), BoxError> {
 async fn run(cli: Cli) -> Result<(), BoxError> {
     match cli.command {
         Command::Extensions {
-            command: ExtensionsCommand::Install,
+            command: ExtensionsCommand::Install { names },
         } => {
+            let chosen = if names.is_empty() {
+                Extension::INSTALLABLE.to_vec()
+            } else {
+                names
+                    .iter()
+                    .map(|name| {
+                        Extension::named(name)
+                            .ok_or_else(|| format!("no extension named {name:?} to install"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            };
             std::fs::create_dir_all(&cli.root)?;
             let root = cli.root.canonicalize()?;
             let engine =
                 DuckDbEngine::open_in_memory(duckdb_config(&root, cli.extension_dir.as_deref()))?;
-            for ext in Extension::INSTALLABLE {
+            for ext in chosen {
                 let version = engine.install_extension(ext).await?;
                 println!("{}\t{version}", ext.name());
             }

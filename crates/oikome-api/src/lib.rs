@@ -32,6 +32,7 @@ mod assistant_config;
 mod assistants;
 mod backup;
 mod borrowing;
+mod datasets;
 mod dropbox;
 mod editing;
 pub mod error;

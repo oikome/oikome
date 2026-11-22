@@ -93,6 +93,19 @@ jobs:
           brew install rustfs/tap/rustfs
           echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
 
+      # DuckDB's extensions the acceptance scenario's datasets need (lance is
+      # 230 MB), in the folder the acceptance nodes share: fetched by the
+      # scenario on a miss, kept per DuckDB version.
+      - name: DuckDB version
+        id: duckdb
+        run: echo "version=$(grep -A1 '^name = "libduckdb-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache DuckDB's extensions
+        uses: actions/cache@v4
+        with:
+          path: target/tmp/duckdb-extensions
+          key: duckdb-extensions-${{ runner.os }}-${{ steps.duckdb.outputs.version }}
+
       - name: Browser tests
         working-directory: e2e
         env:

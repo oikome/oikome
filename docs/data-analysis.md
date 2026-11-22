@@ -1,6 +1,6 @@
 # Data Analysis and Dataset Interoperability Plan
 
-> **Status**: agreed direction 2026-11-14. PR 21 establishes collection and source targets. It does not implement media embeddings, external Iceberg/Lance connections or migrations.
+> **Status**: agreed direction 2026-11-14. PR 21 establishes collection and source targets. PR 31 reads existing Lance datasets and Iceberg tables in a collection's folders; media embeddings are not implemented.
 
 ## Principles
 
@@ -35,11 +35,13 @@ Files, folders and application data enter a collection chosen by the owner. The 
 
 ### Existing technical datasets
 
-A later advanced Add Data Source flow connects existing Iceberg or Lance datasets, including datasets reached over S3. It reads their metadata, schema, partitions and versions in place, without first converting them. The default is a read-only external dataset; schema inference is unnecessary when the dataset already supplies authoritative metadata.
+Existing Lance datasets and Iceberg tables are not connected through a flow of their own (decided 2026-11-20, PR 31). A dataset is a folder, and it goes where files go: into a collection's folders, on this computer, a NAS, a drive or RustFS. Indexing recognises it and shows it as one item; it is a read-only table of the collection, read in place through DuckDB from its own metadata, schema and latest version, without first converting it, and followed as it changes like a file. Schema inference is unnecessary: the dataset supplies authoritative metadata, and only the roles of its columns are proposed. Because nothing is made from it, a dataset is an analysis table as soon as it is found; the tables of files are still made by the owner (decided 2026-11-21). A dataset that refers to files outside its own folder is not read. Only formats that carry their own metadata in their folder are datasets: Iceberg tables, whichever catalog wrote them (Hadoop's `version-hint.text` and `v<n>.metadata.json`, or a Hive or REST catalog's `<n>-<uuid>.metadata.json`, the highest taken), and Lance datasets (`_versions/*.manifest`). A plain Hive table, data files whose schema and partitions live in a metastore, is not supported (decided 2026-11-21). REST catalogs come later.
 
 ### Migration
 
 Migration is not connection. It copies a dataset and its metadata into Oikome, identifies the target storage, states which versions can be retained and makes Oikome the single write master afterwards. Any continuing relationship with the original must be explicit. Archiving original files is a separate action and does not migrate an analysis dataset.
+
+PR 31 first built this as Copy to Oikome on a dataset's table and removed it (decided 2026-11-21). A dataset is a folder of its collection like any other: there is no copy action of its own, and an analysis table, being made from files, is not something to copy (decided 2026-11-21; Copy to Oikome, built on 2026-11-20, was removed). Copying is done on files and folders, with Add Files. Migration as described above stays planned.
 
 ## Internal dataset profile
 
@@ -78,6 +80,7 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 
 - **What becomes a table.** Every CSV, TSV, Parquet and JSON Lines file of a folder collection, at any depth (captions files excepted), and each visible, non-empty sheet of its spreadsheets (xlsx, xlsm, xls, xlsb, ods; PR 29), named `<file>_<sheet>`, or after the file when it has one such sheet. A top-level file is a table of its own, named after the file; the files of one format in one subfolder are read as one table, named after the folder, with `UNION ALL BY NAME`. Names are made unique; top-level files keep their own.
 - **Where it is kept.** An Iceberg table in the node's catalog under the namespace named after the collection, whatever the collection's own location; binding a folder collection attaches these tables beside its file tables and lets one stand in for the file table of the same name. Each row carries `_source_file`.
+- **Chosen by the owner** (decided 2026-11-21, PR 31). Make Analysis Tables… lists what the files can make, none chosen; the owner chooses items (a file, a subfolder's files read as one, a sheet, a workbook's sheets together) and only those are made. Remove Analysis Table… on a file's table drops it with its role corrections, after asking; its files are untouched and read in place again, and it is not made again until chosen. A dataset's table is always analysed and its table cannot be removed. Converting a CSV source to a file makes only that file's table.
 - **Following the files.** The size and modification time of each file are kept with the table (`.oikome/analysis/<collection>.json`, with the owner's role corrections). When the folder is read again and they differ, the table is made again whole; when its files are gone, it is dropped. Removing the collection drops its tables and the namespace.
 - **Roles.** Proposed from names and types (time, amount, category, title, key, other), corrected per column by the owner; the summary sums the Amount column by month and by category, or counts rows.
 - **Not yet.** Photo metadata and note front matter as tables; tables joining files across folders; aggregations other than sum and count.
@@ -90,8 +93,8 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 4. **PR 27:** precise source targets first, then internal analysis profiles as core computation: collection-contained files and tables, plugin capabilities, direct-query versus derived-analysis actions, human-friendly inference review and source-structure change handling.
 5. **PR 28:** data sources as plugins and analysis tables of a folder collection's files (above). K1 and K2 of knowledge landed with PR 27.
 6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
-7. **PR 30–31:** backup and restore, then read-only Iceberg/Lance/Parquet datasets and deliberate migration.
+7. **PR 30–31:** backup and restore, then read-only Lance and Iceberg datasets in collections' folders. Parquet and CSV on RustFS came with PR 29.
 8. **PR 32:** the plugin sandbox and RAW previews. Media recognition (knowledge K4) is not planned (2026-11-19).
 9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
 
-Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface.
+Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface. Reading datasets and Copy to Oikome appear once PR 31's acceptance scenario passes.

@@ -15,32 +15,41 @@
 //! Data Analysis of a folder collection: each data file (CSV, TSV,
 //! Parquet, JSON Lines), or each folder of them, and each sheet of a
 //! spreadsheet (xlsx, xlsm, xls, xlsb, ods) becomes an analysis table of
-//! the collection. The tables are kept in Iceberg under the collection's
-//! name, carry the path of the file each row came from, and are made again
-//! when their files change; the originals are only read. What each column
-//! is for is proposed from its name and type, and the owner may correct it.
+//! the collection, when the owner chooses it. The tables are kept in
+//! Iceberg under the collection's name, carry the path of the file each row
+//! came from, and are made again when their files change; the originals are
+//! only read. What each column is for is proposed from its name and type,
+//! and the owner may correct it. The owner may remove a table: it is
+//! dropped, and its files are read in place as before.
+//!
+//! A dataset in the collection's folders (a Lance dataset, an Iceberg
+//! table; PR 31) is a table of it too, but it is not made: it is read where
+//! it is, its latest version each time, and only its version, its columns
+//! and its row count are kept here.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, Float64Array, RecordBatch, StringArray};
-use arrow_schema::{Field, Schema, SchemaRef};
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use futures::TryStreamExt;
 use iceberg::arrow::arrow_schema_to_schema_auto_assign_ids;
 use iceberg::{Catalog, NamespaceIdent, TableCreation, TableIdent};
 use oikome_catalog::Space;
 use oikome_engine::{QualifiedName, TableSource};
-use oikome_node::inplace::{self, DataFile, SheetFile};
+use oikome_node::inplace::{self, DataFile, DatasetTable, SheetFile};
 use oikome_node::QueryResult;
 use oikome_semantic::rewrite::quote_ident;
 use oikome_storage::write_data_file;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::schema_profile;
+use crate::datasets::{capability_of, kind_of};
 use crate::{
     AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, Api, ApiError,
-    Caller, FieldRole, FileAnalysis, SetAnalysisField, SpaceRef,
+    BuildAnalysis, Caller, FieldRole, FileAnalysis, SetAnalysisField, SpaceRef,
 };
 
 /// The column every analysis table adds: the file a row came from.
@@ -70,6 +79,39 @@ struct KeptTable {
     rows: u64,
     #[serde(default)]
     problem: Option<String>,
+    /// For a dataset's table: what it is and what was read of it last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dataset: Option<KeptDataset>,
+}
+
+/// What was read of a dataset last: it is read where it is, not made.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct KeptDataset {
+    kind: String,
+    version: Option<String>,
+    written_at_ms: Option<i64>,
+    /// Its columns, by name and type: shown while it can't be read.
+    columns: Vec<(String, String)>,
+    /// The DuckDB extension it needed that this computer lacked.
+    #[serde(default)]
+    needs: Option<String>,
+}
+
+impl KeptDataset {
+    fn schema(&self) -> SchemaRef {
+        Arc::new(Schema::new(
+            self.columns
+                .iter()
+                .map(|(name, kind)| {
+                    Field::new(
+                        name,
+                        DataType::from_str(kind).unwrap_or(DataType::Utf8),
+                        true,
+                    )
+                })
+                .collect::<Vec<_>>(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +152,8 @@ enum Input {
         sheet: String,
         read: Option<Result<RecordBatch, String>>,
     },
+    /// A dataset, read where it is.
+    Dataset(DatasetTable),
 }
 
 impl Input {
@@ -117,6 +161,11 @@ impl Input {
         match self {
             Input::Files(files) => files.iter().map(KeptFile::from).collect(),
             Input::Sheet { file, .. } => vec![KeptFile::from(file)],
+            Input::Dataset(dataset) => vec![KeptFile {
+                path: dataset.path.clone(),
+                size: dataset.size,
+                modified_ms: dataset.modified_ms,
+            }],
         }
     }
 
@@ -124,12 +173,13 @@ impl Input {
         match self {
             Input::Files(files) => files.iter().map(|f| f.path.clone()).collect(),
             Input::Sheet { file, .. } => vec![file.path.clone()],
+            Input::Dataset(dataset) => vec![dataset.path.clone()],
         }
     }
 
     fn sheet(&self) -> Option<String> {
         match self {
-            Input::Files(_) => None,
+            Input::Files(_) | Input::Dataset(_) => None,
             Input::Sheet { sheet, .. } => Some(sheet.clone()),
         }
     }
@@ -150,8 +200,13 @@ fn shown_sheet(sheet: Option<&String>) -> Option<String> {
 /// file on its own; in a subfolder, the files of one format together,
 /// named after the folder (a lone file after itself); a spreadsheet's
 /// sheet, named after the file (`<file>_<sheet>` when it has several).
-/// Names are made unique; data files are named first.
-fn sources_of(files: Vec<DataFile>, books: Vec<Book>) -> Vec<(String, Input)> {
+/// Names are made unique; data files are named first. Datasets come with
+/// their names (the node's, which their tables have in SQL too).
+fn sources_of(
+    files: Vec<DataFile>,
+    books: Vec<Book>,
+    datasets: Vec<DatasetTable>,
+) -> Vec<(String, Input)> {
     let mut groups: BTreeMap<(String, String), Vec<DataFile>> = BTreeMap::new();
     for file in files {
         let folder = file
@@ -170,6 +225,7 @@ fn sources_of(files: Vec<DataFile>, books: Vec<Book>) -> Vec<(String, Input)> {
     let mut groups: Vec<_> = groups.into_iter().collect();
     groups.sort_by_key(|((key, format), _)| (!format.is_empty(), key.clone()));
     let mut taken: Vec<String> = vec![inplace::FILES.to_string()];
+    taken.extend(datasets.iter().map(|d| d.name.clone()));
     let mut unique = |base: String| {
         let mut name = base.clone();
         let mut n = 2;
@@ -206,7 +262,28 @@ fn sources_of(files: Vec<DataFile>, books: Vec<Book>) -> Vec<(String, Input)> {
             out.push((unique(base), input));
         }
     }
+    for dataset in datasets {
+        out.push((dataset.name.clone(), Input::Dataset(dataset)));
+    }
     out
+}
+
+/// The single number a `COUNT(*)` gave.
+pub(crate) fn first_count(result: &QueryResult) -> u64 {
+    let QueryResult::Batches { batches, .. } = result else {
+        return 0;
+    };
+    batches
+        .iter()
+        .find(|b| b.num_rows() > 0)
+        .and_then(|b| {
+            b.column(0)
+                .as_any()
+                .downcast_ref::<arrow_array::Int64Array>()
+                .map(|a| a.value(0))
+        })
+        .and_then(|n| u64::try_from(n).ok())
+        .unwrap_or(0)
 }
 
 /// `batch` with the file its rows came from as a last column.
@@ -318,7 +395,8 @@ impl Api {
                 Err(e) => books.push((file, vec![(String::new(), Some(Err(e)))])),
             }
         }
-        Ok((space, sources_of(files, books)))
+        let datasets = inplace::dataset_tables(&self.catalog, &location)?;
+        Ok((space, sources_of(files, books, datasets)))
     }
 
     /// Read `files` into one table and keep it in Iceberg as
@@ -451,22 +529,25 @@ impl Api {
             )
             .await
             .map_err(ApiError::internal)?;
-        let location = self
+        let loaded = self
             .catalog
             .load_table(&ident)
             .await
-            .map_err(ApiError::internal)?
-            .metadata()
-            .location()
-            .to_string();
+            .map_err(ApiError::internal)?;
         let temp = Path::new(self.catalog.root_path()).join("tmp");
         std::fs::create_dir_all(&temp).map_err(ApiError::internal)?;
         let mut written = Vec::new();
         for batch in batches.iter().filter(|b| b.num_rows() > 0) {
             written.push(
-                write_data_file(self.catalog.file_io(), &location, schema, batch, &temp)
-                    .await
-                    .map_err(ApiError::internal)?,
+                write_data_file(
+                    self.catalog.file_io(),
+                    loaded.metadata(),
+                    schema,
+                    batch,
+                    &temp,
+                )
+                .await
+                .map_err(ApiError::internal)?,
             );
         }
         self.catalog
@@ -474,6 +555,85 @@ impl Api {
             .await
             .map_err(ApiError::internal)?;
         Ok(rows)
+    }
+
+    /// A dataset's table as it is now: its version, columns and rows, read
+    /// where it is; or why it can't be read, its columns as last read.
+    async fn read_dataset_table(
+        &self,
+        space: &Space,
+        name: &str,
+        dataset: &DatasetTable,
+        was: Option<&KeptTable>,
+    ) -> KeptTable {
+        let mut facts = KeptDataset {
+            kind: dataset.kind.name().to_string(),
+            columns: was
+                .and_then(|t| t.dataset.as_ref())
+                .map(|d| d.columns.clone())
+                .unwrap_or_default(),
+            ..Default::default()
+        };
+        let read = self
+            .read_dataset_now(space, name, dataset, &mut facts)
+            .await;
+        let (rows, problem) = match read {
+            Ok(rows) => (rows, None),
+            Err(e) => (0, Some(e.message)),
+        };
+        KeptTable {
+            files: vec![KeptFile {
+                path: dataset.path.clone(),
+                size: dataset.size,
+                modified_ms: dataset.modified_ms,
+            }],
+            sheet: None,
+            roles: was.map(|t| t.roles.clone()).unwrap_or_default(),
+            built_at_ms: crate::now_ms(),
+            rows,
+            problem,
+            dataset: Some(facts),
+        }
+    }
+
+    async fn read_dataset_now(
+        &self,
+        space: &Space,
+        name: &str,
+        dataset: &DatasetTable,
+        facts: &mut KeptDataset,
+    ) -> Result<u64, ApiError> {
+        let engine = self.engines.engine_for(space)?;
+        if engine.enable(capability_of(dataset.kind)).await.is_err() {
+            facts.needs = Some(dataset.kind.extension().to_string());
+            return Err(ApiError::invalid(format!(
+                "reading a {} dataset needs DuckDB's {} extension, which this computer does not have yet",
+                if dataset.kind == oikome_node::datasets::DatasetKind::Lance { "Lance" } else { "Iceberg" },
+                dataset.kind.extension()
+            )));
+        }
+        let location = self.in_place_of(&space.name)?;
+        let read = inplace::read_dataset(&self.catalog, &self.engines, &location, &dataset.path)
+            .await
+            .map_err(|e| ApiError::invalid(e.to_string()))?;
+        facts.version = read.version;
+        facts.written_at_ms = read.written_at_ms;
+        let from = format!("{}.{}", quote_ident(&space.name), quote_ident(name));
+        let session = self.session(None);
+        if let QueryResult::Batches { schema, .. } = session
+            .sql(&format!("SELECT * FROM {from} LIMIT 0"))
+            .await?
+        {
+            facts.columns = schema
+                .fields()
+                .iter()
+                .map(|f| (f.name().clone(), f.data_type().to_string()))
+                .collect();
+        }
+        let counted = session
+            .sql(&format!("SELECT CAST(COUNT(*) AS BIGINT) FROM {from}"))
+            .await?;
+        Ok(first_count(&counted))
     }
 
     async fn drop_analysis_table(&self, space: &str, name: &str) -> Result<(), ApiError> {
@@ -493,11 +653,19 @@ impl Api {
     }
 
     /// Bring the tables made in line with the files: a table whose files
-    /// changed is made again, one whose files are gone is dropped; with
-    /// `make_new`, tables not made yet are made too.
-    async fn follow_files(&self, space: &str, make_new: bool) -> Result<FileAnalysis, ApiError> {
+    /// changed is made again, one whose files are gone is dropped; the
+    /// tables named in `make` are made too, when they are not yet.
+    async fn follow_files(&self, space: &str, make: &[String]) -> Result<FileAnalysis, ApiError> {
         let mut kept = self.kept(space)?;
         let (found, sources) = self.analysis_sources(space, &kept).await?;
+        if let Some(name) = make
+            .iter()
+            .find(|name| !sources.iter().any(|(source, _)| source == *name))
+        {
+            return Err(ApiError::invalid(format!(
+                "{space} has no files that make a table {name}"
+            )));
+        }
         let mut changed = false;
         for name in kept.tables.keys().cloned().collect::<Vec<_>>() {
             if !sources.iter().any(|(source, _)| *source == name) {
@@ -510,22 +678,39 @@ impl Api {
         for (name, input) in sources {
             let now = input.kept_files();
             let sheet = input.sheet();
-            listed.push((name.clone(), input.paths(), sheet.clone()));
+            let dataset = match &input {
+                Input::Dataset(d) => Some(kind_of(d.kind)),
+                _ => None,
+            };
+            listed.push((name.clone(), input.paths(), sheet.clone(), dataset));
             let entry = kept.tables.get(&name);
             let due = match entry {
-                Some(table) => table.files != now,
-                None => make_new,
+                // A dataset that could not be read is tried again.
+                Some(table) => {
+                    table.files != now || (table.dataset.is_some() && table.problem.is_some())
+                }
+                // A dataset is read where it is, nothing made from it, so it
+                // is an analysis table as soon as it is found; the owner
+                // makes the tables of files.
+                None => make.contains(&name) || matches!(input, Input::Dataset(_)),
             };
             if !due {
                 continue;
             }
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
+            if let Input::Dataset(dataset) = &input {
+                let table = self.read_dataset_table(&found, &name, dataset, entry).await;
+                kept.tables.insert(name, table);
+                changed = true;
+                continue;
+            }
             let made = match input {
                 Input::Files(files) => self.make_table(&found, &name, &files).await,
                 Input::Sheet { file, sheet, read } => {
                     self.make_sheet_table(&found, &name, &file, &sheet, read)
                         .await
                 }
+                Input::Dataset(_) => unreachable!("read above"),
             };
             let table = match made {
                 Ok(rows) => KeptTable {
@@ -535,6 +720,7 @@ impl Api {
                     built_at_ms: crate::now_ms(),
                     rows,
                     problem: None,
+                    dataset: None,
                 },
                 Err(e) => KeptTable {
                     files: now,
@@ -543,6 +729,7 @@ impl Api {
                     built_at_ms: crate::now_ms(),
                     rows: 0,
                     problem: Some(e.to_string()),
+                    dataset: None,
                 },
             };
             kept.tables.insert(name, table);
@@ -551,13 +738,18 @@ impl Api {
         if changed {
             self.keep(space, &kept)?;
         }
-        let schemas: BTreeMap<String, arrow_schema::SchemaRef> = self
+        let mut schemas: BTreeMap<String, arrow_schema::SchemaRef> = self
             .catalog
             .tables_in(space)
             .await?
             .into_iter()
             .map(|(name, resolved)| (name, resolved.schema))
             .collect();
+        for (name, table) in &kept.tables {
+            if let Some(dataset) = &table.dataset {
+                schemas.insert(name.clone(), dataset.schema());
+            }
+        }
         let tables = kept
             .tables
             .iter()
@@ -588,6 +780,15 @@ impl Api {
                     fields,
                     built_at_ms: table.built_at_ms,
                     problem: table.problem.clone(),
+                    dataset: table.dataset.as_ref().and_then(|d| {
+                        let kind = oikome_node::datasets::DatasetKind::from_name(&d.kind)?;
+                        Some(crate::DatasetFacts {
+                            kind: kind_of(kind),
+                            version: d.version.clone(),
+                            written_at_ms: d.written_at_ms,
+                            extension: d.needs.as_deref().map(|n| self.extension_download(n)),
+                        })
+                    }),
                 }
             })
             .collect();
@@ -595,11 +796,12 @@ impl Api {
             space: space.to_string(),
             sources: listed
                 .into_iter()
-                .filter(|(name, _, _)| !kept.tables.contains_key(name))
-                .map(|(name, files, sheet)| AnalysisSource {
+                .filter(|(name, _, _, _)| !kept.tables.contains_key(name))
+                .map(|(name, files, sheet, dataset)| AnalysisSource {
                     name,
                     files,
                     sheet: shown_sheet(sheet.as_ref()),
+                    dataset,
                 })
                 .collect(),
             tables,
@@ -615,18 +817,52 @@ impl Api {
     ) -> Result<FileAnalysis, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        self.follow_files(&req.space, false).await
+        self.follow_files(&req.space, &[]).await
     }
 
-    /// Make every analysis table a folder collection's files can make.
+    /// Make the analysis tables the owner chose of a folder collection's
+    /// files, by the names `file_analysis` gives them.
     pub async fn build_analysis(
         &self,
         caller: &Caller,
-        req: SpaceRef,
+        req: BuildAnalysis,
     ) -> Result<FileAnalysis, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        self.follow_files(&req.space, true).await
+        if req.tables.is_empty() {
+            return Err(ApiError::invalid("choose the tables to make"));
+        }
+        self.follow_files(&req.space, &req.tables).await
+    }
+
+    /// Remove an analysis table made of files: it is dropped with what was
+    /// set for its columns, and it is not made again until the owner
+    /// chooses it. Its files are not touched; SQL reads them in place again.
+    /// A dataset's table is read where it is and is always analysed.
+    pub async fn remove_analysis_table(
+        &self,
+        caller: &Caller,
+        req: AnalysisTableRef,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        // A collection that views a folder: its name is checked before it
+        // names the file its tables are kept in.
+        self.in_place_of(&req.space)?;
+        let mut kept = self.kept(&req.space)?;
+        let table = kept.tables.get(&req.table).ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
+        if table.dataset.is_some() {
+            return Err(ApiError::invalid(format!(
+                "{} is a dataset, read where it is; it is always analysed",
+                req.table
+            )));
+        }
+        self.drop_analysis_table(&req.space, &req.table).await?;
+        kept.tables.remove(&req.table);
+        self.keep(&req.space, &kept)?;
+        self.follow_files(&req.space, &[]).await
     }
 
     /// Correct what a column of an analysis table is for.
@@ -638,16 +874,24 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let mut kept = self.kept(&req.space)?;
-        let schema = self
-            .catalog
-            .tables_in(&req.space)
-            .await?
-            .into_iter()
-            .find(|(name, _)| *name == req.table)
-            .map(|(_, resolved)| resolved.schema)
-            .ok_or_else(|| {
-                ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
-            })?;
+        let of_dataset = kept
+            .tables
+            .get(&req.table)
+            .and_then(|t| t.dataset.as_ref())
+            .map(KeptDataset::schema);
+        let schema = match of_dataset {
+            Some(schema) => Some(schema),
+            None => self
+                .catalog
+                .tables_in(&req.space)
+                .await?
+                .into_iter()
+                .find(|(name, _)| *name == req.table)
+                .map(|(_, resolved)| resolved.schema),
+        }
+        .ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
         if req.field == SOURCE_FILE || schema.field_with_name(&req.field).is_err() {
             return Err(ApiError::invalid(format!(
                 "{} has no column {}",
@@ -659,7 +903,7 @@ impl Api {
         })?;
         table.roles.insert(req.field, req.role);
         self.keep(&req.space, &kept)?;
-        self.follow_files(&req.space, false).await
+        self.follow_files(&req.space, &[]).await
     }
 
     /// An analysis table's totals by month and by category.
@@ -669,7 +913,7 @@ impl Api {
         req: AnalysisTableRef,
     ) -> Result<AnalysisSummary, ApiError> {
         caller.require_owner()?;
-        let analysis = self.follow_files(&req.space, false).await?;
+        let analysis = self.follow_files(&req.space, &[]).await?;
         let table = analysis
             .tables
             .into_iter()
@@ -829,6 +1073,7 @@ mod tests {
                 book("Budget 2026.xlsx", &["Q1 (Jan–Mar)", "Q2"]),
                 book("money/steps.ods", &["Sheet1"]),
             ],
+            Vec::new(),
         );
         let names: Vec<(&str, usize, Option<String>)> = sources
             .iter()

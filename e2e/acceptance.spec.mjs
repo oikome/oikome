@@ -179,17 +179,69 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     }
     await page.goto(`${running.base}/collections/household`);
     await expect(page.getByText("spending", { exact: true }).first()).toBeVisible();
+    // The energy meter's Iceberg table and the sleep tracker's Lance dataset
+    // are one item each, which opens with its rows (a date column among
+    // them); its kind is in its Info, as a file's is.
+    for (const [item, kind, first] of [["energy-meter", "Iceberg Table", "Oct 1, 2026"], ["sleep.lance", "Lance Dataset", "Nov 1, 2026"]]) {
+      await page.getByText(item, { exact: true }).first().click();
+      const opened = page.getByRole("dialog", { name: item });
+      await expect(opened.getByRole("gridcell", { name: first, exact: true })).toBeVisible();
+      await opened.getByRole("button", { name: "Info" }).click();
+      await expect(opened.locator(".screen-fileview__facts")).toContainText(kind);
+      await page.goto(`${running.base}/collections/household`);
+    }
     // Last year's receipts, kept in the bucket, are a folder of it.
     await expect(page.getByText("receipts-2024", { exact: true }).first()).toBeVisible();
     // Data Analysis: the household's table files become its analysis tables
     // (a folder of monthly files read as one), with totals by month and category.
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
-    await expect(page.getByText("No Analysis Tables")).toBeVisible();
-    await page.getByRole("button", { name: "Make Analysis Tables" }).click();
-    // The utility bills' workbook: a table per sheet. Last year's receipts
-    // folder holds one file, and its table is named after it.
+    // The energy meter's Iceberg table and the sleep tracker's Lance dataset
+    // are analysis tables as soon as they are found; the files' tables wait
+    // for the owner.
+    await expect(page.getByRole("radio", { name: "energy_meter", exact: true })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "sleep", exact: true })).toBeVisible();
+    await expect(page.getByText("6 more can be made")).toBeVisible();
+    // The owner chooses which files to analyse; nothing is chosen at first.
+    // The utility bills' workbook has a table per sheet, chosen together
+    // under it. Last year's receipts folder holds one file, and its table is
+    // named after it.
+    await page.getByRole("button", { name: "Make Analysis Tables…" }).click();
+    const pick = page.getByRole("dialog", { name: "Choose Files to Analyze" });
+    await expect(pick.getByText("0 of 6 selected")).toBeVisible();
+    await expect(pick.getByRole("button", { name: "Make", exact: true })).toBeDisabled();
     for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+      await expect(pick.getByRole("checkbox", { name: table })).not.toBeChecked();
+    }
+    await pick.getByRole("checkbox", { name: "spending" }).check();
+    await pick.getByRole("checkbox", { name: "utilities.xlsx" }).check();
+    await expect(pick.getByRole("checkbox", { name: "utilities_water" })).toBeChecked();
+    await pick.getByRole("button", { name: "Make 3 Tables" }).click();
+    await expect(pick).toHaveCount(0);
+    for (const table of ["energy_meter", "sleep", "spending", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
+    }
+    for (const table of ["readings", "receipts", "steps"]) {
+      await expect(page.getByRole("radio", { name: table, exact: true })).toHaveCount(0);
+    }
+    await expect(page.getByText("3 more can be made")).toBeVisible();
+    // A file's analysis table can be removed: the table goes, its file
+    // stays, and it can be chosen again.
+    await page.getByRole("radio", { name: "utilities_water", exact: true }).click();
+    await page.getByRole("button", { name: "Remove Analysis Table…" }).click();
+    const stop = page.getByRole("dialog", { name: "Remove the analysis table utilities_water?" });
+    await expect(stop).toContainText("household.utilities_water");
+    await stop.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
+    await expect(page.getByText("4 more can be made")).toBeVisible();
+    // This node loads DuckDB's iceberg and lance extensions from the shared
+    // folder, so both are read, with totals by month.
+    for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
+      await page.getByRole("radio", { name: table, exact: true }).click();
+      await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
+      await expect(page.getByRole("list", { name: "By Month" }).getByText(month)).toBeVisible();
+      // A dataset is always analysed, and is not copied from here.
+      await expect(page.getByRole("button", { name: "Remove Analysis Table…" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toHaveCount(0);
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.getByText("household.spending")).toBeVisible();
@@ -198,6 +250,11 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(months.getByText("2026-11")).toBeVisible();
     await expect(page.getByRole("list", { name: "By Category" }).getByText("Groceries")).toBeVisible();
     await expect(page.getByLabel("What category is for")).toHaveValue("category");
+    // The trams taken, an Iceberg table in the bucket, are one item of the
+    // archive, not its files.
+    await page.goto(`${running.base}/collections/rustfs-archive`);
+    await expect(page.getByText("transit", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("metadata", { exact: true })).toHaveCount(0);
     await page.goto(`${running.base}/collections/notes`);
     await expect(page.getByText("Lisbon, slowly").first()).toBeVisible();
     // The project's own documents, as a knowledge base: the agent protocol

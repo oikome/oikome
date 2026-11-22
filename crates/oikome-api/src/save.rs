@@ -292,22 +292,25 @@ impl Api {
                 .await
                 .map_err(ApiError::internal)?;
         }
-        let location = self
+        let loaded = self
             .catalog
             .load_table(&ident)
             .await
-            .map_err(ApiError::internal)?
-            .metadata()
-            .location()
-            .to_string();
+            .map_err(ApiError::internal)?;
         let temp = Path::new(self.catalog.root_path()).join("tmp");
         std::fs::create_dir_all(&temp).map_err(ApiError::internal)?;
         let mut files = Vec::new();
         for batch in batches {
             files.push(
-                write_data_file(self.catalog.file_io(), &location, &schema, &batch, &temp)
-                    .await
-                    .map_err(ApiError::internal)?,
+                write_data_file(
+                    self.catalog.file_io(),
+                    loaded.metadata(),
+                    &schema,
+                    &batch,
+                    &temp,
+                )
+                .await
+                .map_err(ApiError::internal)?,
             );
         }
         self.catalog

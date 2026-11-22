@@ -1026,7 +1026,7 @@ function FolderContents({
                       </span>
                     </td>
                     <td className="screen-wide-only">
-                      {"folder" in entry ? s.folderKind : fileKindLabel(entry.file.name, entry.file.kind, entry.file.content.mediaType)}
+                      {"folder" in entry ? s.folderKind : fileKindLabel(entry.file.name, entry.file.kind, entry.file.content.mediaType, entry.file.content.format)}
                     </td>
                     <td className="oik-num oik-table__one-line">{metaOf(entry)}</td>
                     <td className="screen-wide-only oik-table__one-line">{changedOf(entry)}</td>

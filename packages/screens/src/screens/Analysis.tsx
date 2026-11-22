@@ -2,15 +2,33 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Analysis: the analysis tables a folder collection's data files make
-// (each file, or each folder of them, read as one table), what each column
-// is for, and the table's totals by month and by category. The tables are
-// the collection's, queried as <collection>.<table> by SQL and assistants;
-// the files are only read.
+// (each file, or each folder of them, read as one table) when the owner
+// chooses them, what each column is for, and the table's totals by month
+// and by category. The tables are the collection's, queried as
+// <collection>.<table> by SQL and assistants; the files are only read, and
+// the owner may remove a table. A dataset in its folders (a Lance dataset,
+// an Iceberg table) is a table too, always, read where it is.
 
-import { useState } from "react";
-import { Button, Card, EmptyState, ErrorText, Group, Row, Segmented, Select, Status } from "@oikome/ui";
-import type { AnalysisPoint, AnalysisTable, FieldRole, FileAnalysis } from "@oikome/client";
+import { useEffect, useState } from "react";
+import {
+  Button,
+  Card,
+  Checkbox,
+  ConfirmDialog,
+  Dialog,
+  EmptyState,
+  ErrorText,
+  Group,
+  Row,
+  Segmented,
+  Select,
+  Status,
+  useToast,
+} from "@oikome/ui";
+import type { AnalysisPoint, AnalysisSource, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
+import { homeRelative } from "../format";
+import { TransferProgress } from "../progress";
 import { since } from "./Sources";
 import { strings } from "../strings";
 import { locale } from "../i18n/languages";
@@ -63,29 +81,307 @@ function Bars({ points, label, vertical = false }: { points: AnalysisPoint[]; la
 }
 
 /** One analysis table: its facts, its columns and what each is for, and its totals. */
-function TableView({ space, table, onChange }: { space: string; table: AnalysisTable; onChange: (next: FileAnalysis) => void }) {
+/** What this computer lacks to read a dataset: DuckDB's extension, its
+ * download offered and followed. */
+function DatasetReader({ dataset, onReady }: { dataset: DatasetFacts; onReady: () => void }) {
+  const client = useClient();
+  const install = useAction();
+  const extension = dataset.extension;
+  const going = extension?.state === "downloading" || extension?.state === "installing";
+  const failed = extension?.state === "failed";
+  return (
+    <Card className="screen-analysis__reader">
+      <p>{a.needsExtension(dataset.kind)}</p>
+      {going && extension ? (
+        <TransferProgress
+          done={extension.done}
+          total={extension.total}
+          label={a.downloadLabel(dataset.kind)}
+          installing={extension.state === "installing"}
+          note={strings.knowledge.download.savedTo(homeRelative(extension.path))}
+        />
+      ) : (
+        <Button
+          variant="primary"
+          disabled={install.busy}
+          onClick={async () => {
+            if (await install.run(() => client.installExtension({ name: dataset.kind }))) onReady();
+          }}
+        >
+          {failed ? a.downloadAgain : a.download}
+        </Button>
+      )}
+      {failed && extension?.error && <ErrorText>{extension.error}</ErrorText>}
+      {install.error && <ErrorText>{install.error}</ErrorText>}
+    </Card>
+  );
+}
+
+/** Where a table not made yet comes from: its file, its folder's files,
+ * or its sheet (`inBook`: under its spreadsheet, which is shown above). */
+function sourceAt(source: AnalysisSource, inBook = false): string {
+  const first = source.files[0] ?? "";
+  if (source.sheet) return inBook ? a.sheet(source.sheet) : a.inSheet(first, source.sheet);
+  if (source.files.length === 1) return first;
+  const folder = first.includes("/") ? first.slice(0, first.lastIndexOf("/")) : "";
+  return folder ? a.filesIn(folder, source.files.length) : a.files(source.files.length);
+}
+
+/** The tables not made yet, a spreadsheet's several sheets together under
+ * it; the rest one by one, in the order given. */
+function grouped(sources: AnalysisSource[]): { book?: string; sources: AnalysisSource[] }[] {
+  const out: { book?: string; sources: AnalysisSource[] }[] = [];
+  const books = new Map<string, AnalysisSource[]>();
+  for (const source of sources) {
+    const book = source.sheet ? source.files[0] : undefined;
+    if (book === undefined) {
+      out.push({ sources: [source] });
+      continue;
+    }
+    const sheets = books.get(book);
+    if (sheets) sheets.push(source);
+    else {
+      const fresh = [source];
+      books.set(book, fresh);
+      out.push({ book, sources: fresh });
+    }
+  }
+  // A spreadsheet of one sheet is a row like a file's.
+  return out.map((group) => (group.book && group.sources.length === 1 ? { sources: group.sources } : group));
+}
+
+/** Which of a folder collection's files to analyse: each item makes one
+ * table, none chosen at first. A spreadsheet's sheets are chosen one by one
+ * or together. */
+function MakeTables({
+  space,
+  sources,
+  onMade,
+  onClose,
+}: {
+  space: string;
+  sources: AnalysisSource[];
+  onMade: (made: FileAnalysis, chosen: string[]) => void;
+  onClose: () => void;
+}) {
+  const client = useClient();
+  const making = useAction();
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const all = sources.length > 0 && chosen.size === sources.length;
+  const choose = (names: string[], on: boolean) => {
+    const next = new Set(chosen);
+    for (const name of names) {
+      if (on) next.add(name);
+      else next.delete(name);
+    }
+    setChosen(next);
+    making.clear();
+  };
+  const make = async () => {
+    const names = sources.map((source) => source.name).filter((name) => chosen.has(name));
+    const made = await making.run(() => client.buildAnalysis({ space, tables: names }));
+    if (made) onMade(made, names);
+  };
+  const item = (source: AnalysisSource, inBook = false) => (
+    <li key={source.name}>
+      <Checkbox
+        label={
+          <span className="screen-analysis-pick__item">
+            <span className="oik-mono" translate="no">
+              {source.name}
+            </span>
+            <span className="screen-help" translate="no" title={source.files.join("\n")}>
+              {sourceAt(source, inBook)}
+            </span>
+          </span>
+        }
+        checked={chosen.has(source.name)}
+        disabled={making.busy}
+        onChange={(on) => choose([source.name], on)}
+      />
+    </li>
+  );
+
+  return (
+    <Dialog
+      title={a.pickTitle}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      placement="top"
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" disabled={chosen.size === 0 || making.busy} onClick={() => void make()}>
+            {making.busy ? a.making : a.makeN(chosen.size)}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{a.pickBody}</p>
+      {sources.length > 1 && (
+        <div className="screen-save-all">
+          <Checkbox
+            label={a.selectAll}
+            checked={all}
+            indeterminate={chosen.size > 0 && !all}
+            disabled={making.busy}
+            onChange={(on) => choose(sources.map((source) => source.name), on)}
+          />
+          <span className="screen-save-all__count">{a.chosen(chosen.size, sources.length)}</span>
+        </div>
+      )}
+      <ul className="screen-analysis-pick" aria-label={a.pickTitle}>
+        {grouped(sources).map((group) => {
+          if (!group.book) return item(group.sources[0]!);
+          const names = group.sources.map((source) => source.name);
+          const some = names.filter((name) => chosen.has(name)).length;
+          return (
+            <li key={`book:${group.book}`}>
+              <Checkbox
+                label={
+                  <span className="screen-analysis-pick__item">
+                    <span translate="no">{group.book}</span>
+                  </span>
+                }
+                checked={some === names.length}
+                indeterminate={some > 0 && some < names.length}
+                disabled={making.busy}
+                onChange={(on) => choose(names, on)}
+              />
+              <ul className="screen-analysis-pick screen-analysis-pick--sheets">
+                {group.sources.map((source) => item(source, true))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+      {making.busy && (
+        <span className="screen-progress" role="progressbar" aria-label={a.making}>
+          <i />
+        </span>
+      )}
+      {making.error && <ErrorText>{making.error}</ErrorText>}
+    </Dialog>
+  );
+}
+
+/** Remove an analysis table made of files, once asked: the table goes
+ * with the roles set for its columns; its files stay as they are. */
+function RemoveTable({
+  space,
+  table,
+  onRemoved,
+  onClose,
+}: {
+  space: string;
+  table: AnalysisTable;
+  onRemoved: (next: FileAnalysis) => void;
+  onClose: () => void;
+}) {
+  const client = useClient();
+  const toast = useToast();
+  const removing = useAction();
+  return (
+    <ConfirmDialog
+      title={a.removeTitle(table.name)}
+      body={a.removeBody(`${space}.${table.name}`)}
+      confirmLabel={removing.busy ? a.removing : a.removeYes}
+      cancelLabel={strings.common.cancel}
+      busy={removing.busy}
+      error={removing.error}
+      onCancel={onClose}
+      onConfirm={async () => {
+        const next = await removing.run(() => client.removeAnalysisTable({ space, table: table.name }));
+        if (!next) return;
+        toast(a.removed(table.name));
+        onRemoved(next);
+      }}
+    />
+  );
+}
+
+function TableView({
+  space,
+  table,
+  onChange,
+  onReload,
+}: {
+  space: string;
+  table: AnalysisTable;
+  onChange: (next: FileAnalysis) => void;
+  onReload: () => void;
+}) {
   const client = useClient();
   const setRole = useAction();
+  const [removing, setRemoving] = useState(false);
+  const dataset = table.dataset;
+  const readable = !table.problem;
   const summary = useLoad(
-    () => client.analysisSummary({ space, table: table.name }),
-    [space, table.name, table.fields.map((f) => `${f.name}:${f.role}`).join(",")],
+    async () => (readable ? client.analysisSummary({ space, table: table.name }) : undefined),
+    [space, table.name, readable, table.fields.map((f) => `${f.name}:${f.role}`).join(",")],
   );
+  // While a reader downloads, look again every second.
+  const downloading = dataset?.extension?.state === "downloading" || dataset?.extension?.state === "installing";
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setTimeout(onReload, 1000);
+    return () => clearTimeout(timer);
+  }, [downloading, table, onReload]);
   const data = summary.data;
   const measure = data?.amount ? a.sumOf(data.amount) : a.countRows;
   return (
     <div className="screen-analysis__table">
-      {table.problem && (
-        <ErrorText>
-          {a.problem} {table.problem}
-        </ErrorText>
+      {dataset?.extension ? (
+        <DatasetReader dataset={dataset} onReady={onReload} />
+      ) : (
+        table.problem && (
+          <ErrorText>
+            {dataset ? a.datasetProblem : a.problem} {table.problem}
+          </ErrorText>
+        )
+      )}
+      {dataset ? (
+        <p className="screen-help screen-analysis__about">{a.readInPlace}</p>
+      ) : (
+        <div className="screen-analysis__about">
+          <p className="screen-help">{a.madeOfFiles}</p>
+          <Button onClick={() => setRemoving(true)}>{a.remove}</Button>
+        </div>
+      )}
+      {removing && (
+        <RemoveTable
+          space={space}
+          table={table}
+          onClose={() => setRemoving(false)}
+          onRemoved={(next) => {
+            setRemoving(false);
+            onChange(next);
+          }}
+        />
       )}
       <dl className="oik-card screen-facts screen-analysis__facts">
+        {dataset && (
+          <div>
+            <dt className="oik-label">{a.kindLabel}</dt>
+            <dd>{a.datasetKinds[dataset.kind]}</dd>
+          </div>
+        )}
+        {dataset?.version && (
+          <div>
+            <dt className="oik-label">{a.versionLabel}</dt>
+            <dd translate="no">
+              {dataset.writtenAtMs ? a.version(dataset.version, since(dataset.writtenAtMs)) : dataset.version}
+            </dd>
+          </div>
+        )}
+        {readable && (
+          <div>
+            <dt className="oik-label">{a.rowsLabel}</dt>
+            <dd>{a.rows(table.rows)}</dd>
+          </div>
+        )}
         <div>
-          <dt className="oik-label">{a.rowsLabel}</dt>
-          <dd>{a.rows(table.rows)}</dd>
-        </div>
-        <div>
-          <dt className="oik-label">{a.filesLabel}</dt>
+          <dt className="oik-label">{dataset ? a.folderLabel : a.filesLabel}</dt>
           <dd translate="no" title={table.files.join("\n")}>
             {table.sheet
               ? a.inSheet(table.files[0], table.sheet)
@@ -95,7 +391,7 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
           </dd>
         </div>
         <div>
-          <dt className="oik-label">{a.updated}</dt>
+          <dt className="oik-label">{dataset ? a.read : a.updated}</dt>
           <dd>{since(table.builtAtMs)}</dd>
         </div>
         <div>
@@ -106,34 +402,38 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
         </div>
       </dl>
 
-      <div className="screen-analysis__charts">
-        <Card className="screen-analysis__chart">
-          <h3 className="oik-label">{a.byMonth}</h3>
-          <p className="screen-help">{measure}</p>
-          {summary.error ? (
-            <ErrorText>{summary.error}</ErrorText>
-          ) : !data ? (
-            <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-          ) : data.byMonth.length > 0 ? (
-            <Bars points={data.byMonth} label={a.byMonth} vertical />
-          ) : (
-            <p className="screen-help">{a.needTime}</p>
-          )}
-        </Card>
-        <Card className="screen-analysis__chart">
-          <h3 className="oik-label">{a.byCategory}</h3>
-          <p className="screen-help">{data?.category ? `${data.category} · ${measure}` : measure}</p>
-          {summary.error ? null : !data ? (
-            <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-          ) : data.byCategory.length > 0 ? (
-            <Bars points={data.byCategory} label={a.byCategory} />
-          ) : (
-            <p className="screen-help">{a.needCategory}</p>
-          )}
-        </Card>
-      </div>
+      {/* Totals need the rows: none while the table can't be read. */}
+      {readable && (
+        <div className="screen-analysis__charts">
+          <Card className="screen-analysis__chart">
+            <h3 className="oik-label">{a.byMonth}</h3>
+            <p className="screen-help">{measure}</p>
+            {summary.error ? (
+              <ErrorText>{summary.error}</ErrorText>
+            ) : !data ? (
+              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
+            ) : data.byMonth.length > 0 ? (
+              <Bars points={data.byMonth} label={a.byMonth} vertical />
+            ) : (
+              <p className="screen-help">{a.needTime}</p>
+            )}
+          </Card>
+          <Card className="screen-analysis__chart">
+            <h3 className="oik-label">{a.byCategory}</h3>
+            <p className="screen-help">{data?.category ? `${data.category} · ${measure}` : measure}</p>
+            {summary.error ? null : !data ? (
+              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
+            ) : data.byCategory.length > 0 ? (
+              <Bars points={data.byCategory} label={a.byCategory} />
+            ) : (
+              <p className="screen-help">{a.needCategory}</p>
+            )}
+          </Card>
+        </div>
+      )}
 
-      <Group title={a.fields} footnote={a.fieldsFootnote}>
+      {table.fields.length > 0 && (
+      <Group title={a.fields} footnote={dataset ? a.datasetFieldsFootnote : a.fieldsFootnote}>
         {table.fields
           .filter((field) => field.name !== "_source_file")
           .map((field) => (
@@ -158,6 +458,7 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
             />
           ))}
       </Group>
+      )}
       {setRole.error && <ErrorText>{setRole.error}</ErrorText>}
     </div>
   );
@@ -166,18 +467,28 @@ function TableView({ space, table, onChange }: { space: string; table: AnalysisT
 export function AnalysisView({ space }: { space: string }) {
   const client = useClient();
   const analysis = useLoad(() => client.fileAnalysis({ space }), [space]);
-  const build = useAction();
   const [picked, setPicked] = useState<string>();
+  const [picking, setPicking] = useState(false);
   const [fresh, setFresh] = useState<FileAnalysis>();
   const data = fresh ?? analysis.data;
 
-  const make = async () => {
-    const made = await build.run(() => client.buildAnalysis({ space }));
-    if (made) setFresh(made);
-  };
-
   if (analysis.error) return <ErrorText>{analysis.error}</ErrorText>;
   if (!data) return <div className="screen-page-skeleton oik-skel" aria-hidden="true" />;
+
+  // Datasets are tables as soon as they are found; files wait to be chosen.
+  const offered = data.sources.filter((source) => !source.dataset);
+  const pick = picking && (
+    <MakeTables
+      space={space}
+      sources={offered}
+      onClose={() => setPicking(false)}
+      onMade={(made, chosen) => {
+        setPicking(false);
+        setFresh(made);
+        setPicked(chosen.find((name) => made.tables.some((table) => table.name === name)));
+      }}
+    />
+  );
 
   if (data.tables.length === 0) {
     return (
@@ -185,34 +496,16 @@ export function AnalysisView({ space }: { space: string }) {
         <EmptyState
           icon="table"
           title={a.emptyTitle}
-          body={data.sources.length > 0 ? a.emptyBody : a.noSources}
+          body={offered.length > 0 ? a.emptyBody : a.noSources}
           action={
-            data.sources.length > 0 ? (
-              <Button variant="primary" disabled={build.busy} onClick={() => void make()}>
-                {build.busy ? a.making : a.make}
+            offered.length > 0 ? (
+              <Button variant="primary" onClick={() => setPicking(true)}>
+                {a.make}
               </Button>
             ) : undefined
           }
         />
-        {data.sources.length > 0 && (
-          <ul className="screen-analysis__sources" aria-label={a.willMake}>
-            {data.sources.map((source) => (
-              <li key={source.name}>
-                <span className="oik-mono" translate="no">
-                  {source.name}
-                </span>
-                <span className="screen-help" translate="no" title={source.files.join("\n")}>
-                  {source.sheet
-                    ? a.inSheet(source.files[0], source.sheet)
-                    : source.files.length === 1
-                      ? source.files[0]
-                      : a.files(source.files.length)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {build.error && <ErrorText>{build.error}</ErrorText>}
+        {pick}
       </Card>
     );
   }
@@ -229,17 +522,24 @@ export function AnalysisView({ space }: { space: string }) {
             options={data.tables.map((t) => ({ value: t.name, label: t.name }))}
           />
         )}
-        {data.sources.length > 0 && (
+        {offered.length > 0 && (
           <span className="screen-analysis__more">
-            <Status kind="idle">{a.notMade(data.sources.length)}</Status>
-            <Button disabled={build.busy} onClick={() => void make()}>
-              {build.busy ? a.making : a.make}
-            </Button>
+            <Status kind="idle">{a.notMade(offered.length)}</Status>
+            <Button onClick={() => setPicking(true)}>{a.make}</Button>
           </span>
         )}
       </div>
-      {build.error && <ErrorText>{build.error}</ErrorText>}
-      <TableView key={current.name} space={space} table={current} onChange={setFresh} />
+      {pick}
+      <TableView
+        key={current.name}
+        space={space}
+        table={current}
+        onChange={setFresh}
+        onReload={() => {
+          setFresh(undefined);
+          analysis.reload();
+        }}
+      />
     </div>
   );
 }

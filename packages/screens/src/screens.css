@@ -5132,24 +5132,64 @@ tr.screen-source {
   height: 160px;
   border-radius: var(--r-btn);
 }
-/* The files a table is made of, as a list under its name. */
-.screen-analysis__sources {
-  display: grid;
-  gap: var(--space-2);
+/* What a table is read from, and for a file's table, removing it. */
+.screen-analysis__about {
   margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.screen-analysis__about .screen-help {
+  flex: 1 1 280px;
+  margin: 0;
+}
+/* What reading a dataset needs: DuckDB's extension, and its download. */
+.screen-analysis__reader {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+.screen-analysis__reader p {
+  margin: 0;
+}
+.screen-analysis__reader > * {
+  max-width: 100%;
+}
+/* Choosing the files to analyse: each item a table, with where it comes
+   from; a spreadsheet's sheets indented under it. */
+.screen-analysis-pick {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
   padding: 0;
   list-style: none;
 }
-.screen-analysis__sources li {
+.screen-analysis-pick > li {
+  min-width: 0;
+  padding: var(--space-1) 0;
+}
+.screen-analysis-pick .oik-checkbox {
+  align-items: flex-start;
+}
+.screen-analysis-pick .oik-checkbox input {
+  margin-top: 2px;
+}
+.screen-analysis-pick__item {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
+  column-gap: var(--space-2);
   min-width: 0;
 }
-.screen-analysis__sources .screen-help {
+.screen-analysis-pick__item .screen-help {
   margin: 0;
   overflow-wrap: anywhere;
+}
+.screen-analysis-pick--sheets {
+  margin: var(--space-1) 0 0;
+  padding-left: calc(16px + var(--space-2));
 }
 @media (max-width: 760px) {
   .screen-analysis__charts {

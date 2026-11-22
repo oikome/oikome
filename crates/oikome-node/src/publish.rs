@@ -119,7 +119,8 @@ fn conform(batch: &RecordBatch, target: &SchemaRef) -> Result<RecordBatch, Sessi
 struct Staged {
     table: String,
     ident: TableIdent,
-    location: String,
+    /// The table's metadata: where its files go and its fields' ids.
+    location: iceberg::spec::TableMetadataRef,
     schema: SchemaRef,
 }
 
@@ -291,9 +292,7 @@ impl OikomeSession {
             .load_table(&ident)
             .await
             .map_err(iceberg_err)?
-            .metadata()
-            .location()
-            .to_string();
+            .metadata_ref();
         Ok(Staged {
             table: table.to_string(),
             ident,

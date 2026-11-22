@@ -44,6 +44,8 @@ use oikome_catalog::{Location, LocationFormat, OikomeCatalog, StorageKind};
 use oikome_connect::folder::{captions_of, split_front_matter, wall_time, written_time, CAPTIONS};
 use oikome_engine::{FileFormat, TableSource};
 use oikome_vfs::{check_owner_path, Bucket, Credentials, DropboxClient, GoogleClient, RemoteStore};
+
+use crate::datasets::{self, DatasetKind, DatasetRead};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::error::SessionError;
@@ -56,6 +58,9 @@ pub const FILES: &str = "files";
 pub const IMAGE: &str = "image";
 pub const NOTE: &str = "note";
 pub const TABLE: &str = "table";
+/// A Lance dataset or an Iceberg table: one item for its folder, its kind
+/// (`lance`, `iceberg`) as its text (PR 31).
+pub const DATASET: &str = "dataset";
 pub const OTHER: &str = "other";
 
 const INDEX_FILE: &str = "index.sqlite";
@@ -867,6 +872,7 @@ fn set_fact(conn: &Connection, key: &str, value: &str) -> Result<(), SessionErro
 fn apply_listing(
     conn: &mut Connection,
     listed: &BTreeMap<String, Listed>,
+    found: &BTreeMap<String, DatasetKind>,
 ) -> Result<bool, SessionError> {
     let tx = conn.transaction().map_err(sql)?;
     let known: HashMap<String, Listed> = {
@@ -902,10 +908,18 @@ fn apply_listing(
         }
     }
     for (path, file) in listed {
-        let kind = kind_of(name_of(path));
+        let dataset = found.get(path).map(|kind| kind.name());
+        let kind = if dataset.is_some() {
+            DATASET
+        } else {
+            kind_of(name_of(path))
+        };
         // Other files have nothing to read beyond their listing; a text
-        // table, its first lines or JSON source.
-        let state = if matches!(kind, IMAGE | NOTE) || is_text_table(path) || is_json_text(path) {
+        // table, its first lines or JSON source. A dataset is read when its
+        // table is.
+        let state = if dataset.is_none()
+            && (matches!(kind, IMAGE | NOTE) || is_text_table(path) || is_json_text(path))
+        {
             UNREAD
         } else {
             READ
@@ -915,14 +929,16 @@ fn apply_listing(
             Some(_) => {
                 tx.execute(
                     "UPDATE files SET size = ?2, modified_ms = ?3, modified = ?4, title = NULL, \
-                     taken = NULL, written = NULL, place = NULL, credit = NULL, text = NULL, \
-                     state = ?5 WHERE path = ?1",
+                     taken = NULL, written = NULL, place = NULL, credit = NULL, text = ?6, \
+                     state = ?5, kind = ?7 WHERE path = ?1",
                     params![
                         path,
                         i64::try_from(file.size).unwrap_or(i64::MAX),
                         file.modified_ms,
                         time_text(file.modified_ms),
-                        state
+                        state,
+                        dataset,
+                        kind
                     ],
                 )
                 .map_err(sql)?;
@@ -932,7 +948,7 @@ fn apply_listing(
             None => {
                 tx.execute(
                     "INSERT INTO files(path, folder, name, kind, size, modified_ms, modified, \
-                     title, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     title, state, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         path,
                         folder_of(path),
@@ -941,8 +957,13 @@ fn apply_listing(
                         i64::try_from(file.size).unwrap_or(i64::MAX),
                         file.modified_ms,
                         time_text(file.modified_ms),
-                        stem_of(name_of(path)),
-                        state
+                        if dataset.is_some() {
+                            name_of(path).to_string()
+                        } else {
+                            stem_of(name_of(path))
+                        },
+                        state,
+                        dataset
                     ],
                 )
                 .map_err(sql)?;
@@ -981,6 +1002,44 @@ fn apply_listing(
     }
     tx.commit().map_err(sql)?;
     Ok(changed || unread > 0)
+}
+
+/// A listing with each dataset (a Lance dataset, an Iceberg table) as one
+/// entry at its folder, its files' sizes summed and its latest time, and
+/// the datasets found.
+fn collapse_datasets(
+    listed: BTreeMap<String, Listed>,
+) -> (BTreeMap<String, Listed>, BTreeMap<String, DatasetKind>) {
+    let found = datasets::roots(listed.keys().map(String::as_str));
+    if found.is_empty() {
+        return (listed, found);
+    }
+    let starts: Vec<(String, String)> = found
+        .keys()
+        .map(|root| (root.clone(), format!("{root}/")))
+        .collect();
+    let mut out = BTreeMap::new();
+    let mut sums: BTreeMap<String, Listed> = BTreeMap::new();
+    for (path, file) in listed {
+        match starts
+            .iter()
+            .find(|(_, start)| path.starts_with(start.as_str()))
+        {
+            Some((root, _)) => {
+                let sum = sums.entry(root.clone()).or_insert(Listed {
+                    size: 0,
+                    modified_ms: 0,
+                });
+                sum.size = sum.size.saturating_add(file.size);
+                sum.modified_ms = sum.modified_ms.max(file.modified_ms);
+            }
+            None => {
+                out.insert(path, file);
+            }
+        }
+    }
+    out.extend(sums);
+    (out, found)
 }
 
 /// Whether a file is a table written as text (CSV, TSV), by its name.
@@ -1356,11 +1415,11 @@ pub async fn refresh(
     let mut changed = false;
     let mut read = 0;
     if reachable {
-        let listed = walk(&place, location, &dir).await?;
+        let (listed, found) = collapse_datasets(walk(&place, location, &dir).await?);
         let dir_owned = dir.clone();
         changed = tokio::task::spawn_blocking(move || {
             let mut conn = open_index(&dir_owned)?;
-            apply_listing(&mut conn, &listed)
+            apply_listing(&mut conn, &listed, &found)
         })
         .await
         .map_err(io)??;
@@ -1671,7 +1730,187 @@ pub async fn bound(
         taken.insert(name.clone());
         tables.push((name, source));
     }
+    // Its datasets, wherever they are in it, each read where it is.
+    let found = dataset_tables(catalog, location)?;
+    datasets::forget_others(
+        catalog,
+        location,
+        &found.iter().map(|d| d.path.clone()).collect::<Vec<_>>(),
+    );
+    for dataset in found {
+        let source = match datasets::read(
+            catalog,
+            location,
+            &place,
+            &dataset.path,
+            dataset.kind,
+            dataset.size,
+            dataset.modified_ms,
+        )
+        .await
+        {
+            Ok(read) => read.source,
+            Err(e) => TableSource::Unavailable {
+                message: e.to_string(),
+            },
+        };
+        tables.push((dataset.name, source));
+    }
     Ok(Bound { files, tables })
+}
+
+/// A dataset of a folder viewed in place, as a table of it (PR 31).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatasetTable {
+    /// Its table's name: after its folder, unique beside `files` and the
+    /// tables of the data files at the top.
+    pub name: String,
+    /// Its folder within the viewed folder.
+    pub path: String,
+    pub kind: DatasetKind,
+    /// Its files' sizes summed, and the latest time among them.
+    pub size: u64,
+    pub modified_ms: i64,
+}
+
+/// The datasets of a folder viewed in place, as its index has them.
+pub fn dataset_tables(
+    catalog: &OikomeCatalog,
+    location: &Location,
+) -> Result<Vec<DatasetTable>, SessionError> {
+    let conn = open_index(&catalog.index_dir(location))?;
+    // The names the data files at the top have, as `bound` gives them.
+    let mut taken: BTreeSet<String> = BTreeSet::from([FILES.to_string()]);
+    let mut stmt = conn
+        .prepare("SELECT path FROM files WHERE folder = '' AND kind = ?1 ORDER BY path")
+        .map_err(sql)?;
+    let top = stmt
+        .query_map([TABLE], |r| r.get::<_, String>(0))
+        .map_err(sql)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sql)?;
+    for path in top {
+        let readable = Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(FileFormat::of_extension)
+            .is_some();
+        if name_of(&path) == CAPTIONS || !readable {
+            continue;
+        }
+        let mut name = table_name(&path);
+        let mut n = 2;
+        while taken.contains(&name) {
+            name = format!("{}_{n}", table_name(&path));
+            n += 1;
+        }
+        taken.insert(name);
+    }
+    let mut stmt = conn
+        .prepare("SELECT path, size, modified_ms, text FROM files WHERE kind = ?1 ORDER BY path")
+        .map_err(sql)?;
+    let rows = stmt
+        .query_map([DATASET], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                r.get::<_, i64>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(sql)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sql)?;
+    let mut out = Vec::new();
+    for (path, size, modified_ms, text) in rows {
+        let Some(kind) = text.as_deref().and_then(DatasetKind::from_name) else {
+            continue;
+        };
+        let base = name_for_table(name_of(&path).trim_end_matches(".lance"));
+        let mut name = base.clone();
+        let mut n = 2;
+        while taken.contains(&name) {
+            name = format!("{base}_{n}");
+            n += 1;
+        }
+        taken.insert(name.clone());
+        out.push(DatasetTable {
+            name,
+            path,
+            kind,
+            size,
+            modified_ms,
+        });
+    }
+    Ok(out)
+}
+
+/// How the dataset at `path` of a folder viewed in place is read now.
+pub async fn read_dataset(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    location: &Location,
+    path: &str,
+) -> Result<DatasetRead, SessionError> {
+    let dataset = dataset_tables(catalog, location)?
+        .into_iter()
+        .find(|d| d.path == path)
+        .ok_or_else(|| SessionError::Unsupported(format!("{path} is not a dataset in it")))?;
+    let place = place_of(catalog, engines, location)?;
+    datasets::read(
+        catalog,
+        location,
+        &place,
+        &dataset.path,
+        dataset.kind,
+        dataset.size,
+        dataset.modified_ms,
+    )
+    .await
+}
+
+/// A page of a dataset's rows, read through the node's DuckDB.
+async fn dataset_rows(
+    catalog: &OikomeCatalog,
+    engines: &EngineRegistry,
+    location: &Location,
+    path: &str,
+    offset: u64,
+    limit: usize,
+) -> Result<oikome_connect::rows::FileRows, SessionError> {
+    use futures::TryStreamExt;
+
+    let read = read_dataset(catalog, engines, location, path).await?;
+    let engine = engines.duckdb()?;
+    let scratch = oikome_engine::QualifiedName::new(
+        "__oikome_dataset_rows",
+        format!(
+            "t{}",
+            blake3::hash(path.as_bytes()).to_hex()[..16].to_owned()
+        ),
+    );
+    engine.attach(&scratch, read.source).await?;
+    let rows = async {
+        let (schema, stream) = engine
+            .query(
+                &format!(
+                    "SELECT * FROM {} LIMIT {limit} OFFSET {offset}",
+                    scratch.quoted()
+                ),
+                &[],
+            )
+            .await?;
+        let rows: Vec<arrow_array::RecordBatch> = stream.try_collect().await?;
+        Ok::<_, oikome_engine::EngineError>((schema, rows))
+    }
+    .await;
+    let _ = engine.detach(&scratch).await;
+    let (schema, rows) = rows?;
+    Ok(oikome_connect::rows::FileRows {
+        schema,
+        rows,
+        cut: false,
+    })
 }
 
 /// Whether `place` can be reached, asked at most every 15 s: tables are
@@ -1749,7 +1988,7 @@ async fn cached(
     Ok(file)
 }
 
-fn cache_dir(catalog: &OikomeCatalog, location: &Location) -> PathBuf {
+pub(crate) fn cache_dir(catalog: &OikomeCatalog, location: &Location) -> PathBuf {
     catalog
         .oikome_dir()
         .join("cache")
@@ -2281,6 +2520,9 @@ pub async fn file_rows(
     check_owner_path(path).map_err(io)?;
     let file = file(catalog, location, path)?
         .ok_or_else(|| SessionError::Unsupported(format!("{path} is not a file in it")))?;
+    if file.kind == DATASET {
+        return dataset_rows(catalog, engines, location, path, offset, limit).await;
+    }
     let format = Path::new(&file.name)
         .extension()
         .and_then(|e| e.to_str())

@@ -6,6 +6,7 @@ import { once } from "node:events";
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -17,7 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { crc32 } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
-import { BIN, ENV, oikome } from "./node.mjs";
+import { BIN, ENV, EXTENSIONS, oikome } from "./node.mjs";
 import { createBucket, putObject, startRustfs } from "./rustfs.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
@@ -339,6 +340,63 @@ function generateFiles(root) {
   write(root, "drive-sync/Oikome/reading-list/books.csv", "title,author,status,finished\nThe Book of Disquiet,Fernando Pessoa,Reading,\nBlindness,José Saramago,Read,2026-08-14\nPereira Maintains,Antonio Tabucchi,Next,\n");
 }
 
+/** Datasets another program keeps (PR 31): Iceberg tables of an energy
+ * meter's export, which the owner keeps in the household folder, and of the
+ * trams taken, kept in the archive on RustFS; and a sleep tracker's Lance
+ * dataset in the household folder. A data center of their own writes them
+ * (`oikome sql`, as any program writes Iceberg and Lance); they are then
+ * copied where the owner keeps them, as a moved dataset is. DuckDB's
+ * extensions come from EXTENSIONS, fetched there the first time
+ * (`extensions install` skips what is there), and the acceptance nodes read
+ * the datasets with them. Returns the trams' folder, for the bucket. */
+function writeDatasets(scenarioRoot, files) {
+  const writer = join(scenarioRoot, "services", "writer");
+  rmSync(writer, { recursive: true, force: true });
+  mkdirSync(writer, { recursive: true });
+  oikome(writer, "--extension-dir", EXTENSIONS, "extensions", "install", "lance", "iceberg");
+  const days = (month, base) =>
+    Array.from({ length: 28 }, (_, i) => {
+      const day = `2026-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;
+      const kwh = (base + ((i * 7 + month) % 9) * 0.6).toFixed(1);
+      return `(DATE '${day}', ${kwh}, ${(kwh * 0.21).toFixed(2)})`;
+    }).join(", ");
+  oikome(
+    writer,
+    "sql",
+    "CREATE SPACE exports; " +
+      "CREATE TABLE exports.meter (read_on DATE, kwh DOUBLE, cost DOUBLE); " +
+      `INSERT INTO exports.meter VALUES ${days(10, 8)}; ` +
+      `INSERT INTO exports.meter VALUES ${days(11, 9)}; ` +
+      "CREATE TABLE exports.trams (taken_on DATE, line VARCHAR, fare DOUBLE); " +
+      "INSERT INTO exports.trams VALUES (DATE '2026-11-03', '28E', 3.10), (DATE '2026-11-04', '15E', 3.10), " +
+      "(DATE '2026-11-07', '12E', 3.10), (DATE '2026-11-12', '28E', 3.10)",
+  );
+  const nights = Array.from({ length: 28 }, (_, i) => {
+    const night = `2026-11-${String(i + 1).padStart(2, "0")}`;
+    const hours = (6.4 + ((i * 5) % 9) * 0.25).toFixed(2);
+    return `(DATE '${night}', ${hours}, ${(hours * 0.22).toFixed(2)}, ${(i * 3) % 4})`;
+  }).join(", ");
+  oikome(
+    writer,
+    "--extension-dir", EXTENSIONS,
+    "sql",
+    "CREATE SPACE tracker WITH FORMAT = 'lance'; " +
+      "CREATE TABLE tracker.sleep (night DATE, hours DOUBLE, deep_hours DOUBLE, awakenings INTEGER); " +
+      `INSERT INTO tracker.sleep VALUES ${nights}`,
+  );
+  cpSync(join(writer, "exports", "meter"), join(files, "household", "energy-meter"), { recursive: true });
+  cpSync(join(writer, ".oikome", "lance", "tracker", "sleep.lance"), join(files, "household", "sleep.lance"), { recursive: true });
+  return join(writer, "exports", "trams");
+}
+
+/** Every file under `dir`, by its path within it. */
+function filesUnder(dir, at = "") {
+  return readdirSync(join(dir, at), { withFileTypes: true }).flatMap((entry) => {
+    const path = at ? `${at}/${entry.name}` : entry.name;
+    return entry.isDirectory() ? filesUnder(dir, path) : [path];
+  });
+}
+
 /** What the acceptance bucket holds before Oikome sees it: a folder with
  * subfolders and mixed files, put there as any S3 client would. */
 async function fillBucket(rustfs) {
@@ -358,6 +416,7 @@ async function fillBucket(rustfs) {
 async function startNode(root, port, home, environment) {
   const child = spawn(BIN, [
     "--root", root,
+    "--extension-dir", EXTENSIONS,
     "serve",
     "--listen", "127.0.0.1:0",
     "--p2p-listen", "/ip4/127.0.0.1/tcp/0",
@@ -495,6 +554,7 @@ export async function launchAcceptance({ root, port = 0, env, firstRun = false }
   mkdirSync(join(files, "drive-sync"), { recursive: true });
   generateFiles(files);
   await writeWebm(files);
+  const trams = firstRun ? undefined : writeDatasets(scenarioRoot, files);
 
   const main = await startNode(nodeRoot, port, home, env);
   let peer;
@@ -516,6 +576,9 @@ export async function launchAcceptance({ root, port = 0, env, firstRun = false }
     rustfs = await startRustfs({ root: join(scenarioRoot, "services", "rustfs") });
     await createBucket(rustfs, "acceptance");
     await fillBucket(rustfs);
+    for (const path of filesUnder(trams)) {
+      await putObject(rustfs, "acceptance", `archive/transit/${path}`, readFileSync(join(trams, path)));
+    }
     const peerRoot = join(scenarioRoot, "peer");
     peer = await startNode(peerRoot, 0, join(scenarioRoot, "peer-home"), env);
     const peerDid = oikome(peerRoot, "identity").trim();

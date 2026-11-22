@@ -17,10 +17,22 @@ const REPO = fileURLToPath(new URL("..", import.meta.url));
 const TARGET = resolve(REPO, process.env.CARGO_TARGET_DIR ?? "target");
 export const BIN = process.env.OIKOME_BIN ?? join(TARGET, "debug", "oikome");
 
-/** Directories under target/duckdb-download/<target>/<version> with libduckdb. */
+/**
+ * DuckDB's extensions, downloaded once and shared: the Rust tests keep them
+ * here (CARGO_TARGET_TMPDIR), and the acceptance nodes load them from here
+ * instead of each new data folder downloading them again (lance is 230 MB).
+ */
+export const EXTENSIONS = join(TARGET, "tmp", "duckdb-extensions");
+
+/**
+ * Directories under target/duckdb-download/<target>/<version> with libduckdb,
+ * the newest version first: a version left from before an upgrade must not
+ * be the one loaded.
+ */
 function libDirs() {
   const root = join(TARGET, "duckdb-download");
-  const subdirs = (dir) => (existsSync(dir) ? readdirSync(dir).map((d) => join(dir, d)) : []);
+  const newestFirst = (a, b) => b.localeCompare(a, "en", { numeric: true });
+  const subdirs = (dir) => (existsSync(dir) ? readdirSync(dir).sort(newestFirst).map((d) => join(dir, d)) : []);
   return subdirs(root)
     .flatMap(subdirs)
     .filter((dir) => ["libduckdb.so", "libduckdb.dylib"].some((f) => existsSync(join(dir, f))));

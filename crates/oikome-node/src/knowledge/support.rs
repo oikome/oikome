@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The DuckDB extension knowledge is kept with (`lance`), installed when the
-//! owner asks. The node downloads it from DuckDB's repository itself, so the
-//! apps can show how far it is, and has DuckDB install the file; DuckDB
-//! checks its signature whenever it loads it.
+//! The DuckDB extensions installed when the owner asks: the one knowledge
+//! is kept with (`lance`), which also reads Lance datasets, and the one that
+//! reads Iceberg tables in folders (`iceberg`, PR 31). The node downloads
+//! each from DuckDB's repository itself, so the apps can show how far it
+//! is, and has DuckDB install the file; DuckDB checks its signature whenever
+//! it loads it.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -41,10 +43,11 @@ pub enum SupportState {
     Failed(String),
 }
 
-/// Installations running or failed, by extension directory.
-static STATE: Mutex<Option<HashMap<PathBuf, SupportState>>> = Mutex::new(None);
+/// Installations running or failed, by extension directory and extension.
+type Key = (PathBuf, &'static str);
+static STATE: Mutex<Option<HashMap<Key, SupportState>>> = Mutex::new(None);
 
-fn state<T>(f: impl FnOnce(&mut HashMap<PathBuf, SupportState>) -> T) -> T {
+fn state<T>(f: impl FnOnce(&mut HashMap<Key, SupportState>) -> T) -> T {
     let mut guard = STATE.lock().unwrap_or_else(|p| p.into_inner());
     f(guard.get_or_insert_with(HashMap::new))
 }
@@ -53,29 +56,56 @@ fn io(path: &Path, e: std::io::Error) -> SessionError {
     SessionError::Unsupported(format!("{}: {e}", path.display()))
 }
 
+/// The extensions downloaded this way, by name.
+fn known(name: &str) -> Result<&'static str, SessionError> {
+    ["lance", "iceberg"]
+        .into_iter()
+        .find(|known| *known == name)
+        .ok_or_else(|| {
+            SessionError::Unsupported(format!("{name} is not an extension Oikome downloads"))
+        })
+}
+
 impl OikomeSession {
-    /// The extension's installation, and the directory it goes to.
+    /// The extension knowledge needs: its installation, and the directory
+    /// it goes to.
     pub fn knowledge_support(&self) -> (SupportState, PathBuf) {
+        self.extension_support("lance")
+    }
+
+    /// Start downloading and installing the extension knowledge needs.
+    pub fn install_knowledge_support(&self) -> Result<SupportState, SessionError> {
+        self.install_extension_support("lance")
+    }
+
+    /// The installation of the extension `name`, and the directory it goes
+    /// to.
+    pub fn extension_support(&self, name: &str) -> (SupportState, PathBuf) {
         let dir = self.engines().extension_dir();
-        let now = state(|s| s.get(&dir).cloned()).unwrap_or(SupportState::Idle);
+        let now = known(name)
+            .ok()
+            .and_then(|name| state(|s| s.get(&(dir.clone(), name)).cloned()))
+            .unwrap_or(SupportState::Idle);
         (now, dir)
     }
 
-    /// Start downloading and installing the extension in the background;
-    /// nothing happens while it already is. Owner only.
-    pub fn install_knowledge_support(&self) -> Result<SupportState, SessionError> {
+    /// Start downloading and installing the extension `name` in the
+    /// background; nothing happens while it already is. Owner only.
+    pub fn install_extension_support(&self, name: &str) -> Result<SupportState, SessionError> {
         self.deny_principal("installing an extension")?;
+        let name = known(name)?;
         let engines = self.engines_arc();
         let dir = engines.extension_dir();
+        let key: Key = (dir.clone(), name);
         let started = state(|s| {
             if matches!(
-                s.get(&dir),
+                s.get(&key),
                 Some(SupportState::Downloading { .. } | SupportState::Installing)
             ) {
                 return false;
             }
             s.insert(
-                dir.clone(),
+                key.clone(),
                 SupportState::Downloading {
                     done: 0,
                     total: None,
@@ -84,7 +114,6 @@ impl OikomeSession {
             true
         });
         if started {
-            let key = dir.clone();
             tokio::spawn(async move {
                 let result = install(&engines, &key).await;
                 state(|s| match result {
@@ -92,37 +121,56 @@ impl OikomeSession {
                         s.remove(&key);
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "installing the lance extension");
+                        tracing::warn!(extension = key.1, error = %e, "installing an extension");
                         s.insert(key.clone(), SupportState::Failed(e.to_string()));
                     }
                 });
             });
         }
-        Ok(self.knowledge_support().0)
+        Ok(self.extension_support(name).0)
     }
 }
 
-async fn install(engines: &Arc<EngineRegistry>, key: &Path) -> Result<String, SessionError> {
+/// Download and install the extension of `key`, after the extensions it
+/// needs (`avro` for `iceberg`).
+async fn install(engines: &Arc<EngineRegistry>, key: &Key) -> Result<String, SessionError> {
+    let first = oikome_engine_duckdb::Extension::named(key.1)
+        .map(|e| e.requires())
+        .unwrap_or_default();
+    let mut installed = String::new();
+    for name in first.iter().copied().chain(std::iter::once(key.1)) {
+        installed = install_one(engines, key, name).await?;
+    }
+    Ok(installed)
+}
+
+async fn install_one(
+    engines: &Arc<EngineRegistry>,
+    key: &Key,
+    name: &str,
+) -> Result<String, SessionError> {
     let (version, platform) = engines.duckdb_version_and_platform().await?;
     let url =
-        format!("https://extensions.duckdb.org/{version}/{platform}/lance.duckdb_extension.gz");
-    let work = engines.temp_dir().join("extension-download");
+        format!("https://extensions.duckdb.org/{version}/{platform}/{name}.duckdb_extension.gz");
+    let work = engines
+        .temp_dir()
+        .join(format!("extension-download-{name}"));
     tokio::fs::create_dir_all(&work)
         .await
         .map_err(|e| io(&work, e))?;
-    let part = work.join(format!("lance-{version}-{platform}.duckdb_extension.gz"));
+    let part = work.join(format!("{name}-{version}-{platform}.duckdb_extension.gz"));
     let client = fetch::client()?;
     fetch::fetch(&client, &url, &part, None, |done, total| {
         state(|s| {
-            s.insert(key.to_path_buf(), SupportState::Downloading { done, total });
+            s.insert(key.clone(), SupportState::Downloading { done, total });
         })
     })
     .await?;
     state(|s| {
-        s.insert(key.to_path_buf(), SupportState::Installing);
+        s.insert(key.clone(), SupportState::Installing);
     });
     // DuckDB installs `<name>.duckdb_extension` files.
-    let file = work.join("lance.duckdb_extension");
+    let file = work.join(format!("{name}.duckdb_extension"));
     let (from, to) = (part.clone(), file.clone());
     let unpacked = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
         let mut reader = flate2::read::GzDecoder::new(std::fs::File::open(&from)?);
@@ -146,7 +194,7 @@ async fn install(engines: &Arc<EngineRegistry>, key: &Path) -> Result<String, Se
             "the downloaded extension was damaged and was deleted; try again".into(),
         ));
     }
-    let installed = engines.install_lance_file(&file).await;
+    let installed = engines.install_extension_file(name, &file).await;
     let _ = tokio::fs::remove_dir_all(&work).await;
     installed
 }

@@ -2348,7 +2348,17 @@ async fn a_spreadsheet_s_sheets_become_analysis_tables() {
             ("budget_rates", Some("Rates"))
         ]
     );
-    let made = n.api.build_analysis(&OWNER, ledger()).await.unwrap();
+    let made = n
+        .api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "ledger".into(),
+                tables: vec!["budget_spending".into(), "budget_rates".into()],
+            },
+        )
+        .await
+        .unwrap();
     let spending = made
         .tables
         .iter()
@@ -2413,7 +2423,17 @@ async fn a_spreadsheet_s_sheets_become_analysis_tables() {
     // the sheets' tables go.
     workbook(&book, &[("Spending", spending_cells)], &strings);
     n.api.refresh_space(&OWNER, ledger()).await.unwrap();
-    let again = n.api.build_analysis(&OWNER, ledger()).await.unwrap();
+    let again = n
+        .api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "ledger".into(),
+                tables: vec!["budget".into()],
+            },
+        )
+        .await
+        .unwrap();
     let names: Vec<_> = again.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(names, ["budget"]);
     assert_eq!(again.tables[0].rows, 3);
@@ -2525,10 +2545,15 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
         .find(|table| table.name == "statement_2")
         .unwrap();
     assert_eq!(made.rows, 2);
+    // Only its own: the collection's other file waits for the owner.
     assert!(analysis
         .tables
         .iter()
-        .any(|table| table.name == "statement"));
+        .all(|table| table.name != "statement"));
+    assert!(analysis
+        .sources
+        .iter()
+        .any(|source| source.name == "statement"));
 
     // The source stopped; the collection it wrote stays with its table.
     let sources = n.api.list_sources(&OWNER, Empty {}).await.unwrap();
@@ -6803,7 +6828,33 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .collect();
     assert_eq!(names, vec![("readings", 1), ("spending", 2)]);
 
-    let made = n.api.build_analysis(&OWNER, household()).await.unwrap();
+    // Only the tables the owner chooses are made; a name no files make is
+    // refused, and so is choosing none.
+    let build = |tables: &[&str]| BuildAnalysis {
+        space: "household".into(),
+        tables: tables.iter().map(|t| t.to_string()).collect(),
+    };
+    let err = n
+        .api
+        .build_analysis(&OWNER, build(&["spending", "trip"]))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+    assert!(n.api.build_analysis(&OWNER, build(&[])).await.is_err());
+    let made = n
+        .api
+        .build_analysis(&OWNER, build(&["spending"]))
+        .await
+        .unwrap();
+    let names: Vec<_> = made.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["readings"]);
+    let names: Vec<_> = made.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["spending"]);
+    let made = n
+        .api
+        .build_analysis(&OWNER, build(&["readings"]))
+        .await
+        .unwrap();
     assert!(made.sources.is_empty());
     let spending = made.tables.iter().find(|t| t.name == "spending").unwrap();
     assert_eq!(spending.rows, 3);
@@ -6893,6 +6944,50 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .await
         .is_err());
 
+    // Stopping the analysis of a table drops it with its corrected roles;
+    // its file stays and is read in place again, and the table is not made
+    // again until the owner chooses it.
+    let table_ref = |table: &str| AnalysisTableRef {
+        space: "household".into(),
+        table: table.into(),
+    };
+    let stopped = n
+        .api
+        .remove_analysis_table(&OWNER, table_ref("readings"))
+        .await
+        .unwrap();
+    let names: Vec<_> = stopped.tables.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, ["spending"]);
+    let names: Vec<_> = stopped.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["readings"]);
+    assert!(root.join("readings.csv").is_file());
+    assert_eq!(count_of(&n, "household.readings").await, 1);
+    let later = n.api.file_analysis(&OWNER, household()).await.unwrap();
+    assert!(later.tables.iter().all(|t| t.name != "readings"));
+    let err = n
+        .api
+        .remove_analysis_table(&OWNER, table_ref("readings"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    assert!(n
+        .api
+        .remove_analysis_table(&Caller::Principal { did: did(9) }, table_ref("spending"))
+        .await
+        .is_err());
+    let again = n
+        .api
+        .build_analysis(&OWNER, build(&["readings"]))
+        .await
+        .unwrap();
+    let readings = again.tables.iter().find(|t| t.name == "readings").unwrap();
+    let celsius = readings
+        .fields
+        .iter()
+        .find(|f| f.name == "celsius")
+        .unwrap();
+    assert!(celsius.inferred, "its corrected role was forgotten");
+
     // A file changes: its table follows; a folder that goes takes its table.
     std::fs::write(
         root.join("spending/2026-10.csv"),
@@ -6917,4 +7012,210 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .oikome_dir()
         .join("analysis/household.json")
         .exists());
+}
+
+/// A node that loads DuckDB's extensions, shared by the tests that need
+/// them and downloaded on first use.
+fn node_with_extensions() -> Node {
+    let dir = tempfile::tempdir().unwrap();
+    let catalog =
+        Arc::new(OikomeCatalog::open(FileIO::new_with_fs(), dir.path().to_str().unwrap()).unwrap());
+    let config = NodeConfig {
+        duckdb: oikome_engine_duckdb::DuckDbConfig {
+            extension_dir: Some(
+                std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("duckdb-extensions"),
+            ),
+            allow_extension_install: true,
+            ..Default::default()
+        },
+        ..test_config()
+    };
+    let engines = Arc::new(EngineRegistry::new(catalog.clone(), config).unwrap());
+    let api = Api::new(catalog.clone(), engines.clone());
+    Node {
+        _dir: dir,
+        catalog,
+        engines,
+        api,
+    }
+}
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+async fn count_of(n: &Node, table: &str) -> i64 {
+    let read = sql(n, &format!("SELECT CAST(count(*) AS BIGINT) FROM {table}")).await;
+    let SqlResult::Rows(rows) = read else {
+        panic!("expected rows, got {read:?}");
+    };
+    StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::Int64Array>()
+        .unwrap()
+        .value(0)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn datasets_in_a_folder_are_analysis_tables_read_in_place() {
+    let n = node_with_extensions();
+    // Another program's Iceberg table and Lance dataset: this node's own,
+    // as Iceberg and Lance write them, copied into the owner's folder.
+    sql(
+        &n,
+        "CREATE SPACE shop; CREATE TABLE shop.orders (id BIGINT, item VARCHAR, amount DOUBLE); \
+         INSERT INTO shop.orders VALUES (1, 'tea', 3.5), (2, 'rice', 2.0); \
+         INSERT INTO shop.orders VALUES (3, 'salt', 1.0)",
+    )
+    .await;
+    sql(
+        &n,
+        "CREATE SPACE notes WITH FORMAT = 'lance'; \
+         CREATE TABLE notes.items (id BIGINT, title VARCHAR); \
+         INSERT INTO notes.items VALUES (1, 'a'), (2, 'b')",
+    )
+    .await;
+    let data = std::path::PathBuf::from(n.catalog.root_path());
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path().join("lab");
+    copy_tree(&data.join("shop/orders"), &root.join("exports/orders"));
+    copy_tree(
+        &data.join(".oikome/lance/notes/items.lance"),
+        &root.join("vectors/items.lance"),
+    );
+    std::fs::write(root.join("readings.csv"), "day,kwh\n1,3\n2,4\n").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                files: None,
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("lab".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let lab = || SpaceRef {
+        space: "lab".into(),
+    };
+
+    // Each dataset is one item of its folder, and opens as a table.
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "lab".into(),
+                folder: Some("exports".into()),
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.files.len(), 1, "{:?}", listed.files);
+    let orders = &listed.files[0];
+    assert_eq!(orders.kind, FileKind::Dataset);
+    assert_eq!(orders.content.format, "iceberg");
+    assert_eq!(orders.content.views, [ContentView::Table]);
+    let rows = n
+        .api
+        .read_file_rows(
+            &OWNER,
+            ReadFileRows {
+                space: "lab".into(),
+                path: "exports/orders".into(),
+                limit: Some(2),
+                offset: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+
+    // Data Analysis reads the datasets where they are without being asked;
+    // the CSV's table waits until the owner makes it.
+    let found = n.api.file_analysis(&OWNER, lab()).await.unwrap();
+    let sources: Vec<_> = found.sources.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(sources, ["readings"]);
+    let mut tables: Vec<_> = found.tables.iter().map(|t| t.name.as_str()).collect();
+    tables.sort();
+    assert_eq!(tables, ["items", "orders"]);
+    let made = n
+        .api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "lab".into(),
+                tables: vec!["readings".into()],
+            },
+        )
+        .await
+        .unwrap();
+    assert!(made.sources.is_empty(), "{:?}", made.sources);
+    let err = n
+        .api
+        .remove_analysis_table(
+            &OWNER,
+            AnalysisTableRef {
+                space: "lab".into(),
+                table: "orders".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "a dataset is always analysed");
+    assert_eq!(made.tables.len(), 3);
+    let table = |name: &str| made.tables.iter().find(|t| t.name == name).unwrap().clone();
+    let orders = table("orders");
+    assert_eq!(orders.problem, None);
+    assert_eq!(orders.rows, 3);
+    let facts = orders.dataset.clone().unwrap();
+    assert_eq!(facts.kind, DatasetKind::Iceberg);
+    assert!(facts.version.is_some() && facts.written_at_ms.is_some());
+    assert_eq!(facts.extension, None);
+    assert!(orders.fields.iter().any(|f| f.name == "amount"));
+    assert_eq!(table("items").rows, 2);
+    assert_eq!(
+        table("items").dataset.unwrap().version.as_deref(),
+        Some("2")
+    );
+    let summary = n
+        .api
+        .analysis_summary(
+            &OWNER,
+            AnalysisTableRef {
+                space: "lab".into(),
+                table: "orders".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.amount.as_deref(), Some("amount"));
+    // Nothing was made in Iceberg for them: they are read where they are,
+    // values and all.
+    assert_eq!(count_of(&n, "lab.orders").await, 3);
+    assert_eq!(
+        count_of(&n, "lab.orders WHERE item = 'tea' AND amount = 3.5").await,
+        1
+    );
 }

@@ -1,0 +1,26 @@
+# Plugins that misbehave, for the sandbox's tests: `render(format)` does what
+# `format` names (loops, takes memory, gives back too much or the wrong
+# thing). A package of its own, outside the workspace.
+[package]
+name = "oikome-misbehaving-guest"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+# Imports an interface the sandbox does not give.
+reaches-out = []
+
+[dependencies]
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc"] }
+
+[profile.release]
+opt-level = "s"
+strip = true
+panic = "abort"
+
+[workspace]

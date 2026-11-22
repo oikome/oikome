@@ -1,0 +1,25 @@
+# The RAW Preview plugin's code: a WebAssembly component of the world
+# `preview` (crates/oikome-sandbox/wit). Built for wasm32-unknown-unknown and
+# made a component by the sandbox's tests, which write ../preview.wasm with
+# UPDATE_PLUGINS=1. It is a package of its own, outside the workspace.
+[package]
+name = "oikome-raw-preview"
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
+
+[workspace]

@@ -78,6 +78,32 @@ jobs:
       - name: Check every language says what English says
         run: npm run check-i18n --workspace @oikome/screens
 
+      # libduckdb-sys downloads the prebuilt libduckdb beside Cargo's build
+      # output, and no longer finds that place since Cargo changed its layout
+      # (as in docker/oikome.Dockerfile). The official archive is fetched
+      # here instead, into the folder the tests' nodes load it from
+      # (e2e/node.mjs), its version read from Cargo.lock (1.10506.1 is 1.5.6).
+      - name: DuckDB version
+        id: duckdb
+        run: |
+          crate="$(grep -A1 '^name = "libduckdb-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          digits="$(echo "$crate" | cut -d. -f2)"
+          release="$(echo "$crate" | cut -d. -f1).$((10#${digits:1:2})).$((10#${digits:3:2}))"
+          echo "version=$crate" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch libduckdb
+        run: |
+          dir="$PWD/target/duckdb-download/x86_64-unknown-linux-gnu/${{ steps.duckdb.outputs.release }}"
+          mkdir -p "$dir"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "https://github.com/duckdb/duckdb/releases/download/v${{ steps.duckdb.outputs.release }}/libduckdb-linux-amd64.zip" \
+            --output "$RUNNER_TEMP/libduckdb.zip"
+          unzip -q -o "$RUNNER_TEMP/libduckdb.zip" -d "$dir"
+          test -f "$dir/libduckdb.so" && test -f "$dir/duckdb.h"
+          echo "DUCKDB_LIB_DIR=$dir" >> "$GITHUB_ENV"
+          echo "DUCKDB_INCLUDE_DIR=$dir" >> "$GITHUB_ENV"
+
       - name: Build the Full Node
         run: cargo build --locked -p oikome-server --bin oikome
 
@@ -96,10 +122,6 @@ jobs:
       # DuckDB's extensions the acceptance scenario's datasets need (lance is
       # 230 MB), in the folder the acceptance nodes share: fetched by the
       # scenario on a miss, kept per DuckDB version.
-      - name: DuckDB version
-        id: duckdb
-        run: echo "version=$(grep -A1 '^name = "libduckdb-sys"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')" >> "$GITHUB_OUTPUT"
-
       - name: Cache DuckDB's extensions
         uses: actions/cache@v4
         with:

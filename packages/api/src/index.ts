@@ -474,13 +474,9 @@ export type SourceRef = { source: string, };
  */
 export type ConvertSource = { source: string,
 /**
- * An existing file collection; a new one when left out.
+ * The file collection it joins. A file does not become a collection.
  */
-space?: string,
-/**
- * The new collection's name; made from the file's folder when left out.
- */
-name?: string, };
+space: string, };
 
 /**
  * What `convert_source_to_file` did.
@@ -1266,7 +1262,8 @@ scannedAtMs: number | null,
 reachable: boolean | null, };
 
 /**
- * `view_in_place`: a collection that views a folder where it is.
+ * `view_in_place`: a collection that views a folder where it is. A
+ * collection is a folder: files join one that exists (`add_in_place_files`).
  */
 export type ViewInPlace = {
 /**
@@ -1280,11 +1277,7 @@ path: string,
 /**
  * The collection's name; made from the folder's when left out.
  */
-name?: string,
-/**
- * Selected absolute local file paths; `None` means the whole folder.
- */
-files?: Array<string>, };
+name?: string, };
 
 /**
  * `add_in_place_files`: add original local files to a file collection.

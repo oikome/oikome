@@ -66,7 +66,7 @@ export function AddFiles({
   const fromBucket = origin === "rustfs";
   const [destination, setDestination] = useState(fromBucket ? NEW : "");
   const [mode, setMode] = useState<"reference" | "copy">("reference");
-  const [source, setSource] = useState<"files" | "folder">("files");
+  const [picked, setSource] = useState<"files" | "folder">("files");
   const [place, setPlace] = useState(LOCAL);
   const [name, setName] = useState("");
   const [nameEdited, setNameEdited] = useState(false);
@@ -78,6 +78,9 @@ export function AddFiles({
   // The collection name typed over the one made from the folder's.
   const [folderName, setFolderName] = useState<string>();
   const makingNew = !target && destination === NEW;
+  // A collection is a folder: a new one kept in place starts from a whole
+  // folder; single files join a collection that exists.
+  const source = makingNew && mode === "reference" ? "folder" : picked;
   const total = files.reduce((sum, file) => sum + file.size, 0);
   const duplicateNames = new Set(files.map((file) => file.name)).size !== files.length;
   // A whole folder joins a collection as files do.
@@ -173,8 +176,7 @@ export function AddFiles({
           : client.addInPlaceFiles({ space: target?.space ?? destination, files: originals });
       }
       if (currentPlace !== LOCAL) return client.viewInPlace({ place: currentPlace, path: within.trim(), name: asName });
-      if (source === "folder") return client.viewInPlace({ path: path!, name: asName });
-      return client.viewInPlace({ path: "", files: originals });
+      return client.viewInPlace({ path: path!, name: asName });
     }, rawMessage);
     if (!added) return;
     forgetPreviews();
@@ -279,11 +281,12 @@ export function AddFiles({
                   adding.clear();
                 }}
                 options={[
-                  { value: "files", label: s.selectedFiles },
+                  ...(makingNew ? [] : [{ value: "files", label: s.selectedFiles }]),
                   { value: "folder", label: s.wholeFolder },
                 ]}
               />
             )}
+            {makingNew && <p className="screen-help">{s.newNeedsFolder}</p>}
             {!whole && (
               <>
                 <div className="screen-source-pick">

@@ -2322,7 +2322,6 @@ async fn a_spreadsheet_s_sheets_become_analysis_tables() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("ledger".into()),
@@ -2483,7 +2482,6 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: root.join("household").to_string_lossy().into_owned(),
                 name: Some("household".into()),
@@ -2491,16 +2489,15 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
         )
         .await
         .unwrap();
-    let convert = |space: Option<&str>, name: Option<&str>, source: &str| ConvertSource {
+    let convert = |space: &str, source: &str| ConvertSource {
         source: source.into(),
-        space: space.map(Into::into),
-        name: name.map(Into::into),
+        space: space.into(),
     };
 
     // Not into the collection it writes.
     let own = n
         .api
-        .convert_source_to_file(&OWNER, convert(Some("finance"), None, "bank-import"))
+        .convert_source_to_file(&OWNER, convert("finance", "bank-import"))
         .await;
     assert_eq!(own.unwrap_err().code, ErrorCode::Invalid);
 
@@ -2508,7 +2505,7 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
     // the collection's own statement.csv, with an analysis table.
     let converted = n
         .api
-        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .convert_source_to_file(&OWNER, convert("household", "bank-import"))
         .await
         .unwrap();
     assert_eq!(converted.space.name, "household");
@@ -2571,25 +2568,24 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
     assert!(tables.iter().any(|table| table.name == "bank_import"));
     let again = n
         .api
-        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .convert_source_to_file(&OWNER, convert("household", "bank-import"))
         .await;
     assert!(again.is_err(), "the source is gone");
 
-    // Or into a new collection of its own.
+    // A file does not become a collection: one must be chosen.
     let card = root.join("bank/card.csv");
     std::fs::write(&card, "day,amount\n2026-02-01,9.90\n").unwrap();
     n.api
         .add_source(&OWNER, source(&card, "card-import"))
         .await
         .unwrap();
-    let converted = n
+    let none = n
         .api
-        .convert_source_to_file(&OWNER, convert(None, Some("card"), "card-import"))
+        .convert_source_to_file(&OWNER, convert(" ", "card-import"))
         .await
-        .unwrap();
-    assert_eq!(converted.space.name, "card");
-    assert_eq!(converted.path, "card.csv");
-    assert_eq!(converted.table.as_deref(), Some("card"));
+        .unwrap_err();
+    assert_eq!(none.code, ErrorCode::Invalid);
+    assert!(n.catalog.get_source("card-import").is_ok());
 }
 
 #[tokio::test]
@@ -3835,6 +3831,22 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
     std::fs::write(private.join("private.md"), "private").unwrap();
     let file = |path: &std::path::Path| vec![path.to_string_lossy().into_owned()];
 
+    // A collection is made first, as a folder is; files then join it.
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "references".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let add = |files: Vec<String>| AddInPlaceFiles {
+        space: "references".into(),
+        files,
+    };
     for files in [
         vec![],
         vec!["relative.md".into()],
@@ -3844,15 +3856,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
     ] {
         let e = n
             .api
-            .view_in_place(
-                &OWNER,
-                ViewInPlace {
-                    place: None,
-                    path: String::new(),
-                    name: Some("references".into()),
-                    files: Some(files),
-                },
-            )
+            .add_in_place_files(&OWNER, add(files))
             .await
             .unwrap_err();
         assert_eq!(e.code, ErrorCode::Invalid);
@@ -3863,15 +3867,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
         std::os::unix::fs::symlink(one.join("keep.md"), &link).unwrap();
         assert!(n
             .api
-            .view_in_place(
-                &OWNER,
-                ViewInPlace {
-                    place: None,
-                    path: String::new(),
-                    name: Some("references".into()),
-                    files: Some(file(&link)),
-                },
-            )
+            .add_in_place_files(&OWNER, add(file(&link)))
             .await
             .is_err());
     }
@@ -3879,10 +3875,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
         .api
         .add_in_place_files(
             &Caller::Principal { did: did(8) },
-            AddInPlaceFiles {
-                space: "references".into(),
-                files: file(&one.join("keep.md")),
-            },
+            add(file(&one.join("keep.md"))),
         )
         .await
         .unwrap_err();
@@ -3890,15 +3883,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
 
     let viewed = n
         .api
-        .view_in_place(
-            &OWNER,
-            ViewInPlace {
-                place: None,
-                path: String::new(),
-                name: Some("references".into()),
-                files: Some(file(&one.join("keep.md"))),
-            },
-        )
+        .add_in_place_files(&OWNER, add(file(&one.join("keep.md"))))
         .await
         .unwrap();
     assert_eq!(viewed.in_place.as_ref().unwrap().files, 1);
@@ -4035,7 +4020,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
             .view_in_place(
                 &OWNER,
                 ViewInPlace {
-                    files: None,
                     place: None,
                     path: path.into(),
                     name: None,
@@ -4050,7 +4034,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: Some("nas".into()),
                 path: "photos".into(),
                 name: None,
@@ -4066,7 +4049,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: inside.to_string_lossy().into_owned(),
                 name: None,
@@ -4090,7 +4072,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -4370,7 +4351,6 @@ async fn a_whole_folder_joins_an_existing_file_collection() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: first.to_string_lossy().into_owned(),
                 name: Some("notes".into()),
@@ -4445,7 +4425,6 @@ async fn a_folder_on_a_storage_joins_a_collection_by_reference() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: notes.to_string_lossy().into_owned(),
                 name: Some("notes".into()),
@@ -4701,7 +4680,6 @@ async fn safe_text_editing_preserves_sources_copies_and_confirmation_boundaries(
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: vault.to_string_lossy().into_owned(),
                 name: Some("notes".into()),
@@ -5079,7 +5057,6 @@ async fn media_files_have_native_views_and_ranged_originals() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: media.to_string_lossy().into_owned(),
                 name: None,
@@ -5138,7 +5115,6 @@ async fn open_with_accepts_only_an_owner_and_an_indexed_local_path() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -5216,7 +5192,6 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -5396,7 +5371,6 @@ async fn save_to_files_keeps_originals_and_never_overwrites() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -5453,7 +5427,6 @@ async fn save_to_space_keeps_original_bytes_and_portfolio() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -5748,7 +5721,6 @@ async fn saved_files(n: &Node, name: &str) -> tempfile::TempDir {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -5804,7 +5776,6 @@ async fn public_snapshot_is_signed_private_and_revocable() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -6684,7 +6655,6 @@ async fn knowledge_is_the_owners_and_its_requests_are_checked() {
                 place: None,
                 path: docs.to_string_lossy().into_owned(),
                 name: Some("docs".into()),
-                files: None,
             },
         )
         .await
@@ -6808,7 +6778,6 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("household".into()),
-                files: None,
             },
         )
         .await
@@ -7102,7 +7071,6 @@ async fn datasets_in_a_folder_are_analysis_tables_read_in_place() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("lab".into()),

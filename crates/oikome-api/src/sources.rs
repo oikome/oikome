@@ -27,7 +27,7 @@ use oikome_connect::{Connector, SourceConfig, Value};
 
 use crate::{
     Api, ApiError, Caller, ConvertSource, ConvertedSource, Empty, ErrorCode, NewSource,
-    PauseSource, SetSourceEvery, SourceKind, SourceRef, SourceRun, SourceSummary, ViewInPlace,
+    PauseSource, SetSourceEvery, SourceKind, SourceRef, SourceRun, SourceSummary,
 };
 
 /// Sources are read again this often while the node runs.
@@ -522,40 +522,17 @@ impl Api {
             .filter(|file| file.is_file())
             .ok_or_else(|| ApiError::invalid(format!("{path} is not there any more")))?;
         let previous = def.space().to_string();
-        let target = req
-            .space
-            .as_deref()
-            .map(str::trim)
-            .filter(|space| !space.is_empty());
-        let (space, at) = match target {
-            Some(space) => {
-                if space == previous {
-                    return Err(ApiError::invalid(
-                        "choose a file collection; this is the collection the source writes",
-                    ));
-                }
-                let at = self.add_file_by_reference(space, &file).await?;
-                (space.to_string(), at)
-            }
-            None => {
-                let made = self
-                    .view_in_place(
-                        caller,
-                        ViewInPlace {
-                            place: None,
-                            path: String::new(),
-                            name: req.name.clone().filter(|name| !name.trim().is_empty()),
-                            files: Some(vec![file.to_string_lossy().into_owned()]),
-                        },
-                    )
-                    .await?;
-                let at = file
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                (made.name, at)
-            }
-        };
+        // A file is a file: it joins a collection, it does not become one.
+        let space = req.space.trim().to_string();
+        if space.is_empty() {
+            return Err(ApiError::invalid("choose a file collection"));
+        }
+        if space == previous {
+            return Err(ApiError::invalid(
+                "choose a file collection; this is the collection the source writes",
+            ));
+        }
+        let at = self.add_file_by_reference(&space, &file).await?;
         // The file's own analysis table, as its source's table was; the
         // other files of the collection stay as the owner left them.
         let found = self

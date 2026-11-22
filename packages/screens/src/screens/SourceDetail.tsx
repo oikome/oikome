@@ -19,12 +19,10 @@ import {
   Select,
   Status,
   Switch,
-  TextField,
   useToast,
 } from "@oikome/ui";
 import type { SourceRun, SourceSummary, SpaceSummary } from "@oikome/client";
 import { forgetPreviews } from "../content";
-import { nameFromFolder } from "../covers";
 import { useAction, useClient, useLoad } from "../data";
 import { dayAndTime, homeRelative, listNames, sameDayTime } from "../format";
 import { ScreenHeader } from "../parts";
@@ -34,8 +32,6 @@ import { Holds, lastText, nextText, placeName, statusOf } from "./Sources";
 
 const s = strings.sources;
 const c = strings.collections;
-const NAME = /^[A-Za-z_-][A-Za-z0-9_-]{0,63}$/;
-const NEW = "__new__";
 
 /** Where a value set apart goes in a sentence. */
 const PLACE = "\u0000";
@@ -61,8 +57,8 @@ function runText(run: SourceRun): string {
   return parts.length > 0 ? listNames(parts as string[]) : `${s.runNothing}${since}`;
 }
 
-/** A CSV source's file into a file collection, an existing one or a new
- * one; the collection the source wrote stays. */
+/** A CSV source's file into a file collection that exists (a file does
+ * not become a collection); the collection the source wrote stays. */
 function ConvertToFile({
   source,
   spaces,
@@ -77,18 +73,11 @@ function ConvertToFile({
   const converting = useAction();
   const file = source.place.split(/[\\/]/).pop() ?? source.place;
   const collections = spaces.filter((space) => space.kind !== "remote" && space.inPlace);
-  const [into, setInto] = useState(NEW);
-  const taken = new Set(spaces.map((space) => space.name));
-  const base = nameFromFolder(file.replace(/\.[^.]+$/, ""));
-  const free = [base, ...Array.from({ length: 98 }, (_, i) => `${base}-${i + 2}`)].find((x) => !taken.has(x)) ?? base;
-  const [typed, setTyped] = useState<string>();
-  const name = typed ?? free;
-  const nameOk = into !== NEW || (NAME.test(name) && !taken.has(name));
+  // None chosen at first: where a file goes is the owner's choice.
+  const [into, setInto] = useState("");
 
   const convert = async () => {
-    const done = await converting.run(() =>
-      client.convertSourceToFile({ source: source.name, ...(into === NEW ? { name } : { space: into }) }),
-    );
+    const done = await converting.run(() => client.convertSourceToFile({ source: source.name, space: into }));
     if (!done) return;
     forgetPreviews();
     toast(s.converted(file, done.space.name));
@@ -104,40 +93,28 @@ function ConvertToFile({
       footer={
         <>
           <Button onClick={onClose}>{strings.common.cancel}</Button>
-          <Button variant="primary" disabled={!nameOk || converting.busy} onClick={() => void convert()}>
+          <Button variant="primary" disabled={into === "" || converting.busy} onClick={() => void convert()}>
             {converting.busy ? s.converting : s.convertYes}
           </Button>
         </>
       }
     >
       <p className="oik-dialog__text">{s.convertBody(file)}</p>
-      <Select
-        label={c.addTo}
-        value={into}
-        onChange={(value) => {
-          setInto(value);
-          converting.clear();
-        }}
-        options={[
-          ...collections.map((space) => ({ value: space.name, label: space.name })),
-          { value: NEW, label: c.newCollection },
-        ]}
-      />
-      {into === NEW && (
-        <>
-          <TextField
-            name="converted-collection-name"
-            label={c.collectionNameLabel}
-            hint={c.importNameHint}
-            value={name}
-            mono
-            onChange={(value) => {
-              setTyped(value);
-              converting.clear();
-            }}
-          />
-          {taken.has(name) && <ErrorText>{c.nameTaken(name)}</ErrorText>}
-        </>
+      {collections.length > 0 ? (
+        <Select
+          label={c.addTo}
+          value={into}
+          onChange={(value) => {
+            setInto(value);
+            converting.clear();
+          }}
+          options={[
+            { value: "", label: c.chooseCollection },
+            ...collections.map((space) => ({ value: space.name, label: space.name })),
+          ]}
+        />
+      ) : (
+        <p className="screen-help">{s.convertNeedsCollection}</p>
       )}
       <p className="screen-help">{s.convertKeeps(source.space)}</p>
       {converting.busy && (

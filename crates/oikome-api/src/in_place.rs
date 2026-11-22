@@ -1006,28 +1006,10 @@ impl Api {
     ) -> Result<SpaceSummary, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let (path, include) = match req.files.as_deref() {
-            Some(files) => {
-                if req.place.as_deref().is_some_and(|place| {
-                    !place.is_empty() && place != oikome_catalog::space::PLACE_LOCAL
-                }) {
-                    return Err(ApiError::invalid(
-                        "selected file references are available only on this computer",
-                    ));
-                }
-                let files = canonical_files(files, Path::new(self.catalog.oikome_dir().as_path()))?;
-                let (root, mut sources) = new_file_sources(&files)?;
-                let include = sources.pop().and_then(|source| source.files);
-                (root, include)
-            }
-            None => {
-                let path = req.path.trim().to_string();
-                if path.is_empty() {
-                    return Err(ApiError::invalid("choose a folder"));
-                }
-                (path, None)
-            }
-        };
+        let path = req.path.trim().to_string();
+        if path.is_empty() {
+            return Err(ApiError::invalid("choose a folder"));
+        }
         let place = req
             .place
             .clone()
@@ -1057,7 +1039,6 @@ impl Api {
                         .unwrap_or_else(|| oikome_catalog::space::PLACE_LOCAL.to_string()),
                 ),
                 path: Some(path.to_string()),
-                include,
                 ..Default::default()
             })
             .await?;

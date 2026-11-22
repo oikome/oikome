@@ -443,7 +443,6 @@ async fn public_snapshots_need_no_owner_session_and_revocation_closes_them() {
             place: None,
             path: source.to_string_lossy().into_owned(),
             name: Some("source".into()),
-            files: None,
         },
     )
     .await

@@ -35,6 +35,8 @@ import {
   loadPreview,
   shapeOf,
   tagsOf,
+  pictureUrl,
+  showsPicture,
   withoutTagLines,
 } from "../content";
 import type { Item, Shape } from "../content";
@@ -850,7 +852,7 @@ function FolderContents({
   // Into a folder: an address of its own, so Back comes out again.
   const into = (name: string) => navigate(folderPath(space.name, folder ? `${folder}/${name}` : name));
   const here = opened ? openable.findIndex((it) => it.path === opened) : -1;
-  const galleryFiles = files.filter((file) => file.content.views.includes("image") && file.content.format !== "svg");
+  const galleryFiles = files.filter((file) => showsPicture(file) && file.content.format !== "svg");
   const galleryIndex = galleryFiles.findIndex((file) => file.path === opened);
   const nav: ItemNav | undefined =
     here >= 0
@@ -862,7 +864,7 @@ function FolderContents({
           gallery: {
             index: galleryIndex,
             items: galleryFiles.map((file) => ({
-              src: client.fileUrl("original", { space: space.name, path: file.path }),
+              src: pictureUrl(client, space.name, file),
               alt: file.title ?? file.name,
             })),
             open: (index) => open(itemOf.get(galleryFiles[index]?.path), true),

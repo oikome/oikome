@@ -15,6 +15,7 @@ oikome-engine = { path = "../oikome-engine" }
 oikome-identity = { path = "../oikome-identity" }
 oikome-network = { path = "../oikome-network" }
 oikome-node = { path = "../oikome-node" }
+oikome-sandbox = { path = "../oikome-sandbox" }
 oikome-semantic = { path = "../oikome-semantic" }
 oikome-storage = { path = "../oikome-storage" }
 iceberg = { workspace = true }

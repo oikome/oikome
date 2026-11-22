@@ -6708,6 +6708,7 @@ dependencies = [
  "oikome-identity",
  "oikome-network",
  "oikome-node",
+ "oikome-sandbox",
  "oikome-semantic",
  "oikome-storage",
  "oikome-vfs",

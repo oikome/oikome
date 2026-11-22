@@ -310,7 +310,7 @@ export interface NodeClient {
   /** Open an indexed local file with its default application on this computer. */
   openWith(request: FileRef): Promise<Empty>;
   /** Where the app reads a thumbnail or an original image, audio or video file. */
-  fileUrl(kind: "thumb" | "original", file: FileRef): string;
+  fileUrl(kind: "thumb" | "original" | "preview", file: FileRef): string;
   listPlugins(): Promise<Plugin[]>;
   inspectPlugin(request: PluginFolder): Promise<Plugin>;
   installPlugin(request: InstallPlugin): Promise<Plugin>;
@@ -870,7 +870,7 @@ export class HttpClient implements NodeClient {
     return this.#json("open_with", request);
   }
 
-  fileUrl(kind: "thumb" | "original", file: FileRef): string {
+  fileUrl(kind: "thumb" | "original" | "preview", file: FileRef): string {
     const path = file.path.split("/").map(encodeURIComponent).join("/");
     return `/files/${kind}/${encodeURIComponent(file.space)}/${path}`;
   }

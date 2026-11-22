@@ -949,6 +949,7 @@ crates/
 ├── oikome-webrtc          WebRTC endpoint for browsers (str0m): sessions, DTLS certificate         [3.2]
 ├── oikome-wasm            Browser node: BrowserNode, HostEngine (duckdb-wasm), RemoteEngine, JS API [3.2]
 ├── oikome-connect         Connector trait, built-in connectors (CSV, flomo export, flomo MCP)     [3.5]
+├── oikome-sandbox         WebAssembly sandbox for plugin code (wasmtime, components; no WASI)       [PR 32]
 ├── oikome-api             API for clients, plugins and MCP; caller is Owner or Principal (§13.4)   [M1b]
 └── oikome-cli                                                                                      [later]
 ```

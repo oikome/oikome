@@ -46,6 +46,7 @@ mod lending;
 mod network;
 mod places;
 mod plugins;
+mod previews;
 mod public;
 mod registry;
 mod save;

@@ -1481,7 +1481,13 @@ text: string | null,
 /**
  * Whether the index has a thumbnail of it.
  */
-thumbnail: boolean, content: FileContent, };
+thumbnail: boolean,
+/**
+ * The plugin that makes a picture of it (a RAW file's stored one),
+ * for a file Oikome does not show itself: its picture and thumbnail are
+ * asked for as the file's preview.
+ */
+preview: string | null, content: FileContent, };
 
 /**
  * One file of a collection viewed in place.
@@ -2134,9 +2140,15 @@ export type PluginCardCapability = { id: string, name: string, reads: string, sh
 export type PluginSourceCapability = { id: string, name: string, kind: SourceKind, };
 
 /**
- * A content preview declaration, without host execution privileges.
+ * A content preview: the formats a plugin makes an image of. With `entry`
+ * its code is run for a file of one of them, in the sandbox, given that one
+ * file and nothing else (PR 32); without, it is a declaration only.
  */
-export type PluginPreviewCapability = { id: string, name: string, formats: Array<string>, };
+export type PluginPreviewCapability = { id: string, name: string, formats: Array<string>,
+/**
+ * The package's WebAssembly component of the world `preview`.
+ */
+entry?: string, };
 
 /**
  * JSON or TOML configuration supported by the generic MCP setup writer.

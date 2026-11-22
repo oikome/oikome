@@ -266,6 +266,22 @@ const previews = new Map<string, Promise<Preview>>();
 
 /** Files of a folder viewed in place as items: a photo by its thumbnail,
  * caption and place, a note by its text and date. */
+/** Whether a file is shown as a picture: an image, or a file an installed
+ * plugin makes a picture of (a RAW file's stored one). */
+export function showsPicture(file: FileItem): boolean {
+  return file.content.views.includes("image") || Boolean(file.preview);
+}
+
+/** Where a file's picture is: the file itself, or the preview a plugin made. */
+export function pictureUrl(client: NodeClient, space: string, file: FileItem): string {
+  return client.fileUrl(file.preview ? "preview" : "original", { space, path: file.path });
+}
+
+/** Whether a file has a thumbnail: one the index made, or one of its preview. */
+export function hasThumbnail(file: FileItem): boolean {
+  return (file.kind === "image" && file.thumbnail) || Boolean(file.preview);
+}
+
 export function fileItems(client: NodeClient, space: string, files: FileItem[]): Item[] {
   return files.map((file, row) => {
     const at = file.kind === "image" ? (file.taken ?? file.modified) : (file.written ?? file.modified);
@@ -275,7 +291,7 @@ export function fileItems(client: NodeClient, space: string, files: FileItem[]):
       path: file.path,
       name: file.name,
       fileKind: file.kind,
-      image: file.kind === "image" && file.thumbnail ? client.fileUrl("thumb", { space, path: file.path }) : undefined,
+      image: hasThumbnail(file) ? client.fileUrl("thumb", { space, path: file.path }) : undefined,
       text: file.kind === "note" ? (file.text ?? file.title ?? file.name) : (file.title ?? file.name),
       detail: file.place ?? undefined,
       credit: file.credit ?? undefined,

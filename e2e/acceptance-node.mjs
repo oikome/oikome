@@ -286,6 +286,21 @@ function generateFiles(root) {
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(join(photos, source), destination);
   }
+  // A camera's RAW file beside them, as TIFF writes one: a directory that
+  // says where the picture the camera stored is, then that picture. The RAW
+  // Preview plugin shows it.
+  const stored = readFileSync(join(photos, "6-sunset-in-lisbon-36542861635.jpg"));
+  const entry = (tag, kind, value) => {
+    const bytes = Buffer.alloc(12);
+    bytes.writeUInt16LE(tag, 0);
+    bytes.writeUInt16LE(kind, 2);
+    bytes.writeUInt32LE(1, 4);
+    bytes.writeUInt32LE(value, 8);
+    return bytes;
+  };
+  const header = Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x03, 0x00]);
+  const raw = Buffer.concat([header, entry(0x0112, 3, 1), entry(0x0201, 4, 50), entry(0x0202, 4, stored.length), Buffer.alloc(4), stored]);
+  writeFileSync(resolve(root, "nas-mount", "Oikome", "photos", "DSC_0042.NEF"), raw);
   writeWav(root);
   write(root, "media/route.svg", `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
     <rect width="640" height="360" fill="#edf2e9"/>

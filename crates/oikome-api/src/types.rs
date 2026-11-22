@@ -378,6 +378,10 @@ pub struct FileItem {
     pub text: Option<String>,
     /// Whether the index has a thumbnail of it.
     pub thumbnail: bool,
+    /// The plugin that makes a picture of it (a RAW file's stored one),
+    /// for a file Oikome does not show itself: its picture and thumbnail are
+    /// asked for as the file's preview.
+    pub preview: Option<String>,
     pub content: FileContent,
 }
 
@@ -2055,13 +2059,19 @@ pub struct PluginSourceCapability {
     pub kind: SourceKind,
 }
 
-/// A content preview declaration, without host execution privileges.
+/// A content preview: the formats a plugin makes an image of. With `entry`
+/// its code is run for a file of one of them, in the sandbox, given that one
+/// file and nothing else (PR 32); without, it is a declaration only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(optional_fields)]
 pub struct PluginPreviewCapability {
     pub id: String,
     pub name: String,
     pub formats: Vec<String>,
+    /// The package's WebAssembly component of the world `preview`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
 }
 
 /// JSON or TOML configuration supported by the generic MCP setup writer.

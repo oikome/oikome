@@ -7187,3 +7187,213 @@ async fn datasets_in_a_folder_are_analysis_tables_read_in_place() {
         1
     );
 }
+
+/// A camera's RAW file as TIFF writes it: one directory that says how the
+/// picture is turned and where the stored JPEG is, then the JPEG.
+fn raw_file(jpeg: &[u8], orientation: u16) -> Vec<u8> {
+    let entry = |tag: u16, kind: u16, value: u32| {
+        let mut out = tag.to_le_bytes().to_vec();
+        out.extend(kind.to_le_bytes());
+        out.extend(1u32.to_le_bytes());
+        out.extend(value.to_le_bytes());
+        out
+    };
+    // Header (8), a directory of three entries (2 + 36 + 4), the JPEG.
+    let at = 50u32;
+    let mut file = b"II\x2A\x00\x08\x00\x00\x00\x03\x00".to_vec();
+    file.extend(entry(0x0112, 3, u32::from(orientation)));
+    file.extend(entry(0x0201, 4, at));
+    file.extend(entry(0x0202, 4, jpeg.len() as u32));
+    file.extend(0u32.to_le_bytes());
+    assert_eq!(file.len() as u32, at);
+    file.extend(jpeg);
+    file
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_raw_file_is_shown_by_the_raw_preview_plugin_in_the_sandbox() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("shoot");
+    std::fs::create_dir_all(&root).unwrap();
+    // The picture the camera stored: wider than tall, to be turned on its side.
+    let mut stored = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        64,
+        48,
+        image::Rgb([200, 80, 40]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut stored),
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
+    let raw = raw_file(&stored, 6);
+    std::fs::write(root.join("IMG_0001.DNG"), &raw).unwrap();
+    std::fs::write(
+        root.join("broken.nef"),
+        b"II\x2A\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+    )
+    .unwrap();
+    std::fs::write(root.join("notes.txt"), "not a picture").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("shoot".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let file = |path: &str| FileRef {
+        space: "shoot".into(),
+        path: path.into(),
+    };
+
+    // RAW Preview is one of Oikome's own plugins, with code to run.
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    let plugin = plugins.iter().find(|p| p.id == "raw-preview").unwrap();
+    assert!(plugin.installed);
+    assert_eq!(
+        plugin.capabilities.preview[0].entry.as_deref(),
+        Some("preview.wasm")
+    );
+
+    // The stored picture, as it is, with how to turn it said in it.
+    let preview = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    assert_eq!(preview.content_type, "image/jpeg");
+    assert!(preview.bytes.ends_with(&stored[2..]));
+    assert!(
+        preview.bytes.len() > stored.len(),
+        "its orientation was put in"
+    );
+    // Its thumbnail is turned: taller than wide.
+    let thumb = n
+        .api
+        .file_thumbnail(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    let small = image::load_from_memory(&thumb).unwrap();
+    assert_eq!(
+        small.width() * 4,
+        small.height() * 3,
+        "64 by 48, on its side"
+    );
+    // The listing says which plugin shows it; a file no plugin shows has none.
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "shoot".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    let preview_of = |name: &str| {
+        listed
+            .files
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap()
+            .preview
+            .clone()
+    };
+    assert_eq!(preview_of("IMG_0001.DNG").as_deref(), Some("RAW Preview"));
+    assert_eq!(preview_of("notes.txt"), None);
+    // The RAW file was only read.
+    assert_eq!(std::fs::read(root.join("IMG_0001.DNG")).unwrap(), raw);
+    // Kept for the next time, and given again from there.
+    let kept = n.catalog.oikome_dir().join("previews");
+    assert_eq!(std::fs::read_dir(&kept).unwrap().count(), 2);
+    let again = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    assert_eq!(again.bytes, preview.bytes);
+
+    // A RAW file with no picture in it says so; other files have no preview.
+    let none = n
+        .api
+        .file_preview(&OWNER, file("broken.nef"))
+        .await
+        .unwrap_err();
+    assert_eq!(none.code, ErrorCode::Invalid, "{none:?}");
+    assert!(none.message.contains("holds no preview image"), "{none:?}");
+    let other = n
+        .api
+        .file_preview(&OWNER, file("notes.txt"))
+        .await
+        .unwrap_err();
+    assert_eq!(other.code, ErrorCode::NotFound);
+    assert!(n
+        .api
+        .file_thumbnail(&OWNER, file("notes.txt"))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .file_preview(&Caller::Principal { did: did(9) }, file("IMG_0001.DNG"))
+        .await
+        .is_err());
+
+    // The file changes: its preview is made again.
+    let mut bigger = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        96,
+        32,
+        image::Rgb([10, 90, 160]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut bigger),
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
+    std::fs::write(root.join("IMG_0001.DNG"), raw_file(&bigger, 1)).unwrap();
+    n.api
+        .refresh_space(
+            &OWNER,
+            SpaceRef {
+                space: "shoot".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let changed = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    assert_eq!(changed.bytes, bigger, "upright already: left as stored");
+
+    // Without the plugin a RAW file has no preview.
+    n.api
+        .remove_plugin(
+            &OWNER,
+            PluginRef {
+                id: "raw-preview".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let gone = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap_err();
+    assert_eq!(gone.code, ErrorCode::NotFound);
+}

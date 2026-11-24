@@ -505,7 +505,7 @@ export const zhHans: Strings = {
     colKind: "类型",
     colSize: "大小",
     colModified: "修改时间",
-    fileKinds: { image: "照片", note: "笔记", table: "表格", audio: "音频", video: "视频", vector: "矢量图", dataset: "数据集", lance: "Lance 数据集", iceberg: "Iceberg 表", other: "文件" },
+    fileKinds: { image: "照片", note: "笔记", table: "表格", audio: "音频", video: "视频", vector: "矢量图", dataset: "数据集", lance: "Lance 数据集", iceberg: "Iceberg 表", raw: "RAW 图片", other: "文件" },
     zoomImage: "放大图片",
     imageUnavailable: "无法显示这张图片。",
     mediaUnavailable: "浏览器无法播放此文件，请尝试在默认应用中打开。",

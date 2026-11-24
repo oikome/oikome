@@ -511,7 +511,7 @@ export const ja: Strings = {
     colKind: "種類",
     colSize: "サイズ",
     colModified: "更新日時",
-    fileKinds: { image: "写真", note: "メモ", table: "表", audio: "オーディオ", video: "動画", vector: "ベクター画像", dataset: "データセット", lance: "Lance データセット", iceberg: "Iceberg テーブル", other: "ファイル" },
+    fileKinds: { image: "写真", note: "メモ", table: "表", audio: "オーディオ", video: "動画", vector: "ベクター画像", dataset: "データセット", lance: "Lance データセット", iceberg: "Iceberg テーブル", raw: "RAW 画像", other: "ファイル" },
     zoomImage: "画像を拡大",
     imageUnavailable: "この画像を表示できません。",
     mediaUnavailable: "このブラウザではこのファイルを再生できません。デフォルトのアプリで開いてください。",

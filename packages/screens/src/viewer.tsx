@@ -17,6 +17,7 @@ import { rawMessage, useAction, useClient, useLoad } from "./data";
 import { bytes, dayAndTime } from "./format";
 import { itemPath } from "./item";
 import type { ItemNav } from "./item";
+import { inLanguage } from "./plugins";
 import { navigate } from "./router";
 import { strings } from "./strings";
 
@@ -31,6 +32,9 @@ const PdfView = lazy(() => import("./PdfView"));
 const s = strings.collections;
 const PAGE_ROWS = 100;
 
+/** What cameras call their unprocessed files, whichever plugin shows them. */
+const RAW_FORMATS = new Set(["cr2", "cr3", "nef", "arw", "dng", "orf", "pef", "raf", "rw2"]);
+
 /** What a file is, in a word: a data file or original medium by its format. */
 export function fileKindLabel(name: string, kind: string, mediaType?: string | null, format?: string): string {
   const extension = name.split(".").pop()?.toLowerCase() ?? "";
@@ -43,6 +47,7 @@ export function fileKindLabel(name: string, kind: string, mediaType?: string | n
   if (mediaType?.startsWith("video/")) return s.fileKinds.video!;
   if (mediaType === "image/svg+xml") return s.fileKinds.vector!;
   if (mediaType === "application/pdf") return "PDF";
+  if (kind !== "image" && RAW_FORMATS.has(extension)) return s.fileKinds.raw!;
   return s.fileKinds[kind] ?? s.fileKinds.other!;
 }
 
@@ -101,6 +106,13 @@ export function FileView({
     [space, previewed?.path, previewed?.modifiedMs],
   );
   const noPreview = Boolean(previewed) && preview.data === false;
+  // The plugin under the name it has in the language in use.
+  const previewer = useLoad(
+    async () =>
+      previewed ? (await client.listPlugins()).map(inLanguage).find((plugin) => plugin.id === previewed.preview)?.name : undefined,
+    [previewed?.preview],
+  );
+  const previewName = previewer.data ?? "";
   const rows = useLoad(
     async () =>
       file?.content.views.includes("table")
@@ -213,7 +225,7 @@ export function FileView({
     ? [
         [s.in_, space],
         [s.colKind, fileKindLabel(file.name, file.kind, file.content.mediaType, file.content.format)],
-        ...(file.preview && !noPreview ? ([[s.previewLabel, s.previewBy(file.preview)]] as [string, ReactNode][]) : []),
+        ...(file.preview && previewName && !noPreview ? ([[s.previewLabel, s.previewBy(previewName)]] as [string, ReactNode][]) : []),
         [s.colSize, bytes(Number(file.size))],
         [s.colModified, changed],
         [s.keptOn, facts.keptOn],
@@ -463,7 +475,7 @@ export function FileView({
               <p>{fileKindLabel(file.name, file.kind, file.content.mediaType, file.content.format)}</p>
               <p className="screen-muted">{bytes(Number(file.size))}</p>
               {file.content.unavailableReason && <p className="screen-muted">{file.content.unavailableReason}</p>}
-              {noPreview && <p className="screen-muted">{s.noPreview(file.preview ?? "")}</p>}
+              {noPreview && <p className="screen-muted">{s.noPreview(previewName)}</p>}
               {local && (
                 <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
                   {s.showInFinder(host.data?.platform ?? "")}

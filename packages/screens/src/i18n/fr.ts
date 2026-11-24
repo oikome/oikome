@@ -530,7 +530,7 @@ export const fr: Strings = {
     colKind: "Type",
     colSize: "Taille",
     colModified: "Modifié",
-    fileKinds: { image: "Photo", note: "Note", table: "Tableau", audio: "Audio", video: "Vidéo", vector: "Image vectorielle", dataset: "Jeu de données", lance: "Jeu de données Lance", iceberg: "Table Iceberg", other: "Fichier" },
+    fileKinds: { image: "Photo", note: "Note", table: "Tableau", audio: "Audio", video: "Vidéo", vector: "Image vectorielle", dataset: "Jeu de données", lance: "Jeu de données Lance", iceberg: "Table Iceberg", raw: "Image RAW", other: "Fichier" },
     zoomImage: "Agrandir l’image",
     imageUnavailable: "Impossible d’afficher cette image.",
     mediaUnavailable: "Ce navigateur ne peut pas lire ce fichier. Essayez de l’ouvrir dans l’app par défaut.",

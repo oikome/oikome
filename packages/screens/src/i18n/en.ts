@@ -524,7 +524,7 @@ export const en = {
     colKind: "Kind",
     colSize: "Size",
     colModified: "Changed",
-    fileKinds: { image: "Photo", note: "Note", table: "Table", audio: "Audio", video: "Video", vector: "Vector Image", dataset: "Dataset", lance: "Lance Dataset", iceberg: "Iceberg Table", other: "File" } as Record<string, string>,
+    fileKinds: { image: "Photo", note: "Note", table: "Table", audio: "Audio", video: "Video", vector: "Vector Image", dataset: "Dataset", lance: "Lance Dataset", iceberg: "Iceberg Table", raw: "RAW Image", other: "File" } as Record<string, string>,
     zoomImage: "Zoom image",
     imageUnavailable: "This image can’t be displayed.",
     mediaUnavailable: "This browser can’t play this file. Try opening it in its default app.",

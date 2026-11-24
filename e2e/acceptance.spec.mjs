@@ -281,6 +281,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect.poll(() => rawFile.locator("img").first().evaluate((element) => element.naturalWidth)).toBeGreaterThan(512);
     await rawFile.getByRole("button", { name: "Info" }).click();
     await expect(rawFile.locator(".screen-fileview__facts")).toContainText("shown by RAW Preview");
+    await expect(rawFile.locator(".screen-fileview__facts")).toContainText("RAW Image");
     await page.keyboard.press("Escape");
     await page.goto(`${running.base}/collections/rustfs-archive`);
     await expect(page.getByText("scans", { exact: true }).first()).toBeVisible();

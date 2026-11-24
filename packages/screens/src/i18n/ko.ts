@@ -534,7 +534,7 @@ export const ko: Strings = {
     colKind: "종류",
     colSize: "크기",
     colModified: "수정한 날짜",
-    fileKinds: { image: "사진", note: "메모", table: "표", audio: "오디오", video: "동영상", vector: "벡터 이미지", dataset: "데이터셋", lance: "Lance 데이터셋", iceberg: "Iceberg 테이블", other: "파일" },
+    fileKinds: { image: "사진", note: "메모", table: "표", audio: "오디오", video: "동영상", vector: "벡터 이미지", dataset: "데이터셋", lance: "Lance 데이터셋", iceberg: "Iceberg 테이블", raw: "RAW 이미지", other: "파일" },
     zoomImage: "이미지 확대",
     imageUnavailable: "이 이미지를 표시할 수 없습니다.",
     mediaUnavailable: "이 브라우저에서 파일을 재생할 수 없습니다. 기본 앱에서 열어 보세요.",

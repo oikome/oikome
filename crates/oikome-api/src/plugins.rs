@@ -1244,7 +1244,7 @@ impl Api {
                     continue;
                 }
                 for format in preview.formats {
-                    formats.entry(format).or_insert_with(|| plugin.name.clone());
+                    formats.entry(format).or_insert_with(|| plugin.id.clone());
                 }
             }
         }

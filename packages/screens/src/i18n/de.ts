@@ -525,7 +525,7 @@ export const de: Strings = {
     colKind: "Art",
     colSize: "Größe",
     colModified: "Geändert",
-    fileKinds: { image: "Foto", note: "Notiz", table: "Tabelle", audio: "Audio", video: "Video", vector: "Vektorbild", dataset: "Datensatz", lance: "Lance-Datensatz", iceberg: "Iceberg-Tabelle", other: "Datei" } as Record<string, string>,
+    fileKinds: { image: "Foto", note: "Notiz", table: "Tabelle", audio: "Audio", video: "Video", vector: "Vektorbild", dataset: "Datensatz", lance: "Lance-Datensatz", iceberg: "Iceberg-Tabelle", raw: "RAW-Bild", other: "Datei" } as Record<string, string>,
     zoomImage: "Bild vergrößern",
     imageUnavailable: "Dieses Bild kann nicht angezeigt werden.",
     mediaUnavailable: "Dieser Browser kann diese Datei nicht wiedergeben. Öffne sie stattdessen in der Standard-App.",

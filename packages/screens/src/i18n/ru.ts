@@ -546,7 +546,7 @@ export const ru: Strings = {
     colKind: "Тип",
     colSize: "Размер",
     colModified: "Изменён",
-    fileKinds: { image: "Фото", note: "Заметка", table: "Таблица", audio: "Аудио", video: "Видео", vector: "Векторное изображение", dataset: "Набор данных", lance: "Набор данных Lance", iceberg: "Таблица Iceberg", other: "Файл" } as Record<string, string>,
+    fileKinds: { image: "Фото", note: "Заметка", table: "Таблица", audio: "Аудио", video: "Видео", vector: "Векторное изображение", dataset: "Набор данных", lance: "Набор данных Lance", iceberg: "Таблица Iceberg", raw: "Изображение RAW", other: "Файл" } as Record<string, string>,
     zoomImage: "Увеличить изображение",
     imageUnavailable: "Не удалось показать это изображение.",
     mediaUnavailable: "Браузер не может воспроизвести этот файл. Попробуйте открыть его в приложении по умолчанию.",

@@ -378,7 +378,7 @@ pub struct FileItem {
     pub text: Option<String>,
     /// Whether the index has a thumbnail of it.
     pub thumbnail: bool,
-    /// The plugin that makes a picture of it (a RAW file's stored one),
+    /// The id of the plugin that makes a picture of it (a RAW file's stored one),
     /// for a file Oikome does not show itself: its picture and thumbnail are
     /// asked for as the file's preview.
     pub preview: Option<String>,

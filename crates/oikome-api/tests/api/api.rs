@@ -7312,7 +7312,7 @@ async fn a_raw_file_is_shown_by_the_raw_preview_plugin_in_the_sandbox() {
             .preview
             .clone()
     };
-    assert_eq!(preview_of("IMG_0001.DNG").as_deref(), Some("RAW Preview"));
+    assert_eq!(preview_of("IMG_0001.DNG").as_deref(), Some("raw-preview"));
     assert_eq!(preview_of("notes.txt"), None);
     // The RAW file was only read.
     assert_eq!(std::fs::read(root.join("IMG_0001.DNG")).unwrap(), raw);

@@ -286,6 +286,87 @@ fn tiff_raw() -> (Vec<u8>, Vec<u8>) {
     (file, full)
 }
 
+/// A box of an ISO media file.
+fn part(kind: &[u8; 4], content: &[u8]) -> Vec<u8> {
+    let mut out = ((content.len() + 8) as u32).to_be_bytes().to_vec();
+    out.extend(kind);
+    out.extend(content);
+    out
+}
+
+/// A track whose one sample is `len` bytes at `offset`.
+fn track(offset: u64, len: u32) -> Vec<u8> {
+    let sizes = [&[0u8; 8][..], &1u32.to_be_bytes(), &len.to_be_bytes()].concat();
+    let offsets = [&[0u8; 4][..], &1u32.to_be_bytes(), &offset.to_be_bytes()].concat();
+    let table = [
+        part(b"stsd", &[0; 8]),
+        part(b"stsz", &sizes),
+        part(b"co64", &offsets),
+    ]
+    .concat();
+    let media = [
+        part(b"hdlr", &[0; 24]),
+        part(b"minf", &part(b"stbl", &table)),
+    ]
+    .concat();
+    part(
+        b"trak",
+        &[part(b"tkhd", &[0; 84]), part(b"mdia", &media)].concat(),
+    )
+}
+
+/// A Canon CR3 file's structure: its notes (orientation 8), a track for the
+/// full-size picture (when `with_full`) and one for the sensor's data, the
+/// smaller preview in its own box, then the data. Gives the file, the
+/// full-size picture and the preview.
+fn canon_raw(with_full: bool) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let full = jpeg(0xC0, 6000, 4000, 300_000, &[]);
+    let preview = jpeg(0xC0, 1620, 1080, 40_000, &[]);
+    let sensor = vec![0x5A; 80_000];
+    let before = |data: u64| {
+        let mut notes = b"II\x2A\x00\x08\x00\x00\x00".to_vec();
+        notes.extend(directory(
+            &[entry(0x0100, false, 6000), entry(0x0112, false, 8)],
+            0,
+        ));
+        let canon = [
+            &[0x85u8; 16][..],
+            &part(b"CNCV", &[0; 30]),
+            &part(b"CMT1", &notes),
+        ]
+        .concat();
+        let mut movie = part(b"uuid", &canon);
+        if with_full {
+            movie.extend(track(data, full.len() as u32));
+        }
+        movie.extend(track(data + full.len() as u64, sensor.len() as u32));
+        let mut shown = vec![0u8; 4];
+        shown.extend([0, 1]);
+        shown.extend(1620u16.to_be_bytes());
+        shown.extend(1080u16.to_be_bytes());
+        shown.extend([0, 1]);
+        shown.extend((preview.len() as u32).to_be_bytes());
+        shown.extend(&preview);
+        let previews = [
+            &[0xEAu8; 16][..],
+            &[0, 0, 0, 0, 0, 0, 0, 1],
+            &part(b"PRVW", &shown),
+        ]
+        .concat();
+        [
+            part(b"ftyp", b"crx \x00\x00\x00\x01crx isom"),
+            part(b"moov", &movie),
+            part(b"uuid", &previews),
+        ]
+        .concat()
+    };
+    // Where the data starts: after everything before it and its box's head.
+    let data = before(0).len() as u64 + 8;
+    let mut file = before(data);
+    file.extend(part(b"mdat", &[&full[..], &sensor[..]].concat()));
+    (file, full, preview)
+}
+
 fn raw_checks(wasm: &[u8]) {
     let plugin = Sandbox::shared().unwrap().preview_plugin(wasm).unwrap();
     let render =
@@ -312,11 +393,55 @@ fn raw_checks(wasm: &[u8]) {
     assert_eq!(made.bytes, preview);
     assert_eq!(made.orientation, Some(1));
 
+    // A Fujifilm RAF file: its header says where its one picture is; the
+    // picture's own EXIF says which way up, so the reader names none.
+    let picture = jpeg(0xC0, 6240, 4160, 200_000, &jpeg(0xC0, 160, 120, 16, &[]));
+    let fuji = |offset: u32, len: u32| {
+        let mut file = b"FUJIFILMCCD-RAW 0201FF159501X-T5".to_vec();
+        file.resize(84, 0);
+        file.extend(offset.to_be_bytes());
+        file.extend(len.to_be_bytes());
+        file.resize(148, 0);
+        file.extend(&picture);
+        // The sensor's data after it.
+        file.extend(vec![0x3C; 50_000]);
+        file
+    };
+    let made = render(fuji(148, picture.len() as u32)).unwrap();
+    assert_eq!(made.bytes, picture);
+    assert_eq!(made.orientation, None);
+    // A header that points outside the file: the picture is still found.
+    let made = render(fuji(0xFFFF_FF00, 4096)).unwrap();
+    assert_eq!(made.bytes, picture);
+
+    // A Canon CR3 file: boxes, as in MP4. The full-size picture is its
+    // first track; the sensor's data, another track, is not a picture.
+    let (file, full, _) = canon_raw(true);
+    let made = render(file).unwrap();
+    assert_eq!(made.bytes, full);
+    assert_eq!(made.orientation, Some(8));
+    // With no picture in its tracks, the smaller preview in its own box.
+    let (file, _, preview) = canon_raw(false);
+    let made = render(file).unwrap();
+    assert_eq!(made.bytes, preview);
+    assert_eq!(made.orientation, Some(8));
+
     // Nothing to show: said, not failed.
     for file in [
         Vec::new(),
         b"II\x2A\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00".to_vec(),
         jpeg(0xC3, 6000, 4000, 4096, &[]),
+        // A Canon file with nothing in it, and one whose boxes are cut short.
+        part(b"ftyp", b"crx \x00\x00\x00\x01crx isom"),
+        [
+            &part(b"ftyp", b"crx \x00\x00\x00\x01crx isom")[..],
+            &[0, 0, 0xFF, 0xFF],
+            b"moov",
+            &[0; 40],
+        ]
+        .concat(),
+        // A Fujifilm header and nothing after it.
+        b"FUJIFILMCCD-RAW 0201".to_vec(),
         // Directories that point outside the file.
         [&b"II\x2A\x00"[..], &0xFFFF_FFF0u32.to_le_bytes()].concat(),
     ] {

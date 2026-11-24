@@ -6,7 +6,12 @@
 //! is used.
 //!
 //! RAW files built on TIFF (CR2, NEF, ARW, DNG, ORF, PEF and their kin) keep
-//! their previews in image directories, which say where each one is. When
+//! their previews in image directories, which say where each one is. A
+//! Fujifilm RAF file is not built on TIFF: its header says where its one
+//! JPEG is, and that JPEG carries its own EXIF (its orientation with it). A
+//! Canon CR3 file is an ISO media file (boxes, as in MP4): its first track
+//! is the full-size JPEG, a smaller one is in a `PRVW` box, and the
+//! orientation is in the TIFF directory of its `CMT1` box. When
 //! the directories name none (some keep it in the maker's own notes), the
 //! file is searched for JPEG images. The largest one that a browser can
 //! show is given back: a lossless JPEG, which is how some RAW files hold the
@@ -293,6 +298,154 @@ fn from_directories(file: &mut File) -> Result<(Vec<(u64, u64)>, Option<u8>), St
     Ok((named, orientation))
 }
 
+/// The JPEG image a Fujifilm RAF file's header names: after the 16-byte
+/// signature, the format version (4), the camera's id (8) and name (32) and
+/// the directory's version (4) with 20 bytes kept free, the JPEG's offset
+/// and length, big-endian, at bytes 84 and 88.
+fn from_fuji(file: &mut File) -> Result<Option<(u64, u64)>, String> {
+    let Some(head) = file.bytes(0, 92)? else { return Ok(None) };
+    if !head.starts_with(b"FUJIFILMCCD-RAW") {
+        return Ok(None);
+    }
+    let offset = u64::from(u32::from_be_bytes([head[84], head[85], head[86], head[87]]));
+    let len = u64::from(u32::from_be_bytes([head[88], head[89], head[90], head[91]]));
+    Ok(Some((offset, len)))
+}
+
+/// One box of an ISO media file: its type and where its content is.
+struct Part {
+    kind: [u8; 4],
+    start: u64,
+    end: u64,
+}
+
+/// The boxes from `at` to `end`, as far as they are well formed.
+fn parts(file: &mut File, mut at: u64, end: u64) -> Result<Vec<Part>, String> {
+    let mut out = Vec::new();
+    while at.checked_add(8).is_some_and(|head| head <= end) && out.len() < MAX_DIRECTORIES {
+        let Some(head) = file.bytes(at, 8)? else { break };
+        let short = u64::from(u32::from_be_bytes([head[0], head[1], head[2], head[3]]));
+        let kind = [head[4], head[5], head[6], head[7]];
+        let (start, size) = match short {
+            // To the end of what holds it.
+            0 => (at + 8, end - at),
+            // A length of 64 bits follows.
+            1 => {
+                let Some(long) = file.bytes(at + 8, 8)? else { break };
+                let mut size = [0u8; 8];
+                size.copy_from_slice(long);
+                (at + 16, u64::from_be_bytes(size))
+            }
+            size => (at + 8, size),
+        };
+        let Some(stop) = at.checked_add(size).filter(|stop| *stop <= end && *stop >= start) else { break };
+        out.push(Part { kind, start, end: stop });
+        at = stop;
+    }
+    Ok(out)
+}
+
+/// The first box of `kind` from `at` to `end`.
+fn part(file: &mut File, at: u64, end: u64, kind: &[u8; 4]) -> Result<Option<Part>, String> {
+    Ok(parts(file, at, end)?.into_iter().find(|part| &part.kind == kind))
+}
+
+fn be32(file: &mut File, at: u64) -> Result<Option<u64>, String> {
+    Ok(file.bytes(at, 4)?.map(|b| u64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))))
+}
+
+/// Where a track's first sample is and how long, by its sample table: the
+/// first size in `stsz` (or the one size all share) and the first offset in
+/// `co64` or `stco`.
+fn first_sample(file: &mut File, track: &Part) -> Result<Option<(u64, u64)>, String> {
+    let mut within = (track.start, track.end);
+    for kind in [b"mdia", b"minf", b"stbl"] {
+        let Some(inner) = part(file, within.0, within.1, kind)? else { return Ok(None) };
+        within = (inner.start, inner.end);
+    }
+    let Some(sizes) = part(file, within.0, within.1, b"stsz")? else { return Ok(None) };
+    let len = match be32(file, sizes.start + 4)? {
+        Some(0) => be32(file, sizes.start + 12)?,
+        shared => shared,
+    };
+    let offset = match part(file, within.0, within.1, b"co64")? {
+        Some(offsets) => file.bytes(offsets.start + 8, 8)?.map(|b| {
+            let mut offset = [0u8; 8];
+            offset.copy_from_slice(b);
+            u64::from_be_bytes(offset)
+        }),
+        None => match part(file, within.0, within.1, b"stco")? {
+            Some(offsets) => be32(file, offsets.start + 8)?,
+            None => None,
+        },
+    };
+    Ok(offset.zip(len))
+}
+
+/// The orientation the first directory of the TIFF at `base` gives.
+fn orientation_at(file: &mut File, base: u64) -> Result<Option<u8>, String> {
+    let Some(head) = file.bytes(base, 8)? else { return Ok(None) };
+    let order = match &head[..2] {
+        b"II" => Order { little: true },
+        b"MM" => Order { little: false },
+        _ => return Ok(None),
+    };
+    let directory = base + u64::from(order.u32(&head[4..8]));
+    let Some(count) = file.bytes(directory, 2)?.map(|b| order.u16(b)) else { return Ok(None) };
+    for i in 0..u64::from(count.min(64)) {
+        let Some(entry) = file.bytes(directory + 2 + 12 * i, 12)? else { break };
+        if order.u16(&entry[..2]) == 0x0112 {
+            return Ok(u8::try_from(order.u16(&entry[8..10])).ok());
+        }
+    }
+    Ok(None)
+}
+
+/// The JPEG images a Canon CR3 file names, and its orientation: each
+/// track's first sample (the first track is the full-size JPEG; the tracks
+/// of the sensor's data are not JPEG and are passed over later), and the
+/// preview in the `PRVW` box (after its 16 bytes of header, its length in
+/// the last four of them).
+fn from_canon(file: &mut File) -> Result<Option<(Vec<(u64, u64)>, Option<u8>)>, String> {
+    if file.bytes(4, 8)?.is_none_or(|brand| brand != b"ftypcrx ") {
+        return Ok(None);
+    }
+    let size = file.size;
+    let mut named = Vec::new();
+    let mut orientation = None;
+    for top in parts(file, 0, size)? {
+        match &top.kind {
+            b"moov" => {
+                for inner in parts(file, top.start, top.end)? {
+                    match &inner.kind {
+                        b"trak" => named.extend(first_sample(file, &inner)?),
+                        // Canon's own box: 16 bytes of its id, then its boxes.
+                        b"uuid" => {
+                            if let Some(notes) = part(file, inner.start + 16, inner.end, b"CMT1")? {
+                                orientation = orientation_at(file, notes.start)?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // The preview's box: its id, then (in the files seen) 8 bytes more.
+            b"uuid" => {
+                for skip in [24, 16] {
+                    if let Some(preview) = part(file, top.start + skip, top.end, b"PRVW")? {
+                        if let Some(len) = be32(file, preview.start + 12)? {
+                            named.push((preview.start + 16, len));
+                        }
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(Some((named, orientation)))
+}
+
 /// The JPEG images found by reading the file through.
 fn by_searching(file: &mut File) -> Result<Vec<(u64, u64)>, String> {
     let mut found = Vec::new();
@@ -327,7 +480,18 @@ struct Plugin;
 impl Guest for Plugin {
     fn render(_format: String) -> Result<Image, String> {
         let mut file = File::open();
-        let (mut named, orientation) = from_directories(&mut file)?;
+        let (mut named, orientation) = match from_fuji(&mut file)? {
+            Some(named) => (vec![named], None),
+            None => match from_canon(&mut file)? {
+                Some(found) => found,
+                None => from_directories(&mut file)?,
+            },
+        };
+        // A header that names nothing usable: the file is read through.
+        let size = file.size;
+        let usable =
+            |&(offset, len): &(u64, u64)| len >= 4 && offset.checked_add(len).is_some_and(|end| end <= size);
+        named.retain(usable);
         if named.is_empty() {
             named = by_searching(&mut file)?;
         }

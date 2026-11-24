@@ -1,0 +1,20 @@
+{
+  "id": "stored-picture",
+  "name": "Stored Picture",
+  "by": "Oikome tests",
+  "version": "1.0.0",
+  "description": "A preview plugin for Oikome's tests: shows the JPEG a file ends with.",
+  "capabilities": {
+    "preview": [
+      {
+        "id": "stored",
+        "name": "Stored picture",
+        "formats": ["dng", "nef"],
+        "entry": "preview.wasm"
+      }
+    ]
+  },
+  "translations": {
+    "zh-Hans": { "name": "内嵌图片" }
+  }
+}

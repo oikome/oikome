@@ -317,7 +317,8 @@ Wasmtime (wasmtime, with Cranelift; the sandbox plugin code runs in, crates/oiko
   https://wasmtime.dev/  -  Apache License 2.0 WITH LLVM-exception
   Copyright The Bytecode Alliance
 
-wit-bindgen and wasm-tools (wit-bindgen in the plugins' own code, plugins/raw-preview/guest;
-  wit-component when the tests build them; development only for the node)
+wit-bindgen and wasm-tools (wit-bindgen in the code of the tests' own plugins,
+  crates/oikome-sandbox/tests/guests; wit-component when the tests build them;
+  development only for the node)
   https://github.com/bytecodealliance/wit-bindgen, https://github.com/bytecodealliance/wasm-tools
   Apache License 2.0 WITH LLVM-exception  -  Copyright The Bytecode Alliance

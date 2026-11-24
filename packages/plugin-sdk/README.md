@@ -193,4 +193,6 @@ the base language, then English. Official packages provide every app language.
 
 Oikome's own packages in `plugins/` are worked examples. RAW Preview and other
 complex content capabilities are external official packages distributed on
-demand, not bundled into the light core.
+demand, not bundled into the light core: RAW Preview's package and the source
+of its component are in the oikome-plugins repository (`packages/raw-preview`,
+`sources/raw-preview`), built against `crates/oikome-sandbox/wit/preview.wit`.

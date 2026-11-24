@@ -287,8 +287,9 @@ function generateFiles(root) {
     copyFileSync(join(photos, source), destination);
   }
   // A camera's RAW file beside them, as TIFF writes one: a directory that
-  // says where the picture the camera stored is, then that picture. The RAW
-  // Preview plugin shows it.
+  // says where the picture the camera stored is, then that picture. A
+  // preview plugin shows it: here the tests' own, installed from its folder
+  // (RAW Preview itself is in the oikome-plugins repository).
   const stored = readFileSync(join(photos, "6-sunset-in-lisbon-36542861635.jpg"));
   const entry = (tag, kind, value) => {
     const bytes = Buffer.alloc(12);
@@ -479,6 +480,7 @@ async function withApi(loginLink, actions) {
 async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
   return withApi(loginLink, async (call) => {
     await call("rename_node", { name: config.title });
+    await call("install_plugin", { path: join(REPO, "crates", "oikome-sandbox", "tests", "plugins", "stored-picture") });
     await call("confirm_recovery_key");
     for (const collection of config.collections) {
       if (collection.action === "viewInPlace") {

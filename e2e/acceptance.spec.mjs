@@ -272,7 +272,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     const photo = page.getByRole("dialog", { name: "Tram 28E.jpg" }).locator("img").first();
     await expect.poll(() => photo.evaluate((element) => element.naturalWidth)).toBeGreaterThan(512);
     await page.keyboard.press("Escape");
-    // A camera's RAW file: the RAW Preview plugin, run in the sandbox, shows
+    // A camera's RAW file: an installed preview plugin, run in the sandbox, shows
     // the picture stored in it, as its thumbnail and when opened, and says so.
     const rawTile = page.locator("a.screen-ftile", { hasText: "DSC_0042.NEF" });
     await expect.poll(() => rawTile.locator("img").first().evaluate((element) => element.naturalWidth)).toBeGreaterThan(0);
@@ -280,7 +280,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     const rawFile = page.getByRole("dialog", { name: "DSC_0042.NEF" });
     await expect.poll(() => rawFile.locator("img").first().evaluate((element) => element.naturalWidth)).toBeGreaterThan(512);
     await rawFile.getByRole("button", { name: "Info" }).click();
-    await expect(rawFile.locator(".screen-fileview__facts")).toContainText("shown by RAW Preview");
+    await expect(rawFile.locator(".screen-fileview__facts")).toContainText("shown by Stored Picture");
     await expect(rawFile.locator(".screen-fileview__facts")).toContainText("RAW Image");
     await page.keyboard.press("Escape");
     await page.goto(`${running.base}/collections/rustfs-archive`);

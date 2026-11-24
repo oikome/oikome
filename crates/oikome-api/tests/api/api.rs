@@ -7211,7 +7211,7 @@ fn raw_file(jpeg: &[u8], orientation: u16) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_raw_file_is_shown_by_the_raw_preview_plugin_in_the_sandbox() {
+async fn a_raw_file_is_shown_by_an_installed_preview_plugin_in_the_sandbox() {
     let n = node();
     let source = tempfile::tempdir().unwrap();
     let root = source.path().join("shoot");
@@ -7252,9 +7252,42 @@ async fn a_raw_file_is_shown_by_the_raw_preview_plugin_in_the_sandbox() {
         path: path.into(),
     };
 
-    // RAW Preview is one of Oikome's own plugins, with code to run.
+    // A preview plugin is a package with code to run, installed like any
+    // other (RAW Preview is one, in the oikome-plugins repository; this is
+    // the tests' own). Before it, a RAW file has no preview.
+    let before = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap_err();
+    assert_eq!(before.code, ErrorCode::NotFound);
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../oikome-sandbox/tests/plugins/stored-picture");
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(package.to_string_lossy().into_owned()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .refresh_space(
+            &OWNER,
+            SpaceRef {
+                space: "shoot".into(),
+            },
+        )
+        .await
+        .unwrap();
     let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
-    let plugin = plugins.iter().find(|p| p.id == "raw-preview").unwrap();
+    assert!(
+        plugins.iter().all(|p| p.id != "raw-preview"),
+        "RAW Preview is not built in"
+    );
+    let plugin = plugins.iter().find(|p| p.id == "stored-picture").unwrap();
     assert!(plugin.installed);
     assert_eq!(
         plugin.capabilities.preview[0].entry.as_deref(),
@@ -7312,7 +7345,10 @@ async fn a_raw_file_is_shown_by_the_raw_preview_plugin_in_the_sandbox() {
             .preview
             .clone()
     };
-    assert_eq!(preview_of("IMG_0001.DNG").as_deref(), Some("raw-preview"));
+    assert_eq!(
+        preview_of("IMG_0001.DNG").as_deref(),
+        Some("stored-picture")
+    );
     assert_eq!(preview_of("notes.txt"), None);
     // The RAW file was only read.
     assert_eq!(std::fs::read(root.join("IMG_0001.DNG")).unwrap(), raw);
@@ -7385,7 +7421,7 @@ async fn a_raw_file_is_shown_by_the_raw_preview_plugin_in_the_sandbox() {
         .remove_plugin(
             &OWNER,
             PluginRef {
-                id: "raw-preview".into(),
+                id: "stored-picture".into(),
             },
         )
         .await

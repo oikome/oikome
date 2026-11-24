@@ -68,17 +68,7 @@ const READ_LOG_EVERY_MS: u64 = 10 * 60 * 1000;
 
 /// Official plugin packages, embedded as files and installed through exactly
 /// the same manifest parser and lifecycle as packages from a folder.
-const BUILT_IN: [&[(&str, &[u8])]; 9] = [
-    &[
-        (
-            MANIFEST,
-            include_bytes!("../../../plugins/raw-preview/oikome-plugin.json"),
-        ),
-        (
-            "preview.wasm",
-            include_bytes!("../../../plugins/raw-preview/preview.wasm"),
-        ),
-    ],
+const BUILT_IN: [&[(&str, &[u8])]; 8] = [
     &[(
         MANIFEST,
         include_bytes!("../../../plugins/file-import/oikome-plugin.json"),

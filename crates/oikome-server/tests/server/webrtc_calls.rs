@@ -191,7 +191,6 @@ async fn public_enquiries_work_without_opening_private_peer_methods() {
             place: None,
             path: source.to_string_lossy().into_owned(),
             name: Some("source".into()),
-            files: None,
         },
     )
     .await

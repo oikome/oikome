@@ -1,0 +1,13 @@
+// A world that asks for more than the sandbox gives: another file.
+package oikome:reaching@1.0.0;
+
+interface files {
+  open: func(path: string) -> result<list<u8>, string>;
+}
+
+world reaching {
+  import oikome:preview/source@1.0.0;
+  import files;
+  use oikome:preview/types@1.0.0.{image};
+  export render: func(format: string) -> result<image, string>;
+}

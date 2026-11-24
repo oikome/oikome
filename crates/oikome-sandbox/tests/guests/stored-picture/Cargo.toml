@@ -1,0 +1,27 @@
+# A preview plugin for the tests: it gives back the JPEG a file ends with.
+# Its built component is kept in ../../plugins/stored-picture, a package the
+# API's and the app's tests install from that folder; the sandbox's tests
+# build it from this source and try both (UPDATE_PLUGINS=1 writes it). A
+# package of its own, outside the workspace. Real preview plugins (RAW
+# Preview) are in the oikome-plugins repository.
+[package]
+name = "oikome-stored-picture-guest"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1
+
+[workspace]

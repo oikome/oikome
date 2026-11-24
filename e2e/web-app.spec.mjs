@@ -418,20 +418,30 @@ test("a CSV source becomes its file in a file collection, with an analysis table
     const csv = join(dir, "meter.csv");
     writeFileSync(csv, "day,kwh,room\n2026-11-01,4.2,Kitchen\n2026-11-02,3.8,Office\n");
     await api("create_space", { name: "meter-readings", kind: "transactional" });
+    // A file joins a collection that exists; it does not become one.
+    const home = join(dir, "home");
+    mkdirSync(home);
+    await api("view_in_place", { path: home, name: "meter-home" });
     const added = await api("add_source", { kind: "csv", path: csv, space: "meter-readings", name: "meter-import" });
     await page.goto(`${base}/sources/${added.name}`);
     await page.getByRole("button", { name: "Convert to File…" }).click();
     const dialog = page.getByRole("dialog", { name: "Convert to File" });
     // The collection it wrote stays, and says so.
     await expect(dialog).toContainText("meter-readings stays as it is");
-    await expect(dialog.getByLabel("New Collection Name")).toHaveValue("meter");
+    await expect(dialog.getByLabel("Add To").locator("option", { hasText: "New Collection" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Convert", exact: true })).toBeDisabled();
+    await dialog.getByLabel("Add To").selectOption("meter-home");
     await dialog.getByRole("button", { name: "Convert", exact: true }).click();
-    await expect(page).toHaveURL(`${base}/collections/meter`);
-    await expect(page.locator(".oik-toasts")).toContainText("meter.csv is now in meter.");
+    await expect(page).toHaveURL(`${base}/collections/meter-home`);
+    await expect(page.locator(".oik-toasts")).toContainText("meter.csv is now in meter-home.");
     await expect(page.getByText("meter.csv", { exact: true }).first()).toBeVisible();
     expect((await api("list_sources")).some((source) => source.name === "meter-import")).toBe(false);
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
-    await expect(page.getByRole("radio", { name: "meter", exact: true })).toBeVisible();
+    await expect(page.getByText("meter-home.meter", { exact: true })).toBeVisible();
+    await api("drop_space", { space: "meter-home" });
+    // The collection the source wrote stays until removed; removed here so
+    // the tests after this one start from the same collections.
+    await api("drop_space", { space: "meter-readings" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -913,17 +923,24 @@ test("Add Files references only selected originals and shows each file's real so
   const first = mkdtempSync(join(homedir(), "oikome-reference-one-"));
   const second = mkdtempSync(join(homedir(), "oikome-reference-two-"));
   const label = (path) => path.split(/[\\/]/).pop();
-  const name = label(first).toLowerCase();
+  const name = "picked-originals";
   writeFileSync(join(first, "keep.md"), "The selected original");
   writeFileSync(join(first, "sibling.md"), "Must not be added");
   writeFileSync(join(second, "other.txt"), "An original from another folder");
   writeFileSync(join(second, "sibling.txt"), "Must not be added either");
   try {
+    await api("create_space", { name });
     await page.goto(`${base}/collections`);
     await page.getByRole("button", { name: "Add Files", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Add Files" });
     await expect(dialog.getByRole("radio", { name: /Keep in Place/ })).toBeChecked();
+    // A new collection starts from a folder: selected files are not offered
+    // for one. They join a collection that exists.
     await dialog.getByLabel("Add To").selectOption("__new__");
+    await expect(dialog.getByLabel("What to Add").locator("option")).toHaveText(["A whole folder"]);
+    await expect(dialog).toContainText("A new collection starts from a folder.");
+    await dialog.getByLabel("Add To").selectOption(name);
+    await expect(dialog.getByLabel("What to Add")).toHaveValue("files");
     await dialog.getByRole("button", { name: "Choose Files…" }).click();
     const browser = page.getByRole("dialog", { name: "Choose Files" });
     await browser.getByRole("button", { name: label(first), exact: true }).click();
@@ -2034,7 +2051,7 @@ test("the persistent Network entry shows the real listen address and opens Netwo
   );
   expect(settingsOrder).toEqual([
     ["Storage", "Network", "Embedding Models"],
-    ["Appearance", "File Editing Confirmations", "Data Center Details", "Recovery Key"],
+    ["Appearance", "File Editing Confirmations", "Data Center Details", "Recovery Key", "Backup"],
   ]);
   const fullDid = (await api("node_info")).did;
   const details = page.getByRole("region", { name: "Data Center Details" });
@@ -2841,7 +2858,7 @@ test("Back returns to the page before, and closed panels stay closed", async () 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   // A phone's pages are in the tab bar at the bottom: three tabs and More.
   const tabs = page.getByRole("navigation", { name: "Main" });
-  await expect(tabs.getByRole("link")).toHaveText(["Home", "Collections", "Sharing"]);
+  await expect(tabs.getByRole("link")).toHaveText([/^Home$/, /^Collections/, /^Sharing$/]);
   await expect(tabs.getByRole("link", { name: "Sharing" })).toHaveAttribute("aria-current", "page");
   await tabs.getByRole("button", { name: "More" }).click();
   await page.getByRole("menuitem", { name: "Activity" }).click();

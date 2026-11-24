@@ -2322,7 +2322,6 @@ async fn a_spreadsheet_s_sheets_become_analysis_tables() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("ledger".into()),
@@ -2483,7 +2482,6 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: root.join("household").to_string_lossy().into_owned(),
                 name: Some("household".into()),
@@ -2491,16 +2489,15 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
         )
         .await
         .unwrap();
-    let convert = |space: Option<&str>, name: Option<&str>, source: &str| ConvertSource {
+    let convert = |space: &str, source: &str| ConvertSource {
         source: source.into(),
-        space: space.map(Into::into),
-        name: name.map(Into::into),
+        space: space.into(),
     };
 
     // Not into the collection it writes.
     let own = n
         .api
-        .convert_source_to_file(&OWNER, convert(Some("finance"), None, "bank-import"))
+        .convert_source_to_file(&OWNER, convert("finance", "bank-import"))
         .await;
     assert_eq!(own.unwrap_err().code, ErrorCode::Invalid);
 
@@ -2508,7 +2505,7 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
     // the collection's own statement.csv, with an analysis table.
     let converted = n
         .api
-        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .convert_source_to_file(&OWNER, convert("household", "bank-import"))
         .await
         .unwrap();
     assert_eq!(converted.space.name, "household");
@@ -2571,25 +2568,24 @@ async fn a_csv_source_becomes_its_file_in_a_file_collection() {
     assert!(tables.iter().any(|table| table.name == "bank_import"));
     let again = n
         .api
-        .convert_source_to_file(&OWNER, convert(Some("household"), None, "bank-import"))
+        .convert_source_to_file(&OWNER, convert("household", "bank-import"))
         .await;
     assert!(again.is_err(), "the source is gone");
 
-    // Or into a new collection of its own.
+    // A file does not become a collection: one must be chosen.
     let card = root.join("bank/card.csv");
     std::fs::write(&card, "day,amount\n2026-02-01,9.90\n").unwrap();
     n.api
         .add_source(&OWNER, source(&card, "card-import"))
         .await
         .unwrap();
-    let converted = n
+    let none = n
         .api
-        .convert_source_to_file(&OWNER, convert(None, Some("card"), "card-import"))
+        .convert_source_to_file(&OWNER, convert(" ", "card-import"))
         .await
-        .unwrap();
-    assert_eq!(converted.space.name, "card");
-    assert_eq!(converted.path, "card.csv");
-    assert_eq!(converted.table.as_deref(), Some("card"));
+        .unwrap_err();
+    assert_eq!(none.code, ErrorCode::Invalid);
+    assert!(n.catalog.get_source("card-import").is_ok());
 }
 
 #[tokio::test]
@@ -3835,6 +3831,22 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
     std::fs::write(private.join("private.md"), "private").unwrap();
     let file = |path: &std::path::Path| vec![path.to_string_lossy().into_owned()];
 
+    // A collection is made first, as a folder is; files then join it.
+    n.api
+        .create_space(
+            &OWNER,
+            NewSpace {
+                name: "references".into(),
+                kind: None,
+                storage: None,
+            },
+        )
+        .await
+        .unwrap();
+    let add = |files: Vec<String>| AddInPlaceFiles {
+        space: "references".into(),
+        files,
+    };
     for files in [
         vec![],
         vec!["relative.md".into()],
@@ -3844,15 +3856,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
     ] {
         let e = n
             .api
-            .view_in_place(
-                &OWNER,
-                ViewInPlace {
-                    place: None,
-                    path: String::new(),
-                    name: Some("references".into()),
-                    files: Some(files),
-                },
-            )
+            .add_in_place_files(&OWNER, add(files))
             .await
             .unwrap_err();
         assert_eq!(e.code, ErrorCode::Invalid);
@@ -3863,15 +3867,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
         std::os::unix::fs::symlink(one.join("keep.md"), &link).unwrap();
         assert!(n
             .api
-            .view_in_place(
-                &OWNER,
-                ViewInPlace {
-                    place: None,
-                    path: String::new(),
-                    name: Some("references".into()),
-                    files: Some(file(&link)),
-                },
-            )
+            .add_in_place_files(&OWNER, add(file(&link)))
             .await
             .is_err());
     }
@@ -3879,10 +3875,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
         .api
         .add_in_place_files(
             &Caller::Principal { did: did(8) },
-            AddInPlaceFiles {
-                space: "references".into(),
-                files: file(&one.join("keep.md")),
-            },
+            add(file(&one.join("keep.md"))),
         )
         .await
         .unwrap_err();
@@ -3890,15 +3883,7 @@ async fn selected_originals_form_a_multi_source_collection_without_exposing_sibl
 
     let viewed = n
         .api
-        .view_in_place(
-            &OWNER,
-            ViewInPlace {
-                place: None,
-                path: String::new(),
-                name: Some("references".into()),
-                files: Some(file(&one.join("keep.md"))),
-            },
-        )
+        .add_in_place_files(&OWNER, add(file(&one.join("keep.md"))))
         .await
         .unwrap();
     assert_eq!(viewed.in_place.as_ref().unwrap().files, 1);
@@ -4035,7 +4020,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
             .view_in_place(
                 &OWNER,
                 ViewInPlace {
-                    files: None,
                     place: None,
                     path: path.into(),
                     name: None,
@@ -4050,7 +4034,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: Some("nas".into()),
                 path: "photos".into(),
                 name: None,
@@ -4066,7 +4049,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: inside.to_string_lossy().into_owned(),
                 name: None,
@@ -4090,7 +4072,6 @@ async fn folders_are_viewed_in_place_and_folder_sources_become_so() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -4370,7 +4351,6 @@ async fn a_whole_folder_joins_an_existing_file_collection() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: first.to_string_lossy().into_owned(),
                 name: Some("notes".into()),
@@ -4445,7 +4425,6 @@ async fn a_folder_on_a_storage_joins_a_collection_by_reference() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: notes.to_string_lossy().into_owned(),
                 name: Some("notes".into()),
@@ -4701,7 +4680,6 @@ async fn safe_text_editing_preserves_sources_copies_and_confirmation_boundaries(
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: vault.to_string_lossy().into_owned(),
                 name: Some("notes".into()),
@@ -5079,7 +5057,6 @@ async fn media_files_have_native_views_and_ranged_originals() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: media.to_string_lossy().into_owned(),
                 name: None,
@@ -5138,7 +5115,6 @@ async fn open_with_accepts_only_an_owner_and_an_indexed_local_path() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -5216,7 +5192,6 @@ async fn a_folders_files_open_as_tables_read_where_they_are() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: trip.to_string_lossy().into_owned(),
                 name: None,
@@ -5396,7 +5371,6 @@ async fn save_to_files_keeps_originals_and_never_overwrites() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -5453,7 +5427,6 @@ async fn save_to_space_keeps_original_bytes_and_portfolio() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -5748,7 +5721,6 @@ async fn saved_files(n: &Node, name: &str) -> tempfile::TempDir {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -5804,7 +5776,6 @@ async fn public_snapshot_is_signed_private_and_revocable() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("source".into()),
-                files: None,
             },
         )
         .await
@@ -6684,7 +6655,6 @@ async fn knowledge_is_the_owners_and_its_requests_are_checked() {
                 place: None,
                 path: docs.to_string_lossy().into_owned(),
                 name: Some("docs".into()),
-                files: None,
             },
         )
         .await
@@ -6808,7 +6778,6 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("household".into()),
-                files: None,
             },
         )
         .await
@@ -7102,7 +7071,6 @@ async fn datasets_in_a_folder_are_analysis_tables_read_in_place() {
         .view_in_place(
             &OWNER,
             ViewInPlace {
-                files: None,
                 place: None,
                 path: root.to_string_lossy().into_owned(),
                 name: Some("lab".into()),
@@ -7218,4 +7186,250 @@ async fn datasets_in_a_folder_are_analysis_tables_read_in_place() {
         count_of(&n, "lab.orders WHERE item = 'tea' AND amount = 3.5").await,
         1
     );
+}
+
+/// A camera's RAW file as TIFF writes it: one directory that says how the
+/// picture is turned and where the stored JPEG is, then the JPEG.
+fn raw_file(jpeg: &[u8], orientation: u16) -> Vec<u8> {
+    let entry = |tag: u16, kind: u16, value: u32| {
+        let mut out = tag.to_le_bytes().to_vec();
+        out.extend(kind.to_le_bytes());
+        out.extend(1u32.to_le_bytes());
+        out.extend(value.to_le_bytes());
+        out
+    };
+    // Header (8), a directory of three entries (2 + 36 + 4), the JPEG.
+    let at = 50u32;
+    let mut file = b"II\x2A\x00\x08\x00\x00\x00\x03\x00".to_vec();
+    file.extend(entry(0x0112, 3, u32::from(orientation)));
+    file.extend(entry(0x0201, 4, at));
+    file.extend(entry(0x0202, 4, jpeg.len() as u32));
+    file.extend(0u32.to_le_bytes());
+    assert_eq!(file.len() as u32, at);
+    file.extend(jpeg);
+    file
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_raw_file_is_shown_by_an_installed_preview_plugin_in_the_sandbox() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("shoot");
+    std::fs::create_dir_all(&root).unwrap();
+    // The picture the camera stored: wider than tall, to be turned on its side.
+    let mut stored = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        64,
+        48,
+        image::Rgb([200, 80, 40]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut stored),
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
+    let raw = raw_file(&stored, 6);
+    std::fs::write(root.join("IMG_0001.DNG"), &raw).unwrap();
+    std::fs::write(
+        root.join("broken.nef"),
+        b"II\x2A\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+    )
+    .unwrap();
+    std::fs::write(root.join("notes.txt"), "not a picture").unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("shoot".into()),
+            },
+        )
+        .await
+        .unwrap();
+    let file = |path: &str| FileRef {
+        space: "shoot".into(),
+        path: path.into(),
+    };
+
+    // A preview plugin is a package with code to run, installed like any
+    // other (RAW Preview is one, in the oikome-plugins repository; this is
+    // the tests' own). Before it, a RAW file has no preview.
+    let before = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap_err();
+    assert_eq!(before.code, ErrorCode::NotFound);
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../oikome-sandbox/tests/plugins/stored-picture");
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(package.to_string_lossy().into_owned()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .refresh_space(
+            &OWNER,
+            SpaceRef {
+                space: "shoot".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    assert!(
+        plugins.iter().all(|p| p.id != "raw-preview"),
+        "RAW Preview is not built in"
+    );
+    let plugin = plugins.iter().find(|p| p.id == "stored-picture").unwrap();
+    assert!(plugin.installed);
+    assert_eq!(
+        plugin.capabilities.preview[0].entry.as_deref(),
+        Some("preview.wasm")
+    );
+
+    // The stored picture, as it is, with how to turn it said in it.
+    let preview = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    assert_eq!(preview.content_type, "image/jpeg");
+    assert!(preview.bytes.ends_with(&stored[2..]));
+    assert!(
+        preview.bytes.len() > stored.len(),
+        "its orientation was put in"
+    );
+    // Its thumbnail is turned: taller than wide.
+    let thumb = n
+        .api
+        .file_thumbnail(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    let small = image::load_from_memory(&thumb).unwrap();
+    assert_eq!(
+        small.width() * 4,
+        small.height() * 3,
+        "64 by 48, on its side"
+    );
+    // The listing says which plugin shows it; a file no plugin shows has none.
+    let listed = n
+        .api
+        .list_files(
+            &OWNER,
+            ListFiles {
+                space: "shoot".into(),
+                folder: None,
+                offset: None,
+                limit: None,
+                deep: None,
+                kind: None,
+                sort: None,
+                descending: None,
+            },
+        )
+        .await
+        .unwrap();
+    let preview_of = |name: &str| {
+        listed
+            .files
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap()
+            .preview
+            .clone()
+    };
+    assert_eq!(
+        preview_of("IMG_0001.DNG").as_deref(),
+        Some("stored-picture")
+    );
+    assert_eq!(preview_of("notes.txt"), None);
+    // The RAW file was only read.
+    assert_eq!(std::fs::read(root.join("IMG_0001.DNG")).unwrap(), raw);
+    // Kept for the next time, and given again from there.
+    let kept = n.catalog.oikome_dir().join("previews");
+    assert_eq!(std::fs::read_dir(&kept).unwrap().count(), 2);
+    let again = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    assert_eq!(again.bytes, preview.bytes);
+
+    // A RAW file with no picture in it says so; other files have no preview.
+    let none = n
+        .api
+        .file_preview(&OWNER, file("broken.nef"))
+        .await
+        .unwrap_err();
+    assert_eq!(none.code, ErrorCode::Invalid, "{none:?}");
+    assert!(none.message.contains("holds no preview image"), "{none:?}");
+    let other = n
+        .api
+        .file_preview(&OWNER, file("notes.txt"))
+        .await
+        .unwrap_err();
+    assert_eq!(other.code, ErrorCode::NotFound);
+    assert!(n
+        .api
+        .file_thumbnail(&OWNER, file("notes.txt"))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .file_preview(&Caller::Principal { did: did(9) }, file("IMG_0001.DNG"))
+        .await
+        .is_err());
+
+    // The file changes: its preview is made again.
+    let mut bigger = Vec::new();
+    image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+        96,
+        32,
+        image::Rgb([10, 90, 160]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut bigger),
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
+    std::fs::write(root.join("IMG_0001.DNG"), raw_file(&bigger, 1)).unwrap();
+    n.api
+        .refresh_space(
+            &OWNER,
+            SpaceRef {
+                space: "shoot".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let changed = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap();
+    assert_eq!(changed.bytes, bigger, "upright already: left as stored");
+
+    // Without the plugin a RAW file has no preview.
+    n.api
+        .remove_plugin(
+            &OWNER,
+            PluginRef {
+                id: "stored-picture".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let gone = n
+        .api
+        .file_preview(&OWNER, file("IMG_0001.DNG"))
+        .await
+        .unwrap_err();
+    assert_eq!(gone.code, ErrorCode::NotFound);
 }

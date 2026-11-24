@@ -10,13 +10,14 @@ import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Button, ConfirmDialog, ErrorText, Icon, IconButton, Segmented, Tag, useToast } from "@oikome/ui";
 import type { FileItem } from "@oikome/client";
-import { fileItems, forgetPreviews, tagsOf, withoutTagLines } from "./content";
+import { fileItems, forgetPreviews, pictureUrl, showsPicture, tagsOf, withoutTagLines } from "./content";
 import { tableText, writeClipboard } from "./clipboard";
 import { itemDate } from "./covers";
 import { rawMessage, useAction, useClient, useLoad } from "./data";
 import { bytes, dayAndTime } from "./format";
 import { itemPath } from "./item";
 import type { ItemNav } from "./item";
+import { inLanguage } from "./plugins";
 import { navigate } from "./router";
 import { strings } from "./strings";
 
@@ -31,6 +32,9 @@ const PdfView = lazy(() => import("./PdfView"));
 const s = strings.collections;
 const PAGE_ROWS = 100;
 
+/** What cameras call their unprocessed files, whichever plugin shows them. */
+const RAW_FORMATS = new Set(["cr2", "cr3", "nef", "arw", "dng", "orf", "pef", "raf", "rw2"]);
+
 /** What a file is, in a word: a data file or original medium by its format. */
 export function fileKindLabel(name: string, kind: string, mediaType?: string | null, format?: string): string {
   const extension = name.split(".").pop()?.toLowerCase() ?? "";
@@ -43,6 +47,7 @@ export function fileKindLabel(name: string, kind: string, mediaType?: string | n
   if (mediaType?.startsWith("video/")) return s.fileKinds.video!;
   if (mediaType === "image/svg+xml") return s.fileKinds.vector!;
   if (mediaType === "application/pdf") return "PDF";
+  if (kind !== "image" && RAW_FORMATS.has(extension)) return s.fileKinds.raw!;
   return s.fileKinds[kind] ?? s.fileKinds.other!;
 }
 
@@ -93,6 +98,21 @@ export function FileView({
   );
   const file = detail.data ?? listed;
   const host = useLoad(() => client.nodeInfo(), []);
+  // A plugin's picture of the file (a RAW file's stored one): whether there
+  // is one is known once it is asked for.
+  const previewed = detail.data?.preview ? detail.data : undefined;
+  const preview = useLoad(
+    async () => (previewed ? (await fetch(pictureUrl(client, space, previewed), { credentials: "same-origin" })).ok : true),
+    [space, previewed?.path, previewed?.modifiedMs],
+  );
+  const noPreview = Boolean(previewed) && preview.data === false;
+  // The plugin under the name it has in the language in use.
+  const previewer = useLoad(
+    async () =>
+      previewed ? (await client.listPlugins()).map(inLanguage).find((plugin) => plugin.id === previewed.preview)?.name : undefined,
+    [previewed?.preview],
+  );
+  const previewName = previewer.data ?? "";
   const rows = useLoad(
     async () =>
       file?.content.views.includes("table")
@@ -205,6 +225,7 @@ export function FileView({
     ? [
         [s.in_, space],
         [s.colKind, fileKindLabel(file.name, file.kind, file.content.mediaType, file.content.format)],
+        ...(file.preview && previewName && !noPreview ? ([[s.previewLabel, s.previewBy(previewName)]] as [string, ReactNode][]) : []),
         [s.colSize, bytes(Number(file.size))],
         [s.colModified, changed],
         [s.keptOn, facts.keptOn],
@@ -336,14 +357,14 @@ export function FileView({
           {detail.error && <ErrorText>{detail.error}</ErrorText>}
           {reveal.error && <ErrorText>{reveal.error}</ErrorText>}
           {!file && !detail.error && <div className="screen-item__skeleton oik-skel" aria-hidden="true" />}
-          {file?.content.views.includes("image") && (
+          {file && showsPicture(file) && !noPreview && (
             <div className="screen-fileview__image">
               <Suspense fallback={<div className="screen-item__skeleton oik-skel" aria-hidden="true" />}>
                 {file.content.format === "svg" ? (
                   <SafeSvgImage src={client.fileUrl("original", { space, path: file.path })} alt={file.title ?? file.name} />
                 ) : (
                   <ImageView
-                    src={client.fileUrl("original", { space, path: file.path })}
+                    src={pictureUrl(client, space, file)}
                     alt={file.title ?? file.name}
                     gallery={nav?.gallery}
                   />
@@ -448,12 +469,13 @@ export function FileView({
               )}
             </div>
           )}
-          {file && file.content.views.length === 0 && (
+          {file && file.content.views.length === 0 && (!file.preview || noPreview) && (
             <div className="screen-fileview__other">
               <Icon name="collection" />
               <p>{fileKindLabel(file.name, file.kind, file.content.mediaType, file.content.format)}</p>
               <p className="screen-muted">{bytes(Number(file.size))}</p>
               {file.content.unavailableReason && <p className="screen-muted">{file.content.unavailableReason}</p>}
+              {noPreview && <p className="screen-muted">{s.noPreview(previewName)}</p>}
               {local && (
                 <Button icon="folder" disabled={reveal.busy} onClick={() => void reveal.run(() => client.showFolder({ space, path: file.path }))}>
                   {s.showInFinder(host.data?.platform ?? "")}

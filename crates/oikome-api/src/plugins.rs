@@ -52,8 +52,10 @@ const MAX_FILES: usize = 200;
 const MAX_BYTES: u64 = 8 << 20;
 const MAX_DEPTH: usize = 4;
 /// The kinds of file a plugin may have, by extension.
-const KINDS: [&str; 13] = [
+const KINDS: [&str; 14] = [
     "html", "js", "css", "json", "svg", "png", "jpg", "jpeg", "webp", "gif", "woff2", "txt", "md",
+    // A preview's code, run in the sandbox only.
+    "wasm",
 ];
 const MAX_INSTALLED: usize = 50;
 /// What one read gives a plugin: rows, and bytes (photos are large).
@@ -494,6 +496,11 @@ pub(crate) fn read_manifest(bytes: &[u8], built_in: bool) -> Result<Plugin, ApiE
                 "preview formats must be lowercase extensions without a dot",
             ));
         }
+        if let Some(entry) = &preview.entry {
+            if !safe_path(entry) || !entry.ends_with(".wasm") {
+                return Err(unfit("a preview's entry is a .wasm file of the package"));
+            }
+        }
     }
     let mut client_ids = std::collections::BTreeSet::new();
     for client in &mut capabilities.mcp_clients {
@@ -767,6 +774,10 @@ impl Api {
     /// with no removal record keeps its old choices; a deliberate removal
     /// stays removed, including after a restart.
     pub(crate) fn ensure_built_ins(&self) -> Result<(), ApiError> {
+        // One at a time: listing files and listing plugins both come here,
+        // and two installs of one package would move its folder twice.
+        static INSTALLING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one = INSTALLING.lock().unwrap_or_else(|e| e.into_inner());
         let new_node = !self.plugins_path().exists();
         let has_removal_record = self.removed_built_ins_path().exists();
         if !new_node && !has_removal_record {
@@ -970,6 +981,19 @@ impl Api {
             ))
             .because("plugins_too_many")
             .with("max", MAX_INSTALLED.to_string()));
+        }
+        // A preview's code is checked before the package is kept: it must be
+        // there, and be a component the sandbox loads.
+        for preview in &plugin.capabilities.preview {
+            let Some(entry) = &preview.entry else {
+                continue;
+            };
+            let wasm = files
+                .iter()
+                .find(|(name, _)| name == entry)
+                .map(|(_, bytes)| bytes)
+                .ok_or_else(|| unfit(format!("the package has no {entry}")))?;
+            crate::previews::load(wasm).map_err(|e| unfit(e.to_string()))?;
         }
         self.put_files(&plugin.id, files)?;
         let did = match &existing {
@@ -1197,6 +1221,50 @@ impl Api {
                 Err(e)
             }
         }
+    }
+
+    /// The formats installed plugins make previews of, each with the name
+    /// of the plugin that does (the first installed that declares it).
+    pub(crate) fn preview_formats(&self) -> Result<crate::in_place::PreviewFormats, ApiError> {
+        self.ensure_built_ins()?;
+        let mut formats = crate::in_place::PreviewFormats::new();
+        for plugin in self.installed()? {
+            for preview in plugin.capabilities().preview {
+                if preview.entry.is_none() {
+                    continue;
+                }
+                for format in preview.formats {
+                    formats.entry(format).or_insert_with(|| plugin.id.clone());
+                }
+            }
+        }
+        Ok(formats)
+    }
+
+    /// The installed plugin that makes previews of files with `extension`
+    /// (lower case), and its code: the first installed that declares it.
+    pub(crate) fn previewer_of(
+        &self,
+        extension: &str,
+    ) -> Result<Option<crate::previews::Previewer>, ApiError> {
+        self.ensure_built_ins()?;
+        for plugin in self.installed()? {
+            for preview in plugin.capabilities().preview {
+                let Some(entry) = preview.entry else {
+                    continue;
+                };
+                if !preview.formats.iter().any(|format| format == extension) || !safe_path(&entry) {
+                    continue;
+                }
+                let wasm = self.plugins_dir().join(&plugin.id).join(&entry);
+                return Ok(Some(crate::previews::Previewer {
+                    plugin: plugin.id,
+                    version: plugin.version,
+                    wasm,
+                }));
+            }
+        }
+        Ok(None)
     }
 
     /// A file of an installed plugin, for the web server: its bytes, with

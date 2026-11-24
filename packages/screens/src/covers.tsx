@@ -9,7 +9,7 @@ import type { TileTone } from "@oikome/ui";
 import type { FileFolder, FileItem, Share, SpaceSummary } from "@oikome/client";
 import type { Table } from "apache-arrow";
 import { FileArt, headRows } from "./FileArt";
-import { PREVIEW_ROWS, loadPreview, plainText, withoutTagLines } from "./content";
+import { PREVIEW_ROWS, hasThumbnail, loadPreview, plainText, withoutTagLines } from "./content";
 import type { Item, Preview } from "./content";
 import { useClient, useLoad } from "./data";
 import { calendarDate, dateTime, monthAndDay, wallTime } from "./format";
@@ -82,7 +82,7 @@ function FileCollage({ space, files }: { space: SpaceSummary; files: FileItem[] 
           key={file.path}
           file={file}
           source={client.fileUrl("original", { space: space.name, path: file.path })}
-          image={file.kind === "image" && file.thumbnail ? client.fileUrl("thumb", { space: space.name, path: file.path }) : undefined}
+          image={hasThumbnail(file) ? client.fileUrl("thumb", { space: space.name, path: file.path }) : undefined}
         />
       ))}
     </div>

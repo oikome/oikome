@@ -1,0 +1,45 @@
+// What a preview plugin is given and what it gives back (PR 32).
+//
+// A preview plugin is a WebAssembly component of the world `preview`. It is
+// called once per file, in an instance of its own, and is given exactly one
+// file to read through `source`. There is nothing else to import: no clock,
+// no randomness, no environment, no file system and no network.
+package oikome:preview@1.0.0;
+
+/// The one file a call may read.
+interface source {
+  /// Its size in bytes.
+  size: func() -> u64;
+  /// Up to `len` bytes from `offset`; fewer at the end of the file. No more
+  /// than 8 MiB is given per call.
+  read: func(offset: u64, len: u32) -> result<list<u8>, string>;
+}
+
+interface types {
+  /// How the image was made from the file.
+  enum origin {
+    /// Taken out of the file as its maker stored it (a RAW file's JPEG).
+    embedded,
+    /// Made by the plugin from the file's data.
+    developed,
+  }
+
+  record image {
+    /// `image/jpeg`, `image/png` or `image/webp`.
+    content-type: string,
+    bytes: list<u8>,
+    origin: origin,
+    /// The EXIF orientation (1 to 8) to show it in, when the image itself
+    /// does not say.
+    orientation: option<u8>,
+  }
+}
+
+world preview {
+  import source;
+  use types.{image};
+
+  /// An image of the file, whose format is `format` (its extension in
+  /// lower case, as the plugin declared it).
+  export render: func(format: string) -> result<image, string>;
+}

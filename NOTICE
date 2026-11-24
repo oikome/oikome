@@ -312,3 +312,13 @@ Fonts of the web app (packages/ui/src/fonts; the OFL text of each is beside it)
 
 rustix (free and total space of a storage's disk; already used through tempfile)
   https://github.com/bytecodealliance/rustix  -  Apache License 2.0 with LLVM exception, or MIT
+
+Wasmtime (wasmtime, with Cranelift; the sandbox plugin code runs in, crates/oikome-sandbox)
+  https://wasmtime.dev/  -  Apache License 2.0 WITH LLVM-exception
+  Copyright The Bytecode Alliance
+
+wit-bindgen and wasm-tools (wit-bindgen in the code of the tests' own plugins,
+  crates/oikome-sandbox/tests/guests; wit-component when the tests build them;
+  development only for the node)
+  https://github.com/bytecodealliance/wit-bindgen, https://github.com/bytecodealliance/wasm-tools
+  Apache License 2.0 WITH LLVM-exception  -  Copyright The Bytecode Alliance

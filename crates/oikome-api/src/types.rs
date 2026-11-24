@@ -166,7 +166,8 @@ pub struct InPlace {
     pub reachable: Option<bool>,
 }
 
-/// `view_in_place`: a collection that views a folder where it is.
+/// `view_in_place`: a collection that views a folder where it is. A
+/// collection is a folder: files join one that exists (`add_in_place_files`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(optional_fields)]
@@ -177,9 +178,6 @@ pub struct ViewInPlace {
     pub path: String,
     /// The collection's name; made from the folder's when left out.
     pub name: Option<String>,
-    /// Selected absolute local file paths; `None` means the whole folder.
-    #[serde(default)]
-    pub files: Option<Vec<String>>,
 }
 
 /// `add_in_place_folder`: add a whole folder, on this computer or a storage, to an
@@ -380,6 +378,10 @@ pub struct FileItem {
     pub text: Option<String>,
     /// Whether the index has a thumbnail of it.
     pub thumbnail: bool,
+    /// The id of the plugin that makes a picture of it (a RAW file's stored one),
+    /// for a file Oikome does not show itself: its picture and thumbnail are
+    /// asked for as the file's preview.
+    pub preview: Option<String>,
     pub content: FileContent,
 }
 
@@ -1136,15 +1138,10 @@ pub struct SourceRef {
 /// read where it is; its analysis table is made and the source stops.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
 pub struct ConvertSource {
     pub source: String,
-    /// An existing file collection; a new one when left out.
-    #[serde(default)]
-    pub space: Option<String>,
-    /// The new collection's name; made from the file's folder when left out.
-    #[serde(default)]
-    pub name: Option<String>,
+    /// The file collection it joins. A file does not become a collection.
+    pub space: String,
 }
 
 /// What `convert_source_to_file` did.
@@ -2062,13 +2059,19 @@ pub struct PluginSourceCapability {
     pub kind: SourceKind,
 }
 
-/// A content preview declaration, without host execution privileges.
+/// A content preview: the formats a plugin makes an image of. With `entry`
+/// its code is run for a file of one of them, in the sandbox, given that one
+/// file and nothing else (PR 32); without, it is a declaration only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(optional_fields)]
 pub struct PluginPreviewCapability {
     pub id: String,
     pub name: String,
     pub formats: Vec<String>,
+    /// The package's WebAssembly component of the world `preview`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
 }
 
 /// JSON or TOML configuration supported by the generic MCP setup writer.

@@ -733,6 +733,18 @@ impl WebState {
                 }
                 Err(e) => error(e),
             },
+            // The image a plugin made of a file Oikome does not show itself.
+            "preview" => match self.api.file_preview(&Caller::Owner, req).await {
+                Ok(preview) => {
+                    let mut response = respond(StatusCode::OK, preview.content_type, preview.bytes);
+                    response.headers_mut().insert(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, max-age=60"),
+                    );
+                    response
+                }
+                Err(e) => error(e),
+            },
             "original" => {
                 let range = byte_range(headers);
                 match self.api.file_original(&Caller::Owner, req, range).await {

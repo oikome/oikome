@@ -20,7 +20,7 @@
 //! file into a SQLite file; [`Api::view_folders_in_place`] turns each into a
 //! collection of the same name that views the same folder, once.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::path::Path;
 
@@ -319,8 +319,20 @@ fn numbered(name: &str, file: bool, taken: &std::collections::BTreeSet<String>) 
         .unwrap_or_else(|| name.to_string())
 }
 
-fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
+/// The formats installed plugins make previews of (extensions in lower
+/// case), each with the plugin's name.
+pub(crate) type PreviewFormats = HashMap<String, String>;
+
+fn item_of(entry: inplace::FileEntry, local: bool, previews: &PreviewFormats) -> FileItem {
     let kind = kind_of(&entry.kind);
+    // A file Oikome does not show itself, which an installed plugin does.
+    let preview = (kind == FileKind::Other)
+        .then(|| {
+            previews
+                .get(&crate::previews::extension_of(&entry.name))
+                .cloned()
+        })
+        .flatten();
     let modified_ms = u64::try_from(entry.modified_ms).unwrap_or(0);
     let content = content_of(
         &entry.name,
@@ -344,6 +356,7 @@ fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
         credit: entry.credit,
         text: entry.text,
         thumbnail: entry.thumbnail,
+        preview,
         content,
     }
 }
@@ -351,6 +364,7 @@ fn item_of(entry: inplace::FileEntry, local: bool) -> FileItem {
 fn saved_listing(
     entries: Vec<inplace::FileEntry>,
     req: ListFiles,
+    previews: &PreviewFormats,
 ) -> Result<FileListing, ApiError> {
     let folder = req.folder.unwrap_or_default();
     let folder = folder.trim_matches('/');
@@ -410,7 +424,7 @@ fn saved_listing(
         .into_iter()
         .skip(offset)
         .take(limit)
-        .map(|entry| item_of(entry, false))
+        .map(|entry| item_of(entry, false, previews))
         .collect();
     let folders = folders
         .into_iter()
@@ -429,7 +443,7 @@ fn saved_listing(
                 .filter(|entry| entry.kind == inplace::IMAGE)
                 .take(3)
                 .cloned()
-                .map(|entry| item_of(entry, false))
+                .map(|entry| item_of(entry, false, previews))
                 .collect();
             FileFolder {
                 name,
@@ -1006,28 +1020,10 @@ impl Api {
     ) -> Result<SpaceSummary, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let (path, include) = match req.files.as_deref() {
-            Some(files) => {
-                if req.place.as_deref().is_some_and(|place| {
-                    !place.is_empty() && place != oikome_catalog::space::PLACE_LOCAL
-                }) {
-                    return Err(ApiError::invalid(
-                        "selected file references are available only on this computer",
-                    ));
-                }
-                let files = canonical_files(files, Path::new(self.catalog.oikome_dir().as_path()))?;
-                let (root, mut sources) = new_file_sources(&files)?;
-                let include = sources.pop().and_then(|source| source.files);
-                (root, include)
-            }
-            None => {
-                let path = req.path.trim().to_string();
-                if path.is_empty() {
-                    return Err(ApiError::invalid("choose a folder"));
-                }
-                (path, None)
-            }
-        };
+        let path = req.path.trim().to_string();
+        if path.is_empty() {
+            return Err(ApiError::invalid("choose a folder"));
+        }
         let place = req
             .place
             .clone()
@@ -1057,7 +1053,6 @@ impl Api {
                         .unwrap_or_else(|| oikome_catalog::space::PLACE_LOCAL.to_string()),
                 ),
                 path: Some(path.to_string()),
-                include,
                 ..Default::default()
             })
             .await?;
@@ -1455,7 +1450,7 @@ impl Api {
         Ok(Some(entries))
     }
 
-    async fn saved_original(
+    pub(crate) async fn saved_original(
         &self,
         space: &str,
         path: &str,
@@ -1498,15 +1493,16 @@ impl Api {
         req: ListFiles,
     ) -> Result<FileListing, ApiError> {
         caller.require_owner()?;
+        let previews = self.preview_formats()?;
         self.refresh()?;
         if let Some(entries) = self.saved_entries(&req.space).await? {
-            return saved_listing(entries, req);
+            return saved_listing(entries, req, &previews);
         }
         let location = self.in_place_of(&req.space)?;
         let place = inplace::place_of(&self.catalog, &self.engines, &location)?;
         let item = |entry: inplace::FileEntry| {
             let local = place.local_file(&entry.path).is_some();
-            item_of(entry, local)
+            item_of(entry, local, &previews)
         };
         let folder = req.folder.unwrap_or_default();
         let folder = folder.trim_matches('/');
@@ -1569,15 +1565,16 @@ impl Api {
     pub async fn read_file(&self, caller: &Caller, req: FileRef) -> Result<FileItem, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        let previews = self.preview_formats()?;
         if let Some((entry, _)) = self.saved_original(&req.space, &req.path).await? {
-            return Ok(item_of(entry, false));
+            return Ok(item_of(entry, false, &previews));
         }
         let location = self.in_place_of(&req.space)?;
         let local = inplace::place_of(&self.catalog, &self.engines, &location)?
             .local_file(&req.path)
             .is_some();
         let mut item = inplace::file(&self.catalog, &location, &req.path)?
-            .map(|entry| item_of(entry, local))
+            .map(|entry| item_of(entry, local, &previews))
             .ok_or_else(|| {
                 ApiError::not_found(format!("{} has no file {}", req.space, req.path))
             })?;
@@ -1594,7 +1591,12 @@ impl Api {
                 .ok_or_else(|| ApiError::not_found("no thumbnail"));
         }
         let location = self.in_place_of(&req.space)?;
-        inplace::thumb(&self.catalog, &location, &req.path)?
+        if let Some(jpeg) = inplace::thumb(&self.catalog, &location, &req.path)? {
+            return Ok(jpeg);
+        }
+        // Not a photo Oikome reads itself: a plugin may make a picture of it.
+        self.preview_thumbnail(&req)
+            .await?
             .ok_or_else(|| ApiError::not_found("no thumbnail"))
     }
 

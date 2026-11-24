@@ -1,0 +1,22 @@
+[package]
+name = "oikome-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Runs plugin code (Apache-2.0 WITH LLVM-exception). Only what a sandbox with
+# no WASI needs: the runtime, the compiler and the component model.
+wasmtime = { version = "51", default-features = false, features = [
+    "runtime",
+    "cranelift",
+    "component-model",
+    "std",
+] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Turns the guests the tests build into components.
+wit-component = "0.263"
+tempfile = { workspace = true }

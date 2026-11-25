@@ -737,6 +737,70 @@ html:lang(zh-Hant) { --cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC";
   .grid3 { grid-template-columns: 1fr; } .fsubs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; } .fsubs .paper { padding: 10px 12px; gap: 4px; } .fsubs .paper q { font-size: 13px; line-height: 18px; } .fsubs .paper .more { display: none; } .hero { grid-template-columns: 1fr; } .pipe { grid-template-columns: repeat(4, 1fr); }
   .src { grid-template-columns: 34px 1fr auto; } .src .hide-s { display: none; } .facts { grid-template-columns: 1fr 1fr; }
 }
+/* ===================== Analysis: tables, views, and the explorer ===================== */
+.an__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.card__head:has(.an__views) { min-height: 62px; }
+.an__views { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.an__tab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: var(--bw) solid var(--line); border-radius: var(--r-chip); background: transparent; color: var(--ink2); cursor: pointer; white-space: nowrap; transition: background-color .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease); }
+.an__tab:hover { border-color: var(--ink2); color: var(--ink); }
+.an__tab.on { background: var(--ink); border-color: var(--ink); color: var(--raised); }
+.an__by { padding: 10px 16px; border-bottom: 1px solid var(--line2); color: var(--ink2); font-size: 12px; line-height: 16px; display: flex; align-items: center; gap: 8px; }
+.pv { --pv1: var(--ink); --pv2: color-mix(in srgb, var(--ink) 58%, var(--raised)); --pv3: color-mix(in srgb, var(--ink) 36%, var(--raised)); --pv4: color-mix(in srgb, var(--ink) 20%, var(--raised)); --pv5: color-mix(in srgb, var(--ink) 10%, var(--raised)); display: grid; grid-template-columns: minmax(0, 1fr) 248px; min-height: 420px; }
+[data-theme="bold"] .pv { --pv1: var(--t1); --pv2: var(--t2); --pv3: var(--t3); --pv4: var(--t4); --pv5: var(--t5); }
+.pv--closed { grid-template-columns: minmax(0, 1fr); }
+.pv__main { display: flex; flex-direction: column; min-width: 0; }
+.pv__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line2); }
+.pv__bar .faint { font: 400 12px/16px var(--mono); }
+.pv__viz { flex: 1; min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.pv__side { border-left: var(--bw) solid var(--line2); background: var(--sunk); padding: 14px; display: grid; gap: 14px; align-content: start; border-radius: 0 var(--r-card) var(--r-card) 0; }
+.pv__f { display: grid; gap: 5px; }
+.pv__pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 30px; padding: 0 9px; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); cursor: pointer; text-align: left; font: 400 12.5px/1 var(--mono); }
+.pv__pick:hover:not(:disabled) { border-color: var(--ink2); }
+.pv__pick:disabled { color: var(--ink3); cursor: default; }
+.pv__pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 18px; }
+.pv__pick svg { flex: none; transform: rotate(90deg); color: var(--ink3); }
+.pv__pick--none { color: var(--ink3); }
+.pv__two { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px; }
+.pv__all { display: grid; gap: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pv__colbtn { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border: 0; border-radius: var(--r-btn); background: transparent; cursor: pointer; text-align: left; font: 400 12.5px/1 var(--mono); }
+.pv__colbtn:hover { background: var(--active); }
+.pv__colbtn i { width: 16px; font: 600 10px/1 var(--mono); color: var(--ink3); font-style: normal; text-align: center; }
+.pv__cols { height: 340px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.pv__col { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 6px; min-width: 0; }
+.pv__track { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); min-height: 0; }
+.pv__stack { width: min(100%, 72px); display: flex; flex-direction: column-reverse; min-height: 2px; }
+.pv__stack i, .pv__hstack i { display: block; min-width: 0; min-height: 0; }
+.pv [data-s="0"] { background: var(--pv1); } .pv [data-s="1"] { background: var(--pv2); } .pv [data-s="2"] { background: var(--pv3); } .pv [data-s="3"] { background: var(--pv4); } .pv [data-s="4"] { background: var(--pv5); }
+[data-theme="bold"] .pv :is(.pv__stack, .pv__hstack) i, [data-theme="bold"] .pv__tile, [data-theme="bold"] .pv__key i { box-shadow: inset 0 0 0 1.5px var(--edge); }
+.pv__val { font: 400 11.5px/14px var(--mono); color: var(--ink2); white-space: nowrap; }
+.pv__lab { font: 400 11.5px/14px var(--mono); color: var(--ink2); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv__hbars { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 10px 12px; align-items: center; }
+.pv__hbars .pv__lab { text-align: left; max-width: 180px; }
+.pv__hstack { display: flex; height: 18px; min-width: 2px; }
+.pv__line { display: grid; gap: 6px; }
+.pv__line svg { width: 100%; height: 300px; border-bottom: 1px solid var(--line); overflow: visible; }
+.pv__line polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.pv__line polyline[data-s] { background: none; }
+.pv__line [data-s="0"] { stroke: var(--pv1); } .pv__line [data-s="1"] { stroke: var(--pv2); } .pv__line [data-s="2"] { stroke: var(--pv3); } .pv__line [data-s="3"] { stroke: var(--pv4); } .pv__line [data-s="4"] { stroke: var(--pv5); }
+[data-theme="bold"] .pv__line polyline { stroke-width: 3; }
+.pv__ticks { display: flex; justify-content: space-between; gap: 8px; }
+.pv__tm { flex: 1 1 0; display: flex; gap: 3px; min-width: 0; min-height: 0; }
+.pv__tm--v { flex-direction: column; }
+.pv__tmroot { height: 340px; display: flex; }
+.pv__tile { display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; padding: 8px; min-width: 0; min-height: 0; overflow: hidden; border-radius: 2px; font: 400 11.5px/14px var(--mono); }
+.pv__tile b { font: 600 12px/15px var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-theme="ink"] .pv__tile:is([data-s="0"], [data-s="1"]) { color: var(--raised); }
+[data-theme="bold"] .pv__tile { color: #111; }
+.pv__keys { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pv__key { display: inline-flex; align-items: center; gap: 6px; font: 400 11.5px/14px var(--mono); color: var(--ink2); }
+.pv__key i { width: 10px; height: 10px; border-radius: 2px; }
+.pv__grid { max-height: 380px; overflow: auto; margin: -16px; }
+.pv__grid .table td { height: 36px; font-size: 13px; }
+.pv__grid .table th { position: sticky; top: 0; }
+.pv__empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--ink2); padding: 24px; }
+.an__role { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); cursor: pointer; }
+.an__role svg { transform: rotate(90deg); color: var(--ink3); }
+@media (max-width: 900px) { .pv { grid-template-columns: minmax(0, 1fr); } .pv__side { border-left: 0; border-top: var(--bw) solid var(--line2); border-radius: 0 0 var(--r-card) var(--r-card); } }
 @media (prefers-reduced-motion: reduce) { *, ::before, ::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -899,6 +963,7 @@ const C = [
   { name: 'smart-home', kind: 'series', count: { n: 182340, u: 'readings' }, source: 'Home Assistant', stored: 'Home NAS', series: [6, 7, 9, 8, 11, 14, 13, 12, 15, 18, 17, 16, 14, 12, 10, 9, 11, 13, 16, 19, 18, 15, 12, 10] },
   { name: 'reading-list', kind: 'table', count: { n: 86, u: 'books' }, source: 'Goodreads', stored: 'iCloud Drive', rows: [['The Book of Disquiet', 'Pessoa', 'Reading'], ['Blindness', 'Saramago', 'Read'], ['Pereira Maintains', 'Tabucchi', 'Next']] },
   { name: 'lisbon-photos', kind: 'photos', count: { n: 6, u: 'photos' }, source: 'Example', stored: 'Local', art: ['alfama', 'pasteis', 'belem'], example: true },
+  { name: 'household', label: 'Household', kind: 'table', count: { n: 6, u: 'items' }, source: null, stored: 'Local', inPlace: true, rows: [['2025-11-02', 'Groceries', '42.10'], ['2025-11-01', 'Rent', '1250.00'], ['2025-10-31', 'Train to Porto', '18.40']] },
   { name: 'trips', label: 'Trips', kind: 'photos', count: { n: 9, u: 'photos' }, source: null, stored: 'Google Drive', inPlace: true, art: ['belem', 'tram', 'tiles'] },
 ];
 const FROM = [
@@ -968,7 +1033,7 @@ const DEVICES = [
   { name: 'iPad', ico: 'phone', st: 'idle', all: false, seenMin: 5760, reads: [] },
 ];
 const AI = [
-  { name: 'Claude Desktop', c: 'c4', reads: ['flomo-notes', 'reading-list'], requests: 23, st: 'ok' },
+  { name: 'Claude Desktop', c: 'c4', reads: ['flomo-notes', 'reading-list', 'household'], requests: 23, st: 'ok' },
   { name: 'Cursor', c: 'c1', reads: ['smart-home'], lastMin: 1440, st: 'idle' },
   { name: 'Old laptop agent', c: 'c5', reads: [], st: 'off', ended: '2025-10-20' },
 ];
@@ -1014,7 +1079,7 @@ const UNTIL = [['1w', '2025-11-09'], ['1m', '2025-12-02'], ['1y', '2026-11-02'],
 const untilText = (iso) => (iso ? md(iso) : t('noEnd'));
 const LEND = { to: ['Sam'], cores: 4, hours: 2, on: true };
 
-const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false, confirmations: [] };
+const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', fmode: {}, an: { table: {}, view: {}, draft: null, panel: true, n: 1 }, afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false, confirmations: [] };
 (() => {
   const qs = new URLSearchParams(location.search);
   try { S.mode = localStorage.getItem('oikome-proto-mode') || S.mode; S.lang = localStorage.getItem('oikome-proto-lang') || S.lang; } catch {}
@@ -1202,6 +1267,25 @@ const TREES = {
     Media: { folders: {}, files: [['field-recording.wav', 'audio', [8, 'KB'], '2025-10-14T18:20'], ['tram.mp4', 'video', [1.8, 'MB'], '2025-10-14T18:25'], ['route.svg', 'svg', [2, 'KB'], '2025-10-14T18:30']] },
   }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['Flights', '240.00'], ['Hotel', '410.00'], ['Trams', '18.00'], ['Dinner', '64.50']]], ['Oikome guide.pdf', 'pdf', [992, 'KB'], '2025-10-28T20:52', null, null], ['Portfolio.psd', 'psd', [84.2, 'MB'], '2025-10-28T20:50', null, null], ['DSC_2041.NEF', 'raw', [28.4, 'MB'], '2025-10-28T20:45', null, null], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
 };
+TREES.household = { folders: {
+  spending: { folders: {}, files: [['2025-08.csv', 'csv', [1, 'KB'], '2025-09-01T08:00', null, [['2025-08-01', 'Rent', '1250.00'], ['2025-08-05', 'Groceries', '49.90']]], ['2025-09.csv', 'csv', [1, 'KB'], '2025-10-01T08:00', null, [['2025-09-01', 'Rent', '1250.00'], ['2025-09-03', 'Groceries', '54.20']]], ['2025-10.csv', 'csv', [1, 'KB'], '2025-11-01T08:00', null, [['2025-10-01', 'Rent', '1250.00'], ['2025-10-04', 'Groceries', '61.30']]], ['2025-11.csv', 'csv', [1, 'KB'], '2025-11-02T18:30', null, [['2025-11-01', 'Rent', '1250.00'], ['2025-11-02', 'Groceries', '42.10']]]] },
+}, files: [['budget.csv', 'csv', [1, 'KB'], '2025-09-02T21:15', null, [['Home', '1350'], ['Food', '220'], ['Transport', '80']]], ['Lease.pdf', 'pdf', [412, 'KB'], '2024-07-01T10:00', null, null]] };
+// Analysis tables made from a folder collection's table files: their columns and what each is for,
+// their rows, and the views saved with them (by the owner, or by an assistant allowed to read the collection).
+const AN = {
+  household: {
+    spending: { files: 4, folder: 'spending', updated: '2025-11-02T18:30',
+      fields: [['date', 'date', 'time'], ['what', 'text', 'title'], ['category', 'text', 'category'], ['amount', 'number', 'amount']],
+      rows: [['2025-08-01', 'Rent', 'Home', 1250], ['2025-08-05', 'Groceries at Pingo Doce', 'Food', 49.9], ['2025-08-06', 'Metro pass', 'Transport', 40], ['2025-08-16', 'Bus to Costa Vicentina', 'Transport', 22], ['2025-08-20', 'Electricity', 'Home', 66.1], ['2025-08-23', 'Dinner at Zé da Mouraria', 'Food', 29], ['2025-08-28', 'Journey to Portugal', 'Books', 14.5],
+        ['2025-09-01', 'Rent', 'Home', 1250], ['2025-09-03', 'Groceries at Pingo Doce', 'Food', 54.2], ['2025-09-06', 'Metro pass', 'Transport', 40], ['2025-09-09', 'Dinner at Zé da Mouraria', 'Food', 31.5], ['2025-09-14', 'Electricity', 'Home', 58.4], ['2025-09-18', 'Blindness', 'Books', 16.9], ['2025-09-21', 'Groceries at Pingo Doce', 'Food', 47.8], ['2025-09-27', 'Train to Sintra', 'Transport', 4.6],
+        ['2025-10-01', 'Rent', 'Home', 1250], ['2025-10-04', 'Groceries at Pingo Doce', 'Food', 61.3], ['2025-10-06', 'Metro pass', 'Transport', 40], ['2025-10-11', 'Concert at Musicbox', 'Leisure', 28], ['2025-10-19', 'Groceries at Pingo Doce', 'Food', 52.4], ['2025-10-24', 'Dinner with Sam', 'Food', 38.5], ['2025-10-28', 'Electricity', 'Home', 61.2], ['2025-10-30', 'The Book of Disquiet', 'Books', 24.9], ['2025-10-31', 'Train to Porto', 'Transport', 18.4],
+        ['2025-11-01', 'Rent', 'Home', 1250], ['2025-11-02', 'Groceries at Pingo Doce', 'Food', 42.1]],
+      views: [{ id: 'v1', name: 'Food by month', by: 'Claude Desktop', on: '2025-11-01', plugin: 'line', group: 'date@month', split: null, col: 'amount', agg: 'sum', sort: 'none', where: ['category', 'Food'] }] },
+    budget: { files: 1, file: 'budget.csv', updated: '2025-09-02T21:15',
+      fields: [['category', 'text', 'category'], ['monthly_limit', 'number', 'amount']],
+      rows: [['Home', 1350], ['Food', 220], ['Transport', 80], ['Books', 30], ['Leisure', 60]], views: [] },
+  },
+};
 const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', audio: 'audio', video: 'video', svg: 'photo', psd: 'file', raw: 'photo', other: 'file' };
 // The top crumb goes on into a folder viewed in place: each folder a way back up.
 // On a phone it says only where one is, as on every page; Back goes up.
@@ -1259,10 +1343,133 @@ function folderView(c) {
   const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
   const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
     <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
-  return `${head(esc(c.label), t('fv.browseNote'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}${c.stored === 'Local' ? `<button class="btn" data-act="importfiles" data-c="${c.name}">${Is('upload', 15)}${t('importFiles')}</button>` : ''}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
+  const modes = AN[c.name] ? `<div class="seg" role="group" aria-label="${t('an.viewLabel')}"><button class="${S.fmode[c.name] === 'analysis' ? '' : 'on'}" data-act="fmode" data-c="${c.name}" data-v="files">${t('an.files')}</button><button class="${S.fmode[c.name] === 'analysis' ? 'on' : ''}" data-act="fmode" data-c="${c.name}" data-v="analysis">${t('an.analysis')}</button></div>` : '';
+  if (AN[c.name] && S.fmode[c.name] === 'analysis') return `${head(esc(c.label), t('an.note'), `${modes}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}${analysisView(c)}`;
+  return `${head(esc(c.label), t('fv.browseNote'), `${modes}<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}${c.stored === 'Local' ? `<button class="btn" data-act="importfiles" data-c="${c.name}">${Is('upload', 15)}${t('importFiles')}</button>` : ''}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
   ${all.length ? (S.fview === 'list' ? rows : tiles) : `<div class="card empty" style="padding:28px 16px"><span class="muted">${t('fv.empty')}</span></div>`}`;
 }
 
+// ---- Analysis: a folder collection's tables, each explored freely and its views kept ----
+const anTable = (c) => (AN[c][S.an.table[c]] ? S.an.table[c] : Object.keys(AN[c])[0]);
+const anField = (tb, role) => (tb.fields.find((f) => f[2] === role) || [])[0];
+// The views every table starts with, from what its columns are for.
+function anBuiltin(tb) {
+  const time = anField(tb, 'time'), amount = anField(tb, 'amount'), cat = anField(tb, 'category');
+  const base = { split: null, col: amount || null, agg: amount ? 'sum' : 'count', where: null, builtin: true };
+  const out = [];
+  if (time) out.push({ ...base, id: 'month', plugin: 'ybar', group: `${time}@month`, sort: 'none' });
+  if (cat) out.push({ ...base, id: 'category', plugin: 'xbar', group: cat, sort: 'desc' });
+  if (!out.length) out.push({ ...base, id: 'rows', plugin: 'grid', group: null, sort: 'none' });
+  return out;
+}
+const anViews = (tb) => [...anBuiltin(tb), ...tb.views];
+const anViewName = (v) => (v.builtin ? t(`an.v.${v.id}`) : v.name);
+function anNow(c) {
+  const name = anTable(c), tb = AN[c][name], key = `${c}.${name}`, views = anViews(tb);
+  const saved = views.find((v) => v.id === S.an.view[key]) || views[0];
+  const draft = S.an.draft && S.an.draft.key === key && S.an.draft.id === saved.id ? S.an.draft.cfg : null;
+  return { name, tb, key, views, saved, cfg: draft || saved, edited: !!draft };
+}
+// A time column can also be grouped by its month or its year.
+const anCols = (tb) => tb.fields.flatMap((f) => (f[1] === 'date' ? [f[0], `${f[0]}@month`, `${f[0]}@year`] : [f[0]]));
+const anColName = (col) => { if (!col) return t('an.p.none'); const [n, part] = col.split('@'); return part ? t(`an.${part}`, { col: n }) : esc(n); };
+const anCell = (tb, row, col) => { const [n, part] = col.split('@'); const v = row[tb.fields.findIndex((f) => f[0] === n)]; return part === 'month' ? String(v).slice(0, 7) : part === 'year' ? String(v).slice(0, 4) : v; };
+const anKey = (col, k) => (col.endsWith('@month') ? dfmt(`${k}-01`, { year: 'numeric', month: 'short' }) : esc(k));
+const anNum = (v) => nf(v, { maximumFractionDigits: 2 });
+const anMeasure = (cfg) => (cfg.agg === 'count' || !cfg.col ? t('an.a.count') : `${t(`an.a.${cfg.agg}`)} · ${esc(cfg.col)}`);
+function anCompute(tb, cfg) {
+  const rows = tb.rows.filter((r) => !cfg.where || anCell(tb, r, cfg.where[0]) === cfg.where[1]);
+  if (!cfg.group) return { rows };
+  const agg = (list) => { if (cfg.agg === 'count' || !cfg.col) return list.length; const sum = list.reduce((a, r) => a + Number(anCell(tb, r, cfg.col)), 0); return cfg.agg === 'avg' ? (list.length ? sum / list.length : 0) : sum; };
+  const splits = cfg.split ? [...new Set(rows.map((r) => anCell(tb, r, cfg.split)))].sort() : [null];
+  let keys = [...new Set(rows.map((r) => anCell(tb, r, cfg.group)))].sort();
+  const of = (k, s) => rows.filter((r) => anCell(tb, r, cfg.group) === k && (s === null || anCell(tb, r, cfg.split) === s));
+  const cell = (k, s) => agg(of(k, s)), total = (k) => agg(of(k, null));
+  if (cfg.sort !== 'none') keys = keys.sort((a, b) => (cfg.sort === 'desc' ? total(b) - total(a) : total(a) - total(b)));
+  return { rows, keys, splits, cell, total, max: Math.max(...keys.map(total), 0) || 1 };
+}
+function anDraw(tb, cfg) {
+  const d = anCompute(tb, cfg);
+  if (!d.rows.length) return `<div class="pv__empty">${t('an.noRows')}</div>`;
+  if (!cfg.group) {
+    if (cfg.plugin !== 'grid') return `<div class="pv__empty">${t('an.needGroup')}</div>`;
+    return `<div class="pv__grid"><table class="table"><thead><tr>${tb.fields.map((f) => `<th class="label ${f[1] === 'number' ? 'num' : ''}">${esc(f[0])}</th>`).join('')}</tr></thead><tbody>${d.rows.slice().reverse().map((r) => `<tr>${r.map((v, i) => `<td class="${tb.fields[i][1] === 'number' ? 'num mono' : tb.fields[i][1] === 'date' ? 'mono' : ''}">${tb.fields[i][1] === 'number' ? anNum(v) : esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  const split = d.splits[0] !== null;
+  const keysRow = split ? `<div class="pv__keys">${d.splits.map((s, i) => `<span class="pv__key"><i data-s="${i % 5}"></i>${esc(s)}</span>`).join('')}</div>` : '';
+  const tip = (k, s) => `${anKey(cfg.group, k)}${s === null ? '' : ` · ${esc(s)}`}: ${anNum(d.cell(k, s))}`;
+  if (cfg.plugin === 'grid') {
+    return `<div class="pv__grid"><table class="table"><thead><tr><th class="label">${anColName(cfg.group)}</th>${split ? d.splits.map((s) => `<th class="label num">${esc(s)}</th>`).join('') : ''}<th class="label num">${anMeasure(cfg)}</th></tr></thead><tbody>${d.keys.map((k) => `<tr><td>${anKey(cfg.group, k)}</td>${split ? d.splits.map((s) => `<td class="num mono">${d.cell(k, s) ? anNum(d.cell(k, s)) : '<span class="faint">–</span>'}</td>`).join('') : ''}<td class="num mono">${anNum(d.total(k))}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  if (cfg.plugin === 'ybar') {
+    return `${keysRow}<div class="pv__cols">${d.keys.map((k) => `<div class="pv__col"><div class="pv__track"><span class="pv__val">${anNum(d.total(k))}</span><div class="pv__stack" style="height:${Math.max(1, (d.total(k) / d.max) * 88)}%">${d.splits.map((s, i) => `<i data-s="${i % 5}" style="flex:${Math.max(d.cell(k, s), 0)} 1 0" title="${tip(k, s)}"></i>`).join('')}</div></div><span class="pv__lab">${anKey(cfg.group, k)}</span></div>`).join('')}</div>`;
+  }
+  if (cfg.plugin === 'xbar') {
+    return `${keysRow}<div class="pv__hbars">${d.keys.map((k) => `<span class="pv__lab">${anKey(cfg.group, k)}</span><div><div class="pv__hstack" style="width:${Math.max(0.5, (d.total(k) / d.max) * 100)}%">${d.splits.map((s, i) => `<i data-s="${i % 5}" style="flex:${Math.max(d.cell(k, s), 0)} 1 0" title="${tip(k, s)}"></i>`).join('')}</div></div><span class="pv__val">${anNum(d.total(k))}</span>`).join('')}</div>`;
+  }
+  if (cfg.plugin === 'line') {
+    const top = Math.max(...d.keys.flatMap((k) => d.splits.map((s) => d.cell(k, s))), 0) || 1, n = d.keys.length;
+    const x = (i) => (n === 1 ? 50 : (i / (n - 1)) * 100), y = (v) => 100 - (v / top) * 92;
+    return `${keysRow}<div class="pv__line"><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="${anMeasure(cfg)}">${d.splits.map((s, i) => `<polyline data-s="${i % 5}" points="${d.keys.map((k, j) => `${x(j).toFixed(2)},${y(d.cell(k, s)).toFixed(2)}`).join(' ')}${n === 1 ? ` 50.5,${y(d.cell(d.keys[0], s)).toFixed(2)}` : ''}"/>`).join('')}</svg><div class="pv__ticks">${d.keys.map((k) => `<span class="pv__lab">${anKey(cfg.group, k)}<br>${split ? '' : anNum(d.total(k))}</span>`).join('')}</div></div>`;
+  }
+  // Treemap: each group a tile, its area its share.
+  const items = d.keys.map((k) => ({ k, v: Math.max(d.total(k), 0) })).filter((it) => it.v > 0).sort((a, b) => b.v - a.v).map((it, i) => ({ ...it, i }));
+  const sum = (list) => list.reduce((a, it) => a + it.v, 0);
+  const tm = (list, across) => {
+    if (list.length === 1) return `<div class="pv__tile" data-s="${Math.min(list[0].i, 4)}" style="flex:${list[0].v} 1 0" title="${anKey(cfg.group, list[0].k)}: ${anNum(list[0].v)}"><b>${anKey(cfg.group, list[0].k)}</b><span>${anNum(list[0].v)}</span></div>`;
+    let cut = 1; const half = sum(list) / 2;
+    while (cut < list.length - 1 && sum(list.slice(0, cut)) < half) cut++;
+    return `<div class="pv__tm ${across ? '' : 'pv__tm--v'}" style="flex:${sum(list)} 1 0">${tm(list.slice(0, cut), !across)}${tm(list.slice(cut), !across)}</div>`;
+  };
+  return items.length ? `<div class="pv__tmroot">${tm(items, true)}</div>` : `<div class="pv__empty">${t('an.noRows')}</div>`;
+}
+const AN_TYPES = ['grid', 'ybar', 'xbar', 'line', 'treemap'];
+const AN_ROLES = ['time', 'amount', 'category', 'title', 'key', 'other'];
+function analysisView(c) {
+  const now = anNow(c.name), { tb, cfg } = now, names = Object.keys(AN[c.name]);
+  const pick = (k, label, off) => `<button class="pv__pick ${label === t('an.p.none') ? 'pv__pick--none' : ''}" data-act="anpick" data-c="${c.name}" data-k="${k}" aria-haspopup="menu" ${off ? 'disabled' : ''}><span>${label}</span>${Is('chevron', 12)}</button>`;
+  const f = (label, body) => `<div class="pv__f"><span class="label">${t(label)}</span>${body}</div>`;
+  const shown = anCompute(tb, cfg).rows.length;
+  const side = S.an.panel ? `<div class="pv__side">
+    ${f('an.p.type', pick('plugin', t(`an.t.${cfg.plugin}`)))}
+    ${f('an.p.group', pick('group', anColName(cfg.group)))}
+    ${f('an.p.split', pick('split', anColName(cfg.split)))}
+    ${f('an.p.order', pick('sort', t(`an.o.${cfg.sort}`), !cfg.group))}
+    ${f('an.p.where', pick('where', cfg.where ? t('an.w.is', { col: cfg.where[0], val: cfg.where[1] }) : t('an.p.none')))}
+    ${f('an.p.columns', `<div class="pv__two">${pick('agg', t(`an.a.${cfg.agg}`), !cfg.group)}${pick('col', cfg.agg === 'count' || !cfg.col ? t('an.a.rows') : esc(cfg.col), !cfg.group || cfg.agg === 'count')}</div>`)}
+    <div class="pv__all"><span class="label">${t('an.p.all')}</span>${tb.fields.map((x) => `<button class="pv__colbtn" data-act="ancol" data-c="${c.name}" data-n="${esc(x[0])}" aria-haspopup="menu"><i>${x[1] === 'number' ? '#' : x[1] === 'date' ? '◷' : 'A'}</i>${esc(x[0])}</button>`).join('')}</div>
+  </div>` : '';
+  const tabs = now.views.map((v) => `<button class="an__tab ${v.id === now.saved.id ? 'on' : ''}" data-act="anview" data-c="${c.name}" data-v="${v.id}" ${v.by ? `title="${t('an.madeByShort', { who: v.by })}"` : ''}>${v.by ? Is('ai', 13) : ''}${esc(anViewName(v))}</button>`).join('');
+  const own = !now.saved.builtin;
+  return `<div class="an__top">${names.length > 1 ? `<div class="seg" role="group" aria-label="${t('an.tables')}">${names.map((n) => `<button class="${n === now.name ? 'on' : ''} mono" data-act="antable" data-c="${c.name}" data-n="${n}">${n}</button>`).join('')}</div>` : '<span></span>'}<span class="faint mono" style="font-size:12px">${t('an.queryAs', { name: H(`${c.name}.${now.name}`) })}</span></div>
+  ${facts([['an.f.rows', cnt({ n: tb.rows.length, u: 'rows' })], ['an.f.files', tb.file ? esc(tb.file) : t('an.filesIn', { n: tb.files, folder: tb.folder })], ['an.f.updated', when(tb.updated)], ['an.f.views', nf(now.views.length)]])}
+  <div class="card" style="margin-bottom:20px">
+    <div class="card__head"><div class="an__views" role="group" aria-label="${t('an.views')}">${tabs}</div>
+      <div class="row" style="flex:none">${now.edited ? `<span class="tag">${t('an.edited')}</span><button class="btn btn--primary" data-act="ansave" data-c="${c.name}">${t('an.save')}</button>` : ''}${now.edited || own ? `<button class="btn icon-btn" data-act="anmore" data-c="${c.name}" aria-label="${t('more')}">${I('more')}</button>` : ''}</div></div>
+    ${now.saved.by ? `<div class="an__by">${Is('ai', 14)}<span>${t('an.madeBy', { who: now.saved.by, date: md(now.saved.on) })}</span></div>` : ''}
+    <div class="pv ${S.an.panel ? '' : 'pv--closed'}">
+      <div class="pv__main"><div class="pv__bar"><span class="faint">${anMeasure(cfg)} · ${shown === tb.rows.length ? cnt({ n: shown, u: 'rows' }) : t('an.rowsOf', { n: shown, total: tb.rows.length })}</span>
+        <span class="row" style="gap:2px"><button class="btn btn--ghost icon-btn" data-act="anexport" data-c="${c.name}" title="${t('an.export')}" aria-label="${t('an.export')}">${I('download')}</button><button class="btn btn--ghost icon-btn" data-act="anpanel" title="${t('an.p.settings')}" aria-label="${t('an.p.settings')}" aria-pressed="${S.an.panel}">${I('settings')}</button></span></div>
+        <div class="pv__viz">${anDraw(tb, cfg)}</div></div>
+      ${side}
+    </div>
+  </div>
+  <div class="row row--between" style="margin-bottom:10px"><span class="label">${t('an.cols')}</span></div>
+  <div class="card wrap"><table class="table"><thead><tr><th class="label">${t('an.col.name')}</th><th class="label">${t('an.col.type')}</th><th class="label">${t('an.col.role')}</th></tr></thead>
+    <tbody>${tb.fields.map((x) => `<tr><td class="mono">${esc(x[0])}</td><td>${t(`an.ty.${x[1]}`)}</td><td><button class="an__role" data-act="anrole" data-c="${c.name}" data-n="${esc(x[0])}" aria-haspopup="menu">${t(`an.r.${x[2]}`)}${Is('chevron', 12)}</button></td></tr>`).join('')}</tbody></table></div>
+  <p class="hint" style="margin:10px 2px 0">${t('an.colsNote')}</p>
+  <p class="hint" style="margin:6px 2px 0">${t('an.aiNote', { link: H(`<a class="link" href="#assistants">${t('nav.assistants')}</a>`) })}</p>`;
+}
+// Any change is a draft of the view shown, until it is saved or discarded.
+function anEdit(c, patch) {
+  const now = anNow(c), cfg = { ...now.cfg, ...patch };
+  if (!cfg.group) { cfg.split = null; cfg.sort = 'none'; }
+  if (cfg.split === cfg.group) cfg.split = null;
+  if (cfg.agg !== 'count' && !cfg.col) cfg.col = (tbNum(now.tb)[0] || null), cfg.agg = cfg.col ? cfg.agg : 'count';
+  S.an.draft = { key: now.key, id: now.saved.id, cfg };
+  render(true);
+}
+const tbNum = (tb) => tb.fields.filter((x) => x[1] === 'number').map((x) => x[0]);
 function masonry(name) {
   return `<div class="masonry">${PHOTOSETS[name].map(([k, cap, d], i) => `<figure class="photo" data-act="photo" data-c="${name}" data-i="${i}" style="cursor:zoom-in"><img src="${PH[k]}" alt="${esc(cap)}"><figcaption><span>${esc(cap)}</span><span>${md(d)}</span></figcaption></figure>`).join('')}</div>`;
 }
@@ -1752,6 +1959,7 @@ DLG.analysis = (D) => dlg(t('analyze'), `
   <div class="field"><span class="label">${t('categoryField')}</span><div class="input"><select><option>category</option></select></div></div>`,
   foot('', cancel() + btn(t('createAnalysis'), 'data-act="analysisok"', 'btn--primary')));
 
+DLG.ansave = (D) => dlg(t('an.saveTitle'), `<div class="field"><span class="label">${t('an.viewName')}</span><div class="input"><input data-bind="v" value="${esc(D.v)}" autocomplete="off" data-autofocus></div><span class="hint">${t(D.err ? 'an.nameTaken' : 'an.saveHint')}</span></div>`, foot('', `${cancel()}<button class="btn btn--primary" data-act="ansaveok">${t('save')}</button>`), 'dialog--s');
 DLG.saveto = (D) => dlg(t('saveTo'), `
   <p class="muted" style="margin:0">${t('saveBody')}</p>
   <div class="field"><span class="label">${t('addTo')}</span><div class="input"><select><option>${t('newCol')}</option><option>${t('plainFiles')}</option></select></div></div>
@@ -2295,6 +2503,47 @@ const ACT = {
   fsortmenu: (el) => menu(el, ['name', 'changed', 'size', 'kind'].map((k) => [t(`sort.${k}`), S.fsort === k ? 'check' : null, () => ACT.fsort({ dataset: { k } }), S.fsort === k])),
   fsort: (el) => { const k = el.dataset.k; if (S.fsort === k) S.fdir = S.fdir === 'asc' ? 'desc' : 'asc'; else { S.fsort = k; S.fdir = SORT_FIRST[k]; } render(true); },
   fview: (el) => { S.fview = el.dataset.v; render(true); },
+  fmode: (el) => { S.fmode[el.dataset.c] = el.dataset.v; render(true); },
+  antable: (el) => { S.an.table[el.dataset.c] = el.dataset.n; S.an.draft = null; render(true); },
+  anview: (el) => { const now = anNow(el.dataset.c); S.an.view[now.key] = el.dataset.v; S.an.draft = null; render(true); },
+  anpanel: () => { S.an.panel = !S.an.panel; render(true); },
+  anexport: (el) => { const now = anNow(el.dataset.c); toast(t('an.exported', { file: `${now.name}.csv` })); },
+  anpick: (el) => {
+    const c = el.dataset.c, k = el.dataset.k, now = anNow(c), cfg = now.cfg, set = (v) => () => anEdit(c, { [k]: v });
+    const cols = (cur, skip) => [[t('an.p.none'), null, set(null), !cur], ...anCols(now.tb).filter((x) => x !== skip).map((x) => [anColName(x), null, set(x), cur === x])];
+    if (k === 'plugin') return menu(el, AN_TYPES.map((p) => [t(`an.t.${p}`), null, set(p), cfg.plugin === p]));
+    if (k === 'group') return menu(el, cols(cfg.group));
+    if (k === 'split') return menu(el, cols(cfg.split, cfg.group));
+    if (k === 'sort') return menu(el, ['none', 'desc', 'asc'].map((o) => [t(`an.o.${o}`), null, set(o), cfg.sort === o]));
+    if (k === 'agg') return menu(el, (tbNum(now.tb).length ? ['sum', 'avg', 'count'] : ['count']).map((a) => [t(`an.a.${a}`), null, set(a), cfg.agg === a]));
+    if (k === 'col') return menu(el, tbNum(now.tb).map((x) => [esc(x), null, set(x), cfg.col === x]));
+    const texts = now.tb.fields.filter((x) => x[2] === 'category').flatMap((x) => [...new Set(now.tb.rows.map((r) => anCell(now.tb, r, x[0])))].sort().map((v) => [x[0], v]));
+    return menu(el, [[t('an.p.none'), null, set(null), !cfg.where], ...texts.map(([col, v]) => [t('an.w.is', { col, val: v }), null, set([col, v]), !!cfg.where && cfg.where[0] === col && cfg.where[1] === v])]);
+  },
+  ancol: (el) => {
+    const c = el.dataset.c, n = el.dataset.n, now = anNow(c), num = tbNum(now.tb).includes(n);
+    menu(el, [[t('an.c.group'), null, () => anEdit(c, { group: n })], [t('an.c.split'), null, () => anEdit(c, { split: n })], num ? [t('an.c.value'), null, () => anEdit(c, { col: n, agg: now.cfg.agg === 'count' ? 'sum' : now.cfg.agg })] : null].filter(Boolean));
+  },
+  anrole: (el) => {
+    const c = el.dataset.c, now = anNow(c), field = now.tb.fields.find((x) => x[0] === el.dataset.n);
+    menu(el, AN_ROLES.map((r) => [t(`an.r.${r}`), null, () => { now.tb.fields.forEach((x) => { if (x[2] === r && r !== 'other' && r !== 'key') x[2] = 'other'; }); field[2] = r; S.an.draft = null; render(true); }, field[2] === r]));
+  },
+  ansave: (el) => { const now = anNow(el.dataset.c); open('ansave', { c: el.dataset.c, v: now.saved.builtin || now.saved.by ? '' : now.saved.name }); },
+  ansaveok: () => {
+    const now = anNow(D.c), name = D.v.trim();
+    if (!name) return;
+    const same = now.tb.views.find((v) => v.name === name);
+    if (same && same.id !== now.saved.id) return upd({ err: true });
+    if (same) Object.assign(same, now.cfg, { id: same.id, name });
+    else { const id = `u${S.an.n++}`; now.tb.views.push({ ...now.cfg, builtin: false, by: null, on: null, id, name }); S.an.view[now.key] = id; }
+    S.an.draft = null; close(); render(true); toast(t('an.saved', { name }));
+  },
+  anmore: (el) => {
+    const c = el.dataset.c, now = anNow(c), v = now.saved;
+    menu(el, [now.edited ? [t('an.discard'), 'sync', () => { S.an.draft = null; render(true); }] : null,
+      v.builtin ? null : [t('rename'), 'pencil', () => open('rename', { v: v.name, label: 'an.viewName', hint: 'an.saveHint', fn: (name) => { v.name = name; } })],
+      v.builtin ? null : [t('an.remove'), 'remove', () => confirmDlg(t('an.removeTitle', { name: v.name }), t('an.removeBody'), t('remove'), () => { now.tb.views.splice(now.tb.views.indexOf(v), 1); S.an.draft = null; delete S.an.view[now.key]; close(); render(true); toast(t('an.removed', { name: v.name })); })]].filter(Boolean));
+  },
   fopen: (el) => { const c = el.dataset.c; S.fpath[c] = [...(S.fpath[c] || []), el.dataset.n]; render(); },
   fcrumb: (el) => { const c = el.dataset.c; S.fpath[c] = (S.fpath[c] || []).slice(0, +el.dataset.i); render(); },
   ffile: (el) => {

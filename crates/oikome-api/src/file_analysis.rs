@@ -42,15 +42,119 @@ use oikome_engine::{QualifiedName, TableSource};
 use oikome_node::inplace::{self, DataFile, DatasetTable, SheetFile};
 use oikome_node::QueryResult;
 use oikome_semantic::rewrite::quote_ident;
+use oikome_semantic::{classify, parse_single, OikomeStatement, StatementClass};
 use oikome_storage::write_data_file;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::schema_profile;
 use crate::datasets::{capability_of, kind_of};
 use crate::{
-    AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, Api, ApiError,
-    BuildAnalysis, Caller, FieldRole, FileAnalysis, SetAnalysisField, SpaceRef,
+    encode_rows, AnalysisPoint, AnalysisQuery, AnalysisSource, AnalysisSummary, AnalysisTable,
+    AnalysisTableRef, AnalysisView, AnalysisViewRef, Api, ApiError, BuildAnalysis, Caller,
+    ErrorCode, FieldRole, FileAnalysis, Rows, SaveAnalysisView, SetAnalysisField, SpaceRef,
 };
+
+/// The name an explorer's query gives the table it reads.
+pub const ANALYSIS_RELATION: &str = "oikome_table";
+/// The order of the table's rows as read, which the explorer sorts plain
+/// rows by; not one of its columns.
+const ROW_ID: &str = "rowid";
+/// The most a query of the explorer answers with.
+const MAX_QUERY_ROWS: usize = 100_000;
+const MAX_QUERY_BYTES: usize = 64 * 1024 * 1024;
+/// The most views kept with a table, and the size of each.
+const MAX_VIEWS: usize = 100;
+const MAX_VIEW_BYTES: usize = 16 * 1024;
+const MAX_VIEW_NAME_CHARS: usize = 80;
+/// The views every table starts with, by the ids the app gives them. Saved
+/// in place, one is kept under its id; removed, it is as it started again.
+const STARTING_VIEWS: [&str; 3] = ["month", "category", "rows"];
+/// What describes a view; anything else the explorer keeps (its theme, its
+/// open panels, its own expressions) is left out.
+const VIEW_KEYS: [&str; 11] = [
+    "plugin",
+    "plugin_config",
+    "columns_config",
+    "group_by",
+    "split_by",
+    "sort",
+    "filter",
+    "columns",
+    "aggregates",
+    "group_rollup_mode",
+    "split_rollup_mode",
+];
+
+fn shown_view(view: &KeptView) -> AnalysisView {
+    AnalysisView {
+        id: view.id.clone(),
+        name: view.name.clone(),
+        config: view.config.to_string(),
+        by: view.by.clone(),
+        saved_at_ms: view.saved_at_ms,
+    }
+}
+
+/// A view's description as it is kept: an object of the keys that describe
+/// a view, nothing else.
+pub(crate) fn view_config(text: &str) -> Result<serde_json::Value, ApiError> {
+    if text.len() > MAX_VIEW_BYTES {
+        return Err(ApiError::invalid(format!(
+            "a view is at most {} KiB",
+            MAX_VIEW_BYTES / 1024
+        )));
+    }
+    let serde_json::Value::Object(given) =
+        serde_json::from_str(text).map_err(|_| ApiError::invalid("a view is a JSON object"))?
+    else {
+        return Err(ApiError::invalid("a view is a JSON object"));
+    };
+    Ok(serde_json::Value::Object(
+        given
+            .into_iter()
+            .filter(|(key, _)| VIEW_KEYS.contains(&key.as_str()))
+            .collect(),
+    ))
+}
+
+/// The table an explorer reads: the analysis table and, for each column of
+/// time, its month and its year as text.
+fn explored(space: &str, table: &str, schema: &Schema, roles: &[(String, FieldRole)]) -> String {
+    // The explorer orders plain rows by `rowid`, which a table of DuckDB's
+    // own has and this one, read through a query, has not.
+    let mut columns = if schema.field_with_name(ROW_ID).is_ok() {
+        String::from("*")
+    } else {
+        format!("row_number() OVER () AS {ROW_ID}, *")
+    };
+    for field in schema.fields() {
+        let name = field.name();
+        let timed = matches!(
+            field.data_type(),
+            DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)
+        ) || roles
+            .iter()
+            .any(|(of, role)| of == name && *role == FieldRole::Time);
+        if !timed || name == SOURCE_FILE {
+            continue;
+        }
+        let at = format!("TRY_CAST({} AS TIMESTAMP)", quote_ident(name));
+        for (part, format) in [("month", "%Y-%m"), ("year", "%Y")] {
+            let derived = format!("{name} ({part})");
+            if schema.field_with_name(&derived).is_err() {
+                columns.push_str(&format!(
+                    ", strftime({at}, '{format}') AS {}",
+                    quote_ident(&derived)
+                ));
+            }
+        }
+    }
+    format!(
+        "SELECT {columns} FROM {}.{}",
+        quote_ident(space),
+        quote_ident(table)
+    )
+}
 
 /// The column every analysis table adds: the file a row came from.
 pub(crate) const SOURCE_FILE: &str = "_source_file";
@@ -82,6 +186,20 @@ struct KeptTable {
     /// For a dataset's table: what it is and what was read of it last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dataset: Option<KeptDataset>,
+    /// The views saved with it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    views: Vec<KeptView>,
+}
+
+/// A view saved with a table: its name and the explorer's description of it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct KeptView {
+    id: String,
+    name: String,
+    config: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    by: Option<String>,
+    saved_at_ms: u64,
 }
 
 /// What was read of a dataset last: it is read where it is, not made.
@@ -593,6 +711,7 @@ impl Api {
             rows,
             problem,
             dataset: Some(facts),
+            views: was.map(|t| t.views.clone()).unwrap_or_default(),
         }
     }
 
@@ -698,6 +817,7 @@ impl Api {
                 continue;
             }
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
+            let views = entry.map(|t| t.views.clone()).unwrap_or_default();
             if let Input::Dataset(dataset) = &input {
                 let table = self.read_dataset_table(&found, &name, dataset, entry).await;
                 kept.tables.insert(name, table);
@@ -721,6 +841,7 @@ impl Api {
                     rows,
                     problem: None,
                     dataset: None,
+                    views,
                 },
                 Err(e) => KeptTable {
                     files: now,
@@ -730,6 +851,7 @@ impl Api {
                     rows: 0,
                     problem: Some(e.to_string()),
                     dataset: None,
+                    views,
                 },
             };
             kept.tables.insert(name, table);
@@ -789,6 +911,7 @@ impl Api {
                             extension: d.needs.as_deref().map(|n| self.extension_download(n)),
                         })
                     }),
+                    views: table.views.iter().map(shown_view).collect(),
                 }
             })
             .collect();
@@ -902,6 +1025,199 @@ impl Api {
             ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
         })?;
         table.roles.insert(req.field, req.role);
+        self.keep(&req.space, &kept)?;
+        self.follow_files(&req.space, &[]).await
+    }
+
+    /// One query of the explorer over an analysis table, which it names
+    /// `oikome_table`: a single statement that only reads, and reads
+    /// nothing outside the table's collection.
+    pub async fn analysis_query(
+        &self,
+        caller: &Caller,
+        req: AnalysisQuery,
+    ) -> Result<Rows, ApiError> {
+        caller.require_owner()?;
+        if req.sql.len() > crate::MAX_SQL_BYTES {
+            return Err(ApiError::invalid("the query is too long"));
+        }
+        self.refresh()?;
+        self.in_place_of(&req.space)?;
+        let kept = self.kept(&req.space)?;
+        let missing =
+            || ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table));
+        let table = kept.tables.get(&req.table).ok_or_else(missing)?;
+        let schema = match &table.dataset {
+            Some(dataset) => dataset.schema(),
+            None => self
+                .catalog
+                .tables_in(&req.space)
+                .await?
+                .into_iter()
+                .find(|(name, _)| *name == req.table)
+                .map(|(_, resolved)| resolved.schema)
+                .ok_or_else(missing)?,
+        };
+        let roles: Vec<(String, FieldRole)> = schema_profile(&req.space, &req.table, &schema)
+            .fields
+            .into_iter()
+            .map(|field| {
+                let role = table.roles.get(&field.name).copied().unwrap_or(field.role);
+                (field.name, role)
+            })
+            .collect();
+        let base = explored(&req.space, &req.table, &schema, &roles);
+        let asked = req.sql.trim().trim_end_matches(';').trim();
+        let head = asked.get(..5).unwrap_or("").to_ascii_uppercase();
+        let sql = if head == "WITH " || head == "WITH\n" || head == "WITH\t" {
+            format!("WITH {ANALYSIS_RELATION} AS ({base}), {}", &asked[5..])
+        } else {
+            format!("WITH {ANALYSIS_RELATION} AS ({base}) {asked}")
+        };
+        // One statement, a query, of this collection only: checked on what
+        // will run, before it runs.
+        let refused = |why: &str| ApiError::invalid(format!("the explorer may only read: {why}"));
+        let parsed = parse_single(&sql).map_err(|e| ApiError::invalid(e.to_string()))?;
+        let OikomeStatement::Sql(mut statement) = parsed else {
+            return Err(refused("not a query"));
+        };
+        match classify(&mut statement, None).map_err(|e| ApiError::invalid(e.to_string()))? {
+            StatementClass::Query { spaces } if spaces.iter().all(|s| *s == req.space) => {}
+            _ => return Err(refused("it reaches outside this collection")),
+        }
+        match self.session(None).sql(&sql).await? {
+            QueryResult::Batches { schema, batches } => {
+                encode_rows(&schema, &batches, MAX_QUERY_ROWS, MAX_QUERY_BYTES)
+            }
+            _ => Err(refused("not a query")),
+        }
+    }
+
+    /// Keep a view with its analysis table: a new one, or one saved before
+    /// (by its id) under a new name or with a new description.
+    pub async fn save_analysis_view(
+        &self,
+        caller: &Caller,
+        req: SaveAnalysisView,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        self.in_place_of(&req.space)?;
+        self.keep_view(
+            &req.space,
+            &req.table,
+            req.id.as_deref(),
+            &req.name,
+            &req.config,
+            None,
+        )?;
+        self.follow_files(&req.space, &[]).await
+    }
+
+    /// Keep a view; `by` names the assistant that made it.
+    pub(crate) fn keep_view(
+        &self,
+        space: &str,
+        table: &str,
+        id: Option<&str>,
+        name: &str,
+        config: &str,
+        by: Option<&str>,
+    ) -> Result<AnalysisView, ApiError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > MAX_VIEW_NAME_CHARS {
+            return Err(ApiError::invalid(format!(
+                "a view's name has 1 to {MAX_VIEW_NAME_CHARS} characters"
+            )));
+        }
+        let config = view_config(config)?;
+        let mut kept = self.kept(space)?;
+        let entry = kept
+            .tables
+            .get_mut(table)
+            .ok_or_else(|| ApiError::not_found(format!("{space} has no analysis table {table}")))?;
+        if entry
+            .views
+            .iter()
+            .any(|v| v.name == name && Some(v.id.as_str()) != id)
+        {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!("{table} already has a view named {name}"),
+            ));
+        }
+        let saved = match id {
+            Some(id) if entry.views.iter().any(|v| v.id == id) => {
+                let view = entry
+                    .views
+                    .iter_mut()
+                    .find(|v| v.id == id)
+                    .ok_or_else(|| ApiError::not_found(format!("{table} has no view {id}")))?;
+                view.name = name.to_string();
+                view.config = config;
+                view.saved_at_ms = crate::now_ms();
+                view.clone()
+            }
+            // A view the table starts with, saved in place: kept under its
+            // own id, in place of what its columns' roles would give.
+            Some(id) if STARTING_VIEWS.contains(&id) => {
+                let view = KeptView {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    config,
+                    by: by.map(str::to_string),
+                    saved_at_ms: crate::now_ms(),
+                };
+                entry.views.push(view.clone());
+                view
+            }
+            Some(id) => return Err(ApiError::not_found(format!("{table} has no view {id}"))),
+            None => {
+                if entry.views.len() >= MAX_VIEWS {
+                    return Err(ApiError::invalid(format!(
+                        "a table keeps at most {MAX_VIEWS} views"
+                    )));
+                }
+                let mut n = entry.views.len() + 1;
+                while entry.views.iter().any(|v| v.id == format!("v{n}")) {
+                    n += 1;
+                }
+                let view = KeptView {
+                    id: format!("v{n}"),
+                    name: name.to_string(),
+                    config,
+                    by: by.map(str::to_string),
+                    saved_at_ms: crate::now_ms(),
+                };
+                entry.views.push(view.clone());
+                view
+            }
+        };
+        self.keep(space, &kept)?;
+        Ok(shown_view(&saved))
+    }
+
+    /// Remove a saved view; its table and the table's files stay.
+    pub async fn remove_analysis_view(
+        &self,
+        caller: &Caller,
+        req: AnalysisViewRef,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        self.in_place_of(&req.space)?;
+        let mut kept = self.kept(&req.space)?;
+        let entry = kept.tables.get_mut(&req.table).ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
+        let before = entry.views.len();
+        entry.views.retain(|v| v.id != req.id);
+        if entry.views.len() == before {
+            return Err(ApiError::not_found(format!(
+                "{} has no view {}",
+                req.table, req.id
+            )));
+        }
         self.keep(&req.space, &kept)?;
         self.follow_files(&req.space, &[]).await
     }

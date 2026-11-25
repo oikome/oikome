@@ -1629,7 +1629,11 @@ problem: string | null,
  * For a dataset's table: what it is and the version read. It is not
  * made from its files but read where it is.
  */
-dataset: DatasetFacts | null, };
+dataset: DatasetFacts | null,
+/**
+ * The views saved with it, in the order they were made.
+ */
+views: Array<AnalysisView>, };
 
 /**
  * `file_analysis`: what a folder collection's files can make and has made.
@@ -1680,6 +1684,42 @@ export type AnalysisPoint = { label: string, value: number, };
  * no column is the amount).
  */
 export type AnalysisSummary = { table: string, time: string | null, amount: string | null, category: string | null, byMonth: Array<AnalysisPoint>, byCategory: Array<AnalysisPoint>, };
+
+/**
+ * A view saved with an analysis table: how its rows are grouped, split,
+ * filtered, ordered and drawn, by the owner or by an assistant allowed to
+ * read the collection.
+ */
+export type AnalysisView = { id: string, name: string,
+/**
+ * The explorer's own description of the view, as JSON: only the keys
+ * that describe a view are kept (`plugin`, `group_by`, `split_by`,
+ * `sort`, `filter`, `columns`, `aggregates` and how each is drawn).
+ */
+config: string,
+/**
+ * The assistant that made it; the owner made it when absent.
+ */
+by: string | null, savedAtMs: number, };
+
+/**
+ * `save_analysis_view`: keep a view with its table, a new one or, by its
+ * id, one saved before. A view the table starts with (`month`, `category`,
+ * `rows`) is saved in place under that id; removing it restores it.
+ */
+export type SaveAnalysisView = { space: string, table: string, id?: string, name: string, config: string, };
+
+/**
+ * One saved view of an analysis table.
+ */
+export type AnalysisViewRef = { space: string, table: string, id: string, };
+
+/**
+ * `analysis_query`: one read-only query over an analysis table, which the
+ * query names `oikome_table`. Beside its columns the table has, for each
+ * column of time, `<column> (month)` and `<column> (year)`.
+ */
+export type AnalysisQuery = { space: string, table: string, sql: string, };
 
 /**
  * Why a derived analysis can be rebuilt, and whether its source shape changed.

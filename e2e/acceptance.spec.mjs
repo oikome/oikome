@@ -233,22 +233,103 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await stop.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
     await expect(page.getByText("4 more can be made")).toBeVisible();
+    // The explorer (Perspective, in a page of its own): the rows of the view
+    // it shows, computed by the node.
+    const explored = async () => {
+      await expect(page.locator(".screen-explorer__stage")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
+      const frame = page.frames().find((f) => new URL(f.url()).pathname === "/analysis-frame/index.html");
+      const rows = await frame.evaluate(async () => (await document.querySelector("perspective-viewer").getView()).to_json());
+      return rows.map((row) => String(row.__ROW_PATH__?.[0]));
+    };
     // This node loads DuckDB's iceberg and lance extensions from the shared
     // folder, so both are read, with totals by month.
     for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
       await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
-      await expect(page.getByRole("list", { name: "By Month" }).getByText(month)).toBeVisible();
+      await expect(page.getByRole("button", { name: "By Month", pressed: true })).toBeVisible();
+      await expect.poll(explored).toContain(month);
+      if (table === "energy_meter") {
+        // A chart totals more than one column, each in its own way.
+        const frame = page.frames().find((f) => new URL(f.url()).pathname === "/analysis-frame/index.html");
+        const totals = async () => Object.keys((await frame.evaluate(async () => (await document.querySelector("perspective-viewer").getView()).to_json()))[0] ?? {});
+        await page.getByRole("button", { name: "Add Metric" }).click();
+        await page.getByLabel("How kwh is totalled").selectOption({ label: "Average" });
+        await expect.poll(totals).toEqual(expect.arrayContaining(["cost", "kwh"]));
+        await page.getByRole("button", { name: "Remove kwh" }).click();
+        await expect.poll(totals).not.toContain("kwh");
+        // As it was again: nothing to save.
+        await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+      }
       // A dataset is always analysed, and is not copied from here.
       await expect(page.getByRole("button", { name: "Remove Analysis Table…" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toHaveCount(0);
     }
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.getByText("household.spending")).toBeVisible();
-    const months = page.getByRole("list", { name: "By Month" });
-    await expect(months.getByText("2026-09")).toBeVisible();
-    await expect(months.getByText("2026-11")).toBeVisible();
-    await expect(page.getByRole("list", { name: "By Category" }).getByText("Groceries")).toBeVisible();
+    await expect.poll(explored).toEqual(expect.arrayContaining(["2026-09", "2026-11"]));
+    await page.getByRole("button", { name: "By Category" }).click();
+    await expect.poll(explored).toContain("Groceries");
+    // Perspective runs in its page only: the app's own policy still refuses
+    // scripts from blob: URLs and compiling WebAssembly.
+    const refused = await page.evaluate(async () => {
+      const script = document.createElement("script");
+      script.src = URL.createObjectURL(new Blob(["window.ranFromBlob = true"], { type: "text/javascript" }));
+      document.head.append(script);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      let compiled = true;
+      try {
+        new WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+      } catch {
+        compiled = false;
+      }
+      return { ranFromBlob: window.ranFromBlob === true, compiled };
+    });
+    expect(refused).toEqual({ ranFromBlob: false, compiled: false });
+    // What the owner changes is a draft until saved: as a view of the table.
+    // The panel beside the view says what it shows, each a choice from a list.
+    const panel = page.getByRole("group", { name: "View settings" });
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("X Bar");
+    await expect(panel.getByLabel("Group By")).toHaveValue("category");
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    await panel.getByLabel("Chart Type").selectOption({ label: "Table" });
+    await panel.getByLabel("Split By").selectOption({ label: "date (month)" });
+    await panel.getByLabel("Filter").selectOption({ label: "category" });
+    await panel.getByLabel("Choose a value…").selectOption({ label: "Groceries" });
+    await expect.poll(explored).toEqual(["Groceries"]);
+    // Kept as another view, under a name.
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Save as New View…" }).click();
+    const saving = page.getByRole("dialog", { name: "Save as New View" });
+    await saving.getByLabel("View name").fill("Categories by month");
+    await saving.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Categories by month", pressed: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    // Save keeps a change where it is, with nothing to name or choose: in
+    // a view of the owner's, and in one the table starts with, which can
+    // be restored.
+    await panel.getByLabel("Chart Type").selectOption({ label: "Column Chart" });
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: "By Category" }).click();
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("X Bar");
+    await panel.getByLabel("Chart Type").selectOption({ label: "Treemap" });
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "By Month", exact: true }).click();
+    await page.getByRole("button", { name: "By Category" }).click();
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("Treemap");
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Restore Default" }).click();
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("X Bar");
+    await page.getByRole("button", { name: "By Month", exact: true }).click();
+    await expect.poll(explored).toContain("2026-09");
+    await page.getByRole("button", { name: "Categories by month" }).click();
+    await expect.poll(explored).toContain("Groceries");
+    await page.getByRole("button", { name: "More view actions" }).click();
+    await page.getByRole("menuitem", { name: "Remove View…" }).click();
+    await page.getByRole("dialog", { name: "Remove the view Categories by month?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Categories by month" })).toHaveCount(0);
     await expect(page.getByLabel("What category is for")).toHaveValue("category");
     // The trams taken, an Iceberg table in the bucket, are one item of the
     // archive, not its files.

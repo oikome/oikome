@@ -1,0 +1,93 @@
+/* Copyright 2025 The Oikome Authors. SPDX-License-Identifier: Apache-2.0 */
+/* The explorer's page: Perspective, filling it, in the app's type and its
+   style (Ink, or Bold). Perspective is styled through the custom properties
+   of its light theme, which it sets on itself and on each chart inside it;
+   nothing of its own layout is changed. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--raised);
+}
+perspective-viewer {
+  position: absolute;
+  inset: 0;
+}
+/* Perspective's own title bar for the view (its name, its counts and the
+   button that opens its settings): the app names the view and has the panel. */
+perspective-viewer-tab {
+  display: none !important;
+}
+html perspective-viewer[theme],
+html perspective-viewer [theme] {
+  --psp--background-color: var(--raised);
+  --psp--color: var(--ink);
+  --psp-active--color: var(--ink);
+  --psp-inactive--color: #8a8986;
+  --psp-inactive--border-color: #dcdbd8;
+  --psp-sidebar--background: var(--sunk);
+  --psp-interface-monospace--font-family: var(--mono);
+  --psp-charts--axis-lines--color: #c9c8c4;
+  --psp-charts--axis-ticks--color: #6f6e6a;
+  --psp-charts--gridline--color: #eeedea;
+  --psp-charts--legend--color: var(--ink);
+  --psp-charts--tooltip--background: var(--raised);
+  --psp-charts--tooltip--color: var(--ink);
+  --psp-charts--tooltip--border-color: #c9c8c4;
+  --psp-datagrid--border-color: #eeedea;
+  --psp-datagrid--hover--border-color: #c9c8c4;
+  --psp-datagrid--pos-cell--color: var(--ink);
+  --psp-datagrid--neg-cell--color: var(--signal);
+  --psp-error--color: var(--signal);
+  font-family: var(--font);
+}
+/* Ink: every series is ink, told apart by its strength. */
+html[data-theme="ink"] perspective-viewer[theme],
+html[data-theme="ink"] perspective-viewer [theme] {
+  --psp-charts--series--color: #141310;
+  --psp-charts--series-1--color: #141310;
+  --psp-charts--series-2--color: #8b8a86;
+  --psp-charts--series-3--color: #c9c8c4;
+  --psp-charts--series-4--color: #4a4944;
+  --psp-charts--series-5--color: #e2e1dd;
+  --psp-charts--series-6--color: #6f6e6a;
+  --psp-charts--series-7--color: #a7a6a2;
+  --psp-charts--series-8--color: #2f2e2a;
+  --psp-charts--series-9--color: #d6d5d1;
+  --psp-charts--series-10--color: #5c5b56;
+  --psp-charts--series-11--color: #b8b7b3;
+  --psp-charts--series-12--color: #7d7c78;
+  --psp-charts--gradient-stop-1--color: #f6f6f4;
+  --psp-charts--gradient-stop-2--color: #e2e1dd;
+  --psp-charts--gradient-stop-3--color: #c9c8c4;
+  --psp-charts--gradient-stop-4--color: #a7a6a2;
+  --psp-charts--gradient-stop-5--color: #7d7c78;
+  --psp-charts--gradient-stop-6--color: #4a4944;
+  --psp-charts--gradient-stop-7--color: #141310;
+}
+/* Bold: the five tones, then again. */
+html[data-theme="bold"] perspective-viewer[theme],
+html[data-theme="bold"] perspective-viewer [theme] {
+  --psp-inactive--color: #5c5c5c;
+  --psp-inactive--border-color: #111111;
+  --psp-charts--series--color: #ff3d81;
+  --psp-charts--series-1--color: #ff3d81;
+  --psp-charts--series-2--color: #3ddc97;
+  --psp-charts--series-3--color: #ffd23f;
+  --psp-charts--series-4--color: #c8a2ff;
+  --psp-charts--series-5--color: #ff6b5e;
+  --psp-charts--series-6--color: #111111;
+  --psp-charts--series-7--color: #ff3d81;
+  --psp-charts--series-8--color: #3ddc97;
+  --psp-charts--series-9--color: #ffd23f;
+  --psp-charts--series-10--color: #c8a2ff;
+  --psp-charts--series-11--color: #ff6b5e;
+  --psp-charts--series-12--color: #111111;
+  --psp-charts--gradient-stop-1--color: #fff6e5;
+  --psp-charts--gradient-stop-2--color: #ffd23f;
+  --psp-charts--gradient-stop-3--color: #ffb347;
+  --psp-charts--gradient-stop-4--color: #ff6b5e;
+  --psp-charts--gradient-stop-5--color: #ff3d81;
+  --psp-charts--gradient-stop-6--color: #c2185b;
+  --psp-charts--gradient-stop-7--color: #111111;
+}

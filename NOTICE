@@ -262,6 +262,14 @@ AG Grid Community (ag-grid-community, ag-grid-react; data files, loaded on deman
   https://www.ag-grid.com/  -  MIT License
   Copyright 2015-2026 AG Grid Ltd.
 
+Perspective (@perspective-dev/client, server, viewer, viewer-datagrid, viewer-charts;
+  the Analysis view's explorer, loaded in a page of its own; with regular-table,
+  regular-layout and pro_self_extracting_wasm, by the same authors)
+  https://github.com/perspective-dev/perspective  -  Apache License 2.0
+  Copyright the Perspective Authors
+  Its build-time compressor depends on leb128 and buffer-pipe (MPL-2.0); they are
+  installed with it and are not part of what Oikome distributes.
+
 PhotoSwipe (image navigation, zoom, pan and touch gestures, loaded on demand)
   https://photoswipe.com/  -  MIT License
   Copyright 2014-2026 Dmytro Semenov

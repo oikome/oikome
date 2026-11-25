@@ -14,8 +14,11 @@ import type {
   AddInPlaceFiles,
   AddInPlaceFolder,
   AnalyzeDataset,
+  AnalysisQuery,
   AnalysisSummary,
   AnalysisTableRef,
+  AnalysisViewRef,
+  SaveAnalysisView,
   BuildAnalysis,
   ExtensionRef,
   FileAnalysis,
@@ -180,6 +183,12 @@ export interface NodeClient {
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
   /** An analysis table's totals by month and by category. */
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary>;
+  /** One read-only query of the explorer over an analysis table: its rows as Arrow IPC bytes. */
+  analysisQuery(request: AnalysisQuery): Promise<ArrayBuffer>;
+  /** Keep a view with its analysis table: a new one, or by its id one saved before. */
+  saveAnalysisView(request: SaveAnalysisView): Promise<FileAnalysis>;
+  /** Remove a saved view; its table stays. */
+  removeAnalysisView(request: AnalysisViewRef): Promise<FileAnalysis>;
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile>;
   /** What an AI can read of a collection: prepared or not, each original. */
   knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus>;
@@ -483,6 +492,18 @@ export class HttpClient implements NodeClient {
 
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary> {
     return this.#json("analysis_summary", request);
+  }
+
+  async analysisQuery(request: AnalysisQuery): Promise<ArrayBuffer> {
+    return (await this.#post("analysis_query", request)).arrayBuffer();
+  }
+
+  saveAnalysisView(request: SaveAnalysisView): Promise<FileAnalysis> {
+    return this.#json("save_analysis_view", request);
+  }
+
+  removeAnalysisView(request: AnalysisViewRef): Promise<FileAnalysis> {
+    return this.#json("remove_analysis_view", request);
   }
 
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis> {

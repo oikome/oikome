@@ -3,8 +3,8 @@
 //
 // Analysis: the analysis tables a folder collection's data files make
 // (each file, or each folder of them, read as one table) when the owner
-// chooses them, what each column is for, and the table's totals by month
-// and by category. The tables are the collection's, queried as
+// chooses them, what each column is for, and each table's explorer: its
+// views, drawn by Perspective (Explorer.tsx). The tables are the collection's, queried as
 // <collection>.<table> by SQL and assistants; the files are only read, and
 // the owner may remove a table. A dataset in its folders (a Lance dataset,
 // an Iceberg table) is a table too, always, read where it is.
@@ -25,13 +25,13 @@ import {
   Status,
   useToast,
 } from "@oikome/ui";
-import type { AnalysisPoint, AnalysisSource, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
+import type { AnalysisSource, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
 import { TransferProgress } from "../progress";
 import { since } from "./Sources";
 import { strings } from "../strings";
-import { locale } from "../i18n/languages";
+import { Explorer } from "./Explorer";
 
 const a = strings.analysisView;
 const ROLES: FieldRole[] = ["time", "amount", "category", "title", "key", "other"];
@@ -44,40 +44,6 @@ function typeOf(dataType: string): string {
   if (/^(U?Int|Float|Decimal)/.test(dataType)) return a.types.number;
   if (dataType === "Boolean") return a.types.boolean;
   return a.types.other;
-}
-
-function number(value: number): string {
-  return new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 }).format(value);
-}
-
-/** Totals as bars: each with its label, its value and its length. */
-function Bars({ points, label, vertical = false }: { points: AnalysisPoint[]; label: string; vertical?: boolean }) {
-  const most = Math.max(...points.map((p) => Math.abs(p.value)), 0) || 1;
-  return (
-    <ul
-      className={vertical ? "screen-bars screen-bars--columns" : "screen-bars"}
-      aria-label={label}
-      style={vertical ? { gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` } : undefined}
-    >
-      {points.map((point) => (
-        <li key={point.label} className="screen-bars__item">
-          <span className="screen-bars__label" translate="no">
-            {point.label}
-          </span>
-          <span className="screen-bars__track" aria-hidden="true">
-            <i
-              style={
-                vertical
-                  ? { height: `${Math.max(2, (Math.abs(point.value) / most) * 100)}%` }
-                  : { width: `${Math.max(1, (Math.abs(point.value) / most) * 100)}%` }
-              }
-            />
-          </span>
-          <span className="screen-bars__value">{number(point.value)}</span>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 /** One analysis table: its facts, its columns and what each is for, and its totals. */
@@ -316,10 +282,6 @@ function TableView({
   const [removing, setRemoving] = useState(false);
   const dataset = table.dataset;
   const readable = !table.problem;
-  const summary = useLoad(
-    async () => (readable ? client.analysisSummary({ space, table: table.name }) : undefined),
-    [space, table.name, readable, table.fields.map((f) => `${f.name}:${f.role}`).join(",")],
-  );
   // While a reader downloads, look again every second.
   const downloading = dataset?.extension?.state === "downloading" || dataset?.extension?.state === "installing";
   useEffect(() => {
@@ -327,8 +289,6 @@ function TableView({
     const timer = setTimeout(onReload, 1000);
     return () => clearTimeout(timer);
   }, [downloading, table, onReload]);
-  const data = summary.data;
-  const measure = data?.amount ? a.sumOf(data.amount) : a.countRows;
   return (
     <div className="screen-analysis__table">
       {dataset?.extension ? (
@@ -366,13 +326,20 @@ function TableView({
             <dd>{a.datasetKinds[dataset.kind]}</dd>
           </div>
         )}
-        {dataset?.version && (
+        {/* When it was last written says how fresh it is; its version number
+            is shown only when that is all there is (the latest is always read). */}
+        {dataset?.writtenAtMs ? (
           <div>
-            <dt className="oik-label">{a.versionLabel}</dt>
-            <dd translate="no">
-              {dataset.writtenAtMs ? a.version(dataset.version, since(dataset.writtenAtMs)) : dataset.version}
-            </dd>
+            <dt className="oik-label">{a.writtenLabel}</dt>
+            <dd title={dataset.version ? `${a.versionLabel} ${dataset.version}` : undefined}>{since(dataset.writtenAtMs)}</dd>
           </div>
+        ) : (
+          dataset?.version && (
+            <div>
+              <dt className="oik-label">{a.versionLabel}</dt>
+              <dd translate="no">{dataset.version}</dd>
+            </div>
+          )
         )}
         {readable && (
           <div>
@@ -402,38 +369,11 @@ function TableView({
         </div>
       </dl>
 
-      {/* Totals need the rows: none while the table can't be read. */}
-      {readable && (
-        <div className="screen-analysis__charts">
-          <Card className="screen-analysis__chart">
-            <h3 className="oik-label">{a.byMonth}</h3>
-            <p className="screen-help">{measure}</p>
-            {summary.error ? (
-              <ErrorText>{summary.error}</ErrorText>
-            ) : !data ? (
-              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-            ) : data.byMonth.length > 0 ? (
-              <Bars points={data.byMonth} label={a.byMonth} vertical />
-            ) : (
-              <p className="screen-help">{a.needTime}</p>
-            )}
-          </Card>
-          <Card className="screen-analysis__chart">
-            <h3 className="oik-label">{a.byCategory}</h3>
-            <p className="screen-help">{data?.category ? `${data.category} · ${measure}` : measure}</p>
-            {summary.error ? null : !data ? (
-              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-            ) : data.byCategory.length > 0 ? (
-              <Bars points={data.byCategory} label={a.byCategory} />
-            ) : (
-              <p className="screen-help">{a.needCategory}</p>
-            )}
-          </Card>
-        </div>
-      )}
+      {/* Exploring needs the rows: nothing to explore while the table can't be read. */}
+      {readable && <Explorer space={space} table={table} onChange={onChange} />}
 
       {table.fields.length > 0 && (
-      <Group title={a.fields} footnote={dataset ? a.datasetFieldsFootnote : a.fieldsFootnote}>
+      <Group title={a.fields} footnote={`${dataset ? a.datasetFieldsFootnote : a.fieldsFootnote} ${strings.explorer.timeNote} ${strings.explorer.assistantsNote}`}>
         {table.fields
           .filter((field) => field.name !== "_source_file")
           .map((field) => (

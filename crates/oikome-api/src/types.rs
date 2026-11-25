@@ -544,6 +544,61 @@ pub struct AnalysisTable {
     /// For a dataset's table: what it is and the version read. It is not
     /// made from its files but read where it is.
     pub dataset: Option<DatasetFacts>,
+    /// The views saved with it, in the order they were made.
+    pub views: Vec<AnalysisView>,
+}
+
+/// A view saved with an analysis table: how its rows are grouped, split,
+/// filtered, ordered and drawn, by the owner or by an assistant allowed to
+/// read the collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisView {
+    pub id: String,
+    pub name: String,
+    /// The explorer's own description of the view, as JSON: only the keys
+    /// that describe a view are kept (`plugin`, `group_by`, `split_by`,
+    /// `sort`, `filter`, `columns`, `aggregates` and how each is drawn).
+    pub config: String,
+    /// The assistant that made it; the owner made it when absent.
+    pub by: Option<String>,
+    #[ts(type = "number")]
+    pub saved_at_ms: u64,
+}
+
+/// `save_analysis_view`: keep a view with its table, a new one or, by its
+/// id, one saved before. A view the table starts with (`month`, `category`,
+/// `rows`) is saved in place under that id; removing it restores it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAnalysisView {
+    pub space: String,
+    pub table: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub id: Option<String>,
+    pub name: String,
+    pub config: String,
+}
+
+/// One saved view of an analysis table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisViewRef {
+    pub space: String,
+    pub table: String,
+    pub id: String,
+}
+
+/// `analysis_query`: one read-only query over an analysis table, which the
+/// query names `oikome_table`. Beside its columns the table has, for each
+/// column of time, `<column> (month)` and `<column> (year)`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisQuery {
+    pub space: String,
+    pub table: String,
+    pub sql: String,
 }
 
 /// `file_analysis`: what a folder collection's files can make and has made.

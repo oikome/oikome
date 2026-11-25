@@ -6983,6 +6983,239 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .exists());
 }
 
+/// The explorer (Perspective) asks one read-only query at a time of the
+/// table shown, named `oikome_table`, with a month and a year for each
+/// column of time; views are kept with the table.
+#[tokio::test]
+async fn an_analysis_table_is_explored_by_read_only_queries_and_keeps_its_views() {
+    let n = node();
+    let source = tempfile::tempdir().unwrap();
+    let root = source.path().join("household");
+    std::fs::create_dir_all(root.join("spending")).unwrap();
+    std::fs::write(
+        root.join("spending/2026-09.csv"),
+        "date,category,amount\n2026-09-02,Groceries,30.50\n2026-09-14,Books,12.00\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("spending/2026-10.csv"),
+        "date,category,amount\n2026-10-03,Groceries,20.00\n",
+    )
+    .unwrap();
+    n.api
+        .view_in_place(
+            &OWNER,
+            ViewInPlace {
+                place: None,
+                path: root.to_string_lossy().into_owned(),
+                name: Some("household".into()),
+            },
+        )
+        .await
+        .unwrap();
+    n.api
+        .build_analysis(
+            &OWNER,
+            BuildAnalysis {
+                space: "household".into(),
+                tables: vec!["spending".into()],
+            },
+        )
+        .await
+        .unwrap();
+    let ask = |sql: &str| AnalysisQuery {
+        space: "household".into(),
+        table: "spending".into(),
+        sql: sql.into(),
+    };
+
+    // Grouped by the month of its time column, which the node adds.
+    let rows = n
+        .api
+        .analysis_query(
+            &OWNER,
+            ask("SELECT \"date (month)\" AS month, SUM(amount) AS total, MIN(\"date (year)\") AS year \
+                 FROM oikome_table GROUP BY 1 ORDER BY 1"),
+        )
+        .await
+        .unwrap();
+    let batch = StreamReader::try_new(rows.ipc.as_slice(), None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    let text = |column: usize| {
+        batch
+            .column(column)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .iter()
+            .map(|v| v.unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(text(0), ["2026-09", "2026-10"]);
+    assert_eq!(text(2), ["2026", "2026"]);
+    // A view Perspective keeps is sent as a WITH of its own.
+    let rows = n
+        .api
+        .analysis_query(
+            &OWNER,
+            ask("WITH v AS (SELECT category FROM oikome_table WHERE amount > 15) SELECT * FROM v"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(row_count(&rows), 2);
+
+    // Only one statement, only a read, only of this collection.
+    for refused in [
+        "DROP TABLE household.spending",
+        "INSERT INTO household.spending SELECT * FROM household.spending",
+        "CREATE TABLE household.copy AS SELECT * FROM oikome_table",
+        "SELECT 1; SELECT 2",
+        "SELECT * FROM read_csv('/etc/hosts')",
+        "SELECT * FROM elsewhere.secrets",
+        "ATTACH '/tmp/x.db' AS x",
+        "SET memory_limit = '1GB'",
+    ] {
+        let err = n.api.analysis_query(&OWNER, ask(refused)).await;
+        assert!(err.is_err(), "{refused} should be refused");
+    }
+    assert!(n
+        .api
+        .analysis_query(&Caller::Principal { did: did(9) }, ask("SELECT 1"))
+        .await
+        .is_err());
+    let unknown = AnalysisQuery {
+        table: "nothing".into(),
+        ..ask("SELECT 1")
+    };
+    let err = n.api.analysis_query(&OWNER, unknown).await.unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+
+    // A view is kept with its table: only what describes a view is kept.
+    let save = |id: Option<&str>, name: &str, config: &str| SaveAnalysisView {
+        space: "household".into(),
+        table: "spending".into(),
+        id: id.map(str::to_string),
+        name: name.into(),
+        config: config.into(),
+    };
+    let kept = n
+        .api
+        .save_analysis_view(
+            &OWNER,
+            save(
+                None,
+                " Groceries by month ",
+                r#"{"plugin":"Y Bar","group_by":["date (month)"],"columns":["amount"],"theme":"Pro Dark","expressions":{"x":"1"},"settings":true}"#,
+            ),
+        )
+        .await
+        .unwrap();
+    let views = &kept.tables[0].views;
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].name, "Groceries by month");
+    assert_eq!(views[0].by, None);
+    let config: serde_json::Value = serde_json::from_str(&views[0].config).unwrap();
+    assert_eq!(
+        config,
+        serde_json::json!({"plugin": "Y Bar", "group_by": ["date (month)"], "columns": ["amount"]})
+    );
+    let id = views[0].id.clone();
+    // Another view may not take its name; itself may be saved again.
+    let err = n
+        .api
+        .save_analysis_view(&OWNER, save(None, "Groceries by month", "{}"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err:?}");
+    for bad in ["[]", "not json"] {
+        let err = n
+            .api
+            .save_analysis_view(&OWNER, save(None, "Other", bad))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+    }
+    assert!(n
+        .api
+        .save_analysis_view(&OWNER, save(None, "  ", "{}"))
+        .await
+        .is_err());
+    let kept = n
+        .api
+        .save_analysis_view(
+            &OWNER,
+            save(Some(&id), "By month", r#"{"plugin":"Y Line"}"#),
+        )
+        .await
+        .unwrap();
+    assert_eq!(kept.tables[0].views.len(), 1);
+    assert_eq!(kept.tables[0].views[0].name, "By month");
+    assert_eq!(kept.tables[0].views[0].config, r#"{"plugin":"Y Line"}"#);
+
+    // A view the table starts with is saved in place, under its own id;
+    // removing that restores it. Any other unknown id is not found.
+    let kept = n
+        .api
+        .save_analysis_view(
+            &OWNER,
+            save(Some("month"), "month", r#"{"plugin":"Y Area"}"#),
+        )
+        .await
+        .unwrap();
+    let ids: Vec<_> = kept.tables[0].views.iter().map(|v| v.id.as_str()).collect();
+    assert_eq!(ids, [id.as_str(), "month"]);
+    let kept = n
+        .api
+        .remove_analysis_view(
+            &OWNER,
+            AnalysisViewRef {
+                space: "household".into(),
+                table: "spending".into(),
+                id: "month".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(kept.tables[0].views.len(), 1);
+    let err = n
+        .api
+        .save_analysis_view(&OWNER, save(Some("v42"), "Other", "{}"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+
+    // The table is made again when its files change; its views stay.
+    std::fs::write(
+        root.join("spending/2026-11.csv"),
+        "date,category,amount\n2026-11-01,Rent,900.00\n",
+    )
+    .unwrap();
+    let household = || SpaceRef {
+        space: "household".into(),
+    };
+    n.api.refresh_space(&OWNER, household()).await.unwrap();
+    let again = n.api.file_analysis(&OWNER, household()).await.unwrap();
+    assert_eq!(again.tables[0].rows, 4);
+    assert_eq!(again.tables[0].views.len(), 1);
+
+    let view = |id: &str| AnalysisViewRef {
+        space: "household".into(),
+        table: "spending".into(),
+        id: id.into(),
+    };
+    let err = n
+        .api
+        .remove_analysis_view(&OWNER, view("v9"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    let gone = n.api.remove_analysis_view(&OWNER, view(&id)).await.unwrap();
+    assert!(gone.tables[0].views.is_empty());
+}
+
 /// A node that loads DuckDB's extensions, shared by the tests that need
 /// them and downloaded on first use.
 fn node_with_extensions() -> Node {

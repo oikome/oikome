@@ -54,7 +54,7 @@ import { Palette } from "../palette";
 import { FileArt, fileIcon } from "../FileArt";
 import { FileView, fileKindLabel } from "../viewer";
 import { AddFiles } from "../import";
-import { Link, navigate, plainClick, previousPage } from "../router";
+import { Link, navigate, plainClick, previousPage, useLocation } from "../router";
 import { strings } from "../strings";
 import { ShareDialog } from "./ShareDialog";
 import { SaveDialog } from "./SaveDialog";
@@ -89,8 +89,19 @@ export function Collection({ name, item, folder: openFolder = "" }: { name: stri
   const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  // A folder collection shows its files, or what an AI can read of them.
-  const [view, setView] = useState<"files" | "knowledge" | "analysis">("files");
+  // A folder collection shows its files, what an AI can read of them, or
+  // its analysis. Which one is in the address (`?view=`), so reloading the
+  // page, or a link to it, opens the same one.
+  const { path, query } = useLocation();
+  const asked = query.get("view");
+  const view: "files" | "knowledge" | "analysis" = asked === "knowledge" || asked === "analysis" ? asked : "files";
+  const setView = (next: "files" | "knowledge" | "analysis") => {
+    const to = new URLSearchParams(query);
+    if (next === "files") to.delete("view");
+    else to.set("view", next);
+    const search = to.toString();
+    navigate(search ? `${path}?${search}` : path, { replace: true, keepScroll: true });
+  };
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
   const remove = useAction();

@@ -195,6 +195,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // Data Analysis: the household's table files become its analysis tables
     // (a folder of monthly files read as one), with totals by month and category.
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
+    // The view is in the address: reloading the page stays on it.
+    await expect(page).toHaveURL(/\?view=analysis$/);
+    await page.reload();
+    await expect(page.getByRole("radio", { name: "Analysis", exact: true })).toBeChecked();
     // The energy meter's Iceberg table and the sleep tracker's Lance dataset
     // are analysis tables as soon as they are found; the files' tables wait
     // for the owner.

@@ -156,6 +156,26 @@ D (finish file sources) → E (backup and restore, then read-only datasets) → 
 
 ## After PR 32
 
+Numbered on 2026-11-25. A number is a place in the order, not a size; each stage after PR 34 starts with its own PRD and prototype.
+
+| PR | Stage |
+|---|---|
+| 33 | A: BI in the Analysis view, with what PR 32 left (below) |
+| 34 | B: tables as knowledge (K3) |
+| 35 | Security mode (3.7) |
+| 36 | Desktop app (M6) |
+| 37 | Phone app and devices (M7) |
+| 38 | Family (M9) |
+| 39 | Serving over WebDAV (3.13) |
+| last | Payments (M5) and plugins from others (M10) |
+
+- **Left by PR 32, done with PR 33:** RAW samples from real cameras of several makers (none tried yet; the tests make their own files); RW2 named in RAW Preview's description (oikome-plugins); whether `note-count` stays in the official catalog. The withdrawn plugin-origins code is kept on the local branch `spike/plugin-origins`.
+- **App-CSP review for Perspective (2026-11-25, 5.9.3, measured on a page served with the app's policy; results judged by what was drawn, since a failure inside a worker reports nothing to the page).** The owner's requirement: the page keeps running only the site's own script files.
+  - Today's policy: nothing starts.
+  - As published, everything works only with `'wasm-unsafe-eval'` and `blob:` in `script-src`. Not accepted: `blob:` there lets script already running make more script.
+  - With the viewer's glue given as a file through `init_client(wasm, wasm_module)` (a documented parameter), `script-src 'self' 'wasm-unsafe-eval'` and `worker-src 'self' blob:` are enough for the **grid, pivot, filters and aggregates**. `'wasm-unsafe-eval'` compiles WebAssembly only and does not allow `eval` of JavaScript; a `blob:` worker has no page to act on.
+  - **Charts do not draw under that policy.** Their worker imports the viewer's worker code from a `blob:` address (`get_worker_url`), which the worker's inherited `script-src` refuses, silently. That code is a separate build embedded in the package as text and not published as a file; the page-side glue file does not run in a worker (it needs `window`, and with that supplied the charts still stay blank), and `get_worker_url` cannot be replaced.
+  - **Decided 2026-11-25: Perspective for everything, in a page of its own inside the Analysis view.** The app's policy does not change. The Analysis view embeds a frame served by the node from the app's origin with a policy of its own: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'none'`, styles, images and fonts from the site, and `frame-ancestors 'self'`. Measured: the grid, Y Bar and Treemap draw in the frame, while the page around it still refuses a `blob:` script and WebAssembly compilation. The frame makes no connections; the app page reads the node and passes results to it by messages. The frame is of the app's origin (module workers need one), so script in it could reach the app: what protects is that only this frame, which shows table data through Perspective and no notes, shared pages or file previews, runs under the wider policy.
 - **A — BI on the node's DuckDB.** All analysis is SQL executed by Oikome's DuckDB behind one SQL gateway (the caller's principal, queries only, the semantic layer's grant and row-policy rewrite, only granted tables listed, time and memory limits, the access log); every way in is a door in front of it. First door: **Perspective as Oikome's own component in the Analysis view** (grid, pivot, filters, aggregates and charts), with an executor in the node that runs Perspective's generated SQL as single read-only queries (its temporary views kept per session, never created in DuckDB) — proven in the 2026-11-19 spike, see `research/next-phases.md` §5. Assistants make views over MCP as Perspective view configurations (JSON) that Oikome renders, so the expressive power of charts made for the owner is Perspective's. Later doors, each only after its own spike: Quack once Oikome and the client are on DuckDB 2.0 (Superset through duckdb-engine), or the PostgreSQL wire protocol for BI products that need it; Superset can then be a bundled companion. Starts with the app-CSP review (WebAssembly compilation, `blob:` workers) and a design for the owner. A and B can be one stage.
 - **B — tables as knowledge (K3).** Analysis tables gain units and `measure`, `text` and `place` roles; text columns become `table_row` chunks; assistants get read-only `query_table`.
 

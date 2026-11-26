@@ -465,6 +465,31 @@ pub enum FieldRole {
     Other,
 }
 
+/// The type a column of an analysis table is read as, when the owner
+/// changed the one DuckDB read: charts read it so (`TRY_CAST`), a value that
+/// does not convert counting as empty. The table and its files stay as they
+/// are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ColumnType {
+    /// VARCHAR.
+    Text,
+    /// A whole number: BIGINT.
+    Integer,
+    /// A floating-point number: DOUBLE.
+    Number,
+    /// A fixed-point number, exact, for amounts of money: DECIMAL(p, s),
+    /// `p` digits in all (1 to 38; 18, or 38 when the values need more,
+    /// unless chosen) and `s` of them after the point (2 unless chosen).
+    Decimal,
+    /// DATE.
+    Date,
+    /// TIMESTAMP.
+    Timestamp,
+    /// BOOLEAN.
+    Boolean,
+}
+
 /// One source field in a dataset profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -473,6 +498,14 @@ pub struct FieldProfile {
     pub data_type: String,
     pub role: FieldRole,
     pub inferred: bool,
+    /// The type the owner has it read as, in place of `data_type`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub read_as: Option<ColumnType>,
+    /// That type as DuckDB names it: `DECIMAL(18, 4)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub read_type: Option<String>,
 }
 
 /// `dataset_profile`: inferred roles the owner can correct before analysis.
@@ -544,6 +577,361 @@ pub struct AnalysisTable {
     /// For a dataset's table: what it is and the version read. It is not
     /// made from its files but read where it is.
     pub dataset: Option<DatasetFacts>,
+    /// The views saved with it, in the order they were made.
+    pub views: Vec<AnalysisView>,
+}
+
+/// A view saved with an analysis table: how its rows are grouped, split,
+/// filtered, ordered and drawn, by the owner or by an assistant allowed to
+/// read the collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisView {
+    pub id: String,
+    pub name: String,
+    /// The chart it is, as JSON (a [`ChartSpec`]).
+    pub config: String,
+    /// The assistant that made it; the owner made it when absent.
+    pub by: Option<String>,
+    #[ts(type = "number")]
+    pub saved_at_ms: u64,
+}
+
+/// `save_analysis_view`: keep a view with its table, a new one (under a
+/// name, the first time it is saved) or, by its id, one saved before. A
+/// table starts with one chart (`default`, its name blank until renamed),
+/// an ordinary chart: changed, renamed or removed like any other.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAnalysisView {
+    pub space: String,
+    pub table: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub id: Option<String>,
+    pub name: String,
+    pub config: String,
+}
+
+/// One saved view of an analysis table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisViewRef {
+    pub space: String,
+    pub table: String,
+    pub id: String,
+}
+
+/// How a chart is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartKind {
+    Table,
+    Column,
+    Bar,
+    Line,
+    Area,
+    Pie,
+    Treemap,
+}
+
+/// What a date is grouped by, each period written in a standard way: 2026,
+/// 2026Q3, 2026-10, 2026-W40 (an ISO week), 2026-10-05; for a timestamp
+/// also 2026-10-05 22, 2026-10-05 22:04 and 2026-10-05 22:05:30.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum DateGrain {
+    Year,
+    Quarter,
+    Month,
+    Week,
+    Day,
+    Hour,
+    Minute,
+    Second,
+}
+
+/// How a metric totals its column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartAggregate {
+    Sum,
+    Average,
+    Median,
+    Min,
+    Max,
+    Count,
+    Distinct,
+}
+
+/// What part of its time a chart covers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TimeRange {
+    #[default]
+    All,
+    Last7Days,
+    Last30Days,
+    Last90Days,
+    Last365Days,
+    ThisYear,
+    /// From `from` to `to`, whole days, either end open.
+    Custom,
+}
+
+/// A chart's time: a column of time (a date or a timestamp, as DuckDB read
+/// it), seen at a grain, over a range. Its grain is a level of one hierarchy
+/// (year, quarter, month, day; a week stands apart), rolled up or zoomed
+/// into; it is never a second dimension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartTime {
+    pub column: String,
+    pub grain: DateGrain,
+    #[serde(default)]
+    pub range: TimeRange,
+    /// The first day of a custom range, `2026-08-01`.
+    #[serde(default)]
+    #[ts(optional)]
+    pub from: Option<String>,
+    /// The last day of a custom range, itself included.
+    #[serde(default)]
+    #[ts(optional)]
+    pub to: Option<String>,
+}
+
+/// A dimension: a column the rows are grouped by, together with the time and
+/// the other dimensions. Any column but the chart's time: text, a number by
+/// its values, a date by its days.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartDimension {
+    pub column: String,
+}
+
+/// A metric: a column and how it is totalled; without a column, the number
+/// of rows. The same column may be totalled in several ways.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartMetric {
+    #[serde(default)]
+    pub column: Option<String>,
+    pub aggregate: ChartAggregate,
+}
+
+/// A filter on one column, of one kind: any of `values`, a range of numbers
+/// with either end open (`min`, `max`), or, on a column of time, one
+/// `period` (what zooming into a period or breaking it down keeps).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartFilter {
+    pub column: String,
+    #[serde(default)]
+    pub values: Vec<String>,
+    #[serde(default)]
+    pub min: Option<String>,
+    #[serde(default)]
+    pub max: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub period: Option<ChartPeriod>,
+}
+
+/// A period of time, written as a chart's groups write it at its grain:
+/// `2026`, `2026-Q3`, `2026-08`, or the day a week or a day starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartPeriod {
+    pub grain: DateGrain,
+    pub key: String,
+}
+
+/// The order of a chart's groups: by one of its metrics (its place in
+/// `metrics`), totalled over the whole group.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartSort {
+    pub metric: u32,
+    pub descending: bool,
+}
+
+/// A chart, described: never SQL. The node writes the query from it.
+///
+/// The rows are grouped by the time (at its grain) and every dimension
+/// together, as SQL's GROUP BY is: a chart's axis, a table's rows. Within
+/// each group, `pivots` are dimensions too, laid across: each of their values
+/// is a series (a chart's colour) or a column (a table's), as a pivot is in
+/// BI tools; each of `metrics` is totalled for every group and series. The
+/// groups are in the time's own order, then their values', unless `sort`
+/// orders them by a metric, as BI tools sort an axis; `limit` keeps the
+/// first of them. Without either, a time with more periods than can be shown
+/// shows the newest. With nothing grouped, pivoted or totalled, it is the
+/// table's rows. Drilling into a period or a group is an edit of the
+/// description: a filter, and a finer grain or another dimension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartSpec {
+    pub chart: ChartKind,
+    #[serde(default)]
+    pub time: Option<ChartTime>,
+    #[serde(default)]
+    pub dimensions: Vec<ChartDimension>,
+    #[serde(default)]
+    pub pivots: Vec<ChartDimension>,
+    #[serde(default)]
+    pub metrics: Vec<ChartMetric>,
+    #[serde(default)]
+    pub filters: Vec<ChartFilter>,
+    #[serde(default)]
+    pub sort: Option<ChartSort>,
+    /// How many groups to show, the first in the chart's order: a number
+    /// (1000 when left out), or `"all"`.
+    #[serde(default)]
+    pub limit: Option<ChartLimit>,
+}
+
+/// How many groups a chart shows: the first so many, in its order, or all
+/// of them, however many.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum ChartLimit {
+    Count(u32),
+    All(AllGroups),
+}
+
+/// `"all"`: every group a chart has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum AllGroups {
+    All,
+}
+
+/// A column a chart's groups are keyed by, and for its time the grain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartLevel {
+    pub column: String,
+    pub grain: Option<DateGrain>,
+}
+
+/// `analysis_chart`: what a chart of an analysis table shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisChart {
+    pub space: String,
+    pub table: String,
+    pub spec: ChartSpec,
+}
+
+/// One series of a chart's result: a value of each pivot (none when nothing
+/// is pivoted) and the metric totalled, by its place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartSeries {
+    pub pivot: Vec<Option<String>>,
+    pub metric: u32,
+}
+
+/// One group of a chart's result: its value of each of the result's
+/// `columns` (a period for the time, as [`ChartPeriod`] writes it), and a
+/// total for each series (none where it has no rows of that series: a
+/// period with no rows keeps its place when the time alone groups).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartGroup {
+    pub keys: Vec<Option<String>>,
+    pub values: Vec<Option<f64>>,
+}
+
+/// The table's rows, for a chart that groups and totals nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartRows {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+}
+
+/// The DuckDB query a chart ran, for the owner to read: its text, and the
+/// value each placeholder (`?1`, `?2`, …) was bound to, written as SQL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartQuery {
+    pub sql: String,
+    pub params: Vec<String>,
+}
+
+/// What a chart shows, computed by the node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartResult {
+    /// The query that worked it out.
+    pub query: ChartQuery,
+    /// What the groups are keyed by: the time at its grain, then the
+    /// dimensions; none when nothing is grouped.
+    pub columns: Vec<ChartLevel>,
+    pub series: Vec<ChartSeries>,
+    pub groups: Vec<ChartGroup>,
+    /// How many of the table's rows the filters keep.
+    #[ts(type = "number")]
+    pub matched: u64,
+    /// The rows themselves, for a chart that groups and totals nothing.
+    pub rows: Option<ChartRows>,
+    /// Whether more was found than is given here: more groups than
+    /// `limit` (or than a chart shows), or more rows.
+    pub truncated: bool,
+}
+
+/// A column of an analysis table as a chart may use it: what it holds
+/// (`number`, `time` or `text`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartColumn {
+    pub name: String,
+    pub kind: String,
+}
+
+/// An analysis table an assistant may chart: its columns and the charts
+/// saved with it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartableTable {
+    pub collection: String,
+    pub table: String,
+    #[ts(type = "number")]
+    pub rows: u64,
+    pub columns: Vec<ChartColumn>,
+    pub charts: Vec<AnalysisView>,
+}
+
+/// `assistant_chart`: a chart an assistant asks for, of a table of one of
+/// its collections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantChart {
+    pub collection: String,
+    pub table: String,
+    pub spec: ChartSpec,
+}
+
+/// `assistant_save_chart`: a chart an assistant keeps with a table, under a
+/// name. Under a name it used before, it replaces its own chart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantSaveChart {
+    pub collection: String,
+    pub table: String,
+    pub name: String,
+    pub spec: ChartSpec,
+}
+
+/// `analysis_values`: the values a column of an analysis table holds, to
+/// choose a filter's from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisValues {
+    pub space: String,
+    pub table: String,
+    pub column: String,
 }
 
 /// `file_analysis`: what a folder collection's files can make and has made.
@@ -564,6 +952,28 @@ pub struct SetAnalysisField {
     pub table: String,
     pub field: String,
     pub role: FieldRole,
+}
+
+/// `set_analysis_type`: read a column of an analysis table as another type
+/// (`read_as`), or, with none, as DuckDB read it again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAnalysisType {
+    pub space: String,
+    pub table: String,
+    pub column: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub read_as: Option<ColumnType>,
+    /// A decimal's digits in all, 1 to 38: 18, or 38 when its values need
+    /// more, when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub precision: Option<u8>,
+    /// A decimal's digits after the point, 0 to its precision: 2 when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub scale: Option<u8>,
 }
 
 /// `build_analysis`: make the analysis tables the owner chose of a folder

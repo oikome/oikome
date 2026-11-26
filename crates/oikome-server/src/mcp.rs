@@ -21,10 +21,14 @@
 //!   API's assistant calls, so its grants decide what it reads. A request
 //!   with an `Origin` is refused (a web page has no business here: DNS
 //!   rebinding), as is one whose `Host` isn't this server (checked before).
-//! - **What.** Six tools: `list_collections`, `search`, `read` (a passage
-//!   or lines of a document prepared for AI), `read_row`, and `list_skills`
-//!   and `get_skill` (Oikome's own skill and those in its collections). None
-//!   of the owner's own operations is offered.
+//! - **What.** Nine tools: `list_collections`, `search`, `read` (a passage
+//!   or lines of a document prepared for AI), `read_row`, `list_skills` and
+//!   `get_skill` (Oikome's own skill and those in its collections), and for
+//!   the analysis tables of its collections `list_charts`, `chart` (a chart
+//!   described, computed as the assistant) and `save_chart`, the one tool
+//!   that changes anything: it keeps a chart with its table, marked as the
+//!   assistant's, for the owner to open, change or remove. None of the
+//!   owner's own operations is offered.
 //! - **Which protocol.** Both eras on one endpoint: a request carrying
 //!   per-request `_meta` is served as revision 2026-07-28 (its headers
 //!   checked against its body, `server/discover` answered); `initialize`
@@ -47,7 +51,8 @@ use axum::response::Response;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use oikome_api::{
-    Api, ApiError, Caller, ErrorCode, GetSkill, ListSkills, ReadKnowledge, ReadRow, Search,
+    Api, ApiError, AssistantChart, AssistantSaveChart, Caller, ChartSpec, ErrorCode, GetSkill,
+    ListSkills, ReadKnowledge, ReadRow, Search,
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -73,7 +78,10 @@ and read to open a passage with what is around it, or lines of its document. \
 When you answer from a passage, name its document and lines. \
 list_skills and get_skill give skills: instructions for tasks, Oikome's own first; \
 a skill's scripts are files to read, not run here. \
-Every search and read shows up in the owner's Activity.";
+For totals and trends, list_charts gives the analysis tables of your collections and their columns; \
+chart computes a chart you describe (dimensions, metrics, filters), never SQL; \
+save_chart keeps one with its table for the owner, marked as yours. \
+Every search, read and chart shows up in the owner's Activity.";
 
 // JSON-RPC and MCP error codes.
 const PARSE_ERROR: i64 = -32700;
@@ -523,6 +531,52 @@ fn tools() -> Value {
             "annotations": read_only,
         },
         {
+            "name": "list_charts",
+            "title": "List analysis tables",
+            "description": "The analysis tables of the collections you may read (tables Oikome made of a folder's CSV, Parquet, JSON Lines and spreadsheet files, and datasets read where they are): each one's columns with what they hold (number, time, text), its rows, and the charts kept with it. Chart one with chart.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string", "description": "Only this collection's tables." }
+                },
+                "additionalProperties": false
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "chart",
+            "title": "Compute a chart",
+            "description": "What a chart of an analysis table shows, computed by Oikome from its description (never SQL). The rows are grouped by the time at its grain and every dimension together; within each group, every value of the pivots is a series (a table's column); each metric is totalled for every group and series. The answer names what the groups are keyed by (columns: the time with its grain, then the dimensions), lists the series (a value of the pivots and a metric, by its place) and the groups (a value of each column and a total for each series; with the time alone, periods with no rows keep their place), how many rows the filters keep, whether more groups were found than given, and the DuckDB query it ran. With no time, dimension, pivot or metric, it gives the rows themselves (up to 200).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string" },
+                    "table": { "type": "string" },
+                    "spec": chart_spec_schema()
+                },
+                "required": ["collection", "table", "spec"],
+                "additionalProperties": false
+            },
+            "annotations": read_only,
+        },
+        {
+            "name": "save_chart",
+            "title": "Save a chart",
+            "description": "Keep a chart with an analysis table, under a name, for the owner: it appears in the table's Analysis view beside the others, marked as made by you, and the owner can change or remove it. It must be a chart chart can compute. Saved again under the same name, your own chart is replaced; a name another chart has is refused. Save only what the owner asked for.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string" },
+                    "table": { "type": "string" },
+                    "name": { "type": "string", "description": "What the owner will see it called, up to 80 characters.", "maxLength": 80 },
+                    "spec": chart_spec_schema()
+                },
+                "required": ["collection", "table", "name", "spec"],
+                "additionalProperties": false
+            },
+            "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+        },
+        {
             "name": "get_skill",
             "title": "Get a skill",
             "description": "A skill's SKILL.md (its instructions), or another of its files by path, as text with its SHA-256. Leave collection out for Oikome's own skill. Scripts are returned as files; nothing is run.",
@@ -539,6 +593,102 @@ fn tools() -> Value {
             "annotations": read_only,
         }
     ])
+}
+
+/// A chart's description, as the tools take it (`ChartSpec`).
+fn chart_spec_schema() -> Value {
+    let dimension = json!({
+        "type": "object",
+        "properties": { "column": { "type": "string", "description": "Any column but the chart's time: text, a number by its values, a date by its days." } },
+        "required": ["column"],
+        "additionalProperties": false
+    });
+    json!({
+        "type": "object",
+        "description": "A chart, described. The rows are grouped by the time at its grain and every dimension together; the groups are in the time's own order unless sort orders them by a metric, and limit (1000 when left out) cuts them. To look into a period, filter on it (period) and choose a finer grain; to break a group down, filter on its values and group by another column.",
+        "properties": {
+            "chart": { "enum": ["table", "column", "bar", "line", "area", "pie", "treemap"], "description": "How the owner sees it drawn." },
+            "time": {
+                "type": "object",
+                "description": "The chart's time: a column of time (a date or a timestamp), at a grain, over a range. Its grain is how finely time is seen, not another dimension.",
+                "properties": {
+                    "column": { "type": "string" },
+                    "grain": { "enum": ["year", "quarter", "month", "week", "day", "hour", "minute", "second"], "description": "hour, minute and second for a timestamp only." },
+                    "range": { "enum": ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"], "description": "all when left out; custom is from from to to." },
+                    "from": { "type": "string", "description": "The first day of a custom range: 2026-08-01. Either end may be left out." },
+                    "to": { "type": "string", "description": "The last day of a custom range, itself included." }
+                },
+                "required": ["column", "grain"],
+                "additionalProperties": false
+            },
+            "dimensions": { "type": "array", "items": dimension, "maxItems": 4, "description": "Columns the rows are grouped by, all together, with the time." },
+            "pivots": { "type": "array", "items": dimension, "maxItems": 2, "description": "Dimensions laid across each group, as a BI tool's pivot: each value is a series of a chart (its colour) or a column of a table." },
+            "metrics": {
+                "type": "array",
+                "maxItems": 8,
+                "description": "What is totalled; the same column may be totalled several ways. Grouped with no metric, rows are counted.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "column": { "type": "string", "description": "Left out to count rows." },
+                        "aggregate": { "enum": ["sum", "average", "median", "min", "max", "count", "distinct"], "description": "count and distinct work on any column; the others on numbers." }
+                    },
+                    "required": ["aggregate"],
+                    "additionalProperties": false
+                }
+            },
+            "filters": {
+                "type": "array",
+                "maxItems": 12,
+                "description": "Which rows count, one kind each: values to keep (as text), a range of a number (min, max), or one period of a column of time (period).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "column": { "type": "string" },
+                        "values": { "type": "array", "items": { "type": "string" }, "maxItems": 500 },
+                        "min": { "type": "string" },
+                        "max": { "type": "string" },
+                        "period": {
+                            "type": "object",
+                            "description": "A period as the answer writes it at its grain: 2026, 2026Q3, 2026-08, 2026-W32 (an ISO week), 2026-08-05, 2026-08-05 22, 2026-08-05 22:04, 2026-08-05 22:05:30.",
+                            "properties": { "grain": { "enum": ["year", "quarter", "month", "week", "day", "hour", "minute", "second"] }, "key": { "type": "string" } },
+                            "required": ["grain", "key"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "required": ["column"],
+                    "additionalProperties": false
+                }
+            },
+            "sort": {
+                "type": "object",
+                "description": "The groups along the chart (its time and dimensions) ordered by a metric (its place in metrics), totalled over the whole group; else they are in the time's own order, then their values'.",
+                "properties": { "metric": { "type": "integer", "minimum": 0 }, "descending": { "type": "boolean" } },
+                "required": ["metric", "descending"],
+                "additionalProperties": false
+            },
+            "limit": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "const": "all" }], "description": "How many groups along the chart (its time and dimensions) to show, the first in the chart's order; 1000 when left out, \"all\" for every one of them." }
+        },
+        "required": ["chart"],
+        "additionalProperties": false
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChartArgs {
+    collection: String,
+    table: String,
+    spec: ChartSpec,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SaveChartArgs {
+    collection: String,
+    table: String,
+    name: String,
+    spec: ChartSpec,
 }
 
 #[derive(Deserialize)]
@@ -676,6 +826,47 @@ async fn call(api: &Api, caller: &Caller, name: &str, arguments: Value) -> Optio
                 )
                 .await
                 .map(|skill| structured(json!(skill))),
+            Err(e) => Err(e),
+        },
+        "list_charts" => match args::<ListSkillsArgs>(arguments) {
+            Ok(a) => api
+                .assistant_charts(
+                    caller,
+                    ListSkills {
+                        collection: a.collection,
+                    },
+                )
+                .await
+                .map(|tables| structured(json!({ "tables": tables }))),
+            Err(e) => Err(e),
+        },
+        "chart" => match args::<ChartArgs>(arguments) {
+            Ok(a) => api
+                .assistant_chart(
+                    caller,
+                    AssistantChart {
+                        collection: a.collection,
+                        table: a.table,
+                        spec: a.spec,
+                    },
+                )
+                .await
+                .map(|result| structured(json!(result))),
+            Err(e) => Err(e),
+        },
+        "save_chart" => match args::<SaveChartArgs>(arguments) {
+            Ok(a) => api
+                .assistant_save_chart(
+                    caller,
+                    AssistantSaveChart {
+                        collection: a.collection,
+                        table: a.table,
+                        name: a.name,
+                        spec: a.spec,
+                    },
+                )
+                .await
+                .map(|view| structured(json!({ "saved": { "id": view.id, "name": view.name } }))),
             Err(e) => Err(e),
         },
         "read_row" => match args::<ReadRowArgs>(arguments) {
@@ -911,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn only_reading_tools_are_offered() {
+    fn only_saving_a_chart_changes_anything() {
         let names: Vec<String> = tools()
             .as_array()
             .unwrap()
@@ -926,14 +1117,25 @@ mod tests {
                 "read",
                 "read_row",
                 "list_skills",
+                "list_charts",
+                "chart",
+                "save_chart",
                 "get_skill"
             ]
         );
-        assert!(tools()
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|t| t["annotations"]["readOnlyHint"] == true));
+        for tool in tools().as_array().unwrap() {
+            let writes = tool["name"] == "save_chart";
+            assert_eq!(
+                tool["annotations"]["readOnlyHint"], !writes,
+                "{}",
+                tool["name"]
+            );
+            assert_eq!(
+                tool["annotations"]["destructiveHint"], false,
+                "{}",
+                tool["name"]
+            );
+        }
     }
 
     #[test]

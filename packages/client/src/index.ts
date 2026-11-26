@@ -14,12 +14,18 @@ import type {
   AddInPlaceFiles,
   AddInPlaceFolder,
   AnalyzeDataset,
+  AnalysisChart,
+  AnalysisValues,
+  ChartResult,
   AnalysisSummary,
   AnalysisTableRef,
+  AnalysisViewRef,
+  SaveAnalysisView,
   BuildAnalysis,
   ExtensionRef,
   FileAnalysis,
   SetAnalysisField,
+  SetAnalysisType,
   AnalysisProfile,
   DatasetAnalysis,
   DatasetProfile,
@@ -178,8 +184,18 @@ export interface NodeClient {
   installExtension(request: ExtensionRef): Promise<ExtensionDownload>;
   /** Correct what a column of an analysis table is for. */
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
+  /** Read a column of an analysis table as another type, or as DuckDB read it again. */
+  setAnalysisType(request: SetAnalysisType): Promise<FileAnalysis>;
   /** An analysis table's totals by month and by category. */
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary>;
+  /** What a chart of an analysis table shows, computed by the node from the chart's description. */
+  analysisChart(request: AnalysisChart): Promise<ChartResult>;
+  /** The values a column of an analysis table holds, for a filter to choose from. */
+  analysisValues(request: AnalysisValues): Promise<string[]>;
+  /** Keep a view with its analysis table: a new one, or by its id one saved before. */
+  saveAnalysisView(request: SaveAnalysisView): Promise<FileAnalysis>;
+  /** Remove a saved view; its table stays. */
+  removeAnalysisView(request: AnalysisViewRef): Promise<FileAnalysis>;
   analysisProfile(request: SpaceRef): Promise<AnalysisProfile>;
   /** What an AI can read of a collection: prepared or not, each original. */
   knowledgeStatus(request: SpaceRef): Promise<KnowledgeStatus>;
@@ -477,12 +493,32 @@ export class HttpClient implements NodeClient {
     return this.#json("set_analysis_field", request);
   }
 
+  setAnalysisType(request: SetAnalysisType): Promise<FileAnalysis> {
+    return this.#json("set_analysis_type", request);
+  }
+
   installExtension(request: ExtensionRef): Promise<ExtensionDownload> {
     return this.#json("install_extension", request);
   }
 
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary> {
     return this.#json("analysis_summary", request);
+  }
+
+  analysisChart(request: AnalysisChart): Promise<ChartResult> {
+    return this.#json("analysis_chart", request);
+  }
+
+  analysisValues(request: AnalysisValues): Promise<string[]> {
+    return this.#json("analysis_values", request);
+  }
+
+  saveAnalysisView(request: SaveAnalysisView): Promise<FileAnalysis> {
+    return this.#json("save_analysis_view", request);
+  }
+
+  removeAnalysisView(request: AnalysisViewRef): Promise<FileAnalysis> {
+    return this.#json("remove_analysis_view", request);
   }
 
   analyzeDataset(request: AnalyzeDataset): Promise<DatasetAnalysis> {

@@ -120,6 +120,9 @@ netdev = { version = "0.46.3", default-features = false, features = ["gateway"] 
 hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 tokio-util = { version = "0.7.19", features = ["compat"] }
 clap = { version = "4", features = ["derive", "env"] }
+# `oikome sql` with no statement: an interactive prompt (oiql>) with line
+# editing and the statements typed before (MIT).
+rustyline = { version = "19", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # User-facing apps (architecture v3 §13.4): the owner's HTTP API and the

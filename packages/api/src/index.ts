@@ -1550,7 +1550,15 @@ export type FieldRole = "time" | "amount" | "category" | "title" | "key" | "othe
 /**
  * One source field in a dataset profile.
  */
-export type FieldProfile = { name: string, dataType: string, role: FieldRole, inferred: boolean, };
+export type FieldProfile = { name: string, dataType: string, role: FieldRole, inferred: boolean,
+/**
+ * The type the owner has it read as, in place of `data_type`.
+ */
+readAs?: ColumnType,
+/**
+ * That type as DuckDB names it: `DECIMAL(18, 4)`.
+ */
+readType?: string, };
 
 /**
  * `dataset_profile`: inferred roles the owner can correct before analysis.
@@ -1629,7 +1637,11 @@ problem: string | null,
  * For a dataset's table: what it is and the version read. It is not
  * made from its files but read where it is.
  */
-dataset: DatasetFacts | null, };
+dataset: DatasetFacts | null,
+/**
+ * The views saved with it, in the order they were made.
+ */
+views: Array<AnalysisView>, };
 
 /**
  * `file_analysis`: what a folder collection's files can make and has made.
@@ -1680,6 +1692,228 @@ export type AnalysisPoint = { label: string, value: number, };
  * no column is the amount).
  */
 export type AnalysisSummary = { table: string, time: string | null, amount: string | null, category: string | null, byMonth: Array<AnalysisPoint>, byCategory: Array<AnalysisPoint>, };
+
+/**
+ * A view saved with an analysis table: how its rows are grouped, split,
+ * filtered, ordered and drawn, by the owner or by an assistant allowed to
+ * read the collection.
+ */
+export type AnalysisView = { id: string, name: string,
+/**
+ * The chart it is, as JSON (a [`ChartSpec`]).
+ */
+config: string,
+/**
+ * The assistant that made it; the owner made it when absent.
+ */
+by: string | null, savedAtMs: number, };
+
+/**
+ * `save_analysis_view`: keep a view with its table, a new one (under a
+ * name, the first time it is saved) or, by its id, one saved before. A
+ * table starts with one chart (`default`, its name blank until renamed),
+ * an ordinary chart: changed, renamed or removed like any other.
+ */
+export type SaveAnalysisView = { space: string, table: string, id?: string, name: string, config: string, };
+
+/**
+ * One saved view of an analysis table.
+ */
+export type AnalysisViewRef = { space: string, table: string, id: string, };
+
+/**
+ * How a chart is drawn.
+ */
+export type ChartKind = "table" | "column" | "bar" | "line" | "area" | "pie" | "treemap";
+
+/**
+ * What a date is grouped by, each period written in a standard way: 2026,
+ * 2026Q3, 2026-10, 2026-W40 (an ISO week), 2026-10-05; for a timestamp
+ * also 2026-10-05 22, 2026-10-05 22:04 and 2026-10-05 22:05:30.
+ */
+export type DateGrain = "year" | "quarter" | "month" | "week" | "day" | "hour" | "minute" | "second";
+
+/**
+ * How a metric totals its column.
+ */
+export type ChartAggregate = "sum" | "average" | "median" | "min" | "max" | "count" | "distinct";
+
+/**
+ * What part of its time a chart covers.
+ */
+export type TimeRange = "all" | "last7Days" | "last30Days" | "last90Days" | "last365Days" | "thisYear" | "custom";
+
+/**
+ * A chart's time: a column of time (a date or a timestamp, as DuckDB read
+ * it), seen at a grain, over a range. Its grain is a level of one hierarchy
+ * (year, quarter, month, day; a week stands apart), rolled up or zoomed
+ * into; it is never a second dimension.
+ */
+export type ChartTime = { column: string, grain: DateGrain, range: TimeRange,
+/**
+ * The first day of a custom range, `2026-08-01`.
+ */
+from?: string,
+/**
+ * The last day of a custom range, itself included.
+ */
+to?: string, };
+
+/**
+ * A dimension: a column the rows are grouped by, together with the time and
+ * the other dimensions. Any column but the chart's time: text, a number by
+ * its values, a date by its days.
+ */
+export type ChartDimension = { column: string, };
+
+/**
+ * A column a chart's groups are keyed by, and for its time the grain.
+ */
+export type ChartLevel = { column: string, grain: DateGrain | null, };
+
+/**
+ * The DuckDB query a chart ran, for the owner to read: its text, and the
+ * value each placeholder (`?1`, `?2`, …) was bound to, written as SQL.
+ */
+export type ChartQuery = { sql: string, params: Array<string>, };
+
+/**
+ * A metric: a column and how it is totalled; without a column, the number
+ * of rows. The same column may be totalled in several ways.
+ */
+export type ChartMetric = { column: string | null, aggregate: ChartAggregate, };
+
+/**
+ * A filter on one column, of one kind: any of `values`, a range of numbers
+ * with either end open (`min`, `max`), or, on a column of time, one
+ * `period` (what zooming into a period or breaking it down keeps).
+ */
+export type ChartFilter = { column: string, values: Array<string>, min: string | null, max: string | null, period?: ChartPeriod, };
+
+/**
+ * A period of time, written as a chart's groups write it at its grain:
+ * `2026`, `2026-Q3`, `2026-08`, or the day a week or a day starts.
+ */
+export type ChartPeriod = { grain: DateGrain, key: string, };
+
+/**
+ * How many groups a chart shows: the first so many, in its order, or all
+ * of them, however many.
+ */
+export type ChartLimit = number | AllGroups;
+
+/**
+ * `"all"`: every group a chart has.
+ */
+export type AllGroups = "all";
+
+/**
+ * The type a column of an analysis table is read as, when the owner
+ * changed the one DuckDB read: charts read it so (`TRY_CAST`), a value that
+ * does not convert counting as empty. The table and its files stay as they
+ * are.
+ */
+export type ColumnType = "text" | "integer" | "number" | "decimal" | "date" | "timestamp" | "boolean";
+
+/**
+ * `set_analysis_type`: read a column of an analysis table as another type
+ * (`read_as`), or, with none, as DuckDB read it again.
+ */
+export type SetAnalysisType = { space: string, table: string, column: string, readAs?: ColumnType,
+/**
+ * A decimal's digits in all, 1 to 38: 18, or 38 when its values need
+ * more, when left out.
+ */
+precision?: number,
+/**
+ * A decimal's digits after the point, 0 to its precision: 2 when left out.
+ */
+scale?: number, };
+
+/**
+ * The order of a chart's groups: by one of its metrics (its place in
+ * `metrics`), totalled over the whole group.
+ */
+export type ChartSort = { metric: number, descending: boolean, };
+
+/**
+ * A chart, described: never SQL. The node writes the query from it.
+ *
+ * The rows are grouped by the time (at its grain) and every dimension
+ * together, as SQL's GROUP BY is: a chart's axis, a table's rows. Within
+ * each group, `pivots` are dimensions too, laid across: each of their values
+ * is a series (a chart's colour) or a column (a table's), as a pivot is in
+ * BI tools; each of `metrics` is totalled for every group and series. The
+ * groups are in the time's own order, then their values', unless `sort`
+ * orders them by a metric, as BI tools sort an axis; `limit` keeps the
+ * first of them. Without either, a time with more periods than can be shown
+ * shows the newest. With nothing grouped, pivoted or totalled, it is the
+ * table's rows. Drilling into a period or a group is an edit of the
+ * description: a filter, and a finer grain or another dimension.
+ */
+export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, pivots: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
+/**
+ * How many groups to show, the first in the chart's order: a number
+ * (1000 when left out), or `"all"`.
+ */
+limit: ChartLimit | null, };
+
+/**
+ * `analysis_chart`: what a chart of an analysis table shows.
+ */
+export type AnalysisChart = { space: string, table: string, spec: ChartSpec, };
+
+/**
+ * One series of a chart's result: a value of each pivot (none when nothing
+ * is pivoted) and the metric totalled, by its place.
+ */
+export type ChartSeries = { pivot: Array<string | null>, metric: number, };
+
+/**
+ * One group of a chart's result: its value of each of the result's
+ * `columns` (a period for the time, as [`ChartPeriod`] writes it), and a
+ * total for each series (none where it has no rows of that series: a
+ * period with no rows keeps its place when the time alone groups).
+ */
+export type ChartGroup = { keys: Array<string | null>, values: Array<number | null>, };
+
+/**
+ * The table's rows, for a chart that groups and totals nothing.
+ */
+export type ChartRows = { columns: Array<string>, rows: Array<Array<string | null>>, };
+
+/**
+ * What a chart shows, computed by the node.
+ */
+export type ChartResult = {
+/**
+ * The query that worked it out.
+ */
+query: ChartQuery,
+/**
+ * What the groups are keyed by: the time at its grain, then the
+ * dimensions; none when nothing is grouped.
+ */
+columns: Array<ChartLevel>, series: Array<ChartSeries>, groups: Array<ChartGroup>,
+/**
+ * How many of the table's rows the filters keep.
+ */
+matched: number,
+/**
+ * The rows themselves, for a chart that groups and totals nothing.
+ */
+rows: ChartRows | null,
+/**
+ * Whether more was found than is given here: more groups than
+ * `limit` (or than a chart shows), or more rows.
+ */
+truncated: boolean, };
+
+/**
+ * `analysis_values`: the values a column of an analysis table holds, to
+ * choose a filter's from.
+ */
+export type AnalysisValues = { space: string, table: string, column: string, };
 
 /**
  * Why a derived analysis can be rebuilt, and whether its source shape changed.

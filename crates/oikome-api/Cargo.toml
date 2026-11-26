@@ -23,6 +23,8 @@ iceberg = { workspace = true }
 oikome-vfs = { path = "../oikome-vfs" }
 zeroize = { workspace = true }
 arrow-array = { workspace = true }
+# A chart's group keys, of whatever type a column is, as text.
+arrow-cast = { workspace = true }
 arrow-ipc = { workspace = true }
 bytes = { workspace = true }
 arrow-schema = { workspace = true }

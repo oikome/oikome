@@ -3,13 +3,13 @@
 //
 // Analysis: the analysis tables a folder collection's data files make
 // (each file, or each folder of them, read as one table) when the owner
-// chooses them, what each column is for, and the table's totals by month
-// and by category. The tables are the collection's, queried as
+// chooses them, what each column is for, and each table's explorer: its
+// charts (Explorer.tsx). The tables are the collection's, queried as
 // <collection>.<table> by SQL and assistants; the files are only read, and
 // the owner may remove a table. A dataset in its folders (a Lance dataset,
 // an Iceberg table) is a table too, always, read where it is.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -25,59 +25,113 @@ import {
   Status,
   useToast,
 } from "@oikome/ui";
-import type { AnalysisPoint, AnalysisSource, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
+import type { AnalysisSource, AnalysisTable, ColumnType, DatasetFacts, FileAnalysis } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
 import { TransferProgress } from "../progress";
 import { since } from "./Sources";
 import { strings } from "../strings";
-import { locale } from "../i18n/languages";
+import { Explorer } from "./Explorer";
 
 const a = strings.analysisView;
-const ROLES: FieldRole[] = ["time", "amount", "category", "title", "key", "other"];
 
-/** A column's type in words: date, date and time, text, number, yes or no. */
-function typeOf(dataType: string): string {
-  if (/^Date/.test(dataType)) return a.types.date;
-  if (/^Timestamp/.test(dataType)) return a.types.datetime;
-  if (/Utf8|Binary/.test(dataType)) return a.types.text;
-  if (/^(U?Int|Float|Decimal)/.test(dataType)) return a.types.number;
-  if (dataType === "Boolean") return a.types.boolean;
-  return a.types.other;
+/**
+ * The types a column can be read as, each the DuckDB type it is (as BI
+ * tools offer them: a whole number, a floating one, an exact one for
+ * money), and the one DuckDB read it as, if it is one of them.
+ */
+const READ_AS: ColumnType[] = ["text", "integer", "number", "decimal", "date", "timestamp", "boolean"];
+/** The most digits a decimal has in DuckDB. */
+const MAX_DIGITS = 38;
+/** A decimal's digits in all and after the point, of a type written `DECIMAL(18, 4)` or `Decimal128(18, 4)`. */
+type DecimalSize = [precision: number, scale: number];
+const sizeOf = (type: string | undefined): DecimalSize | undefined => {
+  const found = /^Decimal(?:128|256)?\((\d+), (\d+)\)$/i.exec(type ?? "");
+  return found ? [Number(found[1]), Number(found[2])] : undefined;
+};
+function kindOf(dataType: string): ColumnType | undefined {
+  const exact: Partial<Record<string, ColumnType>> = {
+    Utf8: "text",
+    LargeUtf8: "text",
+    Utf8View: "text",
+    Int64: "integer",
+    Float64: "number",
+
+    Date32: "date",
+    Boolean: "boolean",
+  };
+  if (exact[dataType]) return exact[dataType];
+  // Any whole number, floating one or timestamp, however wide or precise
+  // (an Iceberg table's are Int32 and Timestamp(µs, None)).
+  if (/^U?Int(8|16|32|64)$/.test(dataType)) return "integer";
+  if (/^Float(16|32|64)$/.test(dataType)) return "number";
+  if (/^Timestamp\(/.test(dataType)) return "timestamp";
+  if (/^Decimal(128|256)\(/.test(dataType)) return "decimal";
+  return undefined;
+}
+/** A type to read a column as, in words. */
+const kindName = (kind: ColumnType) => a.readAsTypes[kind] ?? kind;
+/**
+ * What a column of a type can be read as, as the node allows: text as
+ * anything, a number as text or another number, a date or a time as text or
+ * another of them, true or false as text, itself or a whole number.
+ */
+function readableAs(dataType: string): ColumnType[] {
+  if (/^(Utf8|LargeUtf8|Utf8View)$/.test(dataType)) return READ_AS;
+  if (/^(U?Int|Float|Decimal)/.test(dataType)) return ["text", "integer", "number", "decimal"];
+  if (/^(Date|Timestamp)/.test(dataType)) return ["text", "date", "timestamp"];
+  if (dataType === "Boolean") return ["text", "integer", "boolean"];
+  return ["text"];
 }
 
-function number(value: number): string {
-  return new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 }).format(value);
+/** A column's type as DuckDB names it, from the Arrow type it was read as. */
+function duckType(dataType: string): string {
+  const named: Record<string, string> = {
+    Utf8: "VARCHAR",
+    LargeUtf8: "VARCHAR",
+    Utf8View: "VARCHAR",
+    Boolean: "BOOLEAN",
+    Int8: "TINYINT",
+    Int16: "SMALLINT",
+    Int32: "INTEGER",
+    Int64: "BIGINT",
+    UInt8: "UTINYINT",
+    UInt16: "USMALLINT",
+    UInt32: "UINTEGER",
+    UInt64: "UBIGINT",
+    Float32: "FLOAT",
+    Float64: "DOUBLE",
+    Date32: "DATE",
+    Date64: "DATE",
+    Binary: "BLOB",
+    LargeBinary: "BLOB",
+  };
+  if (dataType in named) return named[dataType]!;
+  if (dataType.startsWith("Timestamp")) return dataType.includes("Some") ? "TIMESTAMP WITH TIME ZONE" : "TIMESTAMP";
+  const decimal = /^Decimal(?:128|256)\((\d+), (\d+)\)$/.exec(dataType);
+  if (decimal) return `DECIMAL(${decimal[1]}, ${decimal[2]})`;
+  return dataType;
 }
 
-/** Totals as bars: each with its label, its value and its length. */
-function Bars({ points, label, vertical = false }: { points: AnalysisPoint[]; label: string; vertical?: boolean }) {
-  const most = Math.max(...points.map((p) => Math.abs(p.value)), 0) || 1;
-  return (
-    <ul
-      className={vertical ? "screen-bars screen-bars--columns" : "screen-bars"}
-      aria-label={label}
-      style={vertical ? { gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` } : undefined}
-    >
-      {points.map((point) => (
-        <li key={point.label} className="screen-bars__item">
-          <span className="screen-bars__label" translate="no">
-            {point.label}
-          </span>
-          <span className="screen-bars__track" aria-hidden="true">
-            <i
-              style={
-                vertical
-                  ? { height: `${Math.max(2, (Math.abs(point.value) / most) * 100)}%` }
-                  : { width: `${Math.max(1, (Math.abs(point.value) / most) * 100)}%` }
-              }
-            />
-          </span>
-          <span className="screen-bars__value">{number(point.value)}</span>
-        </li>
-      ))}
-    </ul>
-  );
+/** Where a file's table comes from, how much it holds and when it was made, in a sentence. */
+function aboutFiles(table: AnalysisTable): string {
+  const first = table.files[0] ?? "";
+  const folder = first.includes("/") ? first.slice(0, first.lastIndexOf("/")) : "";
+  const source = table.sheet
+    ? a.inSheet(first, table.sheet)
+    : table.files.length === 1
+      ? first
+      : folder
+        ? a.filesIn(folder, table.files.length)
+        : a.files(table.files.length);
+  return a.aboutFiles(source, a.rows(table.rows), since(table.builtAtMs));
+}
+
+/** What a dataset is, how much it holds and when it was written, in a sentence. */
+function aboutDataset(dataset: DatasetFacts, rows: number | undefined): string {
+  const kind = a.datasetKinds[dataset.kind] ?? dataset.kind;
+  const held = rows === undefined ? undefined : a.rows(rows);
+  return a.aboutDataset(kind, held, dataset.writtenAtMs ? since(dataset.writtenAtMs) : undefined);
 }
 
 /** One analysis table: its facts, its columns and what each is for, and its totals. */
@@ -312,14 +366,10 @@ function TableView({
   onReload: () => void;
 }) {
   const client = useClient();
-  const setRole = useAction();
+  const setType = useAction();
   const [removing, setRemoving] = useState(false);
   const dataset = table.dataset;
   const readable = !table.problem;
-  const summary = useLoad(
-    async () => (readable ? client.analysisSummary({ space, table: table.name }) : undefined),
-    [space, table.name, readable, table.fields.map((f) => `${f.name}:${f.role}`).join(",")],
-  );
   // While a reader downloads, look again every second.
   const downloading = dataset?.extension?.state === "downloading" || dataset?.extension?.state === "installing";
   useEffect(() => {
@@ -327,8 +377,6 @@ function TableView({
     const timer = setTimeout(onReload, 1000);
     return () => clearTimeout(timer);
   }, [downloading, table, onReload]);
-  const data = summary.data;
-  const measure = data?.amount ? a.sumOf(data.amount) : a.countRows;
   return (
     <div className="screen-analysis__table">
       {dataset?.extension ? (
@@ -340,14 +388,16 @@ function TableView({
           </ErrorText>
         )
       )}
-      {dataset ? (
-        <p className="screen-help screen-analysis__about">{a.readInPlace}</p>
-      ) : (
-        <div className="screen-analysis__about">
-          <p className="screen-help">{a.madeOfFiles}</p>
-          <Button onClick={() => setRemoving(true)}>{a.remove}</Button>
-        </div>
-      )}
+      {/* What the table is, in one line: the name it is queried by, where it comes from, how much it holds. */}
+      <div className="screen-analysis__about">
+        <p className="screen-analysis__line">
+          <code className="screen-analysis__query" translate="no">
+            {space}.{table.name}
+          </code>{" "}
+          <span className="screen-help">{dataset ? aboutDataset(dataset, readable ? table.rows : undefined) : aboutFiles(table)}</span>
+        </p>
+        {!dataset && <Button onClick={() => setRemoving(true)}>{a.remove}</Button>}
+      </div>
       {removing && (
         <RemoveTable
           space={space}
@@ -359,108 +409,155 @@ function TableView({
           }}
         />
       )}
-      <dl className="oik-card screen-facts screen-analysis__facts">
-        {dataset && (
-          <div>
-            <dt className="oik-label">{a.kindLabel}</dt>
-            <dd>{a.datasetKinds[dataset.kind]}</dd>
-          </div>
-        )}
-        {dataset?.version && (
-          <div>
-            <dt className="oik-label">{a.versionLabel}</dt>
-            <dd translate="no">
-              {dataset.writtenAtMs ? a.version(dataset.version, since(dataset.writtenAtMs)) : dataset.version}
-            </dd>
-          </div>
-        )}
-        {readable && (
-          <div>
-            <dt className="oik-label">{a.rowsLabel}</dt>
-            <dd>{a.rows(table.rows)}</dd>
-          </div>
-        )}
-        <div>
-          <dt className="oik-label">{dataset ? a.folderLabel : a.filesLabel}</dt>
-          <dd translate="no" title={table.files.join("\n")}>
-            {table.sheet
-              ? a.inSheet(table.files[0], table.sheet)
-              : table.files.length === 1
-                ? table.files[0]
-                : a.files(table.files.length)}
-          </dd>
-        </div>
-        <div>
-          <dt className="oik-label">{dataset ? a.read : a.updated}</dt>
-          <dd>{since(table.builtAtMs)}</dd>
-        </div>
-        <div>
-          <dt className="oik-label">{a.queryAsLabel}</dt>
-          <dd className="oik-mono" translate="no">
-            {space}.{table.name}
-          </dd>
-        </div>
-      </dl>
 
-      {/* Totals need the rows: none while the table can't be read. */}
-      {readable && (
-        <div className="screen-analysis__charts">
-          <Card className="screen-analysis__chart">
-            <h3 className="oik-label">{a.byMonth}</h3>
-            <p className="screen-help">{measure}</p>
-            {summary.error ? (
-              <ErrorText>{summary.error}</ErrorText>
-            ) : !data ? (
-              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-            ) : data.byMonth.length > 0 ? (
-              <Bars points={data.byMonth} label={a.byMonth} vertical />
-            ) : (
-              <p className="screen-help">{a.needTime}</p>
-            )}
-          </Card>
-          <Card className="screen-analysis__chart">
-            <h3 className="oik-label">{a.byCategory}</h3>
-            <p className="screen-help">{data?.category ? `${data.category} · ${measure}` : measure}</p>
-            {summary.error ? null : !data ? (
-              <div className="screen-analysis__skeleton oik-skel" aria-hidden="true" />
-            ) : data.byCategory.length > 0 ? (
-              <Bars points={data.byCategory} label={a.byCategory} />
-            ) : (
-              <p className="screen-help">{a.needCategory}</p>
-            )}
-          </Card>
-        </div>
-      )}
+      {/* Exploring needs the rows: nothing to explore while the table can't be read. */}
+      {readable && <Explorer space={space} table={table} onChange={onChange} />}
 
       {table.fields.length > 0 && (
-      <Group title={a.fields} footnote={dataset ? a.datasetFieldsFootnote : a.fieldsFootnote}>
-        {table.fields
-          .filter((field) => field.name !== "_source_file")
-          .map((field) => (
-            <Row
-              key={field.name}
-              title={<span translate="no">{field.name}</span>}
-              meta={field.inferred ? `${typeOf(field.dataType)} · ${a.proposed}` : typeOf(field.dataType)}
-              trailing={
-                <Select
-                  label={a.roleFor(field.name)}
-                  hideLabel
-                  value={field.role}
-                  onChange={async (value) => {
-                    const next = await setRole.run(() =>
-                      client.setAnalysisField({ space, table: table.name, field: field.name, role: value as FieldRole }),
-                    );
-                    if (next) onChange(next);
-                  }}
-                  options={ROLES.map((role) => ({ value: role, label: a.roles[role] }))}
+        <Group title={a.fields} footnote={a.fieldsNote}>
+          {table.fields
+            .filter((field) => field.name !== "_source_file")
+            .map((field) => {
+              // Read as DuckDB read it, or as the owner chose: charts read it so.
+              const natural = kindOf(field.dataType);
+              const shown = field.readAs ?? natural;
+              const read = duckType(field.dataType);
+              const choices = readableAs(field.dataType);
+              const own = sizeOf(field.dataType);
+              const [precision, scale] = sizeOf(field.readType) ?? own ?? [18, 2];
+              // As DuckDB read it again when that is what is chosen; else read
+              // as chosen: a decimal with the size chosen, or with its places
+              // and as many digits as its values need.
+              const choose = async (kind: ColumnType | undefined, size?: DecimalSize) => {
+                const same = kind === natural && (kind !== "decimal" || !size || (own !== undefined && size[0] === own[0] && size[1] === own[1]));
+                const readAs = kind === undefined || same ? undefined : kind;
+                const decimal = readAs === "decimal" ? (size ? { precision: size[0], scale: size[1] } : { scale }) : {};
+                const next = await setType.run(
+                  () => client.setAnalysisType({ space, table: table.name, column: field.name, readAs, ...decimal }),
+                  // The one refusal left: a value too large for the size.
+                  (e) => (e.code === "invalid" && readAs === "decimal" ? a.decimalNoFit(field.name, `DECIMAL(${size?.[0] ?? MAX_DIGITS}, ${size?.[1] ?? scale})`) : undefined),
+                );
+                if (next) onChange(next);
+                return next !== undefined;
+              };
+              return (
+                <Row
+                  key={field.name}
+                  title={<span translate="no">{field.name}</span>}
+                  meta={field.readAs && field.readType ? a.convertedFrom(field.readType, read) : read}
+                  trailing={
+                    // The type in one column in every row: a decimal's size comes before it.
+                    <div className="screen-analysis__type-pick">
+                      {shown === "decimal" && (
+                        <DecimalDigits
+                          column={field.name}
+                          precision={precision}
+                          scale={scale}
+                          onApply={(size) => choose("decimal", size)}
+                          onProblem={setType.fail}
+                        />
+                      )}
+                      <Select
+                        label={a.typeFor(field.name)}
+                        hideLabel
+                        value={shown ?? ""}
+                        onChange={(value) => void choose(value === "" ? undefined : (value as ColumnType))}
+                        options={[
+                          ...(natural ? [] : [{ value: "", label: read }]),
+                          ...READ_AS.filter((kind) => choices.includes(kind) || kind === natural).map((kind) => ({ value: kind, label: kindName(kind) })),
+                        ]}
+                      />
+                    </div>
+                  }
                 />
-              }
-            />
-          ))}
-      </Group>
+              );
+            })}
+        </Group>
       )}
-      {setRole.error && <ErrorText>{setRole.error}</ErrorText>}
+      {setType.error && <ErrorText>{setType.error}</ErrorText>}
     </div>
+  );
+}
+
+/**
+ * A decimal's size as two boxes: its digits in all (1 to 38) and after the
+ * point (0 to its digits). A box applies what is typed when it is left or on
+ * Enter; Escape, or a size refused, puts back the one in use.
+ */
+function DecimalDigits({
+  column,
+  precision,
+  scale,
+  onApply,
+  onProblem,
+}: {
+  column: string;
+  precision: number;
+  scale: number;
+  onApply: (size: DecimalSize) => Promise<boolean>;
+  onProblem: (message: string) => void;
+}) {
+  const [digits, setDigits] = useState(String(precision));
+  const [places, setPlaces] = useState(String(scale));
+  // Each box follows its own number, so an answer to one leaves the other as typed.
+  useEffect(() => setDigits(String(precision)), [precision]);
+  useEffect(() => setPlaces(String(scale)), [scale]);
+  const skip = useRef(false);
+  const putBack = () => {
+    setDigits(String(precision));
+    setPlaces(String(scale));
+  };
+  const apply = async () => {
+    if (skip.current) {
+      skip.current = false;
+      return;
+    }
+    const number = (typed: string) => (/^\d{1,2}$/.test(typed.trim()) ? Number(typed) : Number.NaN);
+    const p = number(digits);
+    const s = number(places);
+    if (p === precision && s === scale) return;
+    if (!(p >= 1 && p <= MAX_DIGITS)) {
+      putBack();
+      onProblem(a.precisionRange(MAX_DIGITS));
+      return;
+    }
+    if (!(s >= 0 && s <= p)) {
+      putBack();
+      onProblem(a.scaleRange);
+      return;
+    }
+    if (!(await onApply([p, s]))) putBack();
+  };
+  const box = (name: string, label: string, value: string, set: (value: string) => void) => (
+    <label className="screen-analysis__digits">
+      <span>{label}</span>
+      <input
+        className="oik-input"
+        name={name}
+        aria-label={name === "precision" ? a.precisionFor(column) : a.scaleFor(column)}
+        inputMode="numeric"
+        autoComplete="off"
+        maxLength={2}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={() => void apply()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            skip.current = true;
+            putBack();
+            e.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+  return (
+    <>
+      {box("precision", a.precision, digits, setDigits)}
+      {box("scale", a.scale, places, setPlaces)}
+    </>
   );
 }
 

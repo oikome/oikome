@@ -393,6 +393,16 @@ async fn the_app_is_served_with_a_strict_policy() {
         assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }
+    // Nothing of the app is served under a looser policy: no page may
+    // compile WebAssembly or run scripts from blob: URLs.
+    let policy = get("/").await.unwrap().headers()[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(!policy.contains("wasm-unsafe-eval"));
+    assert!(policy.contains("script-src 'self';"));
+    assert!(!policy.contains("worker-src"));
+    assert!(policy.contains("frame-ancestors 'none'"));
     let asset = get("/assets/app-1a2b.js").await.unwrap();
     assert_eq!(asset.status(), StatusCode::OK);
     assert!(asset.headers()[header::CONTENT_TYPE]

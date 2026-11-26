@@ -65,9 +65,10 @@ use oikome_api::{
     NewPublicShare, NewSource, NewSpace, NewStorage, NodeName, PauseSource, PluginCollections,
     PluginFolder, PluginRead, PluginRef, PublicAuthRequest, PublicAuthVerification, PublicFileRef,
     PublicQuery, PublicShareRef, ReadFileRows, ReadRow, ReadRows, RegistryPluginRef, RestoreBackup,
-    Rows, RunSql, Search, SetAnalysisField, SetLending, SetSourceEvery, ShareRef, ShareSpace,
-    SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
+    Rows, RunSql, Search, SetAnalysisField, SetAnalysisType, SetLending, SetSourceEvery, ShareRef,
+    ShareSpace, SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
+use oikome_api::{AnalysisChart, AnalysisValues, AnalysisViewRef, SaveAnalysisView};
 use oikome_api::{
     ExtensionRef, FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation,
     SaveTextFile, SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
@@ -472,7 +473,12 @@ impl WebState {
             "build_analysis" => json_op!(boxed build_analysis, BuildAnalysis),
             "remove_analysis_table" => json_op!(boxed remove_analysis_table, AnalysisTableRef),
             "set_analysis_field" => json_op!(boxed set_analysis_field, SetAnalysisField),
+            "set_analysis_type" => json_op!(boxed set_analysis_type, SetAnalysisType),
             "analysis_summary" => json_op!(boxed analysis_summary, AnalysisTableRef),
+            "save_analysis_view" => json_op!(boxed save_analysis_view, SaveAnalysisView),
+            "remove_analysis_view" => json_op!(boxed remove_analysis_view, AnalysisViewRef),
+            "analysis_chart" => json_op!(boxed analysis_chart, AnalysisChart),
+            "analysis_values" => json_op!(boxed analysis_values, AnalysisValues),
             "install_extension" => json_op!(boxed install_extension, ExtensionRef),
             "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
             "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),

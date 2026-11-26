@@ -737,6 +737,145 @@ html:lang(zh-Hant) { --cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC";
   .grid3 { grid-template-columns: 1fr; } .fsubs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; } .fsubs .paper { padding: 10px 12px; gap: 4px; } .fsubs .paper q { font-size: 13px; line-height: 18px; } .fsubs .paper .more { display: none; } .hero { grid-template-columns: 1fr; } .pipe { grid-template-columns: repeat(4, 1fr); }
   .src { grid-template-columns: 34px 1fr auto; } .src .hide-s { display: none; } .facts { grid-template-columns: 1fr 1fr; }
 }
+/* ===================== Analysis: tables, views, and the explorer ===================== */
+.an__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.card__head:has(.an__views) { min-height: 62px; }
+.an__views { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.an__tab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: var(--bw) solid var(--line); border-radius: var(--r-chip); background: transparent; color: var(--ink2); cursor: pointer; white-space: nowrap; transition: background-color .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease); }
+.an__tab:hover { border-color: var(--ink2); color: var(--ink); }
+.an__tab.on { background: var(--raised); border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.an__tab > svg:last-child:not(:first-child) { transform: rotate(90deg); color: var(--ink3); }
+.an__tab--new { border-style: dashed; cursor: default; }
+.an__addtab { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border: var(--bw) dashed var(--line); border-radius: var(--r-chip); background: transparent; color: var(--ink2); cursor: pointer; white-space: nowrap; }
+.an__addtab:hover { border-color: var(--ink2); color: var(--ink); }
+.an__tables { margin-bottom: 12px; }
+.an__about { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 2px 14px; font-size: 13px; line-height: 18px; }
+.an__qname { font: 500 13px/18px var(--mono); color: var(--ink); }
+.an__none { padding: 2px; color: var(--ink3); font-size: 12px; line-height: 16px; }
+.an__barright { display: flex; flex: none; align-items: center; gap: 12px; }
+.an__sqlbtn { height: 26px; padding: 0 10px; font-size: 12px; }
+.an__by { padding: 10px 16px; border-bottom: 1px solid var(--line2); color: var(--ink2); font-size: 12px; line-height: 16px; display: flex; align-items: center; gap: 8px; }
+.pv { --pv1: var(--ink); --pv2: color-mix(in srgb, var(--ink) 58%, var(--raised)); --pv3: color-mix(in srgb, var(--ink) 36%, var(--raised)); --pv4: color-mix(in srgb, var(--ink) 20%, var(--raised)); --pv5: color-mix(in srgb, var(--ink) 10%, var(--raised)); display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 420px; }
+[data-theme="bold"] .pv { --pv1: var(--t1); --pv2: var(--t2); --pv3: var(--t3); --pv4: var(--t4); --pv5: var(--t5); }
+.pv--closed { grid-template-columns: minmax(0, 1fr); }
+.pv__main { display: flex; flex-direction: column; min-width: 0; }
+.pv__bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line2); }
+.pv__bar .faint { font: 400 12px/16px var(--mono); }
+.pv__viz { flex: 1; min-height: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.pv__side { border-left: var(--bw) solid var(--line2); background: var(--sunk); padding: 14px; display: grid; gap: 14px; align-content: start; border-radius: 0 var(--r-card) var(--r-card) 0; }
+.pv__f { display: grid; gap: 5px; }
+.pv__pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; height: 30px; padding: 0 9px; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); cursor: pointer; text-align: left; font: 400 12.5px/1 var(--mono); }
+.pv__pick:hover:not(:disabled) { border-color: var(--ink2); }
+.pv__pick:disabled { color: var(--ink3); cursor: default; }
+.pv__pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 18px; }
+.pv__pick svg { flex: none; transform: rotate(90deg); color: var(--ink3); }
+.pv__pick--none { color: var(--ink3); }
+.pv__two { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px; }
+.pv__all { display: grid; gap: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.pv__colbtn { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border: 0; border-radius: var(--r-btn); background: transparent; cursor: pointer; text-align: left; font: 400 12.5px/1 var(--mono); }
+.pv__colbtn:hover { background: var(--active); }
+.pv__colbtn i { width: 16px; font: 600 10px/1 var(--mono); color: var(--ink3); font-style: normal; text-align: center; }
+.pv__cols { height: 340px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.pv__col { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 6px; min-width: 0; }
+.pv__track { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; border-bottom: 1px solid var(--line); min-height: 0; }
+.pv__stack { width: min(100%, 72px); display: flex; flex-direction: column-reverse; min-height: 2px; }
+.pv__stack i, .pv__hstack i { display: block; min-width: 0; min-height: 0; }
+.pv [data-s="0"] { background: var(--pv1); } .pv [data-s="1"] { background: var(--pv2); } .pv [data-s="2"] { background: var(--pv3); } .pv [data-s="3"] { background: var(--pv4); } .pv [data-s="4"] { background: var(--pv5); }
+[data-theme="bold"] .pv :is(.pv__stack, .pv__hstack) i, [data-theme="bold"] .pv__tile, [data-theme="bold"] .pv__key i { box-shadow: inset 0 0 0 1.5px var(--edge); }
+.pv__val { font: 400 11.5px/14px var(--mono); color: var(--ink2); white-space: nowrap; }
+.pv__lab { font: 400 11.5px/14px var(--mono); color: var(--ink2); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv__hbars { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 10px 12px; align-items: center; }
+.pv__hbars .pv__lab { text-align: left; max-width: 180px; }
+.pv__hstack { display: flex; height: 18px; min-width: 2px; }
+.pv__line { display: grid; gap: 6px; }
+.pv__line svg { width: 100%; height: 300px; border-bottom: 1px solid var(--line); overflow: visible; }
+.pv__line polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.pv__line polyline[data-s] { background: none; }
+.pv__line [data-s="0"] { stroke: var(--pv1); } .pv__line [data-s="1"] { stroke: var(--pv2); } .pv__line [data-s="2"] { stroke: var(--pv3); } .pv__line [data-s="3"] { stroke: var(--pv4); } .pv__line [data-s="4"] { stroke: var(--pv5); }
+[data-theme="bold"] .pv__line polyline { stroke-width: 3; }
+.pv__ticks { display: flex; justify-content: space-between; gap: 8px; }
+.pv__tm { flex: 1 1 0; display: flex; gap: 3px; min-width: 0; min-height: 0; }
+.pv__tm--v { flex-direction: column; }
+.pv__tmroot { height: 340px; display: flex; }
+.pv__tile { display: flex; flex-direction: column; justify-content: flex-end; gap: 1px; padding: 8px; min-width: 0; min-height: 0; overflow: hidden; border-radius: 2px; font: 400 11.5px/14px var(--mono); }
+.pv__tile b { font: 600 12px/15px var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-theme="ink"] .pv__tile:is([data-s="0"], [data-s="1"]) { color: var(--raised); }
+[data-theme="bold"] .pv__tile { color: #111; }
+.pv__keys { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pv__key { display: inline-flex; align-items: center; gap: 6px; font: 400 11.5px/14px var(--mono); color: var(--ink2); }
+.pv__key i { width: 10px; height: 10px; border-radius: 2px; }
+.pv__grid { max-height: 380px; overflow: auto; margin: -16px; }
+.pv__grid .table td { height: 36px; font-size: 13px; }
+.pv__grid .table th { position: sticky; top: 0; }
+.pv__grid .table th { text-transform: none; letter-spacing: 0; }
+.pv__empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--ink2); padding: 24px; }
+.an__grains { display: flex; width: 100%; }
+.an__grains button { flex: 1 1 0; padding: 0 4px; height: 28px; font-size: 12.5px; }
+.an__note { margin-left: 4px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink3); }
+.an__crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; font-size: 12.5px; }
+.an__crumbs button { height: 24px; padding: 0 6px; border: 0; border-radius: var(--r-btn); background: transparent; color: var(--ink2); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+.an__crumbs button:hover { background: var(--hover); color: var(--ink); }
+.an__crumbs > span:not(.faint) { padding: 0 6px; font-weight: 600; }
+.an__crumbs svg { color: var(--ink3); }
+.an__drillhint { font-size: 12px; white-space: nowrap; }
+.an__where { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
+.an__bylevel { margin-left: 4px; font-size: 12px; }
+.an__sub { display: grid; gap: 8px; margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--line2); }
+.an__sub .label { color: var(--ink3); font-weight: 500; }
+.pv__grid .table .an__over th { border-bottom: 1px solid var(--line2); text-align: center; text-transform: none; letter-spacing: 0; font-family: var(--mono); }
+.pv__grid tr.an__drillable td:first-child { white-space: nowrap; }
+.an__over + tr th { top: 33px; }
+.an__will { margin: 4px 0 0; color: var(--ink); font-size: 12.5px; }
+.an__sql { margin: 0; max-height: 320px; overflow: auto; padding: 12px; border-radius: var(--r-btn); background: var(--sunk); font: 400 12px/18px var(--mono); white-space: pre-wrap; word-break: break-word; }
+.an__params { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; font: 400 12px/18px var(--mono); }
+.an__params li { display: flex; gap: 12px; }
+.an__params span { color: var(--ink3); }
+.pv__pie { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); align-items: center; gap: 24px; }
+.pv__pie svg { width: 100%; height: auto; }
+.pv__pie path { stroke: var(--raised); stroke-width: .6; }
+[data-theme="bold"] .pv__pie path { stroke: var(--edge); stroke-width: 1; }
+.pv__pie [data-s="0"] { fill: var(--pv1); } .pv__pie [data-s="1"] { fill: var(--pv2); } .pv__pie [data-s="2"] { fill: var(--pv3); } .pv__pie [data-s="3"] { fill: var(--pv4); } .pv__pie [data-s="4"] { fill: var(--pv5); }
+.pv__pie path.an__drillable:hover { opacity: .8; }
+.pv__pielist { display: grid; gap: 8px; align-content: center; }
+.pv__pielist .pv__key { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; }
+.pv__pielist .pv__key b { font-weight: 600; color: var(--ink); }
+@media (max-width: 640px) { .pv__pie { grid-template-columns: minmax(0, 1fr); } }
+[data-theme="bold"] .an__tab.on { background: var(--t3); border-color: #111; color: #111; }
+@media (max-width: 480px) {
+  .pv__pick, .an__chip-b, .an__chip-x, .an__add, .an__grains button, .an__tab, .an__addtab, .an__sqlbtn { height: 44px; }
+  .an__chip-x { width: 44px; }
+}
+.an__drillable { cursor: pointer; }
+.pv__lab--free { width: 0; overflow: visible; text-overflow: clip; text-align: left; }
+.pv__col .pv__lab { min-height: 14px; }
+.pv__col.an__drillable:hover .pv__bars i, .pv__hgroup.an__drillable:hover i, .pv__tile.an__drillable:hover { filter: brightness(1.25); }
+[data-theme="ink"] .pv__col.an__drillable:hover .pv__bars i[data-s="0"] { filter: none; opacity: .78; }
+tr.an__drillable:hover td { background: var(--hover); }
+.pv__lab.an__drillable { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+.an__chips { display: grid; gap: 6px; }
+.an__chips > .an__chip { width: 100%; }
+.an__chips > .an__chip .an__chip-b { flex: 1; justify-content: space-between; }
+.an__chips > .an__add { width: 100%; justify-content: flex-start; }
+.an__chip { display: inline-flex; max-width: 100%; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); overflow: hidden; }
+.an__chip-b { display: inline-flex; align-items: center; gap: 5px; min-width: 0; height: 26px; padding: 0 4px 0 8px; border: 0; background: transparent; cursor: pointer; font: 400 12.5px/1 var(--mono); }
+.an__chip-b:disabled { cursor: default; color: inherit; }
+.an__chip-b span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 18px; }
+.an__chip-b svg { flex: none; transform: rotate(90deg); color: var(--ink3); }
+.an__chip-x { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 26px; border: 0; border-left: 1px solid var(--line2); background: transparent; color: var(--ink3); cursor: pointer; }
+.an__chip-b:hover:not(:disabled), .an__chip-x:hover { background: var(--hover); color: var(--ink); }
+.an__add { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border: var(--bw) dashed var(--line); border-radius: var(--r-btn); background: transparent; color: var(--ink2); cursor: pointer; font-size: 12.5px; }
+.an__add:hover { border-color: var(--ink2); color: var(--ink); }
+.pv__two--even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.pv__bars { display: flex; align-items: flex-end; justify-content: center; gap: 2px; width: 100%; }
+.pv__bars i { display: block; flex: 0 1 44px; min-width: 3px; }
+.pv__hgroup { display: grid; gap: 2px; }
+.pv__hgroup i { display: block; height: 14px; min-width: 2px; }
+.pv__line polygon { stroke: none; opacity: .14; }
+.pv__line polygon[data-s="0"] { fill: var(--pv1); } .pv__line polygon[data-s="1"] { fill: var(--pv2); } .pv__line polygon[data-s="2"] { fill: var(--pv3); } .pv__line polygon[data-s="3"] { fill: var(--pv4); } .pv__line polygon[data-s="4"] { fill: var(--pv5); }
+[data-theme="bold"] .pv :is(.pv__bars, .pv__hgroup) i { box-shadow: inset 0 0 0 1.5px var(--edge); }
+.an__role { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); cursor: pointer; }
+.an__role svg { transform: rotate(90deg); color: var(--ink3); }
+@media (max-width: 900px) { .pv { grid-template-columns: minmax(0, 1fr); } .pv__side { border-left: 0; border-top: var(--bw) solid var(--line2); border-radius: 0 0 var(--r-card) var(--r-card); } }
 @media (prefers-reduced-motion: reduce) { *, ::before, ::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -899,6 +1038,7 @@ const C = [
   { name: 'smart-home', kind: 'series', count: { n: 182340, u: 'readings' }, source: 'Home Assistant', stored: 'Home NAS', series: [6, 7, 9, 8, 11, 14, 13, 12, 15, 18, 17, 16, 14, 12, 10, 9, 11, 13, 16, 19, 18, 15, 12, 10] },
   { name: 'reading-list', kind: 'table', count: { n: 86, u: 'books' }, source: 'Goodreads', stored: 'iCloud Drive', rows: [['The Book of Disquiet', 'Pessoa', 'Reading'], ['Blindness', 'Saramago', 'Read'], ['Pereira Maintains', 'Tabucchi', 'Next']] },
   { name: 'lisbon-photos', kind: 'photos', count: { n: 6, u: 'photos' }, source: 'Example', stored: 'Local', art: ['alfama', 'pasteis', 'belem'], example: true },
+  { name: 'household', label: 'Household', kind: 'table', count: { n: 6, u: 'items' }, source: null, stored: 'Local', inPlace: true, rows: [['2025-11-02', 'Groceries', '42.10'], ['2025-11-01', 'Rent', '1250.00'], ['2025-10-31', 'Train to Porto', '18.40']] },
   { name: 'trips', label: 'Trips', kind: 'photos', count: { n: 9, u: 'photos' }, source: null, stored: 'Google Drive', inPlace: true, art: ['belem', 'tram', 'tiles'] },
 ];
 const FROM = [
@@ -968,7 +1108,7 @@ const DEVICES = [
   { name: 'iPad', ico: 'phone', st: 'idle', all: false, seenMin: 5760, reads: [] },
 ];
 const AI = [
-  { name: 'Claude Desktop', c: 'c4', reads: ['flomo-notes', 'reading-list'], requests: 23, st: 'ok' },
+  { name: 'Claude Desktop', c: 'c4', reads: ['flomo-notes', 'reading-list', 'household'], requests: 23, st: 'ok' },
   { name: 'Cursor', c: 'c1', reads: ['smart-home'], lastMin: 1440, st: 'idle' },
   { name: 'Old laptop agent', c: 'c5', reads: [], st: 'off', ended: '2025-10-20' },
 ];
@@ -1014,7 +1154,7 @@ const UNTIL = [['1w', '2025-11-09'], ['1m', '2025-12-02'], ['1y', '2026-11-02'],
 const untilText = (iso) => (iso ? md(iso) : t('noEnd'));
 const LEND = { to: ['Sam'], cores: 4, hours: 2, on: true };
 
-const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false, confirmations: [] };
+const S = { invite: 'waiting', left: {}, goodreadsFixed: false, keySkipped: false, keyDate: '2025-10-30', cfilter: 'all', cplace: 'all', csort: 'changed', cdir: 'desc', cview: 'grid', fpath: {}, fsort: 'name', fdir: 'asc', fview: 'grid', fmode: {}, an: { table: {}, view: {}, draft: null, panel: true, n: 1 }, afilter: 'all', place: 1, edit: false, welcome: 1, wsaved: false, wadded: [], wplace: 'computer', dataDir: '~/Oikome', dcName: "Rosh's data center", cards: [], mode: 'system', lang: '', reach: 'ask', reachFor: [], helpContacts: true, rawPlugin: false, confirmations: [] };
 (() => {
   const qs = new URLSearchParams(location.search);
   try { S.mode = localStorage.getItem('oikome-proto-mode') || S.mode; S.lang = localStorage.getItem('oikome-proto-lang') || S.lang; } catch {}
@@ -1202,6 +1342,77 @@ const TREES = {
     Media: { folders: {}, files: [['field-recording.wav', 'audio', [8, 'KB'], '2025-10-14T18:20'], ['tram.mp4', 'video', [1.8, 'MB'], '2025-10-14T18:25'], ['route.svg', 'svg', [2, 'KB'], '2025-10-14T18:30']] },
   }, files: [['itinerary.md', 'note', [2, 'KB'], '2025-10-28T21:10', null, 'Lisbon, three days: Alfama, Belém, Sintra. Then the train to Porto for two.'], ['budget.csv', 'csv', [1, 'KB'], '2025-10-28T20:55', null, [['Flights', '240.00'], ['Hotel', '410.00'], ['Trams', '18.00'], ['Dinner', '64.50']]], ['Oikome guide.pdf', 'pdf', [992, 'KB'], '2025-10-28T20:52', null, null], ['Portfolio.psd', 'psd', [84.2, 'MB'], '2025-10-28T20:50', null, null], ['DSC_2041.NEF', 'raw', [28.4, 'MB'], '2025-10-28T20:45', null, null], ['scan.dat', 'other', [4, 'KB'], '2025-10-28T20:40', null, null]] },
 };
+TREES.household = { folders: {
+  spending: { folders: {}, files: [['2025-08.csv', 'csv', [1, 'KB'], '2025-09-01T08:00', null, [['2025-08-01', 'Rent', '1250.00'], ['2025-08-05', 'Groceries', '49.90']]], ['2025-09.csv', 'csv', [1, 'KB'], '2025-10-01T08:00', null, [['2025-09-01', 'Rent', '1250.00'], ['2025-09-03', 'Groceries', '54.20']]], ['2025-10.csv', 'csv', [1, 'KB'], '2025-11-01T08:00', null, [['2025-10-01', 'Rent', '1250.00'], ['2025-10-04', 'Groceries', '61.30']]], ['2025-11.csv', 'csv', [1, 'KB'], '2025-11-02T18:30', null, [['2025-11-01', 'Rent', '1250.00'], ['2025-11-02', 'Groceries', '42.10']]]] },
+}, files: [['budget.csv', 'csv', [1, 'KB'], '2025-09-02T21:15', null, [['Home', '1350'], ['Food', '220'], ['Transport', '80']]], ['Lease.pdf', 'pdf', [412, 'KB'], '2024-07-01T10:00', null, null]] };
+// Analysis tables made from a folder collection's table files: their columns and what each is for,
+// their rows, and the views saved with them (by the owner, or by an assistant allowed to read the collection).
+// A household's spending, the same each time it is drawn: four months of who paid what, where and for what.
+// The types are those DuckDB reads from the CSV files: dates, text, numbers.
+function anLedger() {
+  let s = 20250801;
+  const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const kinds = [
+    ['Home', 'Rent', 'Landlord', 1250, 1], ['Home', 'Electricity', 'EDP', 62, 1], ['Groceries', 'Supermarket', 'Pingo Doce', 46, 5],
+    ['Groceries', 'Market', 'Mercado de Campo de Ourique', 21, 2], ['Groceries', 'Bakery', 'Padaria Portuguesa', 7, 3],
+    ['Eating out', 'Restaurant', 'Zé da Mouraria', 34, 2], ['Eating out', 'Café', 'Fábrica Coffee', 5, 3], ['Transport', 'Metro', 'Metro de Lisboa', 40, 1],
+    ['Transport', 'Bus', 'Rede Expressos', 22, 1], ['Leisure', 'Concert', 'Musicbox', 28, 1], ['Books', 'Bookshop', 'Bertrand', 18, 1],
+  ];
+  const out = [];
+  for (const m of ['08', '09', '10', '11']) {
+    for (const [cat, sub, shop, base, n] of kinds) {
+      for (let i = 0; i < n; i++) {
+        // November has only begun: its rent and a few things since.
+        if (m === '11' && sub !== 'Rent' && rnd() > 0.25) continue;
+        const day = sub === 'Rent' ? 1 : m === '11' ? 1 + Math.floor(rnd() * 2) : 1 + Math.floor(rnd() * 30);
+        const city = sub === 'Bus' || (m === '08' && rnd() < 0.3) ? 'Porto' : 'Lisbon';
+        out.push([`2025-${m}-${String(day).padStart(2, '0')}`, cat, sub, shop, sub === 'Rent' ? 'Alex' : pick(['Alex', 'Rosh']), city, Math.round(base * (0.8 + rnd() * 0.4) * 100) / 100, sub === 'Rent' ? 1 : 1 + Math.floor(rnd() * 6)]);
+      }
+    }
+  }
+  return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+}
+// A household's spending, the same each time it is drawn: four months of who paid what, where and for what.
+// The types are those DuckDB reads from the CSV files: dates, text, numbers.
+function anLedger() {
+  let s = 20250801;
+  const rnd = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const kinds = [
+    ['Home', 'Rent', 'Landlord', 1250, 1], ['Home', 'Electricity', 'EDP', 62, 1], ['Groceries', 'Supermarket', 'Pingo Doce', 46, 5],
+    ['Groceries', 'Market', 'Mercado de Campo de Ourique', 21, 2], ['Groceries', 'Bakery', 'Padaria Portuguesa', 7, 3],
+    ['Eating out', 'Restaurant', 'Zé da Mouraria', 34, 2], ['Eating out', 'Café', 'Fábrica Coffee', 5, 3], ['Transport', 'Metro', 'Metro de Lisboa', 40, 1],
+    ['Transport', 'Bus', 'Rede Expressos', 22, 1], ['Leisure', 'Concert', 'Musicbox', 28, 1], ['Books', 'Bookshop', 'Bertrand', 18, 1],
+  ];
+  const out = [];
+  for (const m of ['08', '09', '10', '11']) {
+    for (const [cat, sub, shop, base, n] of kinds) {
+      for (let i = 0; i < n; i++) {
+        // November has only begun: its rent and a few things since.
+        if (m === '11' && sub !== 'Rent' && rnd() > 0.25) continue;
+        const day = sub === 'Rent' ? 1 : m === '11' ? 1 + Math.floor(rnd() * 2) : 1 + Math.floor(rnd() * 30);
+        const city = sub === 'Bus' || (m === '08' && rnd() < 0.3) ? 'Porto' : 'Lisbon';
+        out.push([`2025-${m}-${String(day).padStart(2, '0')}`, cat, sub, shop, sub === 'Rent' ? 'Alex' : pick(['Alex', 'Rosh']), city, Math.round(base * (0.8 + rnd() * 0.4) * 100) / 100, sub === 'Rent' ? 1 : 1 + Math.floor(rnd() * 6)]);
+      }
+    }
+  }
+  return out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+}
+const AN = {
+  household: {
+    spending: { files: 4, folder: 'spending', updated: '2025-11-02T18:30',
+      fields: [['date', 'date', 'DATE'], ['category', 'text', 'VARCHAR'], ['subcategory', 'text', 'VARCHAR'], ['merchant', 'text', 'VARCHAR'], ['member', 'text', 'VARCHAR'], ['city', 'text', 'VARCHAR'], ['amount', 'number', 'DOUBLE'], ['items', 'number', 'BIGINT']],
+      rows: anLedger(),
+      views: [
+        { id: 'v0', name: 'Monthly spending', by: null, on: null, spec: { chart: 'col', time: { f: 'date', g: 'month', range: 'all' }, dims: [], cmp: [], mets: [{ f: 'amount', a: 'sum' }], filters: [], sort: null, limit: null } },
+        { id: 'v1', name: 'Groceries by month', by: 'Claude Desktop', on: '2025-11-01', spec: { chart: 'line', time: { f: 'date', g: 'month', range: 'all' }, dims: [], cmp: [], mets: [{ f: 'amount', a: 'sum' }], filters: [{ f: 'category', in: ['Groceries'] }], sort: null, limit: null } },
+      ] },
+    budget: { files: 1, file: 'budget.csv', updated: '2025-09-02T21:15',
+      fields: [['category', 'text', 'VARCHAR'], ['monthly_limit', 'number', 'DOUBLE']],
+      rows: [['Home', 1350], ['Groceries', 320], ['Eating out', 160], ['Transport', 80], ['Books', 30], ['Leisure', 60]], views: [] },
+  },
+};
 const FILE_ICON = { photo: 'photo', note: 'note', csv: 'table', audio: 'audio', video: 'video', svg: 'photo', psd: 'file', raw: 'photo', other: 'file' };
 // The top crumb goes on into a folder viewed in place: each folder a way back up.
 // On a phone it says only where one is, as on every page; Back goes up.
@@ -1259,10 +1470,361 @@ function folderView(c) {
   const tiles = `${dirs.length ? `<div class="grid3 fsubs">${dirs.map(subCover).join('')}</div>` : ''}${files.length ? `<div class="fgrid">${files.map((e) => `<button class="ftile" ${open(e)}>${fileArt(e)}<span class="ftile__name">${esc(e.n)}</span><span class="ftile__meta">${sz(e.s)}</span></button>`).join('')}</div>` : ''}`;
   const rows = `<div class="card wrap"><table class="table cols-table"><thead><tr>${sortHead('fsort', 'name', S.fsort, S.fdir, t('sort.name'))}${sortHead('fsort', 'kind', S.fsort, S.fdir, t('sort.kind'), 'hide-s')}${sortHead('fsort', 'size', S.fsort, S.fdir, t('sort.size'), 'num')}${sortHead('fsort', 'changed', S.fsort, S.fdir, t('fv.modified'), 'hide-s')}</tr></thead>
     <tbody>${all.map((e) => `<tr ${open(e)}><td><span class="row" style="gap:10px;flex-wrap:nowrap"><span class="ico ico--s">${Is(e.dir ? 'folder' : FILE_ICON[e.k], 15)}</span><span class="cols-name">${esc(e.n)}</span></span></td><td class="hide-s">${e.dir ? t('kind.folder') : t(`kind.${e.k}`)}</td><td class="num mono">${e.dir ? cnt({ n: e.kids, u: 'items' }) : sz(e.s)}</td><td class="hide-s">${e.ch ? md(e.ch) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
-  return `${head(esc(c.label), t('fv.browseNote'), `<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}${c.stored === 'Local' ? `<button class="btn" data-act="importfiles" data-c="${c.name}">${Is('upload', 15)}${t('importFiles')}</button>` : ''}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
+  const modes = AN[c.name] ? `<div class="seg" role="group" aria-label="${t('an.viewLabel')}"><button class="${S.fmode[c.name] === 'analysis' ? '' : 'on'}" data-act="fmode" data-c="${c.name}" data-v="files">${t('an.files')}</button><button class="${S.fmode[c.name] === 'analysis' ? 'on' : ''}" data-act="fmode" data-c="${c.name}" data-v="analysis">${t('an.analysis')}</button></div>` : '';
+  if (AN[c.name] && S.fmode[c.name] === 'analysis') return `${head(esc(c.label), t('an.note'), `${modes}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}${analysisView(c)}`;
+  return `${head(esc(c.label), t('fv.browseNote'), `${modes}<button class="btn" data-act="fsortmenu" aria-haspopup="menu">${Is('sort', 15)}${t(`sort.${S.fsort}`)}</button>${viewSeg('fview', S.fview)}${c.stored === 'Local' ? `<button class="btn" data-act="importfiles" data-c="${c.name}">${Is('upload', 15)}${t('importFiles')}</button>` : ''}<button class="btn" data-act="share" data-c="${c.name}">${t('col.share')}</button>`, t('fv.label', { place: placeName(c.stored) }))}
   ${all.length ? (S.fview === 'list' ? rows : tiles) : `<div class="card empty" style="padding:28px 16px"><span class="muted">${t('fv.empty')}</span></div>`}`;
 }
 
+// ---- Analysis: a folder collection's tables, each explored as a chart and its charts kept ----
+// A chart is a description, never SQL: the data center writes the query from it. Whatever is chosen takes effect at
+// once. The rows are grouped by the time (a column of time, at a grain) and by every dimension together, as SQL's
+// GROUP BY does: a table shows a column for each; a chart lays its groups along its axis (the time, else the
+// dimensions), and with time along the axis each dimension's values become series, as what is compared does.
+// A click on a group zooms a period into its next grain, or breaks the group down by another column. Either is an
+// edit of the description, as a filter and a grain or a dimension, so the panel always says what is drawn; the path
+// above the chart steps back through them. Nothing is chosen at first: a new chart shows the table's rows. Charts
+// are kept only when saved, under a name, and open again from the row above the chart.
+const anTable = (c) => (AN[c][S.an.table[c]] ? S.an.table[c] : Object.keys(AN[c])[0]);
+const anType = (tb, f) => (tb.fields.find((x) => x[0] === f) || [])[1];
+// Columns of time, by their type: those DuckDB read as dates.
+const anTimeFields = (tb) => tb.fields.filter((x) => x[1] === 'date').map((x) => x[0]);
+const AN_TYPES = ['table', 'col', 'bar', 'line', 'area', 'pie', 'treemap'];
+const AN_GRAINS = ['year', 'quarter', 'month', 'week', 'day'];
+// The grain a period zooms into; a week opens into its days.
+const AN_NEXT = { year: 'quarter', quarter: 'month', month: 'day', week: 'day' };
+const AN_RANGES = ['all', 'year', 'd30', 'd90', 'd365'];
+const AN_AGGS = { number: ['sum', 'avg', 'median', 'min', 'max', 'count', 'distinct'], text: ['count', 'distinct'], date: ['count', 'distinct', 'min', 'max'] };
+// A new chart: nothing chosen, so the table's rows.
+const AN_NEW = { chart: 'table', time: null, dims: [], cmp: [], mets: [], filters: [], sort: null, limit: null };
+// Charts on a table on its own axis or as slices: the time and the dimensions together name each group.
+const anSplits = (cfg) => !['table', 'pie', 'treemap'].includes(cfg.chart) && !!cfg.time && cfg.dims.length > 0;
+function anNow(c) {
+  const name = anTable(c), tb = AN[c][name], key = `${c}.${name}`, views = tb.views;
+  const want = S.an.view[key];
+  const saved = want === 'new' ? null : views.find((v) => v.id === want) || views[0] || null;
+  const id = saved ? saved.id : 'new', base = saved ? saved.spec : AN_NEW;
+  const draft = S.an.draft && S.an.draft.key === key && S.an.draft.id === id ? S.an.draft.cfg : null;
+  const drill = S.an.drill && S.an.drill.key === key && S.an.drill.id === id ? S.an.drill.path : [];
+  return { name, tb, key, views, saved, id, drill, cfg: draft || base, edited: !!draft && JSON.stringify(draft) !== JSON.stringify(base) };
+}
+// A drill as an edit. A zoom keeps a period's rows (a filter on the time) and sees them at the next grain; a
+// breakdown keeps a group's rows (a filter for each of its values) and groups them by another column instead.
+function anDrilled(cfg, step) {
+  const x = JSON.parse(JSON.stringify(cfg));
+  const only = (f) => { x.filters = x.filters.filter((y) => y.f !== f.f); x.filters.push(f); };
+  if (step.period) only({ f: step.period.f, period: { g: step.period.g, v: step.period.v } });
+  if (step.t === 'zoom') { x.time.g = AN_NEXT[step.period.g]; return x; }
+  step.keep.forEach(([f, v]) => only({ f, in: [v] }));
+  x.time = null; x.dims = [{ f: step.by }]; x.sort = x.sort || (x.mets.length ? { by: 0, dir: 'desc' } : null);
+  return x;
+}
+// A metric as SQL writes it, the way BI tools show one: SUM(amount), COUNT(DISTINCT what), COUNT(*).
+const AN_FN = { sum: 'SUM', avg: 'AVG', median: 'MEDIAN', min: 'MIN', max: 'MAX', count: 'COUNT' };
+const anMetText = (m) => (!m.f ? 'COUNT(*)' : m.a === 'distinct' ? `COUNT(DISTINCT ${m.f})` : `${AN_FN[m.a]}(${m.f})`);
+const anMetName = (m) => esc(anMetText(m));
+// The DuckDB query the data center runs for the chart, as plain as the chart: names quoted, every value bound
+// (?n), one GROUP BY; a first step only when compared values need the top groups picked by their own totals.
+function anSql(space, table, tb, cfg) {
+  const q = (n) => `"${String(n).replace(/"/g, '""')}"`;
+  const params = [];
+  const bind = (f, v) => { const n = anType(tb, f) === 'number' ? Number(v) : v; params.push(typeof n === 'number' ? String(n) : `'${String(n).replace(/'/g, "''")}'`); return `?${params.length}`; };
+  const at = (f, g) => ({ year: `strftime(${q(f)}, '%Y')`, quarter: `strftime(${q(f)}, '%Y') || '-Q' || quarter(${q(f)})`, month: `strftime(${q(f)}, '%Y-%m')`, week: `strftime(date_trunc('week', ${q(f)}), '%Y-%m-%d')`, day: `strftime(${q(f)}, '%Y-%m-%d')` })[g];
+  const metric = (m) => (!m.f ? 'COUNT(*)' : m.a === 'distinct' ? `COUNT(DISTINCT ${q(m.f)})` : `${AN_FN[m.a]}(${q(m.f)})`);
+  const where = [];
+  cfg.filters.forEach((f) => {
+    if (f.period) { const [a, b] = anBounds(f.period.g, f.period.v); return where.push(`${q(f.f)} BETWEEN ${bind(f.f, a)} AND ${bind(f.f, b)}`); }
+    if (f.in) return where.push(f.in.length === 1 ? `${q(f.f)} = ${bind(f.f, f.in[0])}` : `${q(f.f)} IN (${f.in.map((v) => bind(f.f, v)).join(', ')})`);
+    if (f.min !== '' && f.min != null) where.push(`${q(f.f)} >= ${bind(f.f, f.min)}`);
+    if (f.max !== '' && f.max != null) where.push(`${q(f.f)} <= ${bind(f.f, f.max)}`);
+  });
+  if (cfg.time && cfg.time.range === 'year') where.push(`year(${q(cfg.time.f)}) = year(current_date)`);
+  else if (cfg.time && cfg.time.range !== 'all') where.push(`${q(cfg.time.f)} >= current_date - INTERVAL ${{ d30: 30, d90: 90, d365: 365 }[cfg.time.range]} DAY`);
+  const from = `FROM ${q(space)}.${q(table)}`, cond = (pad) => (where.length ? `\n${pad}WHERE ${where.join(`\n${pad}  AND `)}` : '');
+  const cols = [...(cfg.time ? [{ f: cfg.time.f, g: cfg.time.g }] : []), ...cfg.dims.map((x) => ({ f: x.f }))];
+  if (!cols.length && !cfg.cmp.length && !cfg.mets.length) return { sql: `SELECT *\n${from}${cond('')}\nLIMIT 200`, params };
+  const mets = cfg.mets.length ? cfg.mets : [{ f: null, a: 'count' }];
+  const keys = [...cols.map((c) => (c.g ? `${at(c.f, c.g)} AS ${q(c.f)}` : q(c.f))), ...cfg.cmp.map((x) => q(x.f))];
+  const select = `SELECT ${[...keys, ...mets.map((m) => `${metric(m)} AS ${q(anMetText(m))}`)].join(',\n       ')}`;
+  const group = keys.length ? `\nGROUP BY ${keys.map((_, i) => i + 1).join(', ')}` : '';
+  const dir = cfg.sort && cfg.sort.dir === 'asc' ? 'ASC' : 'DESC';
+  const rest = keys.map((_, i) => String(i + 1)).slice(cfg.time ? 1 : 0);
+  const first = cfg.time ? ['1'] : [];
+  const ranked = cfg.cmp.length > 0 && cfg.dims.length > 0 && !!(cfg.sort || cfg.limit);
+  if (!ranked) {
+    const order = [...first, ...(cfg.sort && cfg.dims.length ? [`${q(anMetText(mets[cfg.sort.by] || mets[0]))} ${dir}`] : []), ...rest];
+    const limit = !cfg.time && cfg.limit ? cfg.limit : 1001;
+    return { sql: `${select}\n${from}${cond('')}${group}${order.length ? `\nORDER BY ${order.join(', ')}` : ''}\nLIMIT ${limit}`, params };
+  }
+  // Compared values: the groups are picked and ordered by their own totals first, then each split by what is compared.
+  const dims = cfg.dims.map((x) => q(x.f)), by = mets[cfg.sort ? cfg.sort.by : 0] || mets[0];
+  const top = `WITH top AS (\n  SELECT ${dims.join(', ')}, ${metric(by)} AS total\n  ${from}${cond('  ')}\n  GROUP BY ${dims.map((_, i) => i + 1).join(', ')}\n  ORDER BY total ${dir}\n  LIMIT ${!cfg.time && cfg.limit ? cfg.limit : 1000}\n)`;
+  return { sql: `${top}\n${select}\n${from}\nJOIN top USING (${dims.join(', ')})${cond('')}${group}, top.total\nORDER BY ${[...first, `top.total ${dir}`, ...rest].join(', ')}\nLIMIT 20001`, params };
+}
+const anRaw = (tb, row, f) => row[tb.fields.findIndex((x) => x[0] === f)];
+const anIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// A day at a grain, as text that sorts: 2025, 2025-Q3, 2025-08, the Monday of its week, the day.
+function anAt(v, g) {
+  const day = String(v);
+  if (g === 'year') return day.slice(0, 4);
+  if (g === 'quarter') return `${day.slice(0, 4)}-Q${Math.ceil(Number(day.slice(5, 7)) / 3)}`;
+  if (g === 'month') return day.slice(0, 7);
+  if (g === 'week') { const d = new Date(`${day}T00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return anIso(d); }
+  return day.slice(0, 10);
+}
+// The first and last day of a period.
+function anBounds(g, v) {
+  if (g === 'year') return [`${v}-01-01`, `${v}-12-31`];
+  const y = Number(v.slice(0, 4));
+  const last = (yy, m) => anIso(new Date(yy, m, 0));
+  if (g === 'quarter') { const q = Number(v.slice(6)); return [`${y}-${String(q * 3 - 2).padStart(2, '0')}-01`, last(y, q * 3)]; }
+  if (g === 'month') return [`${v}-01`, last(y, Number(v.slice(5, 7)))];
+  if (g === 'week') { const d = new Date(`${v}T00:00`); d.setDate(d.getDate() + 6); return [v, anIso(d)]; }
+  return [v, v];
+}
+// Every period from one to another: those with no rows have a place too.
+function anPeriods(g, from, to) {
+  const out = [], d = new Date(`${anBounds(g, from)[0]}T00:00`);
+  for (let k = anAt(anIso(d), g); k <= to && out.length < 400; k = anAt(anIso(d), g)) {
+    out.push(k);
+    if (g === 'year') d.setFullYear(d.getFullYear() + 1); else if (g === 'quarter') d.setMonth(d.getMonth() + 3); else if (g === 'month') d.setMonth(d.getMonth() + 1); else d.setDate(d.getDate() + (g === 'week' ? 7 : 1));
+  }
+  return out;
+}
+function anTimeLabel(g, v) {
+  if (g === 'year') return esc(v);
+  if (g === 'quarter') return t('an.q', { y: v.slice(0, 4), q: v.slice(6) });
+  if (g === 'month') return dfmt(`${v}-01T00:00`, { year: 'numeric', month: 'short' });
+  if (g === 'week') return t('an.weekOf', { date: dfmt(`${v}T00:00`, { month: 'short', day: 'numeric' }) });
+  return dfmt(`${v}T00:00`, { month: 'short', day: 'numeric' });
+}
+const anLabel = (lvl, v) => (lvl.g ? anTimeLabel(lvl.g, v) : esc(v));
+const anNum = (v) => nf(v, { maximumFractionDigits: 2 });
+function anInRange(tb, row, time) {
+  if (time.range === 'all') return true;
+  const day = new Date(`${anRaw(tb, row, time.f)}T00:00`);
+  if (time.range === 'year') return day.getFullYear() === NOW.getFullYear();
+  return day >= new Date(NOW.getTime() - { d30: 30, d90: 90, d365: 365 }[time.range] * 864e5);
+}
+function anKeeps(tb, row, f) {
+  const v = anRaw(tb, row, f.f);
+  if (f.in) return f.in.includes(String(v));
+  return (f.min === '' || f.min == null || Number(v) >= Number(f.min)) && (f.max === '' || f.max == null || Number(v) <= Number(f.max));
+}
+function anTotal(tb, list, m) {
+  if (!m.f || m.a === 'count') return list.length;
+  const vals = list.map((r) => anRaw(tb, r, m.f));
+  if (m.a === 'distinct') return new Set(vals).size;
+  const nums = vals.map(Number).sort((a, b) => a - b);
+  if (!nums.length) return 0;
+  if (m.a === 'min') return nums[0];
+  if (m.a === 'max') return nums[nums.length - 1];
+  if (m.a === 'median') return nums.length % 2 ? nums[(nums.length - 1) / 2] : (nums[nums.length / 2 - 1] + nums[nums.length / 2]) / 2;
+  const sum = nums.reduce((a, b) => a + b, 0);
+  return m.a === 'avg' ? sum / nums.length : sum;
+}
+// The groups and what each holds, worked out from the rows themselves, so an average or a median is right at any grain.
+function anCompute(tb, cfg) {
+  const rows = tb.rows.filter((r) => cfg.filters.every((f) => anKeeps(tb, r, f)) && (!cfg.time || anInRange(tb, r, cfg.time)));
+  const cols = [...(cfg.time ? [{ f: cfg.time.f, g: cfg.time.g }] : []), ...cfg.dims.map((x) => ({ f: x.f }))];
+  if (!cols.length && !cfg.cmp.length && !cfg.mets.length) return { cfg, rows, cols, raw: true };
+  const within = cfg.time && cfg.filters.find((f) => f.period && f.f === cfg.time.f);
+  const mets = cfg.mets.length ? cfg.mets : [{ f: null, a: 'count' }];
+  const part = (r, c) => (c.g ? anAt(anRaw(tb, r, c.f), c.g) : String(anRaw(tb, r, c.f)));
+  const cmpOf = (r) => JSON.stringify(cfg.cmp.map((x) => String(anRaw(tb, r, x.f))));
+  const groups = new Map();
+  rows.forEach((r) => { const k = JSON.stringify(cols.map((c) => part(r, c))); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+  let keys = [...groups.keys()].map((k) => JSON.parse(k));
+  // Time alone keeps every period in its place, those with no rows too, within a period zoomed into.
+  if (cfg.time && cols.length === 1 && keys.length) {
+    const seen = keys.map((k) => k[0]).sort();
+    const span = within ? anBounds(within.period.g, within.period.v).map((x) => anAt(x, cfg.time.g)) : [seen[0], seen[seen.length - 1]];
+    keys = anPeriods(cfg.time.g, span[0], span[1]).map((p) => [p]);
+  }
+  const of = (k) => groups.get(JSON.stringify(k)) || [];
+  const by = mets[cfg.sort ? cfg.sort.by : 0] || mets[0];
+  const total = (k) => (of(k).length ? anTotal(tb, of(k), by) : -Infinity);
+  const byValue = (a, b) => { const na = Number(a), nb = Number(b); return a !== '' && b !== '' && !Number.isNaN(na) && !Number.isNaN(nb) ? na - nb : a < b ? -1 : a > b ? 1 : 0; };
+  const t0 = cfg.time ? 1 : 0;
+  keys.sort((a, b) => {
+    if (t0 && a[0] !== b[0]) return a[0] < b[0] ? -1 : 1; // time keeps its own order, whatever the chart is ordered by
+    if (cfg.sort && cfg.dims.length) { const d = total(a) - total(b); if (d) return cfg.sort.dir === 'desc' ? -d : d; }
+    for (let i = t0; i < a.length; i++) { const d = byValue(a[i], b[i]); if (d) return d; }
+    return 0;
+  });
+  const all = keys.length;
+  if (cfg.limit && !cfg.time) keys = keys.slice(0, cfg.limit);
+  const cmps = cfg.cmp.length ? [...new Set(rows.map(cmpOf))].sort().map((k) => JSON.parse(k)) : [null];
+  const cell = (list, cv, m) => { const kept = cv === null ? list : list.filter((r) => cmpOf(r) === JSON.stringify(cv)); return kept.length ? anTotal(tb, kept, m) : null; };
+  const label = (c, v) => (c.g ? anTimeLabel(c.g, v) : esc(v));
+  const join = (list) => list.join(' / ');
+  // A series is named by what it holds, its metric first when there are several: "SUM(amount), Alex".
+  const name = (parts, m) => (mets.length > 1 ? [anMetName(m), ...(parts.length ? [join(parts)] : [])].join(', ') : parts.length ? join(parts) : anMetName(m));
+  const series = cmps.flatMap((cv) => mets.map((m) => ({ cv, m, label: name(cv ? cv.map(esc) : [], m) })));
+  let axis, lines;
+  if (anSplits(cfg)) {
+    // Time along the axis: each dimension's values are a series, as what is compared is.
+    const periods = [...new Set(keys.map((k) => k[0]))];
+    const combos = [...new Set(keys.map((k) => JSON.stringify(k.slice(1))))].map((k) => JSON.parse(k)).sort((a, b) => byValue(join(a), join(b)));
+    axis = periods.map((p) => ({ parts: [p], n: 1, label: label(cols[0], p) }));
+    lines = combos.flatMap((dv) => series.map((s) => ({ label: name([...dv.map(esc), ...(s.cv ? s.cv.map(esc) : [])], s.m), val: (a) => cell(of([a.parts[0], ...dv]), s.cv, s.m) })));
+  } else {
+    axis = keys.map((k) => ({ parts: k, n: cols.length, label: join(k.map((v, i) => label(cols[i], v))) || t('an.total') }));
+    lines = series.map((s) => ({ label: s.label, val: (a) => cell(of(a.parts), s.cv, s.m) }));
+  }
+  // A group can be zoomed into (a period not yet a day) or broken down by a column not in use.
+  const used = [...cols.map((x) => x.f), ...cfg.cmp.map((x) => x.f)];
+  const canClick = cols.length > 0 && (cols.some((x) => x.g && AN_NEXT[x.g]) || tb.fields.some((x) => !used.includes(x[0])));
+  return { cfg, rows, cols, keys, mets, cmps, series, of, cell, label, all, axis, lines, canClick };
+}
+function anDraw(tb, cfg, d, c) {
+  if (!d.rows.length) return `<div class="pv__empty">${t('an.noRows')}</div>`;
+  const num = (f) => anType(tb, f) === 'number';
+  if (d.raw) {
+    return `<div class="pv__grid"><table class="table"><thead><tr>${tb.fields.map((f) => `<th class="label ${f[1] === 'number' ? 'num' : ''}">${esc(f[0])}</th>`).join('')}</tr></thead><tbody>${d.rows.slice(0, 200).map((r) => `<tr>${r.map((v, i) => `<td class="${tb.fields[i][1] === 'number' ? 'num mono' : tb.fields[i][1] === 'date' ? 'mono' : ''}">${tb.fields[i][1] === 'number' ? anNum(v) : esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  const show = (v) => (v === null ? '–' : anNum(v));
+  const click = (a) => (d.canClick ? `data-act="anclick" data-c="${c}" data-k="${esc(JSON.stringify(a.parts))}" data-n="${a.n}" role="button" tabindex="0"` : '');
+  if (cfg.chart === 'table') {
+    // A column for the time and each dimension; then the metrics, under each compared value when there are any.
+    const heads = d.cols.map((x) => `<th class="label ${!x.g && num(x.f) ? 'num' : ''}">${x.g ? t('an.colAt', { col: esc(x.f), grain: t(`an.g.${x.g}`) }) : esc(x.f)}</th>`).join('');
+    const pad = d.cols.map(() => '<th></th>').join('') || '<th></th>';
+    const many = d.mets.length > 1, cmp = d.cmps[0] !== null;
+    const top = !cmp ? '' : many
+      ? `<tr class="an__over">${pad}${d.cmps.map((cv) => `<th class="label num" colspan="${d.mets.length}">${cv.map(esc).join(' / ')}</th>`).join('')}</tr>`
+      : `<tr class="an__over">${pad}<th class="label num" colspan="${d.series.length}">${anMetName(d.mets[0])}</th></tr>`;
+    const under = d.series.map((s) => `<th class="label num">${cmp ? (many ? anMetName(s.m) : s.cv.map(esc).join(' / ')) : anMetName(s.m)}</th>`).join('');
+    const first = d.cols.length ? '' : `<td>${t('an.total')}</td>`;
+    return `<div class="pv__grid"><table class="table"><thead>${top}<tr>${heads || '<th></th>'}${under}</tr></thead><tbody>${d.keys.map((k) => `<tr class="${d.canClick ? 'an__drillable' : ''}" ${click({ parts: k, n: d.cols.length })}>${first}${k.map((v, i) => `<td class="${!d.cols[i].g && num(d.cols[i].f) ? 'num mono' : ''}">${d.label(d.cols[i], v)}</td>`).join('')}${d.series.map((s) => `<td class="num mono">${show(d.cell(d.of(k), s.cv, s.m))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  const many = d.lines.length > 1;
+  const top = Math.max(...d.axis.flatMap((a) => d.lines.map((l) => l.val(a) || 0)), 0) || 1;
+  const legend = many ? `<div class="pv__keys">${d.lines.map((x, i) => `<span class="pv__key"><i data-s="${i % 5}"></i>${x.label}</span>`).join('')}</div>` : '';
+  const tip = (a, i) => `${a.label}${many ? `, ${d.lines[i].label}` : ''}: ${show(d.lines[i].val(a))}`.replace(/<[^>]+>/g, '');
+  const pickable = d.canClick ? 'an__drillable' : '';
+  // Many groups: no number over each, and only every so many named, so neither runs into the next.
+  const every = Math.ceil(d.axis.length / (window.innerWidth < 600 ? 5 : 12)), named = (j) => j % every === 0;
+  if (cfg.chart === 'col') {
+    return `${legend}<div class="pv__cols">${d.axis.map((a, j) => `<div class="pv__col ${pickable}" ${click(a)} title="${tip(a, 0)}"><div class="pv__track">${many || every > 1 || d.lines[0].val(a) === null ? '' : `<span class="pv__val">${show(d.lines[0].val(a))}</span>`}<div class="pv__bars" style="height:88%">${d.lines.map((l, i) => `<i data-s="${i % 5}" style="height:${Math.max(l.val(a) ? 1 : 0, ((l.val(a) || 0) / top) * 100)}%" title="${tip(a, i)}"></i>`).join('')}</div></div><span class="pv__lab ${every > 1 ? 'pv__lab--free' : ''}">${named(j) ? a.label : ''}</span></div>`).join('')}</div>`;
+  }
+  if (cfg.chart === 'bar') {
+    return `${legend}<div class="pv__hbars">${d.axis.map((a) => `<span class="pv__lab ${pickable}" ${click(a)}>${a.label}</span><div class="pv__hgroup ${pickable}" ${click(a)}>${d.lines.map((l, i) => `<i data-s="${i % 5}" style="width:${Math.max(l.val(a) ? 0.5 : 0, ((l.val(a) || 0) / top) * 100)}%" title="${tip(a, i)}"></i>`).join('')}</div><span class="pv__val">${many ? '' : show(d.lines[0].val(a))}</span>`).join('')}</div>`;
+  }
+  if (cfg.chart === 'line' || cfg.chart === 'area') {
+    // A period with no rows breaks the line rather than joining its neighbours.
+    const n = d.axis.length, x = (i) => (n === 1 ? 50 : (i / (n - 1)) * 100), y = (v) => 100 - (v / top) * 92;
+    const runs = (l) => d.axis.reduce((acc, a, j) => { const v = l.val(a); if (v === null) acc.push([]); else acc[acc.length - 1].push(`${x(j).toFixed(2)},${y(v).toFixed(2)}`); return acc; }, [[]]).filter((r) => r.length);
+    const svg = d.lines.map((l, i) => runs(l).map((r) => `${cfg.chart === 'area' && r.length > 1 ? `<polygon data-s="${i % 5}" points="${r[0].split(',')[0]},100 ${r.join(' ')} ${r[r.length - 1].split(',')[0]},100"/>` : ''}<polyline data-s="${i % 5}" points="${r.join(' ')}${r.length === 1 ? ` ${(Number(r[0].split(',')[0]) + 0.5).toFixed(2)},${r[0].split(',')[1]}` : ''}"/>`).join('')).join('');
+    return `${legend}<div class="pv__line"><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img">${svg}</svg><div class="pv__ticks">${d.axis.map((a, j) => (named(j) ? `<span class="pv__lab ${pickable}" ${click(a)}>${a.label}${many || every > 1 ? '' : `<br>${show(d.lines[0].val(a))}`}</span>` : '')).join('')}</div></div>`;
+  }
+  // Pie and treemap: each group a slice or a tile of the first series.
+  const items = d.axis.map((a) => ({ a, v: Math.max(d.lines[0].val(a) || 0, 0) })).filter((it) => it.v > 0);
+  const sum = (list) => list.reduce((acc, it) => acc + it.v, 0);
+  if (cfg.chart === 'pie') {
+    const all = sum(items) || 1, P = (ang) => `${(50 + 48 * Math.cos(ang)).toFixed(3)},${(50 + 48 * Math.sin(ang)).toFixed(3)}`;
+    let a0 = -Math.PI / 2;
+    const slices = items.map((it, i) => {
+      const a1 = a0 + (it.v / all) * Math.PI * 2;
+      const path = items.length === 1 ? 'M50,2 A48,48 0 1 1 49.99,2 Z' : `M50,50 L${P(a0)} A48,48 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${P(a1)} Z`;
+      a0 = a1;
+      return `<path data-s="${i % 5}" d="${path}" class="${pickable}" ${click(it.a)}><title>${it.a.label.replace(/<[^>]+>/g, '')}: ${anNum(it.v)}</title></path>`;
+    }).join('');
+    return `<div class="pv__pie"><svg viewBox="0 0 100 100" role="img" aria-label="${t('an.t.pie')}">${slices}</svg><div class="pv__pielist">${items.map((it, i) => `<span class="pv__key ${pickable}" ${click(it.a)}><i data-s="${i % 5}"></i><span>${it.a.label}</span><b>${nf(it.v / all, { style: 'percent', maximumFractionDigits: 1 })}</b></span>`).join('')}</div></div>`;
+  }
+  const tiles = items.sort((a, b) => b.v - a.v).map((it, i) => ({ ...it, i }));
+  const tm = (list, across) => {
+    if (list.length === 1) return `<div class="pv__tile ${pickable}" ${click(list[0].a)} data-s="${Math.min(list[0].i, 4)}" style="flex:${list[0].v} 1 0"><b>${list[0].a.label}</b><span>${anNum(list[0].v)}</span></div>`;
+    let cut = 1; const half = sum(list) / 2;
+    while (cut < list.length - 1 && sum(list.slice(0, cut)) < half) cut++;
+    return `<div class="pv__tm ${across ? '' : 'pv__tm--v'}" style="flex:${sum(list)} 1 0">${tm(list.slice(0, cut), !across)}${tm(list.slice(cut), !across)}</div>`;
+  };
+  return tiles.length ? `<div class="pv__tmroot">${tm(tiles, true)}</div>` : `<div class="pv__empty">${t('an.noRows')}</div>`;
+}
+function anFilterText(f) {
+  if (f.period) return anTimeLabel(f.period.g, f.period.v);
+  if (f.in) return f.in.length <= 2 ? f.in.map(esc).join(', ') : t('an.f.count', { n: f.in.length });
+  const lo = f.min !== '' && f.min != null, hi = f.max !== '' && f.max != null;
+  return lo && hi ? `${esc(f.min)} – ${esc(f.max)}` : lo ? `≥ ${esc(f.min)}` : hi ? `≤ ${esc(f.max)}` : t('an.f.any');
+}
+function analysisView(c) {
+  const now = anNow(c.name), { tb, cfg } = now, names = Object.keys(AN[c.name]);
+  const pick = (k, label, off) => `<button class="pv__pick" data-act="anpick" data-c="${c.name}" data-k="${k}" aria-haspopup="menu" ${off ? 'disabled' : ''}><span>${label}</span>${Is('chevron', 12)}</button>`;
+  const chip = (k, i, label, more, fixed) => `<span class="an__chip"><button class="an__chip-b" data-act="anchip" data-c="${c.name}" data-k="${k}" data-i="${i}" ${more ? 'aria-haspopup="menu"' : 'disabled'}><span>${label}</span>${more ? Is('chevron', 11) : ''}</button>${fixed ? '' : `<button class="an__chip-x" data-act="anrm" data-c="${c.name}" data-k="${k}" data-i="${i}" aria-label="${t('an.removeItem', { name: H(label) })}">${Is('close', 11)}</button>`}</span>`;
+  // Each part: what is chosen, a row each, then a row to add another, or why there is nothing left to add.
+  const part = (k, title, chips, add, offered, note) => `<div class="pv__f"><span class="label">${t(title)}${note ? ` <span class="an__note">${t(note)}</span>` : ''}</span><div class="an__chips">${chips.join('')}${offered ? `<button class="an__add" data-act="anadd" data-c="${c.name}" data-k="${k}" aria-haspopup="menu">${Is('plus', 12)}${t(add)}</button>` : `<span class="an__none">${t('an.allUsed')}</span>`}</div></div>`;
+  const d = anCompute(tb, cfg);
+  const mets = cfg.mets, grouped = !!(cfg.time || cfg.dims.length || cfg.cmp.length);
+  const used = [...(cfg.time ? [cfg.time.f] : []), ...cfg.dims.map((x) => x.f), ...cfg.cmp.map((x) => x.f)];
+  const free = tb.fields.some((x) => !used.includes(x[0]));
+  const freeFilters = tb.fields.some((x) => x[1] !== 'date' && !cfg.filters.some((f) => f.f === x[0]));
+  const sortName = cfg.sort && mets[cfg.sort.by] ? t('an.sortItem', { name: H(anMetName(mets[cfg.sort.by])), dir: H(t(`an.o.${cfg.sort.dir}`)) }) : t('an.o.none');
+  const times = anTimeFields(tb);
+  const grainNow = cfg.time && cfg.time.g;
+  const timePart = times.length
+    ? `<div class="pv__f"><span class="label">${t('an.p.time')}</span>${pick('time', cfg.time ? esc(cfg.time.f) : t('an.time.none'))}</div>
+      ${cfg.time ? `<div class="an__sub"><div class="pv__f"><span class="label">${t('an.p.grain')}</span><div class="seg an__grains" role="group" aria-label="${t('an.p.grain')}">${AN_GRAINS.map((g) => `<button class="${grainNow === g ? 'on' : ''}" data-act="angrain" data-c="${c.name}" data-g="${g}">${t(`an.g.${g}`)}</button>`).join('')}</div></div>
+      <div class="pv__f"><span class="label">${t('an.p.range')}</span>${pick('range', t(`an.rg.${cfg.time.range}`))}</div></div>` : ''}`
+    : '';
+  const side = `<div class="pv__side">
+    <div class="pv__f"><span class="label">${t('an.p.type')}</span>${pick('chart', t(`an.t.${cfg.chart}`))}</div>
+    ${timePart}
+    ${part('dims', 'an.p.dims', cfg.dims.map((x, i) => chip('dims', i, esc(x.f), false)), 'an.addDim', free, anSplits(cfg) ? 'an.dimsSeries' : null)}
+    ${part('cmp', 'an.p.cmp', cfg.cmp.map((x, i) => chip('cmp', i, esc(x.f), false)), 'an.addCmp', free)}
+    ${part('mets', 'an.p.mets', mets.map((m, i) => chip('mets', i, anMetName(m), !!m.f, grouped && mets.length === 1 && !m.f)), 'an.addMet', true)}
+    ${part('filters', 'an.p.where', cfg.filters.map((f, i) => chip('filters', i, `${esc(f.f)}: ${anFilterText(f)}`, !f.period)), 'an.addFilter', freeFilters)}
+    ${cfg.dims.length ? `<div class="pv__f"><span class="label">${t('an.p.order')}</span>${pick('sort', sortName)}</div>` : ''}
+    ${cfg.dims.length && !cfg.time ? `<div class="pv__f"><span class="label">${t('an.p.limit')}</span>${pick('limit', cfg.limit ? t('an.limit.top', { n: cfg.limit }) : t('an.limit.all'))}</div>` : ''}
+  </div>`;
+  // The way here: the chart before any drill, then each zoom or breakdown; any of them steps back to it.
+  const crumbs = now.drill.length
+    ? `<nav class="an__crumbs" aria-label="${t('an.drill.path')}">${[t('an.drill.all'), ...now.drill.map((s) => s.label)].map((label, j) => (j < now.drill.length ? `<button data-act="anup" data-c="${c.name}" data-n="${j}">${label}</button>${Is('chevron', 11)}` : `<span>${label}</span>`)).join('')}</nav>`
+    : '';
+  const held = d.raw ? (d.rows.length > 200 ? t('an.rowsFirst', { n: 200 }) : cnt({ n: d.rows.length, u: 'rows' })) : d.rows.length === tb.rows.length ? '' : t('an.rowsOf', { n: d.rows.length, total: tb.rows.length });
+  const facts2 = [held, !d.raw && d.all > d.keys.length ? t('an.limit.top', { n: d.keys.length }) : ''].filter(Boolean).map((x) => `<span class="faint">${x}</span>`).join('');
+  const bar = `<div class="pv__bar"><div class="an__where">${crumbs}${facts2}</div><div class="an__barright">${d.canClick ? `<span class="faint an__drillhint">${t('an.drill.hint')}</span>` : ''}<button class="btn an__sqlbtn" data-act="ansqlopen" data-c="${c.name}">${t('an.showSql')}</button></div></div>`;
+  // The charts kept for this table; the open one's tab holds what can be done with it.
+  const tabs = now.views.map((v) => { const on = !!now.saved && v.id === now.saved.id; return `<button class="an__tab ${on ? 'on' : ''}" data-act="anview" data-c="${c.name}" data-v="${v.id}" ${on ? `aria-haspopup="menu" aria-label="${t('an.chartActions', { name: H(esc(v.name)) })}"` : ''} ${v.by ? `title="${t('an.madeByShort', { who: v.by })}"` : ''}>${v.by ? Is('ai', 13) : ''}<span>${esc(v.name)}</span>${on ? Is('chevron', 11) : ''}</button>`; }).join('');
+  const fresh = now.id === 'new' ? `<span class="an__tab on an__tab--new">${t('an.newChart')}</span>` : `<button class="an__addtab" data-act="annew" data-c="${c.name}">${Is('plus', 12)}${t('an.newChart')}</button>`;
+  const actions = now.edited ? `<span class="tag">${t(now.id === 'new' ? 'an.unsaved' : 'an.edited')}</span><button class="btn" data-act="andiscard" data-c="${c.name}">${t('an.discard')}</button>${now.id === 'new' ? `<button class="btn btn--primary" data-act="ansaveas" data-c="${c.name}" data-first="1">${t('an.saveDots')}</button>` : `<button class="btn btn--primary" data-act="ansavenow" data-c="${c.name}">${t('save')}</button>`}` : '';
+  const updated = when(tb.updated), rowsN = nf(tb.rows.length);
+  const about = tb.file ? t('an.about.file', { file: H(`<span class="mono">${esc(tb.file)}</span>`), rows: rowsN, when: updated }) : t('an.about.folder', { n: tb.files, folder: H(`<span class="mono">${esc(tb.folder)}</span>`), rows: rowsN, when: updated });
+  return `${names.length > 1 ? `<div class="seg an__tables" role="group" aria-label="${t('an.tables')}">${names.map((n) => `<button class="${n === now.name ? 'on' : ''} mono" data-act="antable" data-c="${c.name}" data-n="${n}">${n}</button>`).join('')}</div>` : ''}
+  <p class="an__about"><code class="an__qname">${esc(`${c.name}.${now.name}`)}</code><span class="muted">${about}</span></p>
+  <div class="card" style="margin-bottom:20px">
+    <div class="card__head"><div class="an__views" role="group" aria-label="${t('an.views')}">${tabs}${fresh}</div>
+      <div class="row" style="flex:none">${actions}</div></div>
+    ${now.saved && now.saved.by ? `<div class="an__by">${Is('ai', 14)}<span>${t('an.madeBy', { who: now.saved.by, date: md(now.saved.on) })}</span></div>` : ''}
+    <div class="pv">
+      <div class="pv__main">${bar}
+        <div class="pv__viz">${anDraw(tb, cfg, d, c.name)}</div></div>
+      ${side}
+    </div>
+  </div>
+  <div class="row row--between" style="margin-bottom:10px"><span class="label">${t('an.cols')}</span></div>
+  <div class="card wrap"><table class="table"><thead><tr><th class="label">${t('an.col.name')}</th><th class="label">${t('an.col.type')}</th><th class="label">${t('an.col.sql')}</th></tr></thead>
+    <tbody>${tb.fields.map((x) => `<tr><td class="mono">${esc(x[0])}</td><td>${t(`an.ty.${x[1]}`)}</td><td class="mono faint">${esc(x[2])}</td></tr>`).join('')}</tbody></table></div>
+  <p class="hint" style="margin:10px 2px 0">${t('an.colsNote')}</p>
+  <p class="hint" style="margin:6px 2px 0">${t('an.aiNote', { link: H(`<a class="link" href="#assistants">${t('nav.assistants')}</a>`) })}</p>`;
+}
+// Any change is a draft of the chart shown, until it is saved or discarded; it starts from the top of the path again.
+function anEdit(c, change) {
+  const now = anNow(c), cfg = JSON.parse(JSON.stringify(now.cfg));
+  change(cfg);
+  if (!cfg.dims.length) cfg.sort = null; // an order is for dimensions; time keeps its own
+  if (cfg.time || !cfg.dims.length) cfg.limit = null;
+  if ((cfg.time || cfg.dims.length || cfg.cmp.length) && !cfg.mets.length) cfg.mets = [{ f: null, a: 'count' }];
+  if (cfg.sort && !cfg.mets[cfg.sort.by]) cfg.sort = cfg.mets.length ? { by: 0, dir: cfg.sort.dir } : null;
+  S.an.draft = { key: now.key, id: now.id, cfg };
+  S.an.drill = null;
+  render(true);
+}
+// The open chart's tab: rename it, keep it again as another, or remove it.
+function anViewMenu(el, c) {
+  const now = anNow(c), v = now.saved;
+  menu(el, [[t('rename'), 'pencil', () => open('rename', { v: v.name, label: 'an.viewName', hint: 'an.saveHint', fn: (name) => { v.name = name; } })],
+    [t('an.saveAs'), 'plus', () => open('ansave', { c, v: '' })], '-',
+    [t('an.remove'), 'remove', () => confirmDlg(t('an.removeTitle', { name: v.name }), t('an.removeBody'), t('remove'), () => { now.tb.views.splice(now.tb.views.indexOf(v), 1); S.an.draft = null; S.an.drill = null; delete S.an.view[now.key]; render(true); toast(t('an.removed', { name: v.name })); })]]);
+}
 function masonry(name) {
   return `<div class="masonry">${PHOTOSETS[name].map(([k, cap, d], i) => `<figure class="photo" data-act="photo" data-c="${name}" data-i="${i}" style="cursor:zoom-in"><img src="${PH[k]}" alt="${esc(cap)}"><figcaption><span>${esc(cap)}</span><span>${md(d)}</span></figcaption></figure>`).join('')}</div>`;
 }
@@ -1752,6 +2314,28 @@ DLG.analysis = (D) => dlg(t('analyze'), `
   <div class="field"><span class="label">${t('categoryField')}</span><div class="input"><select><option>category</option></select></div></div>`,
   foot('', cancel() + btn(t('createAnalysis'), 'data-act="analysisok"', 'btn--primary')));
 
+DLG.ansave = (D) => dlg(t(D.first ? 'an.saveFirstTitle' : 'an.saveTitle'), `<div class="field"><span class="label">${t('an.viewName')}</span><div class="input"><input data-bind="v" value="${esc(D.v)}" autocomplete="off" data-autofocus></div><span class="hint">${t(D.err ? 'an.nameTaken' : 'an.saveHint')}</span></div>`, foot('', `${cancel()}<button class="btn btn--primary" data-act="ansaveok">${t('save')}</button>`), 'dialog--s');
+// A filter on a text column: the values to keep, ticked. On a number: a range, either end open.
+// What a metric can be: COUNT(*), then each aggregate function over the columns it suits (numbers, or any column to count).
+const AN_MET_WAYS = ['rows', 'sum', 'avg', 'median', 'min', 'max', 'count', 'distinct'];
+const anMetCols = (tb, how) => (how === 'rows' ? [] : tb.fields.filter((x) => ['count', 'distinct'].includes(how) || x[1] === 'number').map((x) => x[0]));
+const anMetChoices = (tb) => AN_MET_WAYS.filter((w) => w === 'sum').concat(AN_MET_WAYS.filter((w) => w !== 'sum')).flatMap((w) => (w === 'rows' ? [{ f: null, a: 'count' }] : anMetCols(tb, w).map((f) => ({ f, a: w }))));
+DLG.anmet = (D) => {
+  const now = anNow(D.c), cols = anMetCols(now.tb, D.how), col = cols.includes(D.col) ? D.col : cols[0] || '';
+  const m = D.how === 'rows' ? { f: null, a: 'count' } : { f: col, a: D.how }, dup = now.cfg.mets.some((x) => x.f === m.f && x.a === m.a);
+  const ways = AN_MET_WAYS.filter((w) => w === 'rows' || anMetCols(now.tb, w).length);
+  const sel = (bind, list, on) => `<div class="input"><select data-change="anmetset" data-bind="${bind}" style="width:100%;border:0;background:transparent;font:inherit;outline:0">${list.map(([v, label]) => `<option value="${esc(v)}" ${v === on ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`;
+  return dlg(t('an.metTitle'), `<div class="field"><span class="label">${t('an.metHow')}</span>${sel('how', ways.map((w) => [w, w === 'rows' ? `COUNT(*) · ${t('an.rowsMetric')}` : `${w === 'distinct' ? 'COUNT DISTINCT' : AN_FN[w]} · ${t(`an.a.${w}`)}`]), D.how)}</div>
+    ${D.how === 'rows' ? '' : `<div class="field"><span class="label">${t('an.metCol')}</span>${sel('col', cols.map((f) => [f, esc(f)]), col)}</div>`}
+    <p class="muted" style="margin:0">${t(`an.metNote.${D.how}`)}</p>
+    <p class="an__will mono">${dup ? t('an.metAlready') : t('an.metWill', { name: anMetName(m) })}</p>`,
+  foot('', `${cancel()}<button class="btn btn--primary" data-act="anmetok" ${dup ? 'disabled' : ''}>${t('an.metAdd')}</button>`), 'dialog--s');
+};
+// The query behind a chart: read only, its values listed apart from it.
+DLG.ansql = (D) => dlg(t('an.sqlTitle'), `<p class="muted" style="margin:0 0 12px">${t('an.sqlBody')}</p><pre class="an__sql">${esc(D.sql)}</pre>${D.params.length ? `<span class="label" style="display:block;margin-top:14px">${t('an.params')}</span><ol class="an__params">${D.params.map((p, i) => `<li><span>?${i + 1}</span><code>${esc(p)}</code></li>`).join('')}</ol>` : ''}`,
+  foot('', `<button class="btn" data-act="ansqlcopy">${t('an.copySql')}</button><button class="btn btn--primary" data-close>${t('done')}</button>`));
+DLG.anfilter = (D) => dlg(t('an.filterTitle', { col: D.f }), `<div class="opts" style="max-height:300px;overflow:auto">${D.all.map((v) => opt('vals', v, D.vals, `<span style="flex:1">${esc(v)}</span>`, true)).join('')}</div>`, foot(D.vals.length ? t('an.f.count', { n: D.vals.length }) : t('an.f.any'), `${cancel()}<button class="btn btn--primary" data-act="anfilterok">${t('done')}</button>`), 'dialog--s');
+DLG.anrange = (D) => dlg(t('an.filterTitle', { col: D.f }), `<div class="opts opts--grid"><div class="field"><span class="label">${t('an.min')}</span><div class="input"><input data-bind="min" inputmode="decimal" value="${esc(D.min)}" autocomplete="off" data-autofocus></div></div><div class="field"><span class="label">${t('an.max')}</span><div class="input"><input data-bind="max" inputmode="decimal" value="${esc(D.max)}" autocomplete="off"></div></div></div>`, foot('', `${cancel()}<button class="btn btn--primary" data-act="anrangeok">${t('done')}</button>`), 'dialog--s');
 DLG.saveto = (D) => dlg(t('saveTo'), `
   <p class="muted" style="margin:0">${t('saveBody')}</p>
   <div class="field"><span class="label">${t('addTo')}</span><div class="input"><select><option>${t('newCol')}</option><option>${t('plainFiles')}</option></select></div></div>
@@ -2295,6 +2879,107 @@ const ACT = {
   fsortmenu: (el) => menu(el, ['name', 'changed', 'size', 'kind'].map((k) => [t(`sort.${k}`), S.fsort === k ? 'check' : null, () => ACT.fsort({ dataset: { k } }), S.fsort === k])),
   fsort: (el) => { const k = el.dataset.k; if (S.fsort === k) S.fdir = S.fdir === 'asc' ? 'desc' : 'asc'; else { S.fsort = k; S.fdir = SORT_FIRST[k]; } render(true); },
   fview: (el) => { S.fview = el.dataset.v; render(true); },
+  fmode: (el) => { S.fmode[el.dataset.c] = el.dataset.v; render(true); },
+  antable: (el) => { S.an.table[el.dataset.c] = el.dataset.n; S.an.draft = null; S.an.drill = null; render(true); },
+  // A tab opens its chart; the open chart's tab holds what can be done with it.
+  anview: (el) => {
+    const c = el.dataset.c, now = anNow(c);
+    if (now.saved && now.saved.id === el.dataset.v) return anViewMenu(el, c);
+    S.an.view[now.key] = el.dataset.v; S.an.draft = null; S.an.drill = null; render(true);
+  },
+  annew: (el) => { const now = anNow(el.dataset.c); S.an.view[now.key] = 'new'; S.an.draft = null; S.an.drill = null; render(true); },
+  andiscard: () => { S.an.draft = null; S.an.drill = null; render(true); },
+  ansaveas: (el) => open('ansave', { c: el.dataset.c, v: '', first: !!el.dataset.first }),
+  ansqlopen: (el) => { const c = el.dataset.c, now = anNow(c); open('ansql', { c, ...anSql(c, now.name, now.tb, now.cfg) }); },
+  // A click on a group: zoom a period into its next grain, or break the group down by another column.
+  anclick: (el) => {
+    const c = el.dataset.c, now = anNow(c), d = anCompute(now.tb, now.cfg), parts = JSON.parse(el.dataset.k);
+    const cols = d.cols.slice(0, +el.dataset.n), items = [];
+    // The drill is an edit, and the path keeps the chart it came from, to step back to.
+    const go = (step, label) => {
+      const before = now.cfg, cfg = anDrilled(before, step), base = now.saved ? now.saved.spec : AN_NEW;
+      S.an.draft = JSON.stringify(cfg) === JSON.stringify(base) ? null : { key: now.key, id: now.id, cfg };
+      S.an.drill = { key: now.key, id: now.id, path: [...now.drill, { label, before }] };
+      render(true);
+    };
+    const ti = cols.findIndex((x) => x.g);
+    const period = ti >= 0 ? { f: cols[ti].f, g: cols[ti].g, v: parts[ti] } : null;
+    if (period && AN_NEXT[period.g]) items.push([t('an.drill.zoom', { period: anTimeLabel(period.g, period.v) }), 'search', () => go({ t: 'zoom', period }, anTimeLabel(period.g, period.v))]);
+    const used = [...d.cols.map((x) => x.f), ...now.cfg.cmp.map((x) => x.f)];
+    const keep = cols.map((x, i) => [x, parts[i]]).filter(([x]) => !x.g).map(([x, v]) => [x.f, v]);
+    const label = cols.map((x, i) => d.label(x, parts[i])).join(' / ');
+    const offer = now.tb.fields.map((x) => x[0]).filter((f) => !used.includes(f));
+    if (items.length && offer.length) items.push('-');
+    offer.forEach((f) => items.push([t('an.drill.byCol', { col: esc(f) }), null, () => go({ t: 'by', keep, period, by: f }, t('an.drill.step', { name: H(label), col: esc(f) }))]));
+    if (items.length) menu(el, items);
+  },
+  // Back to a step on the path: the chart as it was there.
+  anup: (el) => {
+    const now = anNow(el.dataset.c), j = +el.dataset.n, cfg = now.drill[j].before, base = now.saved ? now.saved.spec : AN_NEW;
+    S.an.draft = JSON.stringify(cfg) === JSON.stringify(base) ? null : { key: now.key, id: now.id, cfg };
+    S.an.drill = j ? { key: now.key, id: now.id, path: now.drill.slice(0, j) } : null;
+    render(true);
+  },
+  angrain: (el) => anEdit(el.dataset.c, (x) => { x.time.g = el.dataset.g; }),
+  anpick: (el) => {
+    const c = el.dataset.c, k = el.dataset.k, now = anNow(c), cfg = now.cfg;
+    if (k === 'chart') return menu(el, AN_TYPES.map((p) => [t(`an.t.${p}`), null, () => anEdit(c, (x) => { x.chart = p; }), cfg.chart === p]));
+    // A column chosen as the time leaves the dimensions: it is grouped once, at its grain.
+    if (k === 'time') return menu(el, [[t('an.time.none'), null, () => anEdit(c, (x) => { x.time = null; }), !cfg.time], ...anTimeFields(now.tb).map((f) => [esc(f), null, () => anEdit(c, (x) => { x.time = { f, g: (x.time && x.time.g) || 'month', range: (x.time && x.time.range) || 'all' }; x.dims = x.dims.filter((y) => y.f !== f); x.cmp = x.cmp.filter((y) => y.f !== f); }), !!cfg.time && cfg.time.f === f])]);
+    if (k === 'range') return menu(el, AN_RANGES.map((r) => [t(`an.rg.${r}`), null, () => anEdit(c, (x) => { x.time.range = r; }), cfg.time.range === r]));
+    if (k === 'limit') return menu(el, [null, 5, 10, 20].map((n) => [n ? t('an.limit.top', { n }) : t('an.limit.all'), null, () => anEdit(c, (x) => { x.limit = n; }), cfg.limit === n]));
+    const by = (i, dir) => [t('an.sortItem', { name: H(anMetName(cfg.mets[i])), dir: H(t(`an.o.${dir}`)) }), null, () => anEdit(c, (x) => { x.sort = { by: i, dir }; }), !!cfg.sort && cfg.sort.by === i && cfg.sort.dir === dir];
+    return menu(el, [[t('an.o.none'), null, () => anEdit(c, (x) => { x.sort = null; }), !cfg.sort], ...cfg.mets.flatMap((_, i) => [by(i, 'desc'), by(i, 'asc')])]);
+  },
+  // Add a dimension or something to compare (any column not in use: text, a number's values, a date's days),
+  // a metric, or a filter.
+  anadd: (el) => {
+    const c = el.dataset.c, k = el.dataset.k, now = anNow(c), tb = now.tb, cfg = now.cfg;
+    const kind = (x) => t(`an.ty.${x[1]}`);
+    if (k === 'mets') {
+      const first = anMetChoices(tb).find((m) => !cfg.mets.some((x) => x.f === m.f && x.a === m.a)) || { f: null, a: 'rows' };
+      return open('anmet', { c, how: first.f ? first.a : 'rows', col: first.f || '' });
+    }
+    if (k === 'filters') {
+      return menu(el, tb.fields.filter((x) => x[1] !== 'date' && !cfg.filters.some((f) => f.f === x[0])).map((x) => [esc(x[0]), null, () => {
+        if (x[1] === 'number') return open('anrange', { c, f: x[0], i: -1, min: '', max: '' });
+        open('anfilter', { c, f: x[0], i: -1, vals: [], all: [...new Set(tb.rows.map((r) => String(anRaw(tb, r, x[0]))))].sort() });
+      }, false, kind(x)]));
+    }
+    const used = [...(cfg.time ? [cfg.time.f] : []), ...cfg.dims, ...cfg.cmp].map((d) => (typeof d === 'string' ? d : d.f));
+    return menu(el, tb.fields.filter((x) => !used.includes(x[0])).map((x) => [esc(x[0]), null, () => anEdit(c, (y) => { y[k].push({ f: x[0] }); }), false, kind(x)]));
+  },
+  // A chip's name: how it is taken. A metric's way of totalling, a filter's values.
+  anchip: (el) => {
+    const c = el.dataset.c, k = el.dataset.k, i = +el.dataset.i, now = anNow(c), tb = now.tb, it = now.cfg[k][i];
+    if (k === 'mets') return menu(el, AN_AGGS[anType(tb, it.f)].map((a) => [`${a === 'distinct' ? 'COUNT DISTINCT' : AN_FN[a]} · ${t(`an.a.${a}`)}`, null, () => anEdit(c, (x) => { x.mets[i].a = a; }), it.a === a]));
+    if (it.in) return open('anfilter', { c, f: it.f, i, vals: it.in.slice(), all: [...new Set(tb.rows.map((r) => String(anRaw(tb, r, it.f))))].sort() });
+    return open('anrange', { c, f: it.f, i, min: it.min ?? '', max: it.max ?? '' });
+  },
+  anrm: (el) => anEdit(el.dataset.c, (x) => { x[el.dataset.k].splice(+el.dataset.i, 1); }),
+  anfilterok: () => { const { c, f, i, vals } = D; close(); anEdit(c, (x) => { if (!vals.length) { if (i >= 0) x.filters.splice(i, 1); } else if (i >= 0) x.filters[i] = { f, in: vals }; else x.filters.push({ f, in: vals }); }); },
+  anrangeok: () => { const { c, f, i } = D, min = String(D.min).trim(), max = String(D.max).trim(); close(); anEdit(c, (x) => { if (min === '' && max === '') { if (i >= 0) x.filters.splice(i, 1); } else if (i >= 0) x.filters[i] = { f, min, max }; else x.filters.push({ f, min, max }); }); },
+  // Save keeps a kept chart where it is; a new chart is named the first time it is saved.
+  ansavenow: (el) => {
+    const now = anNow(el.dataset.c);
+    now.saved.spec = now.cfg;
+    S.an.draft = null; render(true); toast(t('an.savedNow'));
+  },
+  ansaveok: () => {
+    const now = anNow(D.c), name = D.v.trim();
+    if (!name) return;
+    if (now.tb.views.some((v) => v.name === name)) return upd({ err: true });
+    const id = `u${S.an.n++}`;
+    now.tb.views.push({ id, name, by: null, on: null, spec: now.cfg });
+    S.an.view[now.key] = id; S.an.draft = null; S.an.drill = null; close(); render(true); toast(t('an.saved', { name }));
+  },
+  anmetset: (el) => upd({ [el.dataset.bind]: el.value }),
+  anmetok: () => {
+    const now = anNow(D.c), cols = anMetCols(now.tb, D.how), col = cols.includes(D.col) ? D.col : cols[0];
+    const m = D.how === 'rows' ? { f: null, a: 'count' } : { f: col, a: D.how }, c = D.c;
+    close(); anEdit(c, (x) => { x.mets.push(m); });
+  },
+  ansqlcopy: () => { toast(t('an.sqlCopied')); },
   fopen: (el) => { const c = el.dataset.c; S.fpath[c] = [...(S.fpath[c] || []), el.dataset.n]; render(); },
   fcrumb: (el) => { const c = el.dataset.c; S.fpath[c] = (S.fpath[c] || []).slice(0, +el.dataset.i); render(); },
   ffile: (el) => {
@@ -2724,6 +3409,7 @@ document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change]');
   if (el && ACT[el.dataset.change]) ACT[el.dataset.change](el);
 });
+document.addEventListener('keydown', (e) => { const el = e.target; if ((e.key === 'Enter' || e.key === ' ') && el && el.dataset && el.dataset.act === 'andrill') { e.preventDefault(); ACT.andrill(el); } });
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.id === 'q' && D && D.name === 'cmdk') { D.q = el.value; D.sel = 0; layer.querySelector('#hits').innerHTML = hitsHTML(D); return; }

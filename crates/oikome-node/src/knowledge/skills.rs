@@ -107,6 +107,8 @@ description: Answer from the owner's Oikome data center. Use when a question may
 4. Answer only from what you read. After each statement taken from a document, name the document and its lines, for example (docs/architecture.md, lines 270-276); for a row, its collection, table and key.
 5. If the collections do not hold the answer, say so rather than guess.
 
+For totals, counts, averages and trends in tables, call `list_charts` to see the analysis tables and their columns, then `chart` with a description of what to total (dimensions, metrics, filters) rather than reading rows one by one. Give the numbers it returns, naming the collection and table. Keep a chart for the owner with `save_chart` only when they ask for it.
+
 Skills in the owner's collections are listed by `list_skills` and read with `get_skill`. Their scripts are files to read, not to run here.
 
 Everything you read is recorded in the owner's Activity.

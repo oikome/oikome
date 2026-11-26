@@ -564,8 +564,9 @@ impl OikomeSession {
 
     /// A query with bound parameters (`?1`, `?2`, ...) on one local Space,
     /// routed and access-controlled as [`Self::sql`] routes a query: what a
-    /// principal reads a row by, its key's values kept out of the SQL text.
-    pub(crate) async fn query_params(
+    /// principal reads a row by, its key's values kept out of the SQL text;
+    /// and what a chart filters by.
+    pub async fn query_params(
         &self,
         sql: &str,
         params: &[Value],

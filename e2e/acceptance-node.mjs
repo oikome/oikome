@@ -336,21 +336,77 @@ function generateFiles(root) {
     }
   }
   write(root, "household/readings.csv", readings.join("\n") + "\n");
-  const spends = [["Groceries", 38], ["Transport", 12], ["Eating out", 27], ["Utilities", 64], ["Books", 19], ["Health", 22]];
-  for (const month of [9, 10, 11]) {
-    const rows = ["date,category,amount,note"];
-    for (let day = 1; day <= 28; day++) {
-      const [category, base] = spends[(day * 5 + month) % spends.length];
-      const amount = (base + ((day * 37 + month * 11) % 23) - 8 + ((day * 13) % 100) / 100).toFixed(2);
-      rows.push(`2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")},${category},${amount},${category === "Books" ? "Bertrand" : ""}`);
-    }
-    write(root, `household/spending/2026-${String(month).padStart(2, "0")}.csv`, rows.join("\n") + "\n");
+  // The household's ledger: two years of it, a file a month, kept the way a
+  // banking app exports it. When; what for (a category, its subcategory, the
+  // merchant); who paid, how and where; how much, and how many items. Rent and
+  // bills monthly, groceries and coffees often, a summer trip to Porto, more
+  // electricity in winter, prices a little higher the second year.
+  let seed = 20250101;
+  const random = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+  const choose = (list) => list[Math.floor(random() * list.length)];
+  const ledger = [
+    // category, subcategory, merchants, times a month, typical amount, items at most
+    ["Home", "Rent", ["Landlord"], 1, 950, 1],
+    ["Home", "Furniture", ["IKEA", "Leroy Merlin"], 0.25, 120, 4],
+    ["Utilities", "Electricity", ["EDP"], 1, 52, 1],
+    ["Utilities", "Water", ["EPAL"], 1, 21, 1],
+    ["Utilities", "Internet", ["MEO"], 1, 39.99, 1],
+    ["Groceries", "Supermarket", ["Pingo Doce", "Continente", "Lidl"], 7, 46, 18],
+    ["Groceries", "Bakery", ["Padaria Portuguesa", "Fábrica da Nata"], 6, 7, 4],
+    ["Groceries", "Market", ["Mercado de Campo de Ourique"], 2, 24, 8],
+    ["Eating out", "Restaurant", ["Zé da Mouraria", "Taberna da Rua das Flores", "Cervejaria Ramiro"], 3, 38, 2],
+    ["Eating out", "Café", ["A Brasileira", "Café Nicola", "Fábrica Coffee Roasters"], 6, 5, 2],
+    ["Eating out", "Takeaway", ["Uber Eats", "Glovo"], 2, 21, 3],
+    ["Transport", "Public transport", ["Carris", "Metro Lisboa", "CP"], 6, 8, 2],
+    ["Transport", "Taxi", ["Bolt", "Uber"], 2, 12, 1],
+    ["Health", "Pharmacy", ["Farmácia Barreto"], 1, 17, 3],
+    ["Health", "Doctor", ["CUF"], 0.2, 65, 1],
+    ["Leisure", "Books", ["Bertrand", "Livraria Lello"], 1, 19, 2],
+    ["Leisure", "Cinema", ["Cinema Ideal", "Cinema São Jorge"], 1, 13, 2],
+    ["Leisure", "Concerts", ["Musicbox", "Coliseu"], 0.5, 28, 2],
+  ];
+  const trip = [["Leisure", "Travel", ["CP", "Booking.com"], 2, 110, 2], ["Eating out", "Restaurant", ["Café Santiago", "Cantinho do Avillez"], 4, 34, 2], ["Transport", "Public transport", ["Metro do Porto"], 4, 3, 2]];
+  for (let at = 0; at < 23; at++) {
+    const year = 2025 + Math.floor(at / 12), month = (at % 12) + 1;
+    const winter = month === 12 || month <= 2 ? 1.45 : month >= 6 && month <= 8 ? 0.8 : 1;
+    const prices = year === 2026 ? 1.03 : 1;
+    const spends = [];
+    const spend = ([category, subcategory, merchants, often, base, most], city) => {
+      const times = Math.floor(often) + (random() < often % 1 ? 1 : 0);
+      for (let n = 0; n < times; n++) {
+        const fixed = subcategory === "Rent" || category === "Utilities";
+        const day = fixed ? (subcategory === "Rent" ? 1 : 8 + n) : 1 + Math.floor(random() * 28);
+        const scale = subcategory === "Electricity" ? winter : 0.7 + random() * 0.6;
+        const amount = (fixed && subcategory !== "Electricity" ? base * prices : base * prices * scale).toFixed(2);
+        const member = subcategory === "Rent" ? "Rosh" : random() < 0.55 ? "Rosh" : "Alex";
+        const payment = fixed ? "Direct debit" : random() < 0.62 ? "Card" : random() < 0.7 ? "MB Way" : "Cash";
+        const items = Math.max(1, Math.ceil(random() * most));
+        spends.push([`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`, category, subcategory, choose(merchants), member, payment, city, amount, items]);
+      }
+    };
+    for (const kind of ledger) spend(kind, "Lisbon");
+    if (month === 8) for (const kind of trip) spend(kind, "Porto");
+    spends.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const rows = ["date,category,subcategory,merchant,member,payment,city,amount,items", ...spends.map((row) => row.map((v) => (String(v).includes(",") ? `"${v}"` : v)).join(","))];
+    write(root, `household/spending/${year}-${String(month).padStart(2, "0")}.csv`, rows.join("\n") + "\n");
   }
   const steps = [];
   for (let day = 1; day <= 30; day++) {
     steps.push(JSON.stringify({ date: `2026-11-${String(day).padStart(2, "0")}`, steps: 5200 + ((day * 977) % 6400), city: day % 6 === 0 ? "Porto" : "Lisbon" }));
   }
   write(root, "household/steps.jsonl", steps.join("\n") + "\n");
+  // A weather station's daily log, nearly five years of it: more days than
+  // a chart shows at once (the newest are shown), with dates, decimals,
+  // true or false and text to try every kind of column on.
+  const weather = ["day,city,high_c,low_c,rain_mm,sunny"];
+  for (let at = Date.UTC(2022, 0, 1); at <= Date.UTC(2026, 10, 26); at += 86_400_000) {
+    const day = new Date(at);
+    const season = Math.cos(((day.getUTCMonth() * 30.4 + day.getUTCDate() - 200) / 365) * 2 * Math.PI);
+    const wobble = Math.sin(at / 86_400_000 / 3.7);
+    const rain = Math.max(0, (1 - season) * 4 * wobble);
+    weather.push([day.toISOString().slice(0, 10), "Lisbon", (21 + season * 7 + wobble * 2).toFixed(1), (13 + season * 5 + wobble).toFixed(1), rain.toFixed(1), rain < 0.5].join(","));
+  }
+  write(root, "household/weather.csv", weather.join("\n") + "\n");
   write(root, "household/utilities.xlsx", utilities());
   // A reading list kept in the folder a cloud drive's client syncs.
   write(root, "drive-sync/Oikome/reading-list/books.csv", "title,author,status,finished\nThe Book of Disquiet,Fernando Pessoa,Reading,\nBlindness,José Saramago,Read,2026-08-14\nPereira Maintains,Antonio Tabucchi,Next,\n");
@@ -400,6 +456,27 @@ function writeDatasets(scenarioRoot, files) {
       "CREATE TABLE tracker.sleep (night DATE, hours DOUBLE, deep_hours DOUBLE, awakenings INTEGER); " +
       `INSERT INTO tracker.sleep VALUES ${nights}`,
   );
+  // A smart plug's readings, every 20 minutes with the seconds as it wrote
+  // them, for a week: a timestamp to drill down to hours, minutes and
+  // seconds, and each kind of column as its own type (a whole number, a
+  // floating one, an exact one for money, true or false).
+  const readings = [];
+  for (let i = 0; i < 7 * 72; i++) {
+    const at = new Date(Date.UTC(2026, 10, 19) + i * 20 * 60_000 + ((i * 17) % 60) * 1000);
+    const hour = at.getUTCHours();
+    const peak = hour >= 18 && hour < 22;
+    for (const [circuit, base] of [["Kitchen", 180], ["Office", 95]]) {
+      const watts = Math.round(base * (peak ? 2.2 : 1) + ((i * 37) % 60));
+      const kwh = (watts / 3000).toFixed(4);
+      const price = (peak ? 0.2512 : 0.1534).toFixed(4);
+      readings.push(`(TIMESTAMP '${at.toISOString().slice(0, 19).replace("T", " ")}', '${circuit}', ${watts}, ${kwh}, ${price}, ${peak})`);
+    }
+  }
+  const inserts = [];
+  for (let at = 0; at < readings.length; at += 250) inserts.push(`INSERT INTO exports.power VALUES ${readings.slice(at, at + 250).join(", ")}`);
+  oikome(writer, "sql", "CREATE TABLE exports.power (read_at TIMESTAMP, circuit VARCHAR, watts INTEGER, kwh DOUBLE, price DECIMAL(10, 4), peak BOOLEAN)");
+  for (const insert of inserts) oikome(writer, "sql", insert);
+  cpSync(join(writer, "exports", "power"), join(files, "household", "power-meter"), { recursive: true });
   cpSync(join(writer, "exports", "meter"), join(files, "household", "energy-meter"), { recursive: true });
   cpSync(join(writer, ".oikome", "lance", "tracker", "sleep.lance"), join(files, "household", "sleep.lance"), { recursive: true });
   return join(writer, "exports", "trams");
@@ -477,7 +554,7 @@ async function withApi(loginLink, actions) {
   }
 }
 
-async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
+async function seedWorkspace(config, files, loginLink, rustfs, peerDid, analysed) {
   return withApi(loginLink, async (call) => {
     await call("rename_node", { name: config.title });
     await call("install_plugin", { path: join(REPO, "crates", "oikome-sandbox", "tests", "plugins", "stored-picture") });
@@ -520,6 +597,15 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     // Last year's receipts in the bucket, added to the household's own
     // collection by reference: a folder of it, read where it is.
     await call("add_in_place_folder", { space: "household", path: "household/receipts-2024", place: object.name });
+    // By hand (`npm run acceptance`), every file's table is there to explore
+    // and query (`npm run oiql`) from the start; the acceptance test makes
+    // them itself.
+    if (analysed) {
+      await call("build_analysis", {
+        space: "household",
+        tables: ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water", "weather"],
+      });
+    }
 
     // Backups to a folder standing for an external disk, every day at 03:00;
     // one is made now, so Restore from Backup has something to offer.
@@ -558,7 +644,7 @@ function stopChild(child) {
   return once(child, "exit").then(() => {});
 }
 
-export async function launchAcceptance({ root, port = 0, env, firstRun = false } = {}) {
+export async function launchAcceptance({ root, port = 0, env, firstRun = false, analysed = false } = {}) {
   const config = manifest();
   const scenarioRoot = root ?? GENERATED;
   resetDirectory(scenarioRoot, firstRun);
@@ -599,7 +685,7 @@ export async function launchAcceptance({ root, port = 0, env, firstRun = false }
     const peerRoot = join(scenarioRoot, "peer");
     peer = await startNode(peerRoot, 0, join(scenarioRoot, "peer-home"), env);
     const peerDid = oikome(peerRoot, "identity").trim();
-    const invite = await seedWorkspace(config, files, main.loginLink, rustfs, peerDid);
+    const invite = await seedWorkspace(config, files, main.loginLink, rustfs, peerDid, analysed);
     await seedPeer(peer.loginLink, invite);
 
     const loginLink = freshLogin(nodeRoot);

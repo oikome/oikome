@@ -48,9 +48,128 @@ use serde::{Deserialize, Serialize};
 use crate::analysis::schema_profile;
 use crate::datasets::{capability_of, kind_of};
 use crate::{
-    AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, Api, ApiError,
-    BuildAnalysis, Caller, FieldRole, FileAnalysis, SetAnalysisField, SpaceRef,
+    AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, AnalysisView,
+    AnalysisViewRef, Api, ApiError, BuildAnalysis, Caller, ChartSpec, ColumnType, ErrorCode,
+    FieldRole, FileAnalysis, SaveAnalysisView, SetAnalysisField, SetAnalysisType, SpaceRef,
 };
+
+/// The most views kept with a table, and the size of each.
+const MAX_VIEWS: usize = 100;
+const MAX_VIEW_BYTES: usize = 16 * 1024;
+const MAX_VIEW_NAME_CHARS: usize = 80;
+/// The id of the chart a table starts with. It is an ordinary chart, kept
+/// with a blank name (the app names it for the reader) until renamed.
+const DEFAULT_VIEW: &str = "default";
+
+/// Whether a column of `from`'s type can be read as `to`: text as anything,
+/// a number as text or another number, a date or a time as text or another
+/// of them, true or false as text, itself or a whole number. A date read as
+/// a decimal would only be empty.
+pub(crate) fn readable_as(from: &arrow_schema::DataType, to: ColumnType) -> bool {
+    use arrow_schema::DataType as T;
+    use ColumnType as C;
+    match from {
+        T::Utf8 | T::LargeUtf8 | T::Utf8View => true,
+        T::Int8
+        | T::Int16
+        | T::Int32
+        | T::Int64
+        | T::UInt8
+        | T::UInt16
+        | T::UInt32
+        | T::UInt64
+        | T::Float16
+        | T::Float32
+        | T::Float64
+        | T::Decimal128(_, _)
+        | T::Decimal256(_, _) => matches!(to, C::Text | C::Integer | C::Number | C::Decimal),
+        T::Date32 | T::Date64 | T::Timestamp(_, _) => {
+            matches!(to, C::Text | C::Date | C::Timestamp)
+        }
+        T::Boolean => matches!(to, C::Text | C::Boolean | C::Integer),
+        _ => to == C::Text,
+    }
+}
+
+/// A column read as another type: what it is, and that type as DuckDB names
+/// it (`DECIMAL(18, 4)`), as charts read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReadAs {
+    pub kind: ColumnType,
+    pub sql: String,
+}
+
+/// A type as DuckDB names it; a decimal with its digits and places.
+fn sql_type(kind: ColumnType, decimal: Option<(u8, u8)>) -> String {
+    match kind {
+        ColumnType::Text => "VARCHAR".into(),
+        ColumnType::Integer => "BIGINT".into(),
+        ColumnType::Number => "DOUBLE".into(),
+        ColumnType::Decimal => {
+            let (digits, places) = decimal.unwrap_or((18, 2));
+            format!("DECIMAL({digits}, {places})")
+        }
+        ColumnType::Date => "DATE".into(),
+        ColumnType::Timestamp => "TIMESTAMP".into(),
+        ColumnType::Boolean => "BOOLEAN".into(),
+    }
+}
+
+/// The most digits a decimal has in DuckDB.
+const MAX_DIGITS: u8 = 38;
+
+/// The chart a table starts with, once: over its first column of time, by
+/// month, as columns, when it has one; else its rows.
+fn starting_view(schema: &arrow_schema::Schema) -> KeptView {
+    let time = schema.fields().iter().find(|f| {
+        f.name() != SOURCE_FILE
+            && matches!(
+                f.data_type(),
+                arrow_schema::DataType::Date32
+                    | arrow_schema::DataType::Date64
+                    | arrow_schema::DataType::Timestamp(_, _)
+            )
+    });
+    let config = match time {
+        Some(time) => serde_json::json!({
+            "chart": "column",
+            "time": {"column": time.name(), "grain": "month", "range": "all"},
+            "metrics": [{"aggregate": "count"}]
+        }),
+        None => serde_json::json!({"chart": "table"}),
+    };
+    KeptView {
+        id: DEFAULT_VIEW.to_string(),
+        name: String::new(),
+        config,
+        by: None,
+        saved_at_ms: crate::now_ms(),
+    }
+}
+
+fn shown_view(view: &KeptView) -> AnalysisView {
+    AnalysisView {
+        id: view.id.clone(),
+        name: view.name.clone(),
+        config: view.config.to_string(),
+        by: view.by.clone(),
+        saved_at_ms: view.saved_at_ms,
+    }
+}
+
+/// A view's description as it is kept: a chart (its dimensions, metrics,
+/// filters and the rest), and nothing else that was sent with it.
+pub(crate) fn view_config(text: &str) -> Result<serde_json::Value, ApiError> {
+    if text.len() > MAX_VIEW_BYTES {
+        return Err(ApiError::invalid(format!(
+            "a view is at most {} KiB",
+            MAX_VIEW_BYTES / 1024
+        )));
+    }
+    let chart: ChartSpec = serde_json::from_str(text)
+        .map_err(|e| ApiError::invalid(format!("a view is a chart's description: {e}")))?;
+    serde_json::to_value(chart).map_err(ApiError::internal)
+}
 
 /// The column every analysis table adds: the file a row came from.
 pub(crate) const SOURCE_FILE: &str = "_source_file";
@@ -75,6 +194,12 @@ struct KeptTable {
     /// Roles the owner chose, by column.
     #[serde(default)]
     roles: BTreeMap<String, FieldRole>,
+    /// Types the owner has columns read as, by column.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    types: BTreeMap<String, ColumnType>,
+    /// For a column read as a decimal: its digits and decimal places.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    decimals: BTreeMap<String, (u8, u8)>,
     built_at_ms: u64,
     rows: u64,
     #[serde(default)]
@@ -82,6 +207,24 @@ struct KeptTable {
     /// For a dataset's table: what it is and what was read of it last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dataset: Option<KeptDataset>,
+    /// The views saved with it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    views: Vec<KeptView>,
+    /// Whether it was given the chart it starts with: once, so that one
+    /// removed is not made again.
+    #[serde(default)]
+    started: bool,
+}
+
+/// A view saved with a table: its name and the explorer's description of it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct KeptView {
+    id: String,
+    name: String,
+    config: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    by: Option<String>,
+    saved_at_ms: u64,
 }
 
 /// What was read of a dataset last: it is read where it is, not made.
@@ -589,10 +732,14 @@ impl Api {
             }],
             sheet: None,
             roles: was.map(|t| t.roles.clone()).unwrap_or_default(),
+            types: was.map(|t| t.types.clone()).unwrap_or_default(),
+            decimals: was.map(|t| t.decimals.clone()).unwrap_or_default(),
             built_at_ms: crate::now_ms(),
             rows,
             problem,
             dataset: Some(facts),
+            views: was.map(|t| t.views.clone()).unwrap_or_default(),
+            started: was.is_some_and(|t| t.started),
         }
     }
 
@@ -698,6 +845,10 @@ impl Api {
                 continue;
             }
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
+            let types = entry.map(|t| t.types.clone()).unwrap_or_default();
+            let decimals = entry.map(|t| t.decimals.clone()).unwrap_or_default();
+            let views = entry.map(|t| t.views.clone()).unwrap_or_default();
+            let started = entry.is_some_and(|t| t.started);
             if let Input::Dataset(dataset) = &input {
                 let table = self.read_dataset_table(&found, &name, dataset, entry).await;
                 kept.tables.insert(name, table);
@@ -717,19 +868,27 @@ impl Api {
                     files: now,
                     sheet,
                     roles,
+                    types: types.clone(),
+                    decimals: decimals.clone(),
                     built_at_ms: crate::now_ms(),
                     rows,
                     problem: None,
                     dataset: None,
+                    views,
+                    started,
                 },
                 Err(e) => KeptTable {
                     files: now,
                     sheet,
                     roles,
+                    types: types.clone(),
+                    decimals: decimals.clone(),
                     built_at_ms: crate::now_ms(),
                     rows: 0,
                     problem: Some(e.to_string()),
                     dataset: None,
+                    views,
+                    started,
                 },
             };
             kept.tables.insert(name, table);
@@ -750,6 +909,25 @@ impl Api {
                 schemas.insert(name.clone(), dataset.schema());
             }
         }
+        // A table starts with a chart, once. Renamed, changed or removed
+        // like any other, it is not made again.
+        let mut started = false;
+        for (name, table) in kept.tables.iter_mut() {
+            if table.started || table.problem.is_some() {
+                continue;
+            }
+            let Some(schema) = schemas.get(name) else {
+                continue;
+            };
+            if !table.views.iter().any(|v| v.id == DEFAULT_VIEW) {
+                table.views.insert(0, starting_view(schema));
+            }
+            table.started = true;
+            started = true;
+        }
+        if started {
+            self.keep(space, &kept)?;
+        }
         let tables = kept
             .tables
             .iter()
@@ -767,6 +945,14 @@ impl Api {
                                     field.role = *role;
                                     field.inferred = false;
                                 }
+                                field.read_as = table.types.get(&field.name).copied().filter(|t| {
+                                    schema
+                                        .field_with_name(&field.name)
+                                        .is_ok_and(|f| readable_as(f.data_type(), *t))
+                                });
+                                field.read_type = field.read_as.map(|kind| {
+                                    sql_type(kind, table.decimals.get(&field.name).copied())
+                                });
                                 field
                             })
                             .collect()
@@ -789,6 +975,7 @@ impl Api {
                             extension: d.needs.as_deref().map(|n| self.extension_download(n)),
                         })
                     }),
+                    views: table.views.iter().map(shown_view).collect(),
                 }
             })
             .collect();
@@ -902,6 +1089,318 @@ impl Api {
             ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
         })?;
         table.roles.insert(req.field, req.role);
+        self.keep(&req.space, &kept)?;
+        self.follow_files(&req.space, &[]).await
+    }
+
+    /// Read a column of an analysis table as another type, or as DuckDB
+    /// read it again. Only how charts read it changes: not the table, not
+    /// its files.
+    pub async fn set_analysis_type(
+        &self,
+        caller: &Caller,
+        req: SetAnalysisType,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let (schema, _) = self.analysis_columns(&req.space, &req.table).await?;
+        let field = schema
+            .field_with_name(&req.column)
+            .ok()
+            .filter(|_| req.column != SOURCE_FILE)
+            .ok_or_else(|| {
+                ApiError::invalid(format!("{} has no column {}", req.table, req.column))
+            })?;
+        if let Some(read_as) = req.read_as {
+            if !readable_as(field.data_type(), read_as) {
+                return Err(ApiError::invalid(format!(
+                    "{} is {}: it cannot be read as {read_as:?}",
+                    req.column,
+                    field.data_type()
+                )));
+            }
+        }
+        // A decimal's digits and places, as chosen, within DuckDB's limits;
+        // its digits, unless chosen, 18 or as many as its largest value needs.
+        // A choice its largest value does not fit is refused: its values
+        // would only be empty.
+        let decimal = match req.read_as {
+            Some(ColumnType::Decimal) => {
+                let places = req.scale.unwrap_or(2);
+                if let Some(digits) = req.precision {
+                    if !(1..=MAX_DIGITS).contains(&digits) {
+                        return Err(ApiError::invalid(format!(
+                            "a decimal has 1 to {MAX_DIGITS} digits"
+                        )));
+                    }
+                }
+                if places > req.precision.unwrap_or(MAX_DIGITS) {
+                    return Err(ApiError::invalid(
+                        "a decimal has no more places than digits",
+                    ));
+                }
+                let largest = self
+                    .session(None)
+                    .sql(&format!(
+                        "SELECT max(abs(TRY_CAST({} AS DOUBLE))) FROM {}.{}",
+                        quote_ident(&req.column),
+                        quote_ident(&req.space),
+                        quote_ident(&req.table)
+                    ))
+                    .await
+                    .ok()
+                    .and_then(|result| match result {
+                        QueryResult::Batches { batches, .. } => {
+                            batches.into_iter().find(|b| b.num_rows() > 0)
+                        }
+                        _ => None,
+                    })
+                    .and_then(|batch| {
+                        batch
+                            .column(0)
+                            .as_any()
+                            .downcast_ref::<Float64Array>()
+                            .filter(|c| c.is_valid(0))
+                            .map(|c| c.value(0))
+                    })
+                    .unwrap_or(0.0);
+                let fits = |digits: u8| largest < 10f64.powi(i32::from(digits) - i32::from(places));
+                let digits = match req.precision {
+                    Some(digits) if fits(digits) => digits,
+                    Some(digits) => {
+                        return Err(ApiError::invalid(format!(
+                            "{} reaches {largest}: it does not fit DECIMAL({digits}, {places})",
+                            req.column
+                        )))
+                    }
+                    None if places <= 18 && fits(18) => 18,
+                    None => MAX_DIGITS,
+                };
+                if !fits(digits) {
+                    return Err(ApiError::invalid(format!(
+                        "{} reaches {largest}: it does not fit DECIMAL({digits}, {places})",
+                        req.column
+                    )));
+                }
+                Some((digits, places))
+            }
+            _ => None,
+        };
+        let mut kept = self.kept(&req.space)?;
+        let table = kept.tables.get_mut(&req.table).ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
+        match req.read_as {
+            Some(read_as) => table.types.insert(req.column.clone(), read_as),
+            None => table.types.remove(&req.column),
+        };
+        match decimal {
+            Some(decimal) => table.decimals.insert(req.column, decimal),
+            None => table.decimals.remove(&req.column),
+        };
+        self.keep(&req.space, &kept)?;
+        self.follow_files(&req.space, &[]).await
+    }
+
+    /// The types the owner has columns of an analysis table read as, those
+    /// a column can be read as.
+    pub(crate) async fn analysis_types(
+        &self,
+        space: &str,
+        table: &str,
+    ) -> Result<BTreeMap<String, ReadAs>, ApiError> {
+        let (schema, _) = self.analysis_columns(space, table).await?;
+        let kept = self.kept(space)?;
+        let Some(entry) = kept.tables.get(table) else {
+            return Ok(BTreeMap::new());
+        };
+        Ok(entry
+            .types
+            .iter()
+            .filter(|(column, read_as)| {
+                schema
+                    .field_with_name(column)
+                    .is_ok_and(|f| readable_as(f.data_type(), **read_as))
+            })
+            .map(|(column, kind)| {
+                let sql = sql_type(*kind, entry.decimals.get(column).copied());
+                (column.clone(), ReadAs { kind: *kind, sql })
+            })
+            .collect())
+    }
+
+    /// An analysis table's columns and what each is for (as proposed, or as
+    /// the owner corrected), without looking at its files again.
+    pub(crate) async fn analysis_columns(
+        &self,
+        space: &str,
+        table: &str,
+    ) -> Result<(SchemaRef, Vec<(String, FieldRole)>), ApiError> {
+        self.in_place_of(space)?;
+        let kept = self.kept(space)?;
+        let missing = || ApiError::not_found(format!("{space} has no analysis table {table}"));
+        let entry = kept.tables.get(table).ok_or_else(missing)?;
+        let schema = match &entry.dataset {
+            Some(dataset) => dataset.schema(),
+            None => self
+                .catalog
+                .tables_in(space)
+                .await?
+                .into_iter()
+                .find(|(name, _)| name == table)
+                .map(|(_, resolved)| resolved.schema)
+                .ok_or_else(missing)?,
+        };
+        let roles = schema_profile(space, table, &schema)
+            .fields
+            .into_iter()
+            .map(|field| {
+                let role = entry.roles.get(&field.name).copied().unwrap_or(field.role);
+                (field.name, role)
+            })
+            .collect();
+        Ok((schema, roles))
+    }
+
+    /// Keep a view with its analysis table: a new one, or one saved before
+    /// (by its id) under a new name or with a new description.
+    pub async fn save_analysis_view(
+        &self,
+        caller: &Caller,
+        req: SaveAnalysisView,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        self.in_place_of(&req.space)?;
+        self.keep_view(
+            &req.space,
+            &req.table,
+            req.id.as_deref(),
+            &req.name,
+            &req.config,
+            None,
+        )?;
+        self.follow_files(&req.space, &[]).await
+    }
+
+    /// A collection's analysis tables as last made: each one's name, rows
+    /// and saved charts, those that could not be read left out. Nothing is
+    /// made again here: what an assistant lists is what the owner has.
+    pub(crate) fn analysis_kept(
+        &self,
+        space: &str,
+    ) -> Result<Vec<(String, u64, Vec<AnalysisView>)>, ApiError> {
+        Ok(self
+            .kept(space)?
+            .tables
+            .into_iter()
+            .filter(|(_, table)| table.problem.is_none())
+            .map(|(name, table)| {
+                (
+                    name,
+                    table.rows,
+                    table.views.iter().map(shown_view).collect(),
+                )
+            })
+            .collect())
+    }
+
+    /// Keep a view; `by` names the assistant that made it.
+    pub(crate) fn keep_view(
+        &self,
+        space: &str,
+        table: &str,
+        id: Option<&str>,
+        name: &str,
+        config: &str,
+        by: Option<&str>,
+    ) -> Result<AnalysisView, ApiError> {
+        let name = name.trim();
+        let config = view_config(config)?;
+        let mut kept = self.kept(space)?;
+        let entry = kept
+            .tables
+            .get_mut(table)
+            .ok_or_else(|| ApiError::not_found(format!("{space} has no analysis table {table}")))?;
+        // The chart a table starts with keeps its blank name until renamed.
+        let blank =
+            id.is_some_and(|id| entry.views.iter().any(|v| v.id == id && v.name.is_empty()));
+        if (name.is_empty() && !blank) || name.chars().count() > MAX_VIEW_NAME_CHARS {
+            return Err(ApiError::invalid(format!(
+                "a view's name has 1 to {MAX_VIEW_NAME_CHARS} characters"
+            )));
+        }
+        if entry
+            .views
+            .iter()
+            .any(|v| v.name == name && Some(v.id.as_str()) != id)
+        {
+            return Err(ApiError::new(
+                ErrorCode::Conflict,
+                format!("{table} already has a view named {name}"),
+            ));
+        }
+        let saved = match id {
+            Some(id) if entry.views.iter().any(|v| v.id == id) => {
+                let view = entry
+                    .views
+                    .iter_mut()
+                    .find(|v| v.id == id)
+                    .ok_or_else(|| ApiError::not_found(format!("{table} has no view {id}")))?;
+                view.name = name.to_string();
+                view.config = config;
+                // Saved again by the owner, it is the owner's now.
+                view.by = by.map(str::to_string);
+                view.saved_at_ms = crate::now_ms();
+                view.clone()
+            }
+            Some(id) => return Err(ApiError::not_found(format!("{table} has no view {id}"))),
+            None => {
+                if entry.views.len() >= MAX_VIEWS {
+                    return Err(ApiError::invalid(format!(
+                        "a table keeps at most {MAX_VIEWS} views"
+                    )));
+                }
+                let mut n = entry.views.len() + 1;
+                while entry.views.iter().any(|v| v.id == format!("v{n}")) {
+                    n += 1;
+                }
+                let view = KeptView {
+                    id: format!("v{n}"),
+                    name: name.to_string(),
+                    config,
+                    by: by.map(str::to_string),
+                    saved_at_ms: crate::now_ms(),
+                };
+                entry.views.push(view.clone());
+                view
+            }
+        };
+        self.keep(space, &kept)?;
+        Ok(shown_view(&saved))
+    }
+
+    /// Remove a saved view; its table and the table's files stay.
+    pub async fn remove_analysis_view(
+        &self,
+        caller: &Caller,
+        req: AnalysisViewRef,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        self.in_place_of(&req.space)?;
+        let mut kept = self.kept(&req.space)?;
+        let entry = kept.tables.get_mut(&req.table).ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
+        let before = entry.views.len();
+        entry.views.retain(|v| v.id != req.id);
+        if entry.views.len() == before {
+            return Err(ApiError::not_found(format!(
+                "{} has no view {}",
+                req.table, req.id
+            )));
+        }
         self.keep(&req.space, &kept)?;
         self.follow_files(&req.space, &[]).await
     }

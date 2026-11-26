@@ -197,6 +197,12 @@ rustic_core (rustic_core; backups in restic-format repositories)
   https://github.com/rustic-rs/rustic_core  -  MIT License or Apache License 2.0
   Copyright (c) the rustic-rs team
 
+rustyline (rustyline; the oiql prompt of `oikome sql`)
+  https://github.com/kkawakam/rustyline  -  MIT License
+  Copyright (c) 2015 Katsu Kawakami & Rustyline authors
+  On Windows, with clipboard-win and error-code (by Douman):
+  https://github.com/DoumanAsh/clipboard-win  -  Boost Software License 1.0
+
 option-ext (option-ext, via rustic_core -> dirs -> dirs-sys)
   https://github.com/soc/option-ext  -  Mozilla Public License 2.0
   Used unmodified. Its source is available at https://crates.io/crates/option-ext
@@ -261,6 +267,13 @@ CodeMirror (@uiw/react-codemirror, @codemirror/*; source views, loaded on demand
 AG Grid Community (ag-grid-community, ag-grid-react; data files, loaded on demand)
   https://www.ag-grid.com/  -  MIT License
   Copyright 2015-2026 AG Grid Ltd.
+
+Apache ECharts (echarts; the charts of the Analysis view, loaded on demand; with
+  ZRender, its drawing library, and tslib)
+  https://echarts.apache.org/  -  Apache License 2.0
+  Copyright 2017-2026 The Apache Software Foundation
+  ZRender: https://github.com/ecomfe/zrender  -  BSD 3-Clause License
+  tslib: https://github.com/microsoft/tslib  -  BSD Zero Clause License
 
 PhotoSwipe (image navigation, zoom, pan and touch gestures, loaded on demand)
   https://photoswipe.com/  -  MIT License

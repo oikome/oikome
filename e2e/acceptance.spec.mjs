@@ -193,37 +193,42 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // Last year's receipts, kept in the bucket, are a folder of it.
     await expect(page.getByText("receipts-2024", { exact: true }).first()).toBeVisible();
     // Data Analysis: the household's table files become its analysis tables
-    // (a folder of monthly files read as one), with totals by month and category.
+    // (a folder of monthly files read as one), each explored as charts.
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
+    // The view is in the address: reloading the page stays on it.
+    await expect(page).toHaveURL(/\?view=analysis$/);
+    await page.reload();
+    await expect(page.getByRole("radio", { name: "Analysis", exact: true })).toBeChecked();
     // The energy meter's Iceberg table and the sleep tracker's Lance dataset
     // are analysis tables as soon as they are found; the files' tables wait
     // for the owner.
     await expect(page.getByRole("radio", { name: "energy_meter", exact: true })).toBeVisible();
     await expect(page.getByRole("radio", { name: "sleep", exact: true })).toBeVisible();
-    await expect(page.getByText("6 more can be made")).toBeVisible();
+    await expect(page.getByRole("radio", { name: "power_meter", exact: true })).toBeVisible();
+    await expect(page.getByText("7 more can be created")).toBeVisible();
     // The owner chooses which files to analyse; nothing is chosen at first.
     // The utility bills' workbook has a table per sheet, chosen together
     // under it. Last year's receipts folder holds one file, and its table is
     // named after it.
-    await page.getByRole("button", { name: "Make Analysis Tables…" }).click();
+    await page.getByRole("button", { name: "Create Analysis Tables…" }).click();
     const pick = page.getByRole("dialog", { name: "Choose Files to Analyze" });
-    await expect(pick.getByText("0 of 6 selected")).toBeVisible();
-    await expect(pick.getByRole("button", { name: "Make", exact: true })).toBeDisabled();
-    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+    await expect(pick.getByText("0 of 7 selected")).toBeVisible();
+    await expect(pick.getByRole("button", { name: "Create", exact: true })).toBeDisabled();
+    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water", "weather"]) {
       await expect(pick.getByRole("checkbox", { name: table })).not.toBeChecked();
     }
     await pick.getByRole("checkbox", { name: "spending" }).check();
     await pick.getByRole("checkbox", { name: "utilities.xlsx" }).check();
     await expect(pick.getByRole("checkbox", { name: "utilities_water" })).toBeChecked();
-    await pick.getByRole("button", { name: "Make 3 Tables" }).click();
+    await pick.getByRole("button", { name: "Create 3 Tables" }).click();
     await expect(pick).toHaveCount(0);
     for (const table of ["energy_meter", "sleep", "spending", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
-    for (const table of ["readings", "receipts", "steps"]) {
+    for (const table of ["readings", "receipts", "steps", "weather"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toHaveCount(0);
     }
-    await expect(page.getByText("3 more can be made")).toBeVisible();
+    await expect(page.getByText("4 more can be created")).toBeVisible();
     // A file's analysis table can be removed: the table goes, its file
     // stays, and it can be chosen again.
     await page.getByRole("radio", { name: "utilities_water", exact: true }).click();
@@ -232,24 +237,284 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(stop).toContainText("household.utilities_water");
     await stop.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
-    await expect(page.getByText("4 more can be made")).toBeVisible();
+    await expect(page.getByText("5 more can be created")).toBeVisible();
+    // A chart is described in the panel beside it (its dimensions along and
+    // across, the time first, its metrics, filters) and what is chosen takes effect at once;
+    // what it shows is computed by the node. Read as a table, its rows are
+    // there to check.
+    const panel = page.getByRole("group", { name: "Chart settings" });
+    const result = page.locator(".screen-explorer__table");
+    const where = page.getByRole("navigation", { name: "Drill path" });
+    const chartType = (label) => panel.getByLabel("Chart Type").selectOption({ label });
+    // The time is a dimension along the chart (a table's rows), at a grain.
+    const time = (column) => panel.getByRole("button", { name: `Grain of ${column}` });
+    const grain = async (column, name) => {
+      await time(column).click();
+      await page.getByRole("menuitemradio", { name, exact: true }).click();
+    };
+    const add = async (button, column) => {
+      await panel.getByRole("button", { name: button }).click();
+      await page.getByRole("menuitem", { name: column, exact: true }).click();
+    };
+    // A click on a group offers what can be done with it: zoom a period in,
+    // or break the group down by another column.
+    const point = async (text, item) => {
+      await result.locator(".screen-explorer__drillable", { hasText: text }).first().click();
+      await page.getByRole("menuitem", { name: item, exact: true }).click();
+    };
     // This node loads DuckDB's iceberg and lance extensions from the shared
-    // folder, so both are read, with totals by month.
+    // folder, so both are read. A table starts with a new chart, nothing
+    // chosen: its rows. The time chosen, it is by month.
     for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
-      await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
-      await expect(page.getByRole("list", { name: "By Month" }).getByText(month)).toBeVisible();
+      await expect(page.locator(".screen-analysis__about")).toContainText(kind);
+      // A table starts on its default chart: over its first column of time,
+      // by month, as columns; + New Chart is always there for another.
+      await expect(page.getByRole("button", { name: "Actions for Default Chart" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "New Chart" })).toBeVisible();
+      await expect(time(table === "energy_meter" ? "read_on" : "night")).toContainText("Month");
+      await expect(panel.getByRole("group", { name: "X-Axis" })).toBeVisible();
+      await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
+      await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+      await chartType("Table");
+      await expect(result).toContainText(month);
+      if (table === "energy_meter") {
+        // A metric is an aggregate function of a column, chosen with what
+        // it means; the same column may be totalled more than one way.
+        await panel.getByRole("button", { name: "Add Metric" }).click();
+        const adding = page.getByRole("dialog", { name: "Add Metric" });
+        await adding.getByLabel("Aggregate Function").selectOption({ label: "AVG · Average" });
+        await adding.getByLabel("Column").selectOption({ label: "kwh" });
+        await expect(adding).toContainText("Will add: AVG(kwh)");
+        await adding.getByRole("button", { name: "Add", exact: true }).click();
+        await expect(panel.getByRole("group", { name: "Metrics" })).toContainText("AVG(kwh)");
+        await expect(result.locator("thead")).toContainText("AVG(kwh)");
+        // Time is one dimension seen at a grain: rolled up to the year, then
+        // zoomed into a quarter at a time, each zoom a filter on its period
+        // that the panel shows; the path above steps back.
+        await grain("read_on", "Year");
+        await expect(result.locator("tbody tr")).toHaveCount(1);
+        await point("2026", "Drill Down to 2026");
+        await expect(result.locator("tbody tr")).toHaveCount(4);
+        await expect(where).toContainText("2026");
+        await expect(panel.getByRole("group", { name: "Filters" })).toContainText("2026");
+        await point("2026Q4", "Drill Down to 2026Q4");
+        await expect(result.locator("tbody")).toContainText("2026-10");
+        // Its days are the finest grain, and its other columns are numbers,
+        // nothing to drill down by: no row offers a click, no hint says so.
+        await point("2026-10", "Drill Down to 2026-10");
+        await expect(result.locator("tbody tr").first()).toContainText("2026-10-01");
+        await expect(result.locator(".screen-explorer__drillable")).toHaveCount(0);
+        await expect(page.getByText("Click an item")).toHaveCount(0);
+        await where.getByRole("button", { name: "All" }).click();
+        await expect(result.locator("tbody tr")).toHaveCount(1);
+      }
       // A dataset is always analysed, and is not copied from here.
       await expect(page.getByRole("button", { name: "Remove Analysis Table…" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toHaveCount(0);
     }
+    // The household's ledger: two years of it, by month, in time's own
+    // order unless ordered by a metric, as BI tools sort an axis.
     await page.getByRole("radio", { name: "spending", exact: true }).click();
-    await expect(page.getByText("household.spending")).toBeVisible();
-    const months = page.getByRole("list", { name: "By Month" });
-    await expect(months.getByText("2026-09")).toBeVisible();
-    await expect(months.getByText("2026-11")).toBeVisible();
-    await expect(page.getByRole("list", { name: "By Category" }).getByText("Groceries")).toBeVisible();
-    await expect(page.getByLabel("What category is for")).toHaveValue("category");
+    await expect(page.locator(".screen-analysis__about")).toContainText("household.spending");
+    await expect(time("date")).toBeVisible();
+    await chartType("Table");
+    await expect(panel.getByRole("group", { name: "Rows" })).toContainText("date (Month)");
+    await expect(result.locator("tbody tr").first()).toContainText("2025-01");
+    await expect(result.locator("tbody tr").last()).toContainText("2026-11");
+    await expect(panel.getByLabel("Order")).toHaveValue("");
+    // The months ordered by how many rows each has, the top five kept; then
+    // back in time's own order, all of them.
+    const firstTwo = async () => {
+      const cells = result.locator("tbody tr td:last-child");
+      return [Number(await cells.nth(0).innerText()), Number(await cells.nth(1).innerText())];
+    };
+    await panel.getByLabel("Order").selectOption({ index: 1 });
+    // Ten of them, then a number of one's own; 1000, as at first, is chosen.
+    await expect(panel.getByLabel("Row Limit", { exact: true })).toHaveValue("1000");
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "10" });
+    await expect(result.locator("tbody tr")).toHaveCount(10);
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "Custom" });
+    await panel.getByLabel("Custom Row Limit").fill("5");
+    await panel.getByLabel("Custom Row Limit").press("Enter");
+    await expect(result.locator("tbody tr")).toHaveCount(5);
+    const [most, next] = await firstTwo();
+    expect(most).toBeGreaterThanOrEqual(next);
+    // All of them, however many: no limit at all.
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "All" });
+    await expect(result.locator("tbody tr")).toHaveCount(23);
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "1000" });
+    await panel.getByLabel("Order").selectOption({ index: 0 });
+    await expect(result.locator("tbody tr").first()).toContainText("2025-01");
+    // The time's range is a filter: here one of its own, the days chosen
+    // from the app's calendar, either end open.
+    await panel.getByLabel("Time Range").selectOption({ label: "Custom Range" });
+    const pickDay = async (end, day) => {
+      await panel.getByRole("button", { name: new RegExp(`^${end} `) }).click();
+      const calendar = page.getByRole("dialog", { name: end });
+      const now = new Date();
+      const back = (now.getFullYear() - Number(day.slice(0, 4))) * 12 + now.getMonth() + 1 - Number(day.slice(5, 7));
+      for (let i = 0; i < back; i++) await calendar.getByRole("button", { name: "Previous Month" }).click();
+      await calendar.locator(`[data-day="${day}"]`).click();
+      await expect(calendar).toHaveCount(0);
+    };
+    await pickDay("From", "2025-08-01");
+    await pickDay("To", "2025-08-31");
+    await expect(result.locator("tbody tr")).toHaveCount(1);
+    await expect(result.locator("tbody tr").first()).toContainText("2025-08");
+    await panel.getByLabel("Time Range").selectOption({ label: "All Time" });
+    await expect(result.locator("tbody tr").last()).toContainText("2026-11");
+    // A dimension takes effect at once: every month and category together,
+    // ordered by the metric over all of them.
+    await add("Add to Rows", "category");
+    await expect(result.locator("thead")).toContainText("category");
+    await expect.poll(() => result.locator("tbody tr").count()).toBeGreaterThan(23);
+    await panel.getByLabel("Order").selectOption({ index: 1 });
+    await expect.poll(async () => {
+      const [most, next] = await firstTwo();
+      return most >= next && most > 0;
+    }).toBe(true);
+    // As columns over time, each category a colour of its own: the same
+    // dimension, laid across instead of along.
+    await chartType("Column Chart");
+    await panel.getByRole("button", { name: "Remove category" }).click();
+    await add("Add to Color", "category");
+    await expect(panel.getByRole("group", { name: "Color" })).toContainText("category");
+    await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+    // The chart and its panel on the whole screen, as a video player has it,
+    // and back.
+    await page.getByRole("button", { name: "Full Screen" }).click();
+    await page.getByRole("button", { name: "Exit Full Screen" }).click();
+    await expect(page.getByRole("button", { name: "Full Screen" })).toBeVisible();
+    // The app's policy is as strict as ever: charts need no script from
+    // blob: URLs and no WebAssembly, and neither runs.
+    const refused = await page.evaluate(async () => {
+      const script = document.createElement("script");
+      script.src = URL.createObjectURL(new Blob(["window.ranFromBlob = true"], { type: "text/javascript" }));
+      document.head.append(script);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      let compiled = true;
+      try {
+        new WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+      } catch {
+        compiled = false;
+      }
+      return { ranFromBlob: window.ranFromBlob === true, compiled, frames: window.frames.length };
+    });
+    expect(refused).toEqual({ ranFromBlob: false, compiled: false, frames: 0 });
+    // A pie has only its slices: what was across joins them.
+    await chartType("Pie Chart");
+    await expect(panel.getByRole("group", { name: "Color" })).toHaveCount(0);
+    await expect(panel.getByRole("group", { name: "Slices" })).toContainText("category");
+    await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+    // A group broken down: its month and category kept as filters, grouped
+    // by another column instead; and again. The path steps back.
+    await chartType("Table");
+    await point("Groceries", "Drill Down by subcategory");
+    await expect(where).toContainText("Groceries");
+    await expect(panel.getByRole("group", { name: "Filters" })).toContainText("category: Groceries");
+    await expect(result.locator("thead")).toContainText("subcategory");
+    await point("Supermarket", "Drill Down by merchant");
+    await expect(result.locator("thead")).toContainText("merchant");
+    await where.getByRole("button", { name: "All" }).click();
+    await expect(result.locator("thead")).toContainText("category");
+    await page.getByRole("button", { name: "Discard Changes" }).click();
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
+    // A chart of one's own, Untitled until it is saved: without the time,
+    // members as columns, filtered by ticked values and by a range, ordered, the top
+    // groups picked by their own totals.
+    await page.getByRole("button", { name: "New Chart" }).click();
+    await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled");
+    await panel.getByRole("button", { name: "Remove date" }).click();
+    await chartType("Table");
+    await add("Add to Rows", "category");
+    await add("Add to Columns", "member");
+    await expect(result.locator("thead")).toContainText("Rosh");
+    await add("Add Filter", "city");
+    const ticking = page.getByRole("dialog", { name: "Filter city" });
+    await ticking.getByRole("checkbox", { name: "Porto" }).check();
+    await ticking.getByRole("button", { name: "Done" }).click();
+    await expect(result.locator("tbody")).toContainText("Eating out");
+    await expect(result.locator("tbody")).not.toContainText("Utilities");
+    await add("Add Filter", "amount");
+    const ranging = page.getByRole("dialog", { name: "Filter amount" });
+    await ranging.getByLabel("At least").fill("1");
+    await ranging.getByRole("button", { name: "Done" }).click();
+    await panel.getByLabel("Order").selectOption({ index: 1 });
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "Custom" });
+    await panel.getByLabel("Custom Row Limit").fill("5");
+    await panel.getByLabel("Custom Row Limit").press("Enter");
+    await expect.poll(() => result.locator("tbody tr").count()).toBeLessThanOrEqual(5);
+    // The query that ran is there to read, its values bound, not written in.
+    await page.getByRole("button", { name: "Show SQL" }).click();
+    const query = page.getByRole("dialog", { name: "DuckDB Query" });
+    await expect(query.locator(".screen-explorer__sql")).toContainText("WITH top AS");
+    await expect(query.locator(".screen-explorer__sql")).not.toContainText("Porto");
+    await expect(query.locator(".screen-explorer__params")).toContainText("'Porto'");
+    await query.getByRole("button", { name: "Done" }).click();
+    // A new chart is named the first time it is saved.
+    await page.getByRole("button", { name: "Save…" }).click();
+    const saving = page.getByRole("dialog", { name: "Save Chart" });
+    await saving.getByLabel("Chart name").fill("Porto trip");
+    await saving.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Actions for Porto trip" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    // Saved again, it is kept where it is, with nothing to name or choose.
+    await chartType("Column Chart");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // Reloading the page finds the saved chart as it was kept.
+    await page.reload();
+    await page.getByRole("radio", { name: "spending", exact: true }).click();
+    await page.getByRole("button", { name: "Porto trip", exact: true }).click();
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
+    await expect(panel.getByRole("button", { name: "Filter city" })).toContainText("Porto");
+    await page.getByRole("button", { name: "Actions for Porto trip" }).click();
+    await page.getByRole("menuitem", { name: "Remove Chart…" }).click();
+    await page.getByRole("dialog", { name: "Remove the chart Porto trip?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Actions for Porto trip" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Actions for Default Chart" })).toBeVisible();
+    // The chart a table starts with is an ordinary one: removed, the table
+    // has none, says so, and stays so.
+    await page.getByRole("button", { name: "Actions for Default Chart" }).click();
+    await page.getByRole("menuitem", { name: "Remove Chart…" }).click();
+    await page.getByRole("dialog", { name: "Remove the chart Default Chart?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByText("This table has no charts yet.")).toBeVisible();
+    await page.reload();
+    await page.getByRole("radio", { name: "spending", exact: true }).click();
+    await expect(page.getByText("This table has no charts yet.")).toBeVisible();
+    // A smart plug's readings, as another program wrote them to Iceberg: each
+    // column read as its own type, the timestamp's periods to the second.
+    await page.getByRole("radio", { name: "power_meter", exact: true }).click();
+    for (const [column, type] of [["read_at", "timestamp"], ["circuit", "text"], ["watts", "integer"], ["kwh", "number"], ["price", "decimal"], ["peak", "boolean"]]) {
+      await expect(page.getByLabel(`Type of ${column}`)).toHaveValue(type);
+    }
+    await page.getByRole("radio", { name: "spending", exact: true }).click();
+    // A column's type can be changed: charts read it so; back as DuckDB read it.
+    const itemsType = page.getByLabel("Type of items");
+    await expect(itemsType).toHaveValue("integer");
+    // Only what it can become: a number is no date.
+    await expect(itemsType.locator("option", { hasText: "Date" })).toHaveCount(0);
+    await itemsType.selectOption({ label: "String" });
+    await expect(page.getByText("BIGINT to VARCHAR")).toBeVisible();
+    await itemsType.selectOption({ label: "Integer" });
+    await expect(page.getByText("BIGINT to VARCHAR")).toHaveCount(0);
+    // A decimal's size: its digits in all and after the point, typed; a size
+    // its values do not fit (rent is 950.00) is refused and put back.
+    const amountType = page.getByLabel("Type of amount");
+    await amountType.selectOption({ label: "Decimal" });
+    await expect(page.getByText("DOUBLE to DECIMAL(18, 2)")).toBeVisible();
+    const precision = page.getByLabel("Precision of amount");
+    await precision.fill("12");
+    await precision.press("Enter");
+    await expect(page.getByText("DOUBLE to DECIMAL(12, 2)")).toBeVisible();
+    await precision.fill("3");
+    await precision.press("Enter");
+    await expect(page.getByText("Some values of amount do not fit DECIMAL(3, 2).")).toBeVisible();
+    await expect(precision).toHaveValue("12");
+    await amountType.selectOption({ label: "Double" });
+    await expect(page.getByText("DOUBLE to DECIMAL(12, 2)")).toHaveCount(0);
     // The trams taken, an Iceberg table in the bucket, are one item of the
     // archive, not its files.
     await page.goto(`${running.base}/collections/rustfs-archive`);

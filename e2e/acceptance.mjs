@@ -47,7 +47,7 @@ try {
     if (running.peerLink) console.log(`Peer: ${new URL(running.peerLink).origin}`);
     if (open) openBrowser(running.nodeRoot, running.peerLink ? running.peerRoot : undefined);
   } else {
-    const running = await launchAcceptance({ port, firstRun });
+    const running = await launchAcceptance({ port, firstRun, analysed: true });
     console.log(`${running.manifest.title}: ${running.base}`);
     if (running.peerBase) console.log(`Peer: ${running.peerBase}`);
     console.log(`Isolated files: ${running.root}`);

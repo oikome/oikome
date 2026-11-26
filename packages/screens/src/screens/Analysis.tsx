@@ -410,7 +410,7 @@ function TableView({
       {readable && <Explorer space={space} table={table} onChange={onChange} />}
 
       {table.fields.length > 0 && (
-        <Group title={a.fields} footnote={`${a.fieldsNote} ${strings.explorer.assistantsNote}`}>
+        <Group title={a.fields} footnote={a.fieldsNote}>
           {table.fields
             .filter((field) => field.name !== "_source_file")
             .map((field) => {

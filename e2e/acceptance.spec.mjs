@@ -293,11 +293,11 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
         // that the panel shows; the path above steps back.
         await grain("read_on", "Year");
         await expect(result.locator("tbody tr")).toHaveCount(1);
-        await point("2026", "Zoom In to 2026");
+        await point("2026", "Drill Down to 2026");
         await expect(result.locator("tbody tr")).toHaveCount(4);
         await expect(where).toContainText("2026");
         await expect(panel.getByRole("group", { name: "Filters" })).toContainText("2026");
-        await point("Q4 2026", "Zoom In to Q4 2026");
+        await point("Q4 2026", "Drill Down to Q4 2026");
         await expect(result.locator("tbody")).toContainText("Oct 2026");
         await where.getByRole("button", { name: "All" }).click();
         await expect(result.locator("tbody tr")).toHaveCount(1);
@@ -372,11 +372,11 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // A group broken down: its month and category kept as filters, grouped
     // by another column instead; and again. The path steps back.
     await chartType("Table");
-    await point("Groceries", "Break Down by subcategory");
+    await point("Groceries", "Drill Down by subcategory");
     await expect(where).toContainText("Groceries");
     await expect(panel.getByRole("group", { name: "Filters" })).toContainText("category: Groceries");
     await expect(result.locator("thead")).toContainText("subcategory");
-    await point("Supermarket", "Break Down by merchant");
+    await point("Supermarket", "Drill Down by merchant");
     await expect(result.locator("thead")).toContainText("merchant");
     await where.getByRole("button", { name: "All" }).click();
     await expect(result.locator("thead")).toContainText("category");

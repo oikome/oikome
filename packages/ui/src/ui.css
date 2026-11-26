@@ -1507,3 +1507,164 @@
   font: var(--text-small);
   color: var(--ink2);
 }
+
+/* A day field: shown as the other fields are; its calendar the app's own. */
+.oik-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: var(--control-height);
+  padding: 0 10px 0 12px;
+  border: var(--bw) solid var(--stroke);
+  border-radius: var(--r-btn);
+  background: var(--raised);
+  color: var(--ink);
+  font: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.oik-date:hover {
+  border-color: var(--stroke-hover);
+}
+.oik-date[data-empty] {
+  color: var(--ink3);
+}
+.oik-date span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oik-date svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--ink3);
+  transform: rotate(90deg);
+}
+.oik-date__pop {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  width: 272px;
+  margin: 0;
+  padding: 12px;
+  overflow: visible;
+  color: var(--ink);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--raised);
+  box-shadow: 0 12px 32px rgba(20, 19, 16, 0.12);
+  animation: oik-drop 140ms var(--ease) both;
+}
+.oik-date__pop[data-side="above"] {
+  animation-name: oik-rise;
+}
+[data-theme="bold"] .oik-date__pop {
+  border-radius: 14px;
+  box-shadow: var(--sh-m);
+}
+.oik-date__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font: var(--text);
+  font-weight: 600;
+}
+.oik-date__nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink2);
+  cursor: pointer;
+}
+.oik-date__nav:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.oik-date__nav svg {
+  width: 12px;
+  height: 12px;
+}
+.oik-date__nav--back svg {
+  transform: rotate(180deg);
+}
+.oik-date__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+.oik-date__dow {
+  padding: 4px 0;
+  color: var(--ink3);
+  font: var(--text-small);
+  text-align: center;
+}
+.oik-date__day {
+  height: 32px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink);
+  font: var(--text-data);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.oik-date__day:hover:not(:disabled) {
+  background: var(--hover);
+}
+.oik-date__day--out {
+  color: var(--ink3);
+}
+.oik-date__day--today {
+  box-shadow: inset 0 0 0 1px var(--stroke);
+}
+.oik-date__day[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--raised);
+  font-weight: 600;
+}
+[data-theme="bold"] .oik-date__day[aria-pressed="true"] {
+  background: #ffd23f;
+  color: #111;
+  box-shadow: inset 0 0 0 2px #111;
+}
+.oik-date__day:disabled {
+  color: var(--ink3);
+  opacity: 0.45;
+  cursor: default;
+}
+.oik-date__foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.oik-date__link {
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink2);
+  font: var(--text-small);
+  font-weight: 500;
+  cursor: pointer;
+}
+.oik-date__link:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+@media (max-width: 480px) {
+  .oik-date__day {
+    height: 40px;
+  }
+}

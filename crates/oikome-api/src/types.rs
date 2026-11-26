@@ -472,10 +472,19 @@ pub enum FieldRole {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum ColumnType {
+    /// VARCHAR.
     Text,
+    /// A whole number: BIGINT.
+    Integer,
+    /// A floating-point number: DOUBLE.
     Number,
+    /// A fixed-point number, exact, for amounts of money: DECIMAL(18, 2).
+    Decimal,
+    /// DATE.
     Date,
+    /// TIMESTAMP.
     Timestamp,
+    /// BOOLEAN.
     Boolean,
 }
 
@@ -583,7 +592,9 @@ pub struct AnalysisView {
 }
 
 /// `save_analysis_view`: keep a view with its table, a new one (under a
-/// name, the first time it is saved) or, by its id, one saved before.
+/// name, the first time it is saved) or, by its id, one saved before. A
+/// table starts with one chart (`default`, its name blank until renamed),
+/// an ordinary chart: changed, renamed or removed like any other.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveAnalysisView {

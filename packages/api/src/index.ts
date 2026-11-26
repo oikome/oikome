@@ -1706,7 +1706,9 @@ by: string | null, savedAtMs: number, };
 
 /**
  * `save_analysis_view`: keep a view with its table, a new one (under a
- * name, the first time it is saved) or, by its id, one saved before.
+ * name, the first time it is saved) or, by its id, one saved before. A
+ * table starts with one chart (`default`, its name blank until renamed),
+ * an ordinary chart: changed, renamed or removed like any other.
  */
 export type SaveAnalysisView = { space: string, table: string, id?: string, name: string, config: string, };
 
@@ -1794,7 +1796,7 @@ export type ChartPeriod = { grain: DateGrain, key: string, };
  * does not convert counting as empty. The table and its files stay as they
  * are.
  */
-export type ColumnType = "text" | "number" | "date" | "timestamp" | "boolean";
+export type ColumnType = "text" | "integer" | "number" | "decimal" | "date" | "timestamp" | "boolean";
 
 /**
  * `set_analysis_type`: read a column of an analysis table as another type

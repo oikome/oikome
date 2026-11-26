@@ -263,8 +263,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     for (const [table, kind, month] of [["energy_meter", "Iceberg table", "Oct 2026"], ["sleep", "Lance dataset", "Nov 2026"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
       await expect(page.locator(".screen-analysis__about")).toContainText(kind);
-      await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled Chart");
-      // A table with a column of time starts over it, by month, as columns.
+      // A table starts on its default chart: over its first column of time,
+      // by month, as columns; + New Chart is always there for another.
+      await expect(page.getByRole("button", { name: "Actions for Default Chart" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "New Chart" })).toBeVisible();
       await expect(time()).toHaveValue(table === "energy_meter" ? "read_on" : "night");
       await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
       await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
@@ -308,10 +310,20 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
     await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
     await expect(panel.getByLabel("Order")).toHaveCount(0);
-    // A range of its own: the days chosen, either end open.
+    // A range of its own: the days chosen from the app's calendar, either
+    // end open.
     await panel.getByLabel("Range").selectOption({ label: "Custom Range" });
-    await panel.getByLabel("From", { exact: true }).fill("2025-08-01");
-    await panel.getByLabel("To", { exact: true }).fill("2025-08-31");
+    const pickDay = async (end, day) => {
+      await panel.getByRole("button", { name: new RegExp(`^${end} `) }).click();
+      const calendar = page.getByRole("dialog", { name: end });
+      const now = new Date();
+      const back = (now.getFullYear() - Number(day.slice(0, 4))) * 12 + now.getMonth() + 1 - Number(day.slice(5, 7));
+      for (let i = 0; i < back; i++) await calendar.getByRole("button", { name: "Previous Month" }).click();
+      await calendar.locator(`[data-day="${day}"]`).click();
+      await expect(calendar).toHaveCount(0);
+    };
+    await pickDay("From", "2025-08-01");
+    await pickDay("To", "2025-08-31");
     await expect(result.locator("tbody tr")).toHaveCount(1);
     await expect(result.locator("tbody tr").first()).toContainText("Aug 2025");
     await panel.getByLabel("Range").selectOption({ label: "All Time" });
@@ -358,12 +370,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(result.locator("thead")).toContainText("category");
     await page.getByRole("button", { name: "Discard Changes" }).click();
     await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
-    // Without the time: compared, filtered by ticked values and by a range,
-    // ordered, the top groups picked by their own totals.
+    // A chart of one's own, Untitled until it is saved: without the time,
+    // compared, filtered by ticked values and by a range, ordered, the top
+    // groups picked by their own totals.
+    await page.getByRole("button", { name: "New Chart" }).click();
+    await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled");
     await time().selectOption({ label: "No Time" });
     await chartType("Table");
     await add("Add Dimension", "category");
-    await add("Add Comparison", "member");
+    await add("Add Column", "member");
     await expect(result.locator("thead")).toContainText("Rosh");
     await add("Add Filter", "city");
     const ticking = page.getByRole("dialog", { name: "Filter city" });
@@ -400,20 +415,32 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // Reloading the page finds the saved chart as it was kept.
     await page.reload();
     await page.getByRole("radio", { name: "spending", exact: true }).click();
+    await page.getByRole("button", { name: "Porto trip", exact: true }).click();
     await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
     await expect(panel.getByRole("button", { name: "Filter city" })).toContainText("Porto");
     await page.getByRole("button", { name: "Actions for Porto trip" }).click();
     await page.getByRole("menuitem", { name: "Remove Chart…" }).click();
     await page.getByRole("dialog", { name: "Remove the chart Porto trip?" }).getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("button", { name: "Actions for Porto trip" })).toHaveCount(0);
-    await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled Chart");
+    await expect(page.getByRole("button", { name: "Actions for Default Chart" })).toBeVisible();
+    // The chart a table starts with is an ordinary one: removed, the table
+    // has none, says so, and stays so.
+    await page.getByRole("button", { name: "Actions for Default Chart" }).click();
+    await page.getByRole("menuitem", { name: "Remove Chart…" }).click();
+    await page.getByRole("dialog", { name: "Remove the chart Default Chart?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByText("This table has no charts yet.")).toBeVisible();
+    await page.reload();
+    await page.getByRole("radio", { name: "spending", exact: true }).click();
+    await expect(page.getByText("This table has no charts yet.")).toBeVisible();
     // A column's type can be changed: charts read it so; back as DuckDB read it.
     const itemsType = page.getByLabel("Type of items");
-    await expect(itemsType).toHaveValue("number");
+    await expect(itemsType).toHaveValue("integer");
+    // Only what it can become: a number is no date.
+    await expect(itemsType.locator("option", { hasText: "Date" })).toHaveCount(0);
     await itemsType.selectOption({ label: "Text" });
-    await expect(page.getByText("Read as BIGINT, changed here")).toBeVisible();
-    await itemsType.selectOption({ label: "Number" });
-    await expect(page.getByText("Read as BIGINT, changed here")).toHaveCount(0);
+    await expect(page.getByText("VARCHAR (was BIGINT)")).toBeVisible();
+    await itemsType.selectOption({ label: "Whole Number" });
+    await expect(page.getByText("VARCHAR (was BIGINT)")).toHaveCount(0);
     // The trams taken, an Iceberg table in the bucket, are one item of the
     // archive, not its files.
     await page.goto(`${running.base}/collections/rustfs-archive`);

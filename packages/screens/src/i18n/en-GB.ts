@@ -10,7 +10,8 @@ import { overlay } from "./helpers";
 
 export const enGB: Strings = overlay(en, {
   explorer: {
-    sqlBody: "The DuckDB query your data centre ran for this chart. Each ?n is bound to the value listed below it, never written into the query.",
+    legendNote: "each value a colour, side by side",
+    sqlBody: "The DuckDB query your data centre ran for this chart. Each ?n is bound to the value listed below it, never written into the query. Copy SQL writes the values in, so it runs as it is.",
   },
   brandSubtitle: "My data centre",
   defaultName: "My data centre",

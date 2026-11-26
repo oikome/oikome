@@ -32,6 +32,7 @@ import {
   Card,
   Checkbox,
   ConfirmDialog,
+  DateField,
   Dialog,
   ErrorText,
   Icon,
@@ -74,11 +75,15 @@ const RANGES: TimeRange[] = ["all", "last7Days", "last30Days", "last90Days", "la
 const NUMBER_AGGREGATES: ChartAggregate[] = ["sum", "average", "median", "min", "max", "count", "distinct"];
 const OTHER_AGGREGATES: ChartAggregate[] = ["count", "distinct"];
 const LIMITS = [5, 10, 20, 50];
-const NEW = "new";
+/** The chart being made with + New Chart, not saved yet. */
+const UNTITLED = "untitled";
 
 interface View {
   id: string;
+  /** Its name as shown: the chart a table starts with, kept with a blank name, is called the Default Chart. */
   name: string;
+  /** Its name as kept. */
+  kept: string;
   spec: ChartSpec;
   by?: string;
   savedAtMs?: number;
@@ -87,7 +92,7 @@ interface View {
 type Field = AnalysisTable["fields"][number];
 /** What a column holds: as the owner has it read, else as DuckDB read it. */
 function kindOf(field: Field): string {
-  if (field.readAs) return field.readAs;
+  if (field.readAs) return ["integer", "number", "decimal"].includes(field.readAs) ? "number" : field.readAs;
   if (/^Date/.test(field.dataType)) return "date";
   if (/^Timestamp/.test(field.dataType)) return "timestamp";
   if (/^(U?Int|Float|Decimal)/.test(field.dataType)) return "number";
@@ -187,7 +192,9 @@ function viewsOf(table: AnalysisTable): View[] {
     } catch {
       // Kept in a shape this app can't read: left out.
     }
-    return spec ? [{ id: view.id, name: view.name, spec, by: view.by ?? undefined, savedAtMs: view.savedAtMs }] : [];
+    return spec
+      ? [{ id: view.id, name: view.name || x.defaultChart, kept: view.name, spec, by: view.by ?? undefined, savedAtMs: view.savedAtMs }]
+      : [];
   });
 }
 
@@ -222,6 +229,43 @@ function drilled(spec: ChartSpec, step: Step): ChartSpec {
   if (step.period) only({ ...emptyFilter(step.period.column), period: { grain: step.period.grain, key: step.period.key } });
   const metrics = spec.metrics.length > 0 ? spec.metrics : [COUNT_ROWS];
   return { ...spec, filters, metrics, time: null, dimensions: [{ column: step.by }], limit: null, sort: spec.sort ?? { metric: 0, descending: true } };
+}
+
+/** A description made whole: an order and a number for dimensions; rows counted when grouped. */
+function settle(made: ChartSpec): ChartSpec {
+  const next = { ...made };
+  if (next.dimensions.length === 0) next.sort = null;
+  if (next.time !== null || next.dimensions.length === 0) next.limit = null;
+  const grouped = next.time !== null || next.dimensions.length > 0 || next.compare.length > 0;
+  if (grouped && next.metrics.length === 0) next.metrics = [COUNT_ROWS];
+  if (next.sort && next.sort.metric >= next.metrics.length) next.sort = next.metrics.length > 0 ? { ...next.sort, metric: 0 } : null;
+  return next;
+}
+
+/**
+ * A description fitted to the table's columns as they are read now: a
+ * column's type may have changed since it was made (a time read as text, a
+ * number as text). What no longer fits is left out, the time, a total, a
+ * filter, a column gone, so the chart can still be drawn, as edited.
+ */
+function fitted(spec: ChartSpec, table: AnalysisTable): ChartSpec {
+  const field = (name: string | null) => fieldOf(table, name);
+  const there = (name: string) => field(name) !== undefined && name !== "_source_file";
+  const counts = (m: ChartMetric) => m.aggregate === "count" || m.aggregate === "distinct";
+  const next: ChartSpec = {
+    ...spec,
+    time: spec.time && isTime(field(spec.time.column)) ? spec.time : null,
+    dimensions: spec.dimensions.filter((d) => there(d.column) && d.column !== spec.time?.column),
+    compare: spec.compare.filter((d) => there(d.column)),
+    metrics: spec.metrics.filter((m) => m.column === null || (there(m.column) && (counts(m) || isNumber(field(m.column))))),
+    filters: spec.filters.filter(
+      (f) =>
+        there(f.column) &&
+        (!f.period || isTime(field(f.column))) &&
+        ((f.min === null && f.max === null) || isNumber(field(f.column))),
+    ),
+  };
+  return JSON.stringify(next) === JSON.stringify(spec) ? spec : settle(next);
 }
 
 /** Whether a chart lays the time along its axis and the dimensions' values as series. */
@@ -482,9 +526,10 @@ function FilterDialog({
 function QueryDialog({ query, onClose }: { query: ChartQuery; onClose: () => void }) {
   const toast = useToast();
   const copy = async () => {
-    const params = query.params.map((p, i) => `-- ?${i + 1} = ${p}`).join("\n");
+    // Highest first, so that ?1 is not read inside ?10.
+    const runnable = query.params.reduceRight((sql, value, i) => sql.replaceAll(new RegExp(`\\?${i + 1}(?!\\d)`, "g"), value), query.sql);
     try {
-      await navigator.clipboard.writeText(params ? `${query.sql}\n${params}` : query.sql);
+      await navigator.clipboard.writeText(runnable);
       toast(x.sqlCopied);
     } catch {
       // No clipboard here: the text can still be selected.
@@ -737,26 +782,21 @@ export function Explorer({
   const [dialog, setDialog] = useState<"saveNew" | "saveAs" | "rename" | "remove" | "sql" | "metric">();
   const [filtering, setFiltering] = useState<ChartFilter>();
   const [pointed, setPointed] = useState<{ at: { x: number; y: number }; items: MenuItem[]; label: string }>();
+  // A chart being made with + New Chart, until it is saved under a name or discarded.
+  const [making, setMaking] = useState(false);
 
-  const views = useMemo(() => viewsOf(table), [table]);
-  // The chart picked; else the first kept; else a new one.
-  const kept = picked === NEW ? undefined : (views.find((v) => v.id === picked) ?? views[0]);
+  // The tabs: the charts kept (a table starts with one, an ordinary chart),
+  // and the one being made. There may be none.
   const started = useMemo(() => newChart(table), [table]);
-  const view: View = kept ?? { id: NEW, name: x.untitled, spec: started };
-  const fresh = view.id === NEW;
-  const spec = draft?.of === view.id ? draft.spec : view.spec;
+  const kept = useMemo(() => viewsOf(table), [table]);
+  const tabs: View[] = [...kept, ...(making ? [{ id: UNTITLED, name: x.untitled, kept: "", spec: started }] : [])];
+  const found = tabs.find((v) => v.id === picked) ?? tabs[0];
+  const none = found === undefined;
+  const view: View = found ?? { id: "", name: "", kept: "", spec: started };
+  const fresh = view.id === UNTITLED;
+  const spec = fitted(draft?.of === view.id ? draft.spec : view.spec, table);
   const edited = JSON.stringify(spec) !== JSON.stringify(view.spec);
   const steps = trail?.of === view.id ? trail.steps : [];
-  /** The description as changed: made whole (an order and a number for dimensions; rows counted when grouped). */
-  const settle = (made: ChartSpec): ChartSpec => {
-    const next = { ...made };
-    if (next.dimensions.length === 0) next.sort = null;
-    if (next.time !== null || next.dimensions.length === 0) next.limit = null;
-    const grouped = next.time !== null || next.dimensions.length > 0 || next.compare.length > 0;
-    if (grouped && next.metrics.length === 0) next.metrics = [COUNT_ROWS];
-    if (next.sort && next.sort.metric >= next.metrics.length) next.sort = next.metrics.length > 0 ? { ...next.sort, metric: 0 } : null;
-    return next;
-  };
   const show = (next: ChartSpec) => setDraft(JSON.stringify(next) === JSON.stringify(view.spec) ? undefined : { of: view.id, spec: next });
   const change = (next: Partial<ChartSpec>) => {
     show(settle({ ...spec, ...next }));
@@ -769,8 +809,9 @@ export function Explorer({
 
   // What the chart shows, asked of the node whenever its description or the
   // table changes; an answer that arrives late is dropped.
-  const asked = JSON.stringify(spec);
+  const asked = none ? "" : JSON.stringify(spec);
   useEffect(() => {
+    if (asked === "") return;
     let stale = false;
     client.analysisChart({ space, table: table.name, spec: JSON.parse(asked) as ChartSpec }).then(
       (answer) => {
@@ -796,7 +837,7 @@ export function Explorer({
   /** Save a kept chart where it is: nothing to name, nothing to choose. */
   const saveHere = async () => {
     const of = view.id;
-    const next = await saving.run(() => client.saveAnalysisView({ space, table: table.name, id: view.id, name: view.name, config: JSON.stringify(spec) }));
+    const next = await saving.run(() => client.saveAnalysisView({ space, table: table.name, id: view.id, name: view.kept, config: JSON.stringify(spec) }));
     if (!next) return;
     onChange(next);
     forget(of);
@@ -810,8 +851,23 @@ export function Explorer({
     setDialog(undefined);
     onChange(next);
     forget(of);
+    if (of === UNTITLED) setMaking(false);
     setPicked(next.tables.find((t) => t.name === table.name)?.views.find((v) => v.name === name)?.id);
     toast(x.saved(name));
+  };
+  /** Start a chart of one's own: a tab of its own, named when it is saved. */
+  const startNew = () => {
+    if (!making) forget(UNTITLED);
+    setMaking(true);
+    open(UNTITLED);
+  };
+  /** Changes left; a chart being made, given up. */
+  const discard = () => {
+    forget(view.id);
+    if (fresh) {
+      setMaking(false);
+      setPicked(undefined);
+    }
   };
   const rename = async (name: string) => {
     const next = await saving.run(() => client.saveAnalysisView({ space, table: table.name, id: view.id, name, config: JSON.stringify(view.spec) }));
@@ -914,10 +970,10 @@ export function Explorer({
       <Card className="screen-explorer">
         <div className="screen-explorer__head">
           <div className="screen-explorer__views" role="group" aria-label={x.views}>
-            {views.map((v) =>
-              v.id === view.id ? (
+            {tabs.map((v) =>
+              v.id === view.id && v.id !== UNTITLED ? (
                 // The chart shown: its tab holds what can be done with it.
-                <span key={v.id} className="screen-explorer__view screen-explorer__view--here" translate="no">
+                <span key={v.id} className="screen-explorer__view screen-explorer__view--here" translate={v.kept ? "no" : undefined}>
                   <Menu
                     label={x.chartActions(v.name)}
                     trigger={{ chip: true, text: v.name }}
@@ -934,38 +990,34 @@ export function Explorer({
                     ]}
                   />
                 </span>
+              ) : v.id === view.id ? (
+                // The chart being made: chosen, named when it is saved.
+                <span key={v.id} className="screen-explorer__view screen-explorer__view--untitled" aria-current="true">
+                  {v.name}
+                </span>
               ) : (
-                <button key={v.id} type="button" className="screen-explorer__view" title={v.by ? x.madeByShort(v.by) : undefined} onClick={() => open(v.id)}>
+                <button
+                  key={v.id}
+                  type="button"
+                  className="screen-explorer__view"
+                  title={v.by ? x.madeByShort(v.by) : undefined}
+                  onClick={() => open(v.id)}
+                >
                   {v.by && <Icon name="ai" />}
-                  <span translate="no">{v.name}</span>
+                  <span translate={v.kept ? "no" : undefined}>{v.name}</span>
                 </button>
               ),
             )}
-            {fresh ? (
-              // The chart being made, not kept yet: named when saved, which a click on it starts.
-              <button
-                type="button"
-                className="screen-explorer__view screen-explorer__view--untitled"
-                aria-current="true"
-                title={x.nameToSave}
-                onClick={() => {
-                  saving.clear();
-                  setDialog("saveNew");
-                }}
-              >
-                {x.untitled}
-              </button>
-            ) : (
-              <button type="button" className="screen-explorer__view screen-explorer__view--add" onClick={() => open(NEW)}>
-                <Icon name="plus" />
-                <span>{x.newChart}</span>
-              </button>
-            )}
+            {/* Always at the end: another chart of one's own. */}
+            <button type="button" className="screen-explorer__view screen-explorer__view--add" onClick={startNew}>
+              <Icon name="plus" />
+              <span>{x.newChart}</span>
+            </button>
           </div>
           {(edited || fresh) && (
             <div className="screen-explorer__actions">
-              {edited && <Tag>{fresh ? x.unsaved : x.edited}</Tag>}
-              {edited && <Button onClick={() => forget(view.id)}>{x.discard}</Button>}
+              <Tag>{fresh ? x.unsaved : x.edited}</Tag>
+              <Button onClick={discard}>{x.discard}</Button>
               {fresh ? (
                 <Button
                   variant="primary"
@@ -984,7 +1036,15 @@ export function Explorer({
             </div>
           )}
         </div>
-        {view.by && view.savedAtMs !== undefined && (
+        {none && (
+          <div className="screen-explorer__nothing">
+            <p>{x.noCharts}</p>
+            <Button variant="primary" icon="plus" onClick={startNew}>
+              {x.newChart}
+            </Button>
+          </div>
+        )}
+        {!none && view.by && view.savedAtMs !== undefined && (
           <p className="screen-explorer__by">
             <Icon name="ai" />
             <span>{x.madeBy(view.by, when(view.savedAtMs))}</span>
@@ -995,7 +1055,7 @@ export function Explorer({
             <ErrorText>{saving.error}</ErrorText>
           </div>
         )}
-        <div className="screen-explorer__body">
+        {!none && <div className="screen-explorer__body">
           <div className="screen-explorer__stage" aria-busy={result === undefined && failed === undefined}>
             <div className="screen-explorer__where">
               <div className="screen-explorer__whereabouts">
@@ -1097,20 +1157,19 @@ export function Explorer({
                             ["to", x.rangeTo],
                           ] as const
                         ).map(([end, label]) => (
-                          <label key={end} className="oik-field">
-                            <span className="oik-field__label">{label}</span>
-                            <input
-                              className="oik-input"
-                              type="date"
-                              value={spec.time![end] ?? ""}
-                              min={end === "to" ? spec.time!.from : undefined}
-                              max={end === "from" ? spec.time!.to : undefined}
-                              onChange={(event) => {
-                                const { [end]: _was, ...rest } = spec.time!;
-                                setTime(event.target.value ? { ...spec.time!, [end]: event.target.value } : rest);
-                              }}
-                            />
-                          </label>
+                          <DateField
+                            key={end}
+                            label={label}
+                            value={spec.time![end]}
+                            min={end === "to" ? spec.time!.from : undefined}
+                            max={end === "from" ? spec.time!.to : undefined}
+                            locale={locale()}
+                            words={{ none: x.anyDay, previous: x.previousMonth, next: x.nextMonth, today: x.today, clear: x.clearDay }}
+                            onChange={(day) => {
+                              const { [end]: _was, ...rest } = spec.time!;
+                              setTime(day ? { ...spec.time!, [end]: day } : rest);
+                            }}
+                          />
                         ))}
                       </div>
                     )}
@@ -1126,10 +1185,14 @@ export function Explorer({
               {dimensionChips("dimensions")}
               {adding(x.addDimension, offered("dimensions"))}
             </div>
-            <div className="screen-explorer__part" role="group" aria-label={x.compare}>
-              <span className="oik-field__label">{x.compare}</span>
+            {/* What is compared: a chart's legend (a colour for each value), a table's columns (a column for each). */}
+            <div className="screen-explorer__part" role="group" aria-label={spec.chart === "table" ? x.pivotColumns : x.legend}>
+              <span className="oik-field__label">
+                {spec.chart === "table" ? x.pivotColumns : x.legend}
+                <span className="screen-explorer__note">{spec.chart === "table" ? x.pivotNote : x.legendNote}</span>
+              </span>
               {dimensionChips("compare")}
-              {adding(x.addComparison, offered("compare"))}
+              {adding(spec.chart === "table" ? x.addPivotColumn : x.addLegend, offered("compare"))}
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.metrics}>
               <span className="oik-field__label">{x.metrics}</span>
@@ -1205,7 +1268,7 @@ export function Explorer({
               />
             )}
           </div>
-        </div>
+        </div>}
       </Card>
       {/* Outside the card: a dialog is laid out by the page, not by the card's own rules. */}
       {pointed && <PointMenu label={pointed.label} at={pointed.at} items={pointed.items} onClose={() => setPointed(undefined)} />}

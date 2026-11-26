@@ -7329,10 +7329,25 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert!(compute(serde_json::json!({"chart": "bar", "metrics": [{"column": "items", "aggregate": "sum"}]}))
         .await
         .is_err());
+    // An amount read as an exact decimal is still totalled.
     n.api
-        .set_analysis_type(&OWNER, read_as("items", None))
+        .set_analysis_type(&OWNER, read_as("amount", Some(ColumnType::Decimal)))
         .await
         .unwrap();
+    let exact = compute(serde_json::json!({"chart": "bar", "metrics": [{"column": "amount", "aggregate": "sum"}]}))
+        .await
+        .unwrap();
+    assert_eq!(exact.groups[0].values, [Some(110.25)]);
+    assert!(exact
+        .query
+        .sql
+        .contains("SUM(TRY_CAST(\"amount\" AS DECIMAL(18, 2)))"));
+    for column in ["items", "amount"] {
+        n.api
+            .set_analysis_type(&OWNER, read_as(column, None))
+            .await
+            .unwrap();
+    }
     let as_number = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
         .await
         .unwrap();
@@ -7344,6 +7359,12 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
             .await
             .is_err());
     }
+    // Only what a column can become: a date is never a decimal.
+    assert!(n
+        .api
+        .set_analysis_type(&OWNER, read_as("date", Some(ColumnType::Decimal)))
+        .await
+        .is_err());
 
     // Nothing grouped or totalled: the rows themselves.
     let rows = compute(serde_json::json!({"chart": "table"})).await.unwrap();
@@ -7412,7 +7433,8 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(values, ["Books", "Groceries", odd]);
 
     // A chart is kept with its table as a view, under a name: only a
-    // chart's description. A table starts with none.
+    // chart's description. A table starts with one, by its first column of
+    // time, its name left for the app to give.
     let save = |id: Option<&str>, name: &str, config: &str| SaveAnalysisView {
         space: "household".into(),
         table: "spending".into(),
@@ -7424,7 +7446,12 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         space: "household".into(),
     };
     let before = n.api.file_analysis(&OWNER, household()).await.unwrap();
-    assert!(before.tables[0].views.is_empty());
+    let starting = &before.tables[0].views;
+    assert_eq!(starting.len(), 1);
+    assert_eq!((starting[0].id.as_str(), starting[0].name.as_str()), ("default", ""));
+    let starting: ChartSpec = serde_json::from_str(&starting[0].config).unwrap();
+    assert_eq!(starting.chart, ChartKind::Column);
+    assert_eq!(starting.time.as_ref().map(|t| (t.column.as_str(), t.grain)), Some(("date", DateGrain::Month)));
     let kept = n
         .api
         .save_analysis_view(
@@ -7438,7 +7465,8 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .await
         .unwrap();
     let views = &kept.tables[0].views;
-    assert_eq!(views.len(), 1);
+    assert_eq!(views.len(), 2);
+    let views = &views[1..];
     assert_eq!(views[0].name, "Groceries by month");
     assert_eq!(views[0].by, None);
     let kept_spec: ChartSpec = serde_json::from_str(&views[0].config).unwrap();
@@ -7479,9 +7507,31 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .save_analysis_view(&OWNER, save(Some(&id), "By month", r#"{"chart":"line"}"#))
         .await
         .unwrap();
-    assert_eq!(kept.tables[0].views.len(), 1);
-    assert_eq!(kept.tables[0].views[0].name, "By month");
-    // An id the table has not is not found: there are no views it starts with.
+    assert_eq!(kept.tables[0].views.len(), 2);
+    assert_eq!(kept.tables[0].views[1].name, "By month");
+    // The chart a table starts with is an ordinary one: saved in place with
+    // its blank name, and removed for good. Any other id the table has not
+    // is not found.
+    let kept = n
+        .api
+        .save_analysis_view(&OWNER, save(Some("default"), "", r#"{"chart":"area"}"#))
+        .await
+        .unwrap();
+    let ids: Vec<_> = kept.tables[0].views.iter().map(|v| (v.id.as_str(), v.name.as_str())).collect();
+    assert_eq!(ids, [("default", ""), (id.as_str(), "By month")]);
+    let restored = n
+        .api
+        .remove_analysis_view(
+            &OWNER,
+            AnalysisViewRef {
+                space: "household".into(),
+                table: "spending".into(),
+                id: "default".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(restored.tables[0].views.len(), 1);
     for unknown in ["month", "v42"] {
         let err = n
             .api
@@ -7496,7 +7546,8 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         id: id.into(),
     };
 
-    // The table is made again when its files change; its views stay.
+    // The table is made again when its files change; its views stay, and
+    // the chart it started with, removed, is not made again.
     std::fs::write(
         root.join("spending/2026-11.csv"),
         "date,category,amount\n2026-11-01,Rent,900.00\n",
@@ -7723,7 +7774,7 @@ async fn an_assistant_charts_its_collections_and_keeps_charts_marked_as_its_own(
         .collect();
     assert_eq!(
         views,
-        [("Spending by month", Some("Claude Code")), ("Mine", None)]
+        [("", None), ("Spending by month", Some("Claude Code")), ("Mine", None)]
     );
     // Changed and saved by the owner, it is the owner's.
     let owned = n
@@ -7740,7 +7791,7 @@ async fn an_assistant_charts_its_collections_and_keeps_charts_marked_as_its_own(
         )
         .await
         .unwrap();
-    assert_eq!(owned.tables[0].views[0].by, None);
+    assert_eq!(owned.tables[0].views[1].by, None);
 
     // All of it is in Activity: the charts, the one kept, the refusals.
     let log = n

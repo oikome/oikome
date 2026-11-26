@@ -35,18 +35,50 @@ import { Explorer } from "./Explorer";
 
 const a = strings.analysisView;
 
-/** The types a column can be read as, and the one DuckDB read it as, if it is one of them. */
-const READ_AS: ColumnType[] = ["text", "number", "date", "timestamp", "boolean"];
+/**
+ * The types a column can be read as, each the DuckDB type it is (as BI
+ * tools offer them: a whole number, a floating one, an exact one for
+ * money), and the one DuckDB read it as, if it is one of them.
+ */
+const READ_AS: ColumnType[] = ["text", "integer", "number", "decimal", "date", "timestamp", "boolean"];
+const SQL_TYPES: Record<ColumnType, string> = {
+  text: "VARCHAR",
+  integer: "BIGINT",
+  number: "DOUBLE",
+  decimal: "DECIMAL(18, 2)",
+  date: "DATE",
+  timestamp: "TIMESTAMP",
+  boolean: "BOOLEAN",
+};
 function kindOf(dataType: string): ColumnType | undefined {
-  if (/^Date/.test(dataType)) return "date";
-  if (/^Timestamp/.test(dataType)) return "timestamp";
-  if (/^(Utf8|LargeUtf8|Utf8View)$/.test(dataType)) return "text";
-  if (/^(U?Int|Float|Decimal)/.test(dataType)) return "number";
-  if (dataType === "Boolean") return "boolean";
+  const exact: Partial<Record<string, ColumnType>> = {
+    Utf8: "text",
+    LargeUtf8: "text",
+    Utf8View: "text",
+    Int64: "integer",
+    Float64: "number",
+    "Decimal128(18, 2)": "decimal",
+    Date32: "date",
+    Boolean: "boolean",
+  };
+  if (exact[dataType]) return exact[dataType];
+  if (/^Timestamp\([A-Za-z]+, None\)$/.test(dataType)) return "timestamp";
   return undefined;
 }
-/** A type in words: date, date and time, text, number, yes or no. */
-const kindName = (kind: ColumnType) => (kind === "timestamp" ? a.types.datetime : a.types[kind]);
+/** A type to read a column as, in words. */
+const kindName = (kind: ColumnType) => a.readAsTypes[kind] ?? kind;
+/**
+ * What a column of a type can be read as, as the node allows: text as
+ * anything, a number as text or another number, a date or a time as text or
+ * another of them, true or false as text, itself or a whole number.
+ */
+function readableAs(dataType: string): ColumnType[] {
+  if (/^(Utf8|LargeUtf8|Utf8View)$/.test(dataType)) return READ_AS;
+  if (/^(U?Int|Float|Decimal)/.test(dataType)) return ["text", "integer", "number", "decimal"];
+  if (/^(Date|Timestamp)/.test(dataType)) return ["text", "date", "timestamp"];
+  if (dataType === "Boolean") return ["text", "integer", "boolean"];
+  return ["text"];
+}
 
 /** A column's type as DuckDB names it, from the Arrow type it was read as. */
 function duckType(dataType: string): string {
@@ -386,11 +418,12 @@ function TableView({
               const natural = kindOf(field.dataType);
               const shown = field.readAs ?? natural;
               const read = duckType(field.dataType);
+              const choices = readableAs(field.dataType);
               return (
                 <Row
                   key={field.name}
                   title={<span translate="no">{field.name}</span>}
-                  meta={field.readAs ? a.convertedFrom(read) : a.readAs(read)}
+                  meta={field.readAs ? a.convertedFrom(SQL_TYPES[field.readAs], read) : read}
                   trailing={
                     <Select
                       label={a.typeFor(field.name)}
@@ -401,7 +434,10 @@ function TableView({
                         const next = await setType.run(() => client.setAnalysisType({ space, table: table.name, column: field.name, readAs }));
                         if (next) onChange(next);
                       }}
-                      options={[...(natural ? [] : [{ value: "", label: read }]), ...READ_AS.map((kind) => ({ value: kind, label: kindName(kind) }))]}
+                      options={[
+                        ...(natural ? [] : [{ value: "", label: read }]),
+                        ...READ_AS.filter((kind) => choices.includes(kind) || kind === natural).map((kind) => ({ value: kind, label: kindName(kind) })),
+                      ]}
                     />
                   }
                 />

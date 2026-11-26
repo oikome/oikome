@@ -1074,6 +1074,210 @@ export function PointMenu({
   );
 }
 
+/** A day as `2026-08-01`, and back. */
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dayOf = (text: string | undefined) => (text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? new Date(`${text}T00:00`) : undefined);
+/** The first day of the week where the reader is: 1 Monday … 7 Sunday. */
+function firstDay(locale: string): number {
+  try {
+    const info = (new Intl.Locale(locale) as Intl.Locale & { weekInfo?: { firstDay: number }; getWeekInfo?: () => { firstDay: number } });
+    return info.getWeekInfo?.().firstDay ?? info.weekInfo?.firstDay ?? (/^en(-US)?$/.test(locale) ? 7 : 1);
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * A day, picked from a month's calendar: the app's own, looking as its
+ * other fields do (the browser's calendar can't be). The field shows the
+ * day in the reader's words; the calendar under it moves a month at a time,
+ * and keeps a day within `min` and `max`. Arrow keys move a day or a week,
+ * Page Up and Page Down a month, Enter picks, Escape closes.
+ */
+export function DateField({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  locale,
+  words,
+}: {
+  label: string;
+  /** The day, `2026-08-01`, or none. */
+  value?: string;
+  onChange: (value: string | undefined) => void;
+  min?: string;
+  max?: string;
+  locale: string;
+  words: { none: string; previous: string; next: string; today: string; clear: string };
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const chosen = dayOf(value);
+  const [focused, setFocused] = useState<string>(value ?? isoDay(new Date()));
+  const shown = dayOf(focused) ?? new Date();
+  const month = new Date(shown.getFullYear(), shown.getMonth(), 1);
+  const allowed = (day: string) => (!min || day >= min) && (!max || day <= max);
+
+  useLayoutEffect(() => {
+    const el = pop.current;
+    const button = trigger.current;
+    if (!open || !el || !button) return;
+    el.showPopover?.();
+    const place = () => {
+      const at = button.getBoundingClientRect();
+      const below = at.bottom + 6 + el.offsetHeight <= window.innerHeight - 8 || at.top - 6 - el.offsetHeight < 8;
+      el.style.top = `${below ? at.bottom + 6 : at.top - 6 - el.offsetHeight}px`;
+      el.style.left = `${Math.max(8, Math.min(at.left, window.innerWidth - 8 - el.offsetWidth))}px`;
+      el.dataset.side = below ? "below" : "above";
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
+  // The focused day takes the keyboard's focus, wherever the arrows took it.
+  useEffect(() => {
+    if (open) pop.current?.querySelector<HTMLButtonElement>(`[data-day="${focused}"]`)?.focus();
+  }, [open, focused]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (!pop.current?.contains(e.target as Node) && !trigger.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const pick = (day: string | undefined) => {
+    onChange(day);
+    close();
+  };
+  const shift = (days: number, months = 0) => {
+    const next = new Date(shown);
+    if (months) next.setMonth(next.getMonth() + months, Math.min(next.getDate(), 28));
+    next.setDate(next.getDate() + days);
+    setFocused(isoDay(next));
+  };
+  const keys = (e: KeyboardEvent<HTMLDivElement>) => {
+    const moves: Record<string, () => void> = {
+      ArrowLeft: () => shift(-1),
+      ArrowRight: () => shift(1),
+      ArrowUp: () => shift(-7),
+      ArrowDown: () => shift(7),
+      PageUp: () => shift(0, -1),
+      PageDown: () => shift(0, 1),
+      Escape: close,
+    };
+    const move = moves[e.key];
+    if (move) {
+      e.preventDefault();
+      move();
+    }
+  };
+
+  // Six weeks from the week the month starts in.
+  const first = firstDay(locale) % 7;
+  const start = new Date(month);
+  start.setDate(1 - ((month.getDay() - first + 7) % 7));
+  const days = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+  const weekdays = days.slice(0, 7).map((d) => new Intl.DateTimeFormat(locale, { weekday: "narrow" }).format(d));
+  const today = isoDay(new Date());
+  return (
+    <div className="oik-field">
+      <span className="oik-field__label" id={`${id}-label`}>
+        {label}
+      </span>
+      <button
+        ref={trigger}
+        type="button"
+        className="oik-date"
+        aria-labelledby={`${id}-label ${id}-value`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-empty={chosen ? undefined : ""}
+        onClick={() => {
+          setFocused(value ?? (min && today < min ? min : max && today > max ? max : today));
+          setOpen((v) => !v);
+        }}
+      >
+        <span id={`${id}-value`}>{chosen ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(chosen) : words.none}</span>
+        <Icon name="chevron" />
+      </button>
+      {open && (
+        <div ref={pop} className="oik-date__pop" role="dialog" aria-label={label} popover="manual" onKeyDown={keys}>
+          <div className="oik-date__head">
+            <button type="button" className="oik-date__nav oik-date__nav--back" aria-label={words.previous} onClick={() => shift(0, -1)}>
+              <Icon name="chevron" />
+            </button>
+            <span aria-live="polite">{new Intl.DateTimeFormat(locale, { year: "numeric", month: "long" }).format(month)}</span>
+            <button type="button" className="oik-date__nav" aria-label={words.next} onClick={() => shift(0, 1)}>
+              <Icon name="chevron" />
+            </button>
+          </div>
+          <div className="oik-date__grid" role="grid">
+            {weekdays.map((w, i) => (
+              <span key={i} className="oik-date__dow" aria-hidden="true">
+                {w}
+              </span>
+            ))}
+            {days.map((d) => {
+              const day = isoDay(d);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  data-day={day}
+                  tabIndex={day === focused ? 0 : -1}
+                  className={cx(
+                    "oik-date__day",
+                    d.getMonth() !== month.getMonth() && "oik-date__day--out",
+                    day === today && "oik-date__day--today",
+                  )}
+                  aria-pressed={day === value}
+                  aria-label={new Intl.DateTimeFormat(locale, { dateStyle: "full" }).format(d)}
+                  disabled={!allowed(day)}
+                  onClick={() => pick(day)}
+                >
+                  {d.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="oik-date__foot">
+            {value ? (
+              <button type="button" className="oik-date__link" onClick={() => pick(undefined)}>
+                {words.clear}
+              </button>
+            ) : (
+              <span />
+            )}
+            {allowed(today) && (
+              <button type="button" className="oik-date__link" onClick={() => pick(today)}>
+                {words.today}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * A modal over the page: the standard place for a short task (sharing) or a
  * question (removing). A native `<dialog>`: the page behind is inert, focus

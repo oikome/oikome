@@ -57,6 +57,66 @@ use crate::{
 const MAX_VIEWS: usize = 100;
 const MAX_VIEW_BYTES: usize = 16 * 1024;
 const MAX_VIEW_NAME_CHARS: usize = 80;
+/// The id of the chart a table starts with. It is an ordinary chart, kept
+/// with a blank name (the app names it for the reader) until renamed.
+const DEFAULT_VIEW: &str = "default";
+
+/// Whether a column of `from`'s type can be read as `to`: text as anything,
+/// a number as text or another number, a date or a time as text or another
+/// of them, true or false as text, itself or a whole number. A date read as
+/// a decimal would only be empty.
+pub(crate) fn readable_as(from: &arrow_schema::DataType, to: ColumnType) -> bool {
+    use arrow_schema::DataType as T;
+    use ColumnType as C;
+    match from {
+        T::Utf8 | T::LargeUtf8 | T::Utf8View => true,
+        T::Int8
+        | T::Int16
+        | T::Int32
+        | T::Int64
+        | T::UInt8
+        | T::UInt16
+        | T::UInt32
+        | T::UInt64
+        | T::Float16
+        | T::Float32
+        | T::Float64
+        | T::Decimal128(_, _)
+        | T::Decimal256(_, _) => matches!(to, C::Text | C::Integer | C::Number | C::Decimal),
+        T::Date32 | T::Date64 | T::Timestamp(_, _) => matches!(to, C::Text | C::Date | C::Timestamp),
+        T::Boolean => matches!(to, C::Text | C::Boolean | C::Integer),
+        _ => to == C::Text,
+    }
+}
+
+/// The chart a table starts with, once: over its first column of time, by
+/// month, as columns, when it has one; else its rows.
+fn starting_view(schema: &arrow_schema::Schema) -> KeptView {
+    let time = schema.fields().iter().find(|f| {
+        f.name() != SOURCE_FILE
+            && matches!(
+                f.data_type(),
+                arrow_schema::DataType::Date32
+                    | arrow_schema::DataType::Date64
+                    | arrow_schema::DataType::Timestamp(_, _)
+            )
+    });
+    let config = match time {
+        Some(time) => serde_json::json!({
+            "chart": "column",
+            "time": {"column": time.name(), "grain": "month", "range": "all"},
+            "metrics": [{"aggregate": "count"}]
+        }),
+        None => serde_json::json!({"chart": "table"}),
+    };
+    KeptView {
+        id: DEFAULT_VIEW.to_string(),
+        name: String::new(),
+        config,
+        by: None,
+        saved_at_ms: crate::now_ms(),
+    }
+}
 
 fn shown_view(view: &KeptView) -> AnalysisView {
     AnalysisView {
@@ -118,6 +178,10 @@ struct KeptTable {
     /// The views saved with it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     views: Vec<KeptView>,
+    /// Whether it was given the chart it starts with: once, so that one
+    /// removed is not made again.
+    #[serde(default)]
+    started: bool,
 }
 
 /// A view saved with a table: its name and the explorer's description of it.
@@ -642,6 +706,7 @@ impl Api {
             problem,
             dataset: Some(facts),
             views: was.map(|t| t.views.clone()).unwrap_or_default(),
+            started: was.is_some_and(|t| t.started),
         }
     }
 
@@ -749,6 +814,7 @@ impl Api {
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
             let types = entry.map(|t| t.types.clone()).unwrap_or_default();
             let views = entry.map(|t| t.views.clone()).unwrap_or_default();
+            let started = entry.is_some_and(|t| t.started);
             if let Input::Dataset(dataset) = &input {
                 let table = self.read_dataset_table(&found, &name, dataset, entry).await;
                 kept.tables.insert(name, table);
@@ -774,6 +840,7 @@ impl Api {
                     problem: None,
                     dataset: None,
                     views,
+                    started,
                 },
                 Err(e) => KeptTable {
                     files: now,
@@ -785,6 +852,7 @@ impl Api {
                     problem: Some(e.to_string()),
                     dataset: None,
                     views,
+                    started,
                 },
             };
             kept.tables.insert(name, table);
@@ -805,6 +873,25 @@ impl Api {
                 schemas.insert(name.clone(), dataset.schema());
             }
         }
+        // A table starts with a chart, once. Renamed, changed or removed
+        // like any other, it is not made again.
+        let mut started = false;
+        for (name, table) in kept.tables.iter_mut() {
+            if table.started || table.problem.is_some() {
+                continue;
+            }
+            let Some(schema) = schemas.get(name) else {
+                continue;
+            };
+            if !table.views.iter().any(|v| v.id == DEFAULT_VIEW) {
+                table.views.insert(0, starting_view(schema));
+            }
+            table.started = true;
+            started = true;
+        }
+        if started {
+            self.keep(space, &kept)?;
+        }
         let tables = kept
             .tables
             .iter()
@@ -822,7 +909,11 @@ impl Api {
                                     field.role = *role;
                                     field.inferred = false;
                                 }
-                                field.read_as = table.types.get(&field.name).copied();
+                                field.read_as = table.types.get(&field.name).copied().filter(|t| {
+                                    schema
+                                        .field_with_name(&field.name)
+                                        .is_ok_and(|f| readable_as(f.data_type(), *t))
+                                });
                                 field
                             })
                             .collect()
@@ -974,11 +1065,21 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let (schema, _) = self.analysis_columns(&req.space, &req.table).await?;
-        if req.column == SOURCE_FILE || schema.field_with_name(&req.column).is_err() {
-            return Err(ApiError::invalid(format!(
-                "{} has no column {}",
-                req.table, req.column
-            )));
+        let field = schema
+            .field_with_name(&req.column)
+            .ok()
+            .filter(|_| req.column != SOURCE_FILE)
+            .ok_or_else(|| {
+                ApiError::invalid(format!("{} has no column {}", req.table, req.column))
+            })?;
+        if let Some(read_as) = req.read_as {
+            if !readable_as(field.data_type(), read_as) {
+                return Err(ApiError::invalid(format!(
+                    "{} is {}: it cannot be read as {read_as:?}",
+                    req.column,
+                    field.data_type()
+                )));
+            }
         }
         let mut kept = self.kept(&req.space)?;
         let table = kept.tables.get_mut(&req.table).ok_or_else(|| {
@@ -992,18 +1093,27 @@ impl Api {
         self.follow_files(&req.space, &[]).await
     }
 
-    /// The types the owner has columns of an analysis table read as.
-    pub(crate) fn analysis_types(
+    /// The types the owner has columns of an analysis table read as, those
+    /// a column can be read as.
+    pub(crate) async fn analysis_types(
         &self,
         space: &str,
         table: &str,
     ) -> Result<BTreeMap<String, ColumnType>, ApiError> {
+        let (schema, _) = self.analysis_columns(space, table).await?;
         Ok(self
             .kept(space)?
             .tables
             .get(table)
             .map(|t| t.types.clone())
-            .unwrap_or_default())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(column, read_as)| {
+                schema
+                    .field_with_name(column)
+                    .is_ok_and(|f| readable_as(f.data_type(), *read_as))
+            })
+            .collect())
     }
 
     /// An analysis table's columns and what each is for (as proposed, or as
@@ -1093,17 +1203,19 @@ impl Api {
         by: Option<&str>,
     ) -> Result<AnalysisView, ApiError> {
         let name = name.trim();
-        if name.is_empty() || name.chars().count() > MAX_VIEW_NAME_CHARS {
-            return Err(ApiError::invalid(format!(
-                "a view's name has 1 to {MAX_VIEW_NAME_CHARS} characters"
-            )));
-        }
         let config = view_config(config)?;
         let mut kept = self.kept(space)?;
         let entry = kept
             .tables
             .get_mut(table)
             .ok_or_else(|| ApiError::not_found(format!("{space} has no analysis table {table}")))?;
+        // The chart a table starts with keeps its blank name until renamed.
+        let blank = id.is_some_and(|id| entry.views.iter().any(|v| v.id == id && v.name.is_empty()));
+        if (name.is_empty() && !blank) || name.chars().count() > MAX_VIEW_NAME_CHARS {
+            return Err(ApiError::invalid(format!(
+                "a view's name has 1 to {MAX_VIEW_NAME_CHARS} characters"
+            )));
+        }
         if entry
             .views
             .iter()

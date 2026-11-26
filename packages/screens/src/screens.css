@@ -5521,6 +5521,19 @@ tr.screen-source {
   width: 100%;
   min-width: 0;
 }
+/* No chart yet: said, with the way to start one. */
+.screen-explorer__nothing {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: 56px var(--space-4);
+  color: var(--ink2);
+  text-align: center;
+}
+.screen-explorer__nothing p {
+  margin: 0;
+  font: var(--text);
+}
 /* Nothing left to add to a part of the description. */
 .screen-explorer__none {
   margin: 0;

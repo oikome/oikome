@@ -68,7 +68,9 @@ struct Columns<'a> {
 fn sql_type(read_as: ColumnType) -> &'static str {
     match read_as {
         ColumnType::Text => "VARCHAR",
+        ColumnType::Integer => "BIGINT",
         ColumnType::Number => "DOUBLE",
+        ColumnType::Decimal => "DECIMAL(18, 2)",
         ColumnType::Date => "DATE",
         ColumnType::Timestamp => "TIMESTAMP",
         ColumnType::Boolean => "BOOLEAN",
@@ -113,7 +115,10 @@ impl Columns<'_> {
 
     fn is_number(&self, name: &str) -> bool {
         if let Some(read_as) = self.read_as(name) {
-            return read_as == ColumnType::Number;
+            return matches!(
+                read_as,
+                ColumnType::Integer | ColumnType::Number | ColumnType::Decimal
+            );
         }
         matches!(
             self.data_type(name),
@@ -463,7 +468,7 @@ impl Api {
             let Ok((schema, _)) = self.analysis_columns(space, &table).await else {
                 continue;
             };
-            let types = self.analysis_types(space, &table)?;
+            let types = self.analysis_types(space, &table).await?;
             let columns = Columns {
                 schema: &schema,
                 types: &types,
@@ -519,7 +524,7 @@ impl Api {
         spec: &ChartSpec,
     ) -> Result<ChartResult, ApiError> {
         let (schema, _) = self.analysis_columns(space, table).await?;
-        let types = self.analysis_types(space, table)?;
+        let types = self.analysis_types(space, table).await?;
         let columns = Columns {
             schema: &schema,
             types: &types,
@@ -959,7 +964,7 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let (schema, _) = self.analysis_columns(&req.space, &req.table).await?;
-        let types = self.analysis_types(&req.space, &req.table)?;
+        let types = self.analysis_types(&req.space, &req.table).await?;
         let columns = Columns {
             schema: &schema,
             types: &types,

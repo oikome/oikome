@@ -478,7 +478,9 @@ pub enum ColumnType {
     Integer,
     /// A floating-point number: DOUBLE.
     Number,
-    /// A fixed-point number, exact, for amounts of money: DECIMAL(18, 2).
+    /// A fixed-point number, exact, for amounts of money: DECIMAL(p, s),
+    /// `p` digits in all (1 to 38; 18, or 38 when the values need more,
+    /// unless chosen) and `s` of them after the point (2 unless chosen).
     Decimal,
     /// DATE.
     Date,
@@ -500,6 +502,10 @@ pub struct FieldProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub read_as: Option<ColumnType>,
+    /// That type as DuckDB names it: `DECIMAL(18, 4)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub read_type: Option<String>,
 }
 
 /// `dataset_profile`: inferred roles the owner can correct before analysis.
@@ -934,6 +940,15 @@ pub struct SetAnalysisType {
     #[serde(default)]
     #[ts(optional)]
     pub read_as: Option<ColumnType>,
+    /// A decimal's digits in all, 1 to 38: 18, or 38 when its values need
+    /// more, when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub precision: Option<u8>,
+    /// A decimal's digits after the point, 0 to its precision: 2 when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub scale: Option<u8>,
 }
 
 /// `build_analysis`: make the analysis tables the owner chose of a folder

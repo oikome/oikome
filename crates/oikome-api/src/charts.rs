@@ -35,7 +35,7 @@ use oikome_engine::Value;
 use oikome_node::{OikomeSession, QueryResult};
 use oikome_semantic::rewrite::quote_ident;
 
-use crate::file_analysis::SOURCE_FILE;
+use crate::file_analysis::{ReadAs, SOURCE_FILE};
 use crate::{
     AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartColumn, ChartFilter,
     ChartGroup, ChartLevel, ChartMetric, ChartQuery, ChartResult, ChartRows, ChartSeries,
@@ -61,33 +61,20 @@ const MAX_OFFERED: usize = 500;
 /// the owner has them read.
 struct Columns<'a> {
     schema: &'a Schema,
-    types: &'a BTreeMap<String, ColumnType>,
-}
-
-/// A type as DuckDB names it.
-fn sql_type(read_as: ColumnType) -> &'static str {
-    match read_as {
-        ColumnType::Text => "VARCHAR",
-        ColumnType::Integer => "BIGINT",
-        ColumnType::Number => "DOUBLE",
-        ColumnType::Decimal => "DECIMAL(18, 2)",
-        ColumnType::Date => "DATE",
-        ColumnType::Timestamp => "TIMESTAMP",
-        ColumnType::Boolean => "BOOLEAN",
-    }
+    types: &'a BTreeMap<String, ReadAs>,
 }
 
 impl Columns<'_> {
     fn read_as(&self, name: &str) -> Option<ColumnType> {
-        self.types.get(name).copied()
+        self.types.get(name).map(|t| t.kind)
     }
 
     /// A column's values as the chart reads them: as they are, or converted
     /// to the type the owner chose, a value that does not convert empty.
     fn value(&self, from: &str, name: &str) -> String {
         let column = col(from, name);
-        match self.read_as(name) {
-            Some(read_as) => format!("TRY_CAST({column} AS {})", sql_type(read_as)),
+        match self.types.get(name) {
+            Some(read_as) => format!("TRY_CAST({column} AS {})", read_as.sql),
             None => column,
         }
     }
@@ -110,7 +97,10 @@ impl Columns<'_> {
     }
 
     fn data_type(&self, name: &str) -> Option<&DataType> {
-        self.schema.field_with_name(name).ok().map(|f| f.data_type())
+        self.schema
+            .field_with_name(name)
+            .ok()
+            .map(|f| f.data_type())
     }
 
     fn is_number(&self, name: &str) -> bool {
@@ -438,7 +428,11 @@ fn numbers(column: &ArrayRef) -> Vec<Option<f64>> {
         return vec![None; column.len()];
     };
     (0..cast.len())
-        .map(|row| (!cast.is_null(row)).then(|| cast.value(row)).filter(|n| n.is_finite()))
+        .map(|row| {
+            (!cast.is_null(row))
+                .then(|| cast.value(row))
+                .filter(|n| n.is_finite())
+        })
         .collect()
 }
 
@@ -551,14 +545,17 @@ impl Api {
             let day = |text: &Option<String>| -> Result<Option<NaiveDate>, ApiError> {
                 text.as_deref()
                     .map(|t| {
-                        NaiveDate::parse_from_str(t.trim(), "%Y-%m-%d")
-                            .map_err(|_| ApiError::invalid(format!("{t} is not a day (2026-08-01)")))
+                        NaiveDate::parse_from_str(t.trim(), "%Y-%m-%d").map_err(|_| {
+                            ApiError::invalid(format!("{t} is not a day (2026-08-01)"))
+                        })
                     })
                     .transpose()
             };
             ends = (day(&time.from)?, day(&time.to)?);
             if time.range != TimeRange::Custom && (ends.0.is_some() || ends.1.is_some()) {
-                return Err(ApiError::invalid("from and to are the ends of a custom range"));
+                return Err(ApiError::invalid(
+                    "from and to are the ends of a custom range",
+                ));
             }
             if let (Some(from), Some(to)) = ends {
                 if from > to {
@@ -597,8 +594,7 @@ impl Api {
             }
             if let Some(time) = &spec.time {
                 let at = columns.value(from, &time.column);
-                let since =
-                    |days: u32| format!("{at} >= current_date - INTERVAL {days} DAY");
+                let since = |days: u32| format!("{at} >= current_date - INTERVAL {days} DAY");
                 match time.range {
                     TimeRange::All => {}
                     TimeRange::Last7Days => out.push(since(7)),
@@ -757,7 +753,11 @@ impl Api {
             None
         };
         let group_by = places(0..nk + nc);
-        let first = if timed { vec!["1".to_string()] } else { Vec::new() };
+        let first = if timed {
+            vec!["1".to_string()]
+        } else {
+            Vec::new()
+        };
         let rest = places(usize::from(timed)..nk + nc);
         // Compared values with an order or a number of groups: the groups are
         // picked and ordered by their own totals first (an average or a
@@ -780,7 +780,11 @@ impl Api {
             };
             let mut sql = format!(
                 "SELECT {}\nFROM {table_name}{}",
-                keys("").into_iter().chain(totals("")?).collect::<Vec<_>>().join(",\n       "),
+                keys("")
+                    .into_iter()
+                    .chain(totals("")?)
+                    .collect::<Vec<_>>()
+                    .join(",\n       "),
                 where_of(&kept)
             );
             if !group_by.is_empty() {

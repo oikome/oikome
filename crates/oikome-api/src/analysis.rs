@@ -127,6 +127,7 @@ pub(crate) fn schema_profile(space: &str, table: &str, schema: &SchemaRef) -> Da
                 role: role(field),
                 inferred: true,
                 read_as: None,
+                read_type: None,
             })
             .collect(),
         fingerprint: fingerprint(schema),

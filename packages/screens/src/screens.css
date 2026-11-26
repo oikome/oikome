@@ -5692,10 +5692,50 @@ tr.screen-source {
   font: var(--text-data);
   font-weight: 600;
 }
-/* A column's type as DuckDB names it. */
-.screen-analysis__type {
-  color: var(--ink3);
-  font: var(--text-data);
+/* A column's type, picked at the end of its row: the same width in every
+   row, compact, a decimal's size before it. */
+.screen-analysis__type-pick {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+/* As wide as the longest type's name in any language (French, 92px). */
+.screen-analysis__type-pick > .oik-field {
+  width: 144px;
+  margin: 0;
+}
+/* A decimal's size: two short boxes, each named beside it. */
+.screen-analysis__digits {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--ink2);
+  font: var(--text-small);
+  white-space: nowrap;
+}
+.screen-analysis__digits .oik-input {
+  width: 44px;
+  padding: 0 var(--space-1);
+  font: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.screen-analysis__type-pick .oik-select {
+  font: var(--text-small);
+}
+/* On a phone a decimal's row puts its size and type on a line of their own. */
+@media (max-width: 560px) {
+  .oik-row:has(.screen-analysis__digits) {
+    flex-wrap: wrap;
+  }
+  .oik-row:has(.screen-analysis__digits) .oik-row__trailing {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .screen-analysis__type-pick {
+    flex-wrap: wrap;
+  }
 }
 /* What reading a dataset needs: DuckDB's extension, and its download. */
 .screen-analysis__reader {

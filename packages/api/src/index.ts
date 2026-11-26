@@ -1554,7 +1554,11 @@ export type FieldProfile = { name: string, dataType: string, role: FieldRole, in
 /**
  * The type the owner has it read as, in place of `data_type`.
  */
-readAs?: ColumnType, };
+readAs?: ColumnType,
+/**
+ * That type as DuckDB names it: `DECIMAL(18, 4)`.
+ */
+readType?: string, };
 
 /**
  * `dataset_profile`: inferred roles the owner can correct before analysis.
@@ -1802,7 +1806,16 @@ export type ColumnType = "text" | "integer" | "number" | "decimal" | "date" | "t
  * `set_analysis_type`: read a column of an analysis table as another type
  * (`read_as`), or, with none, as DuckDB read it again.
  */
-export type SetAnalysisType = { space: string, table: string, column: string, readAs?: ColumnType, };
+export type SetAnalysisType = { space: string, table: string, column: string, readAs?: ColumnType,
+/**
+ * A decimal's digits in all, 1 to 38: 18, or 38 when its values need
+ * more, when left out.
+ */
+precision?: number,
+/**
+ * A decimal's digits after the point, 0 to its precision: 2 when left out.
+ */
+scale?: number, };
 
 /**
  * The order of a chart's groups: by one of its metrics (its place in

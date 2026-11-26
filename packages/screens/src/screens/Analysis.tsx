@@ -9,7 +9,7 @@
 // the owner may remove a table. A dataset in its folders (a Lance dataset,
 // an Iceberg table) is a table too, always, read where it is.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -41,14 +41,13 @@ const a = strings.analysisView;
  * money), and the one DuckDB read it as, if it is one of them.
  */
 const READ_AS: ColumnType[] = ["text", "integer", "number", "decimal", "date", "timestamp", "boolean"];
-const SQL_TYPES: Record<ColumnType, string> = {
-  text: "VARCHAR",
-  integer: "BIGINT",
-  number: "DOUBLE",
-  decimal: "DECIMAL(18, 2)",
-  date: "DATE",
-  timestamp: "TIMESTAMP",
-  boolean: "BOOLEAN",
+/** The most digits a decimal has in DuckDB. */
+const MAX_DIGITS = 38;
+/** A decimal's digits in all and after the point, of a type written `DECIMAL(18, 4)` or `Decimal128(18, 4)`. */
+type DecimalSize = [precision: number, scale: number];
+const sizeOf = (type: string | undefined): DecimalSize | undefined => {
+  const found = /^Decimal(?:128|256)?\((\d+), (\d+)\)$/i.exec(type ?? "");
+  return found ? [Number(found[1]), Number(found[2])] : undefined;
 };
 function kindOf(dataType: string): ColumnType | undefined {
   const exact: Partial<Record<string, ColumnType>> = {
@@ -57,12 +56,13 @@ function kindOf(dataType: string): ColumnType | undefined {
     Utf8View: "text",
     Int64: "integer",
     Float64: "number",
-    "Decimal128(18, 2)": "decimal",
+
     Date32: "date",
     Boolean: "boolean",
   };
   if (exact[dataType]) return exact[dataType];
   if (/^Timestamp\([A-Za-z]+, None\)$/.test(dataType)) return "timestamp";
+  if (/^Decimal(128|256)\(/.test(dataType)) return "decimal";
   return undefined;
 }
 /** A type to read a column as, in words. */
@@ -419,26 +419,51 @@ function TableView({
               const shown = field.readAs ?? natural;
               const read = duckType(field.dataType);
               const choices = readableAs(field.dataType);
+              const own = sizeOf(field.dataType);
+              const [precision, scale] = sizeOf(field.readType) ?? own ?? [18, 2];
+              // As DuckDB read it again when that is what is chosen; else read
+              // as chosen: a decimal with the size chosen, or with its places
+              // and as many digits as its values need.
+              const choose = async (kind: ColumnType | undefined, size?: DecimalSize) => {
+                const same = kind === natural && (kind !== "decimal" || !size || (own !== undefined && size[0] === own[0] && size[1] === own[1]));
+                const readAs = kind === undefined || same ? undefined : kind;
+                const decimal = readAs === "decimal" ? (size ? { precision: size[0], scale: size[1] } : { scale }) : {};
+                const next = await setType.run(
+                  () => client.setAnalysisType({ space, table: table.name, column: field.name, readAs, ...decimal }),
+                  // The one refusal left: a value too large for the size.
+                  (e) => (e.code === "invalid" && readAs === "decimal" ? a.decimalNoFit(field.name, `DECIMAL(${size?.[0] ?? MAX_DIGITS}, ${size?.[1] ?? scale})`) : undefined),
+                );
+                if (next) onChange(next);
+                return next !== undefined;
+              };
               return (
                 <Row
                   key={field.name}
                   title={<span translate="no">{field.name}</span>}
-                  meta={field.readAs ? a.convertedFrom(SQL_TYPES[field.readAs], read) : read}
+                  meta={field.readAs && field.readType ? a.convertedFrom(field.readType, read) : read}
                   trailing={
-                    <Select
-                      label={a.typeFor(field.name)}
-                      hideLabel
-                      value={shown ?? ""}
-                      onChange={async (value) => {
-                        const readAs = value === "" || value === natural ? undefined : (value as ColumnType);
-                        const next = await setType.run(() => client.setAnalysisType({ space, table: table.name, column: field.name, readAs }));
-                        if (next) onChange(next);
-                      }}
-                      options={[
-                        ...(natural ? [] : [{ value: "", label: read }]),
-                        ...READ_AS.filter((kind) => choices.includes(kind) || kind === natural).map((kind) => ({ value: kind, label: kindName(kind) })),
-                      ]}
-                    />
+                    // The type in one column in every row: a decimal's size comes before it.
+                    <div className="screen-analysis__type-pick">
+                      {shown === "decimal" && (
+                        <DecimalDigits
+                          column={field.name}
+                          precision={precision}
+                          scale={scale}
+                          onApply={(size) => choose("decimal", size)}
+                          onProblem={setType.fail}
+                        />
+                      )}
+                      <Select
+                        label={a.typeFor(field.name)}
+                        hideLabel
+                        value={shown ?? ""}
+                        onChange={(value) => void choose(value === "" ? undefined : (value as ColumnType))}
+                        options={[
+                          ...(natural ? [] : [{ value: "", label: read }]),
+                          ...READ_AS.filter((kind) => choices.includes(kind) || kind === natural).map((kind) => ({ value: kind, label: kindName(kind) })),
+                        ]}
+                      />
+                    </div>
                   }
                 />
               );
@@ -447,6 +472,88 @@ function TableView({
       )}
       {setType.error && <ErrorText>{setType.error}</ErrorText>}
     </div>
+  );
+}
+
+/**
+ * A decimal's size as two boxes: its digits in all (1 to 38) and after the
+ * point (0 to its digits). A box applies what is typed when it is left or on
+ * Enter; Escape, or a size refused, puts back the one in use.
+ */
+function DecimalDigits({
+  column,
+  precision,
+  scale,
+  onApply,
+  onProblem,
+}: {
+  column: string;
+  precision: number;
+  scale: number;
+  onApply: (size: DecimalSize) => Promise<boolean>;
+  onProblem: (message: string) => void;
+}) {
+  const [digits, setDigits] = useState(String(precision));
+  const [places, setPlaces] = useState(String(scale));
+  // Each box follows its own number, so an answer to one leaves the other as typed.
+  useEffect(() => setDigits(String(precision)), [precision]);
+  useEffect(() => setPlaces(String(scale)), [scale]);
+  const skip = useRef(false);
+  const putBack = () => {
+    setDigits(String(precision));
+    setPlaces(String(scale));
+  };
+  const apply = async () => {
+    if (skip.current) {
+      skip.current = false;
+      return;
+    }
+    const number = (typed: string) => (/^\d{1,2}$/.test(typed.trim()) ? Number(typed) : Number.NaN);
+    const p = number(digits);
+    const s = number(places);
+    if (p === precision && s === scale) return;
+    if (!(p >= 1 && p <= MAX_DIGITS)) {
+      putBack();
+      onProblem(a.precisionRange(MAX_DIGITS));
+      return;
+    }
+    if (!(s >= 0 && s <= p)) {
+      putBack();
+      onProblem(a.scaleRange);
+      return;
+    }
+    if (!(await onApply([p, s]))) putBack();
+  };
+  const box = (name: string, label: string, value: string, set: (value: string) => void) => (
+    <label className="screen-analysis__digits">
+      <span>{label}</span>
+      <input
+        className="oik-input"
+        name={name}
+        aria-label={name === "precision" ? a.precisionFor(column) : a.scaleFor(column)}
+        inputMode="numeric"
+        autoComplete="off"
+        maxLength={2}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={() => void apply()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            skip.current = true;
+            putBack();
+            e.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+  return (
+    <>
+      {box("precision", a.precision, digits, setDigits)}
+      {box("scale", a.scale, places, setPlaces)}
+    </>
   );
 }
 

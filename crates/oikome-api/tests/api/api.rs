@@ -7039,7 +7039,12 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         result
             .groups
             .iter()
-            .map(|g| g.keys.iter().map(|k| k.clone().unwrap_or_default()).collect())
+            .map(|g| {
+                g.keys
+                    .iter()
+                    .map(|k| k.clone().unwrap_or_default())
+                    .collect()
+            })
             .collect()
     };
     let firsts = |result: &ChartResult| -> Vec<String> {
@@ -7064,7 +7069,10 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     .unwrap();
     assert_eq!(by_month.matched, 6);
     assert_eq!(by_month.series.len(), 5);
-    assert_eq!(firsts(&by_month), ["2026-07", "2026-08", "2026-09", "2026-10"]);
+    assert_eq!(
+        firsts(&by_month),
+        ["2026-07", "2026-08", "2026-09", "2026-10"]
+    );
     assert_eq!(by_month.groups[1].values, [None, None, None, None, None]);
     assert_eq!(
         by_month.groups[2].values,
@@ -7094,7 +7102,10 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     }))
     .await
     .unwrap();
-    assert_eq!(firsts(&ordered), ["2026-07", "2026-08", "2026-09", "2026-10"]);
+    assert_eq!(
+        firsts(&ordered),
+        ["2026-07", "2026-08", "2026-09", "2026-10"]
+    );
     assert_eq!(
         ordered.query.sql,
         "SELECT strftime(\"date\", '%Y-%m') AS \"date\",\n       SUM(\"amount\") AS \"SUM(amount)\"\n\
@@ -7107,7 +7118,9 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     // the rows: the year's average is of its rows, not of its months.
     let at = |grain: &str, period: Option<(&str, &str)>| {
         let filters = match period {
-            Some((of, key)) => serde_json::json!([{"column": "date", "period": {"grain": of, "key": key}}]),
+            Some((of, key)) => {
+                serde_json::json!([{"column": "date", "period": {"grain": of, "key": key}}])
+            }
             None => serde_json::json!([]),
         };
         serde_json::json!({
@@ -7120,18 +7133,24 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     let year = compute(at("year", None)).await.unwrap();
     assert_eq!(firsts(&year), ["2026"]);
     assert_eq!(year.groups[0].values, [Some(110.25), Some(110.25 / 6.0)]);
-    let quarters = compute(at("quarter", Some(("year", "2026")))).await.unwrap();
+    let quarters = compute(at("quarter", Some(("year", "2026"))))
+        .await
+        .unwrap();
     assert_eq!(
         firsts(&quarters),
         ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4"]
     );
     assert_eq!(quarters.groups[0].values, [None, None]);
     assert_eq!(quarters.groups[2].values[0], Some(82.0));
-    let months = compute(at("month", Some(("quarter", "2026-Q3")))).await.unwrap();
+    let months = compute(at("month", Some(("quarter", "2026-Q3"))))
+        .await
+        .unwrap();
     assert_eq!(firsts(&months), ["2026-07", "2026-08", "2026-09"]);
     assert!(months.query.sql.contains("= ?1"));
     assert_eq!(months.query.params, ["'2026-Q3'"]);
-    let days = compute(at("day", Some(("month", "2026-09")))).await.unwrap();
+    let days = compute(at("day", Some(("month", "2026-09"))))
+        .await
+        .unwrap();
     assert_eq!(days.groups.len(), 30);
     assert_eq!(days.matched, 3);
     let weeks = compute(at("week", None)).await.unwrap();
@@ -7215,9 +7234,10 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
 
     // A number by its values, in their order; a date by its days; and a
     // value of either kept as it is shown.
-    let by_items = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
-        .await
-        .unwrap();
+    let by_items =
+        compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
+            .await
+            .unwrap();
     assert_eq!(firsts(&by_items), ["1", "2", "3", "10"]);
     assert_eq!(by_items.groups[1].values, [Some(2.0)]);
     let by_day = compute(serde_json::json!({"chart": "table", "dimensions": [{"column": "date"}]}))
@@ -7259,9 +7279,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
             "filters": filters
         })
     };
-    let ticked = compute(filtered(serde_json::json!([{"column": "category", "values": [odd, "Books"]}])))
-        .await
-        .unwrap();
+    let ticked = compute(filtered(
+        serde_json::json!([{"column": "category", "values": [odd, "Books"]}]),
+    ))
+    .await
+    .unwrap();
     assert_eq!(ticked.matched, 3);
     assert_eq!(firsts(&ticked), ["Books", odd]);
     assert!(!ticked.query.sql.contains("DROP TABLE x"));
@@ -7269,9 +7291,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .query
         .params
         .contains(&"'It''s \"odd\"; DROP TABLE x'".to_string()));
-    let ranged = compute(filtered(serde_json::json!([{"column": "amount", "min": "9", "max": "20"}])))
-        .await
-        .unwrap();
+    let ranged = compute(filtered(
+        serde_json::json!([{"column": "amount", "min": "9", "max": "20"}]),
+    ))
+    .await
+    .unwrap();
     assert_eq!(ranged.matched, 3);
     let recent = compute(serde_json::json!({
         "chart": "column",
@@ -7309,13 +7333,19 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         table: "spending".into(),
         column: column.into(),
         read_as,
+        precision: None,
+        scale: None,
     };
     let changed = n
         .api
         .set_analysis_type(&OWNER, read_as("items", Some(ColumnType::Text)))
         .await
         .unwrap();
-    let items = changed.tables[0].fields.iter().find(|f| f.name == "items").unwrap();
+    let items = changed.tables[0]
+        .fields
+        .iter()
+        .find(|f| f.name == "items")
+        .unwrap();
     assert_eq!(items.read_as, Some(ColumnType::Text));
     assert_eq!(items.data_type, "Int64");
     let as_text = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
@@ -7326,31 +7356,85 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .query
         .sql
         .contains("TRY_CAST(\"items\" AS VARCHAR) AS \"items\""));
-    assert!(compute(serde_json::json!({"chart": "bar", "metrics": [{"column": "items", "aggregate": "sum"}]}))
-        .await
-        .is_err());
+    assert!(compute(
+        serde_json::json!({"chart": "bar", "metrics": [{"column": "items", "aggregate": "sum"}]})
+    )
+    .await
+    .is_err());
     // An amount read as an exact decimal is still totalled.
     n.api
         .set_analysis_type(&OWNER, read_as("amount", Some(ColumnType::Decimal)))
         .await
         .unwrap();
-    let exact = compute(serde_json::json!({"chart": "bar", "metrics": [{"column": "amount", "aggregate": "sum"}]}))
-        .await
-        .unwrap();
+    let exact = compute(
+        serde_json::json!({"chart": "bar", "metrics": [{"column": "amount", "aggregate": "sum"}]}),
+    )
+    .await
+    .unwrap();
     assert_eq!(exact.groups[0].values, [Some(110.25)]);
     assert!(exact
         .query
         .sql
         .contains("SUM(TRY_CAST(\"amount\" AS DECIMAL(18, 2)))"));
+    // Its digits and places as chosen, within DuckDB's limits; a choice
+    // its largest value (30.5) does not fit is refused.
+    let decimal = |precision: Option<u8>, scale: Option<u8>| SetAnalysisType {
+        precision,
+        scale,
+        ..read_as("amount", Some(ColumnType::Decimal))
+    };
+    let read_type = |analysis: &FileAnalysis| {
+        analysis.tables[0]
+            .fields
+            .iter()
+            .find(|f| f.name == "amount")
+            .and_then(|f| f.read_type.clone())
+    };
+    let four = n
+        .api
+        .set_analysis_type(&OWNER, decimal(None, Some(4)))
+        .await
+        .unwrap();
+    assert_eq!(read_type(&four).as_deref(), Some("DECIMAL(18, 4)"));
+    let wide = n
+        .api
+        .set_analysis_type(&OWNER, decimal(Some(38), Some(10)))
+        .await
+        .unwrap();
+    assert_eq!(read_type(&wide).as_deref(), Some("DECIMAL(38, 10)"));
+    let narrow = n
+        .api
+        .set_analysis_type(&OWNER, decimal(Some(4), Some(1)))
+        .await
+        .unwrap();
+    assert_eq!(read_type(&narrow).as_deref(), Some("DECIMAL(4, 1)"));
+    for (precision, scale) in [
+        (Some(39), Some(2)),
+        (Some(4), Some(5)),
+        (Some(3), Some(2)),
+        (Some(0), Some(0)),
+    ] {
+        let err = n
+            .api
+            .set_analysis_type(&OWNER, decimal(precision, scale))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.code,
+            ErrorCode::Invalid,
+            "{precision:?} {scale:?}: {err:?}"
+        );
+    }
     for column in ["items", "amount"] {
         n.api
             .set_analysis_type(&OWNER, read_as(column, None))
             .await
             .unwrap();
     }
-    let as_number = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
-        .await
-        .unwrap();
+    let as_number =
+        compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
+            .await
+            .unwrap();
     assert_eq!(firsts(&as_number), ["1", "2", "3", "10"]);
     for refused in ["nothing", "_source_file"] {
         assert!(n
@@ -7367,8 +7451,13 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .is_err());
 
     // Nothing grouped or totalled: the rows themselves.
-    let rows = compute(serde_json::json!({"chart": "table"})).await.unwrap();
-    assert!(rows.query.sql.starts_with("SELECT *\nFROM \"household\".\"spending\""));
+    let rows = compute(serde_json::json!({"chart": "table"}))
+        .await
+        .unwrap();
+    assert!(rows
+        .query
+        .sql
+        .starts_with("SELECT *\nFROM \"household\".\"spending\""));
     let rows = rows.rows.unwrap();
     assert_eq!(
         &rows.columns[..5],
@@ -7448,10 +7537,16 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     let before = n.api.file_analysis(&OWNER, household()).await.unwrap();
     let starting = &before.tables[0].views;
     assert_eq!(starting.len(), 1);
-    assert_eq!((starting[0].id.as_str(), starting[0].name.as_str()), ("default", ""));
+    assert_eq!(
+        (starting[0].id.as_str(), starting[0].name.as_str()),
+        ("default", "")
+    );
     let starting: ChartSpec = serde_json::from_str(&starting[0].config).unwrap();
     assert_eq!(starting.chart, ChartKind::Column);
-    assert_eq!(starting.time.as_ref().map(|t| (t.column.as_str(), t.grain)), Some(("date", DateGrain::Month)));
+    assert_eq!(
+        starting.time.as_ref().map(|t| (t.column.as_str(), t.grain)),
+        Some(("date", DateGrain::Month))
+    );
     let kept = n
         .api
         .save_analysis_view(
@@ -7517,7 +7612,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .save_analysis_view(&OWNER, save(Some("default"), "", r#"{"chart":"area"}"#))
         .await
         .unwrap();
-    let ids: Vec<_> = kept.tables[0].views.iter().map(|v| (v.id.as_str(), v.name.as_str())).collect();
+    let ids: Vec<_> = kept.tables[0]
+        .views
+        .iter()
+        .map(|v| (v.id.as_str(), v.name.as_str()))
+        .collect();
     assert_eq!(ids, [("default", ""), (id.as_str(), "By month")]);
     let restored = n
         .api
@@ -7774,7 +7873,11 @@ async fn an_assistant_charts_its_collections_and_keeps_charts_marked_as_its_own(
         .collect();
     assert_eq!(
         views,
-        [("", None), ("Spending by month", Some("Claude Code")), ("Mine", None)]
+        [
+            ("", None),
+            ("Spending by month", Some("Claude Code")),
+            ("Mine", None)
+        ]
     );
     // Changed and saved by the owner, it is the owner's.
     let owned = n

@@ -83,11 +83,40 @@ pub(crate) fn readable_as(from: &arrow_schema::DataType, to: ColumnType) -> bool
         | T::Float64
         | T::Decimal128(_, _)
         | T::Decimal256(_, _) => matches!(to, C::Text | C::Integer | C::Number | C::Decimal),
-        T::Date32 | T::Date64 | T::Timestamp(_, _) => matches!(to, C::Text | C::Date | C::Timestamp),
+        T::Date32 | T::Date64 | T::Timestamp(_, _) => {
+            matches!(to, C::Text | C::Date | C::Timestamp)
+        }
         T::Boolean => matches!(to, C::Text | C::Boolean | C::Integer),
         _ => to == C::Text,
     }
 }
+
+/// A column read as another type: what it is, and that type as DuckDB names
+/// it (`DECIMAL(18, 4)`), as charts read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReadAs {
+    pub kind: ColumnType,
+    pub sql: String,
+}
+
+/// A type as DuckDB names it; a decimal with its digits and places.
+fn sql_type(kind: ColumnType, decimal: Option<(u8, u8)>) -> String {
+    match kind {
+        ColumnType::Text => "VARCHAR".into(),
+        ColumnType::Integer => "BIGINT".into(),
+        ColumnType::Number => "DOUBLE".into(),
+        ColumnType::Decimal => {
+            let (digits, places) = decimal.unwrap_or((18, 2));
+            format!("DECIMAL({digits}, {places})")
+        }
+        ColumnType::Date => "DATE".into(),
+        ColumnType::Timestamp => "TIMESTAMP".into(),
+        ColumnType::Boolean => "BOOLEAN".into(),
+    }
+}
+
+/// The most digits a decimal has in DuckDB.
+const MAX_DIGITS: u8 = 38;
 
 /// The chart a table starts with, once: over its first column of time, by
 /// month, as columns, when it has one; else its rows.
@@ -168,6 +197,9 @@ struct KeptTable {
     /// Types the owner has columns read as, by column.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     types: BTreeMap<String, ColumnType>,
+    /// For a column read as a decimal: its digits and decimal places.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    decimals: BTreeMap<String, (u8, u8)>,
     built_at_ms: u64,
     rows: u64,
     #[serde(default)]
@@ -701,6 +733,7 @@ impl Api {
             sheet: None,
             roles: was.map(|t| t.roles.clone()).unwrap_or_default(),
             types: was.map(|t| t.types.clone()).unwrap_or_default(),
+            decimals: was.map(|t| t.decimals.clone()).unwrap_or_default(),
             built_at_ms: crate::now_ms(),
             rows,
             problem,
@@ -813,6 +846,7 @@ impl Api {
             }
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
             let types = entry.map(|t| t.types.clone()).unwrap_or_default();
+            let decimals = entry.map(|t| t.decimals.clone()).unwrap_or_default();
             let views = entry.map(|t| t.views.clone()).unwrap_or_default();
             let started = entry.is_some_and(|t| t.started);
             if let Input::Dataset(dataset) = &input {
@@ -835,6 +869,7 @@ impl Api {
                     sheet,
                     roles,
                     types: types.clone(),
+                    decimals: decimals.clone(),
                     built_at_ms: crate::now_ms(),
                     rows,
                     problem: None,
@@ -847,6 +882,7 @@ impl Api {
                     sheet,
                     roles,
                     types: types.clone(),
+                    decimals: decimals.clone(),
                     built_at_ms: crate::now_ms(),
                     rows: 0,
                     problem: Some(e.to_string()),
@@ -913,6 +949,9 @@ impl Api {
                                     schema
                                         .field_with_name(&field.name)
                                         .is_ok_and(|f| readable_as(f.data_type(), *t))
+                                });
+                                field.read_type = field.read_as.map(|kind| {
+                                    sql_type(kind, table.decimals.get(&field.name).copied())
                                 });
                                 field
                             })
@@ -1081,13 +1120,83 @@ impl Api {
                 )));
             }
         }
+        // A decimal's digits and places, as chosen, within DuckDB's limits;
+        // its digits, unless chosen, 18 or as many as its largest value needs.
+        // A choice its largest value does not fit is refused: its values
+        // would only be empty.
+        let decimal = match req.read_as {
+            Some(ColumnType::Decimal) => {
+                let places = req.scale.unwrap_or(2);
+                if let Some(digits) = req.precision {
+                    if !(1..=MAX_DIGITS).contains(&digits) {
+                        return Err(ApiError::invalid(format!(
+                            "a decimal has 1 to {MAX_DIGITS} digits"
+                        )));
+                    }
+                }
+                if places > req.precision.unwrap_or(MAX_DIGITS) {
+                    return Err(ApiError::invalid(
+                        "a decimal has no more places than digits",
+                    ));
+                }
+                let largest = self
+                    .session(None)
+                    .sql(&format!(
+                        "SELECT max(abs(TRY_CAST({} AS DOUBLE))) FROM {}.{}",
+                        quote_ident(&req.column),
+                        quote_ident(&req.space),
+                        quote_ident(&req.table)
+                    ))
+                    .await
+                    .ok()
+                    .and_then(|result| match result {
+                        QueryResult::Batches { batches, .. } => {
+                            batches.into_iter().find(|b| b.num_rows() > 0)
+                        }
+                        _ => None,
+                    })
+                    .and_then(|batch| {
+                        batch
+                            .column(0)
+                            .as_any()
+                            .downcast_ref::<Float64Array>()
+                            .filter(|c| c.is_valid(0))
+                            .map(|c| c.value(0))
+                    })
+                    .unwrap_or(0.0);
+                let fits = |digits: u8| largest < 10f64.powi(i32::from(digits) - i32::from(places));
+                let digits = match req.precision {
+                    Some(digits) if fits(digits) => digits,
+                    Some(digits) => {
+                        return Err(ApiError::invalid(format!(
+                            "{} reaches {largest}: it does not fit DECIMAL({digits}, {places})",
+                            req.column
+                        )))
+                    }
+                    None if places <= 18 && fits(18) => 18,
+                    None => MAX_DIGITS,
+                };
+                if !fits(digits) {
+                    return Err(ApiError::invalid(format!(
+                        "{} reaches {largest}: it does not fit DECIMAL({digits}, {places})",
+                        req.column
+                    )));
+                }
+                Some((digits, places))
+            }
+            _ => None,
+        };
         let mut kept = self.kept(&req.space)?;
         let table = kept.tables.get_mut(&req.table).ok_or_else(|| {
             ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
         })?;
         match req.read_as {
-            Some(read_as) => table.types.insert(req.column, read_as),
+            Some(read_as) => table.types.insert(req.column.clone(), read_as),
             None => table.types.remove(&req.column),
+        };
+        match decimal {
+            Some(decimal) => table.decimals.insert(req.column, decimal),
+            None => table.decimals.remove(&req.column),
         };
         self.keep(&req.space, &kept)?;
         self.follow_files(&req.space, &[]).await
@@ -1099,19 +1208,23 @@ impl Api {
         &self,
         space: &str,
         table: &str,
-    ) -> Result<BTreeMap<String, ColumnType>, ApiError> {
+    ) -> Result<BTreeMap<String, ReadAs>, ApiError> {
         let (schema, _) = self.analysis_columns(space, table).await?;
-        Ok(self
-            .kept(space)?
-            .tables
-            .get(table)
-            .map(|t| t.types.clone())
-            .unwrap_or_default()
-            .into_iter()
+        let kept = self.kept(space)?;
+        let Some(entry) = kept.tables.get(table) else {
+            return Ok(BTreeMap::new());
+        };
+        Ok(entry
+            .types
+            .iter()
             .filter(|(column, read_as)| {
                 schema
                     .field_with_name(column)
-                    .is_ok_and(|f| readable_as(f.data_type(), *read_as))
+                    .is_ok_and(|f| readable_as(f.data_type(), **read_as))
+            })
+            .map(|(column, kind)| {
+                let sql = sql_type(*kind, entry.decimals.get(column).copied());
+                (column.clone(), ReadAs { kind: *kind, sql })
             })
             .collect())
     }
@@ -1210,7 +1323,8 @@ impl Api {
             .get_mut(table)
             .ok_or_else(|| ApiError::not_found(format!("{space} has no analysis table {table}")))?;
         // The chart a table starts with keeps its blank name until renamed.
-        let blank = id.is_some_and(|id| entry.views.iter().any(|v| v.id == id && v.name.is_empty()));
+        let blank =
+            id.is_some_and(|id| entry.views.iter().any(|v| v.id == id && v.name.is_empty()));
         if (name.is_empty() && !blank) || name.chars().count() > MAX_VIEW_NAME_CHARS {
             return Err(ApiError::invalid(format!(
                 "a view's name has 1 to {MAX_VIEW_NAME_CHARS} characters"

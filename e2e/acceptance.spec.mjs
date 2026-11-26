@@ -437,10 +437,25 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(itemsType).toHaveValue("integer");
     // Only what it can become: a number is no date.
     await expect(itemsType.locator("option", { hasText: "Date" })).toHaveCount(0);
-    await itemsType.selectOption({ label: "Text" });
-    await expect(page.getByText("VARCHAR (was BIGINT)")).toBeVisible();
-    await itemsType.selectOption({ label: "Whole Number" });
-    await expect(page.getByText("VARCHAR (was BIGINT)")).toHaveCount(0);
+    await itemsType.selectOption({ label: "String" });
+    await expect(page.getByText("BIGINT to VARCHAR")).toBeVisible();
+    await itemsType.selectOption({ label: "Integer" });
+    await expect(page.getByText("BIGINT to VARCHAR")).toHaveCount(0);
+    // A decimal's size: its digits in all and after the point, typed; a size
+    // its values do not fit (rent is 950.00) is refused and put back.
+    const amountType = page.getByLabel("Type of amount");
+    await amountType.selectOption({ label: "Decimal" });
+    await expect(page.getByText("DOUBLE to DECIMAL(18, 2)")).toBeVisible();
+    const precision = page.getByLabel("Precision of amount");
+    await precision.fill("12");
+    await precision.press("Enter");
+    await expect(page.getByText("DOUBLE to DECIMAL(12, 2)")).toBeVisible();
+    await precision.fill("3");
+    await precision.press("Enter");
+    await expect(page.getByText("Some values of amount do not fit DECIMAL(3, 2).")).toBeVisible();
+    await expect(precision).toHaveValue("12");
+    await amountType.selectOption({ label: "Double" });
+    await expect(page.getByText("DOUBLE to DECIMAL(12, 2)")).toHaveCount(0);
     // The trams taken, an Iceberg table in the bucket, are one item of the
     // archive, not its files.
     await page.goto(`${running.base}/collections/rustfs-archive`);

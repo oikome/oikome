@@ -95,6 +95,9 @@ Delivered as the first concrete form of "Generate analysis data" for files:
 6. **PR 29:** folders from several places in one collection, CSV sources converted to files, Excel sheets as analysis tables.
 7. **PR 30–31:** backup and restore, then read-only Lance and Iceberg datasets in collections' folders. Parquet and CSV on RustFS came with PR 29.
 8. **PR 32:** the plugin sandbox and RAW previews. Media recognition (knowledge K4) is not planned (2026-11-19).
-9. **After:** freer analysis through a third-party library in a plugin, and tables as knowledge (K3). See `roadmap.md` and `research/next-phases.md`.
+9. **PR 33:** BI in the Analysis view: charts described in a panel, computed by the data center in DuckDB and drawn by ECharts.
+10. **PR 34–35:** filters as BI tools have them and display modes (share, change over time, running total, moving average, rank); metadata in Oikome SQL (`SHOW`, `DESCRIBE`).
+10a. **PR 36:** a Notion data source: pages kept in sync as Markdown files in a collection's folder, by the owner's rules.
+11. **Later, not numbered yet:** charts on Home and a big screen of one's own charts (3D later, as a plugin); table semantics (metrics, a metric library of templates, column descriptions and units, aligned with Apache Ossie), then tables as knowledge (K3). The whole product comes first. See `roadmap.md`.
 
 Advanced dataset and migration capabilities must be marked planned until their real-node acceptance scenarios pass. They must not appear as supported options in the ordinary interface. Reading datasets and Copy to Oikome appear once PR 31's acceptance scenario passes.

@@ -213,7 +213,7 @@ Data comes from sources into collections, and every visitor reads what the autho
 - **Owner sign-in:** the local web page listens only on 127.0.0.1 and is entered through the one-time link `oikome web open` opens. Remote management, by giving the owner's own devices a management grant, is decided with the phone app.
 - **Recovery key:** the identity is the seed, and no platform can recover it for you. The first run guides a backup, and Settings can export it again. It also opens the data center's backups.
 - **Restore from Backup** (PR 30): in Settings › Backup, turn this data center back to one of its backups: choose the place (or another folder on this computer) and the backup, and Oikome puts it in place when it is next started, then says which original files are no longer where they were. Its own identity opens its backups; the recovery key is asked for only when it no longer does. A backup of another data folder is refused: restoring onto another computer or into another folder belongs to the commercial edition, with an account, hosted storage and hosted recovery keys.
-- **Security mode** (3.7): one switch per node, off by default. It turns nothing off; it adds protection to how data moves. Local discovery announces only a random identifier, contacts' queries are recorded with their SQL and row counts, copies shared with contacts are sealed and deleted after revocation, borrowing someone else's compute sends only the columns a task reads, and shares last 30 days by default (architecture §17.4).
+- **No security mode** (2026-11-27; it was 3.7): one switch for the whole node was too abstract. Protection everyone needs is the default (the node key in the OS keychain, a reminder when the disk is not encrypted, a published way to report a vulnerability); protection that matters at one step is an option there, such as a copy share deleted on the contact's node when it is taken back, and a share's lifetime chosen when sharing (architecture §17.4).
 
 ## Milestones
 
@@ -232,7 +232,7 @@ A milestone starts only once its gate phases are done; no skipping (architecture
 | M9 Family | Give family members their own identity and what each may see | M7 | Not started |
 | M10 Plugins from others | Install source, card and Content/Preview plugins other people make, one at a time, signed, from an independent plugin library | M4 | Not started; last, with M5 |
 
-**Order (2026-11-17).** Phase numbers are not the order. Done through PR 26. Current: internal analysis profiles as core computation (PR 27), starting with precise collection-contained source targets. Next: knowledge for AI in steps K1–K4 (chunks and full text, a local embedding model and skills, tables as knowledge, media) and real RAW plugins (PR 28, `docs/knowledge-schema.md`); dataset interoperability with backup/recovery (PR 29). Then security mode (3.7), desktop (M6), phone/devices (M7), family (M9) and WebDAV (3.13). M5 and M10 remain last. See [the roadmap](roadmap.md) and [the analysis plan](data-analysis.md).
+**Order (2026-11-17).** Phase numbers are not the order. Done through PR 26. Current: internal analysis profiles as core computation (PR 27), starting with precise collection-contained source targets. Next: knowledge for AI in steps K1–K4 (chunks and full text, a local embedding model and skills, tables as knowledge, media) and real RAW plugins (PR 28, `docs/knowledge-schema.md`); dataset interoperability with backup/recovery (PR 29). Then family (M9), M5 and M10; the desktop (M6) and phone (M7) apps come last, once the features are complete; security mode (3.7) and WebDAV (3.13) are not planned (2026-11-27). See [the roadmap](roadmap.md) and [the analysis plan](data-analysis.md).
 
 Device pairing comes with the phone app (M7). The smart home reference plugin also depends on which phase the Home Assistant source lands in (see Open Questions).
 
@@ -241,7 +241,7 @@ The core phases also schedule the following; their screens come with the phases:
 - Save To, with portfolios (3.10).
 - Public shares, with photos' location removed (3.8).
 
-Serving Oikome over WebDAV, so other apps can use it as a drive, is phase 3.13. Reaching home from anywhere is done (3.12), without any relay: the router opens a port while the owner allows it, or a contact both homes reach introduces them.
+Serving Oikome over WebDAV, so other apps can use it as a drive (3.13), is not planned (2026-11-27): on the computer, collections are ordinary folders, and the desktop and phone apps reach the rest. Reaching home from anywhere is done (3.12), without any relay: the router opens a port while the owner allows it, or a contact both homes reach introduces them.
 
 ## Non-goals
 

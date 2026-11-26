@@ -336,15 +336,59 @@ function generateFiles(root) {
     }
   }
   write(root, "household/readings.csv", readings.join("\n") + "\n");
-  const spends = [["Groceries", 38], ["Transport", 12], ["Eating out", 27], ["Utilities", 64], ["Books", 19], ["Health", 22]];
-  for (const month of [9, 10, 11]) {
-    const rows = ["date,category,amount,note"];
-    for (let day = 1; day <= 28; day++) {
-      const [category, base] = spends[(day * 5 + month) % spends.length];
-      const amount = (base + ((day * 37 + month * 11) % 23) - 8 + ((day * 13) % 100) / 100).toFixed(2);
-      rows.push(`2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")},${category},${amount},${category === "Books" ? "Bertrand" : ""}`);
-    }
-    write(root, `household/spending/2026-${String(month).padStart(2, "0")}.csv`, rows.join("\n") + "\n");
+  // The household's ledger: two years of it, a file a month, kept the way a
+  // banking app exports it. When; what for (a category, its subcategory, the
+  // merchant); who paid, how and where; how much, and how many items. Rent and
+  // bills monthly, groceries and coffees often, a summer trip to Porto, more
+  // electricity in winter, prices a little higher the second year.
+  let seed = 20250101;
+  const random = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+  const choose = (list) => list[Math.floor(random() * list.length)];
+  const ledger = [
+    // category, subcategory, merchants, times a month, typical amount, items at most
+    ["Home", "Rent", ["Landlord"], 1, 950, 1],
+    ["Home", "Furniture", ["IKEA", "Leroy Merlin"], 0.25, 120, 4],
+    ["Utilities", "Electricity", ["EDP"], 1, 52, 1],
+    ["Utilities", "Water", ["EPAL"], 1, 21, 1],
+    ["Utilities", "Internet", ["MEO"], 1, 39.99, 1],
+    ["Groceries", "Supermarket", ["Pingo Doce", "Continente", "Lidl"], 7, 46, 18],
+    ["Groceries", "Bakery", ["Padaria Portuguesa", "Fábrica da Nata"], 6, 7, 4],
+    ["Groceries", "Market", ["Mercado de Campo de Ourique"], 2, 24, 8],
+    ["Eating out", "Restaurant", ["Zé da Mouraria", "Taberna da Rua das Flores", "Cervejaria Ramiro"], 3, 38, 2],
+    ["Eating out", "Café", ["A Brasileira", "Café Nicola", "Fábrica Coffee Roasters"], 6, 5, 2],
+    ["Eating out", "Takeaway", ["Uber Eats", "Glovo"], 2, 21, 3],
+    ["Transport", "Public transport", ["Carris", "Metro Lisboa", "CP"], 6, 8, 2],
+    ["Transport", "Taxi", ["Bolt", "Uber"], 2, 12, 1],
+    ["Health", "Pharmacy", ["Farmácia Barreto"], 1, 17, 3],
+    ["Health", "Doctor", ["CUF"], 0.2, 65, 1],
+    ["Leisure", "Books", ["Bertrand", "Livraria Lello"], 1, 19, 2],
+    ["Leisure", "Cinema", ["Cinema Ideal", "Cinema São Jorge"], 1, 13, 2],
+    ["Leisure", "Concerts", ["Musicbox", "Coliseu"], 0.5, 28, 2],
+  ];
+  const trip = [["Leisure", "Travel", ["CP", "Booking.com"], 2, 110, 2], ["Eating out", "Restaurant", ["Café Santiago", "Cantinho do Avillez"], 4, 34, 2], ["Transport", "Public transport", ["Metro do Porto"], 4, 3, 2]];
+  for (let at = 0; at < 23; at++) {
+    const year = 2025 + Math.floor(at / 12), month = (at % 12) + 1;
+    const winter = month === 12 || month <= 2 ? 1.45 : month >= 6 && month <= 8 ? 0.8 : 1;
+    const prices = year === 2026 ? 1.03 : 1;
+    const spends = [];
+    const spend = ([category, subcategory, merchants, often, base, most], city) => {
+      const times = Math.floor(often) + (random() < often % 1 ? 1 : 0);
+      for (let n = 0; n < times; n++) {
+        const fixed = subcategory === "Rent" || category === "Utilities";
+        const day = fixed ? (subcategory === "Rent" ? 1 : 8 + n) : 1 + Math.floor(random() * 28);
+        const scale = subcategory === "Electricity" ? winter : 0.7 + random() * 0.6;
+        const amount = (fixed && subcategory !== "Electricity" ? base * prices : base * prices * scale).toFixed(2);
+        const member = subcategory === "Rent" ? "Rosh" : random() < 0.55 ? "Rosh" : "Alex";
+        const payment = fixed ? "Direct debit" : random() < 0.62 ? "Card" : random() < 0.7 ? "MB Way" : "Cash";
+        const items = Math.max(1, Math.ceil(random() * most));
+        spends.push([`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`, category, subcategory, choose(merchants), member, payment, city, amount, items]);
+      }
+    };
+    for (const kind of ledger) spend(kind, "Lisbon");
+    if (month === 8) for (const kind of trip) spend(kind, "Porto");
+    spends.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const rows = ["date,category,subcategory,merchant,member,payment,city,amount,items", ...spends.map((row) => row.map((v) => (String(v).includes(",") ? `"${v}"` : v)).join(","))];
+    write(root, `household/spending/${year}-${String(month).padStart(2, "0")}.csv`, rows.join("\n") + "\n");
   }
   const steps = [];
   for (let day = 1; day <= 30; day++) {

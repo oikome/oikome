@@ -1701,9 +1701,8 @@ config: string,
 by: string | null, savedAtMs: number, };
 
 /**
- * `save_analysis_view`: keep a view with its table, a new one or, by its
- * id, one saved before. A view the table starts with (`month`, `category`,
- * `rows`) is saved in place under that id; removing it restores it.
+ * `save_analysis_view`: keep a view with its table, a new one (under a
+ * name, the first time it is saved) or, by its id, one saved before.
  */
 export type SaveAnalysisView = { space: string, table: string, id?: string, name: string, config: string, };
 
@@ -1715,7 +1714,7 @@ export type AnalysisViewRef = { space: string, table: string, id: string, };
 /**
  * How a chart is drawn.
  */
-export type ChartKind = "table" | "column" | "bar" | "line" | "area" | "treemap";
+export type ChartKind = "table" | "column" | "bar" | "line" | "area" | "pie" | "treemap";
 
 /**
  * What a date is grouped by.
@@ -1728,10 +1727,35 @@ export type DateGrain = "year" | "quarter" | "month" | "week" | "day";
 export type ChartAggregate = "sum" | "average" | "median" | "min" | "max" | "count" | "distinct";
 
 /**
- * A dimension: a column the rows are grouped by; a column of time at a
- * grain (by day when none is given).
+ * What part of its time a chart covers.
  */
-export type ChartDimension = { column: string, grain: DateGrain | null, };
+export type TimeRange = "all" | "thisYear" | "last30Days" | "last90Days" | "last365Days";
+
+/**
+ * A chart's time: a column of time (a date or a timestamp, as DuckDB read
+ * it), seen at a grain, over a range. Its grain is a level of one hierarchy
+ * (year, quarter, month, day; a week stands apart), rolled up or zoomed
+ * into; it is never a second dimension.
+ */
+export type ChartTime = { column: string, grain: DateGrain, range: TimeRange, };
+
+/**
+ * A dimension: a column the rows are grouped by, together with the time and
+ * the other dimensions. Any column but the chart's time: text, a number by
+ * its values, a date by its days.
+ */
+export type ChartDimension = { column: string, };
+
+/**
+ * A column a chart's groups are keyed by, and for its time the grain.
+ */
+export type ChartLevel = { column: string, grain: DateGrain | null, };
+
+/**
+ * The DuckDB query a chart ran, for the owner to read: its text, and the
+ * value each placeholder (`?1`, `?2`, …) was bound to, written as SQL.
+ */
+export type ChartQuery = { sql: string, params: Array<string>, };
 
 /**
  * A metric: a column and how it is totalled; without a column, the number
@@ -1740,11 +1764,17 @@ export type ChartDimension = { column: string, grain: DateGrain | null, };
 export type ChartMetric = { column: string | null, aggregate: ChartAggregate, };
 
 /**
- * A filter on one column, of one kind: any of `values`; a range with
- * either end open (`min`, `max`: numbers, or days as `YYYY-MM-DD` for a
- * column of time); the last `lastDays` days; or this year.
+ * A filter on one column, of one kind: any of `values`, a range of numbers
+ * with either end open (`min`, `max`), or, on a column of time, one
+ * `period` (what zooming into a period or breaking it down keeps).
  */
-export type ChartFilter = { column: string, values: Array<string>, min: string | null, max: string | null, lastDays: number | null, thisYear: boolean, };
+export type ChartFilter = { column: string, values: Array<string>, min: string | null, max: string | null, period?: ChartPeriod, };
+
+/**
+ * A period of time, written as a chart's groups write it at its grain:
+ * `2026`, `2026-Q3`, `2026-08`, or the day a week or a day starts.
+ */
+export type ChartPeriod = { grain: DateGrain, key: string, };
 
 /**
  * The order of a chart's groups: by one of its metrics (its place in
@@ -1753,13 +1783,18 @@ export type ChartFilter = { column: string, values: Array<string>, min: string |
 export type ChartSort = { metric: number, descending: boolean, };
 
 /**
- * A chart, described: never SQL. The node writes the query from it. Its
- * groups are the values of `dimensions`; within each, `compare` makes a
+ * A chart, described: never SQL. The node writes the query from it.
+ *
+ * The rows are grouped by the time (at its grain) and every dimension
+ * together, as SQL's GROUP BY is. Within each group, `compare` makes a
  * series for each of its values; each of `metrics` is totalled for every
- * group and series. With no dimension, comparison or metric, it is the
- * table's rows.
+ * group and series. The time keeps its own order; `sort` orders the groups
+ * within it, and `limit` (without a time) keeps the first of them. With
+ * nothing grouped, compared or totalled, it is the table's rows. Zooming
+ * into a period or breaking a group down is an edit of the description: a
+ * filter, and a finer grain or another dimension.
  */
-export type ChartSpec = { chart: ChartKind, dimensions: Array<ChartDimension>, compare: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
+export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, compare: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
 /**
  * Show only the first groups, in the chart's order.
  */
@@ -1777,8 +1812,10 @@ export type AnalysisChart = { space: string, table: string, spec: ChartSpec, };
 export type ChartSeries = { compare: Array<string | null>, metric: number, };
 
 /**
- * One group of a chart's result: a value of each dimension, and a total
- * for each series (none where the group has no rows of that series).
+ * One group of a chart's result: its value of each of the result's
+ * `columns` (a period for the time, as [`ChartPeriod`] writes it), and a
+ * total for each series (none where it has no rows of that series: a
+ * period with no rows keeps its place when the time alone groups).
  */
 export type ChartGroup = { keys: Array<string | null>, values: Array<number | null>, };
 
@@ -1790,11 +1827,16 @@ export type ChartRows = { columns: Array<string>, rows: Array<Array<string | nul
 /**
  * What a chart shows, computed by the node.
  */
-export type ChartResult = { series: Array<ChartSeries>, groups: Array<ChartGroup>,
+export type ChartResult = {
 /**
- * How many groups there are, before `limit`.
+ * The query that worked it out.
  */
-allGroups: number,
+query: ChartQuery,
+/**
+ * What the groups are keyed by: the time at its grain, then the
+ * dimensions; none when nothing is grouped.
+ */
+columns: Array<ChartLevel>, series: Array<ChartSeries>, groups: Array<ChartGroup>,
 /**
  * How many of the table's rows the filters keep.
  */
@@ -1804,7 +1846,8 @@ matched: number,
  */
 rows: ChartRows | null,
 /**
- * Whether more was found than is given here.
+ * Whether more was found than is given here: more groups than
+ * `limit` (or than a chart shows), or more rows.
  */
 truncated: boolean, };
 

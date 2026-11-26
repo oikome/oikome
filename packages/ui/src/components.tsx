@@ -843,7 +843,12 @@ export function Menu({
 }: {
   label: string;
   items: MenuItem[];
-  trigger?: { icon: IconName; text: string };
+  /**
+   * A named button instead of More. `chip`: a chosen item in a list (a
+   * dimension, a metric), its text first and a chevron after, `label`
+   * saying what choosing does.
+   */
+  trigger?: { icon: IconName; text: string } | { chip: true; text: string };
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -922,16 +927,31 @@ export function Menu({
       <button
         ref={trigger}
         type="button"
-        className={shown ? "oik-button oik-button--secondary" : "oik-icon-button oik-icon-button--filled"}
-        aria-label={shown ? undefined : label}
+        className={
+          shown && "chip" in shown
+            ? "oik-menu__chip"
+            : shown
+              ? "oik-button oik-button--secondary"
+              : "oik-icon-button oik-icon-button--filled"
+        }
+        aria-label={shown && !("chip" in shown) ? undefined : label}
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
-        <Icon name={shown?.icon ?? "more"} />
-        {shown && <span className="oik-menu__shown">{shown.text}</span>}
+        {shown && "chip" in shown ? (
+          <>
+            <span className="oik-menu__shown">{shown.text}</span>
+            <Icon name="chevron" />
+          </>
+        ) : (
+          <>
+            <Icon name={shown?.icon ?? "more"} />
+            {shown && <span className="oik-menu__shown">{shown.text}</span>}
+          </>
+        )}
       </button>
       {open && (
         <ul
@@ -964,6 +984,93 @@ export function Menu({
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * A menu opened where something was clicked (a group of a chart, a row of
+ * its table): what can be done with it. It looks and is used as a menu
+ * opened from a button: arrow keys move, Enter chooses, Escape or a click
+ * elsewhere closes it, and focus goes back where it was.
+ */
+export function PointMenu({
+  label,
+  at,
+  items,
+  onClose,
+}: {
+  label: string;
+  /** Where it opens, in the window's coordinates. */
+  at: { x: number; y: number };
+  items: MenuItem[];
+  onClose: () => void;
+}) {
+  const list = useRef<HTMLUListElement>(null);
+  const back = useRef<Element | null>(null);
+  useLayoutEffect(() => {
+    const ul = list.current;
+    if (!ul) return;
+    back.current = document.activeElement;
+    ul.showPopover?.();
+    // Below and to the right of the click, inside the window.
+    const below = at.y + 6 + ul.offsetHeight <= window.innerHeight - 8;
+    ul.style.top = `${Math.max(8, below ? at.y + 6 : at.y - 6 - ul.offsetHeight)}px`;
+    ul.style.left = `${Math.max(8, Math.min(at.x, window.innerWidth - 8 - ul.offsetWidth))}px`;
+    ul.dataset.side = below ? "below" : "above";
+    ul.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+  }, [at]);
+  useEffect(() => {
+    const away = (e: PointerEvent) => {
+      if (!list.current?.contains(e.target as Node)) onClose();
+    };
+    const gone = () => onClose();
+    document.addEventListener("pointerdown", away);
+    window.addEventListener("resize", gone);
+    window.addEventListener("scroll", gone, true);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      window.removeEventListener("resize", gone);
+      window.removeEventListener("scroll", gone, true);
+    };
+  }, [onClose]);
+  const close = () => {
+    onClose();
+    (back.current as HTMLElement | null)?.focus?.();
+  };
+  const move = (e: KeyboardEvent<HTMLUListElement>) => {
+    const all = Array.from(list.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const now = all.indexOf(document.activeElement as HTMLButtonElement);
+    const focus = (i: number) => all[(i + all.length) % all.length]?.focus();
+    if (e.key === "Escape" || e.key === "Tab") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focus(now + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focus(now - 1);
+    }
+  };
+  return (
+    <ul ref={list} role="menu" aria-label={label} className="oik-menu__list oik-menu__list--point" popover="manual" onKeyDown={move}>
+      {items.map((item) => (
+        <li key={item.label} role="none">
+          <button
+            type="button"
+            role="menuitem"
+            className={cx("oik-menu__item", item.destructive && "oik-menu__item--destructive")}
+            onClick={() => {
+              close();
+              item.onSelect();
+            }}
+          >
+            {item.icon && <Icon name={item.icon} />}
+            <span className="oik-menu__label">{item.label}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

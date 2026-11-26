@@ -22,4 +22,5 @@
   'bk.what': 'Backups hold this data centre’s data folder, encrypted with a key from your recovery key. Original files that collections view where they are, passwords and sign-ins are not included.',
   'rs.keyHint': 'The key saved when this data centre was first set up. It opens the backups.',
   'rs.restartBody': 'It then opens as the restored data centre.',
+  'an.sqlBody': 'The DuckDB query your data centre ran for this chart. Each ?n is bound to the value listed below it, never written into the query.',
 };

@@ -1140,6 +1140,39 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A chip that opens a menu: what is chosen, then a chevron. */
+.oik-menu__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px 0 9px;
+  border: var(--bw) solid var(--stroke);
+  border-radius: var(--r-btn);
+  background: var(--raised);
+  color: var(--ink);
+  font: var(--text-data);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.oik-menu__chip:hover:not(:disabled),
+.oik-menu__chip[aria-expanded="true"] {
+  background: var(--hover);
+}
+.oik-menu__chip:disabled {
+  cursor: default;
+}
+.oik-menu__chip svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--ink3);
+  transform: rotate(90deg);
+}
+.oik-menu__chip .oik-menu__shown {
+  white-space: nowrap;
+}
 .oik-menu__shown {
   max-width: 16em;
   overflow: hidden;

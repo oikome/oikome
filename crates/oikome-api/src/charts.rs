@@ -12,26 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Charts of an analysis table. A chart is a description: the dimensions
-//! its rows are grouped by, the dimensions compared within each group, the
-//! metrics totalled, the filters, the order and how many groups to show.
+//! Charts of an analysis table. A chart is a description: its time (a
+//! column of time at a grain, over a range), the dimensions its rows are
+//! grouped by together with the time, the dimensions compared within each
+//! group, the metrics totalled, the filters, the order and how many groups
+//! to show. Every group is worked out from the rows, so an average or a
+//! median is right at any grain.
+//!
 //! No SQL comes from the page. The query is written here, from the
 //! description: every column is one of the table's own and is quoted, every
 //! value a filter gives is a bound parameter, and everything else is this
-//! file's own text. DuckDB computes; the page draws the answer.
+//! file's own text. It is as plain as the chart: one GROUP BY, with a first
+//! step only when compared values need the top groups picked by their own
+//! totals. DuckDB computes; the page draws the answer.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
-use arrow_array::{Array, Float64Array, Int64Array, LargeStringArray, StringArray};
+use arrow_array::{Array, ArrayRef, Float64Array, StringArray};
 use arrow_schema::{DataType, Schema};
+use chrono::{Datelike, Days, Months, NaiveDate};
 use oikome_engine::Value;
-use oikome_node::QueryResult;
+use oikome_node::{OikomeSession, QueryResult};
 use oikome_semantic::rewrite::quote_ident;
 
+use crate::file_analysis::SOURCE_FILE;
 use crate::{
-    AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartDimension,
-    ChartFilter, ChartGroup, ChartMetric, ChartResult, ChartRows, ChartSeries, ChartSpec,
-    DateGrain, FieldRole,
+    AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartColumn, ChartFilter,
+    ChartGroup, ChartLevel, ChartMetric, ChartQuery, ChartResult, ChartRows, ChartSeries,
+    ChartSpec, ChartableTable, DateGrain, TimeRange,
 };
 
 /// How much a chart may ask for.
@@ -41,8 +49,8 @@ const MAX_METRICS: usize = 8;
 const MAX_FILTERS: usize = 12;
 const MAX_FILTER_VALUES: usize = 500;
 const MAX_VALUE_BYTES: usize = 1024;
-/// The most groups shown, the most cells answered with, and the most rows
-/// of a chart that groups nothing.
+/// The most groups shown, the most cells (a group and a compared value)
+/// answered with, and the most rows of a chart that groups nothing.
 const MAX_GROUPS: u32 = 1000;
 const MAX_CELLS: usize = 20_000;
 const MAX_ROWS: usize = 200;
@@ -52,22 +60,26 @@ const MAX_OFFERED: usize = 500;
 /// A table's columns as a chart may use them.
 struct Columns<'a> {
     schema: &'a Schema,
-    roles: &'a [(String, FieldRole)],
 }
 
 impl Columns<'_> {
-    /// The column, quoted, if the table has it.
-    fn quoted(&self, name: &str) -> Result<String, ApiError> {
+    /// Whether the table has the column; the answer for a chart that names
+    /// one it has not.
+    fn has(&self, name: &str) -> Result<(), ApiError> {
         self.schema
             .field_with_name(name)
-            .map(|_| quote_ident(name))
+            .map(|_| ())
             .map_err(|_| ApiError::invalid(format!("the table has no column {name}")))
     }
 
+    fn data_type(&self, name: &str) -> Option<&DataType> {
+        self.schema.field_with_name(name).ok().map(|f| f.data_type())
+    }
+
     fn is_number(&self, name: &str) -> bool {
-        self.schema.field_with_name(name).is_ok_and(|f| {
-            matches!(
-                f.data_type(),
+        matches!(
+            self.data_type(name),
+            Some(
                 DataType::Int8
                     | DataType::Int16
                     | DataType::Int32
@@ -82,124 +94,198 @@ impl Columns<'_> {
                     | DataType::Decimal128(_, _)
                     | DataType::Decimal256(_, _)
             )
-        })
+        )
     }
 
-    /// A column of time: by its type, or because the owner said so.
+    /// A column of time: a date or a timestamp, as DuckDB read it.
     fn is_time(&self, name: &str) -> bool {
-        self.schema.field_with_name(name).is_ok_and(|f| {
-            matches!(
-                f.data_type(),
-                DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)
-            )
-        }) || self
-            .roles
-            .iter()
-            .any(|(of, role)| of == name && *role == FieldRole::Time)
+        matches!(
+            self.data_type(name),
+            Some(DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _))
+        )
+    }
+
+    fn is_text(&self, name: &str) -> bool {
+        matches!(
+            self.data_type(name),
+            Some(DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
+        )
     }
 }
 
+/// A column as the query names it: quoted, and, where two tables are read,
+/// with the name of the one it is read from (`t."amount"`).
+fn col(from: &str, name: &str) -> String {
+    format!("{from}{}", quote_ident(name))
+}
+
 /// A query being written: its bound values, in the order they are named.
-#[derive(Default, Clone)]
+/// The same value bound twice is one placeholder.
+#[derive(Default)]
 struct Bound(Vec<Value>);
 
 impl Bound {
     /// Bind a value; the answer is the placeholder that stands for it.
     fn bind(&mut self, value: Value) -> String {
-        self.0.push(value);
-        format!("?{}", self.0.len())
-    }
-}
-
-/// A dimension as text that sorts: a column's value, or a time at a grain.
-fn dimension(columns: &Columns, dimension: &ChartDimension) -> Result<String, ApiError> {
-    let column = columns.quoted(&dimension.column)?;
-    let timed = columns.is_time(&dimension.column);
-    let Some(grain) = dimension.grain.or(timed.then_some(DateGrain::Day)) else {
-        return Ok(format!("CAST({column} AS VARCHAR)"));
-    };
-    if !timed {
-        return Err(ApiError::invalid(format!(
-            "{} is not a column of time",
-            dimension.column
-        )));
-    }
-    let at = format!("TRY_CAST({column} AS TIMESTAMP)");
-    Ok(match grain {
-        DateGrain::Year => format!("strftime({at}, '%Y')"),
-        DateGrain::Quarter => {
-            format!("strftime({at}, '%Y') || '-Q' || CAST(quarter({at}) AS VARCHAR)")
-        }
-        DateGrain::Month => format!("strftime({at}, '%Y-%m')"),
-        DateGrain::Week => format!("strftime(date_trunc('week', {at}), '%Y-%m-%d')"),
-        DateGrain::Day => format!("strftime({at}, '%Y-%m-%d')"),
-    })
-}
-
-/// A metric as a number: a column totalled, or the rows counted.
-fn metric(columns: &Columns, metric: &ChartMetric) -> Result<String, ApiError> {
-    let Some(name) = &metric.column else {
-        return match metric.aggregate {
-            ChartAggregate::Count => Ok("CAST(COUNT(*) AS DOUBLE)".to_string()),
-            _ => Err(ApiError::invalid("a metric without a column counts rows")),
+        let at = match self.0.iter().position(|v| *v == value) {
+            Some(at) => at,
+            None => {
+                self.0.push(value);
+                self.0.len() - 1
+            }
         };
+        format!("?{}", at + 1)
+    }
+}
+
+/// A time at a grain, as text that sorts: `2026`, `2026-Q3`, `2026-08`,
+/// and the day a week (from Monday) or a day starts.
+fn at_grain(column: &str, grain: DateGrain) -> String {
+    match grain {
+        DateGrain::Year => format!("strftime({column}, '%Y')"),
+        DateGrain::Quarter => {
+            format!("strftime({column}, '%Y') || '-Q' || CAST(quarter({column}) AS VARCHAR)")
+        }
+        DateGrain::Month => format!("strftime({column}, '%Y-%m')"),
+        DateGrain::Week => format!("strftime(date_trunc('week', {column}), '%Y-%m-%d')"),
+        DateGrain::Day => format!("strftime({column}, '%Y-%m-%d')"),
+    }
+}
+
+/// The first day of a period written as [`at_grain`] writes it.
+fn period_start(grain: DateGrain, key: &str) -> Option<NaiveDate> {
+    let year: i32 = key.get(..4)?.parse().ok()?;
+    match grain {
+        DateGrain::Year => (key.len() == 4)
+            .then(|| NaiveDate::from_ymd_opt(year, 1, 1))
+            .flatten(),
+        DateGrain::Quarter => {
+            let quarter: u32 = key.strip_prefix(&format!("{year}-Q"))?.parse().ok()?;
+            NaiveDate::from_ymd_opt(year, quarter.checked_mul(3)?.checked_sub(2)?, 1)
+        }
+        DateGrain::Month => (key.len() == 7)
+            .then(|| NaiveDate::from_ymd_opt(year, key.get(5..7)?.parse().ok()?, 1))
+            .flatten(),
+        DateGrain::Week | DateGrain::Day => NaiveDate::parse_from_str(key, "%Y-%m-%d").ok(),
+    }
+}
+
+/// The period after the one starting on `day`.
+fn period_after(grain: DateGrain, day: NaiveDate) -> Option<NaiveDate> {
+    match grain {
+        DateGrain::Year => day.checked_add_months(Months::new(12)),
+        DateGrain::Quarter => day.checked_add_months(Months::new(3)),
+        DateGrain::Month => day.checked_add_months(Months::new(1)),
+        DateGrain::Week => day.checked_add_days(Days::new(7)),
+        DateGrain::Day => day.checked_add_days(Days::new(1)),
+    }
+}
+
+/// A day as [`at_grain`] writes the period it falls in.
+fn period_of(grain: DateGrain, day: NaiveDate) -> String {
+    match grain {
+        DateGrain::Year => day.format("%Y").to_string(),
+        DateGrain::Quarter => format!("{}-Q{}", day.year(), (day.month() - 1) / 3 + 1),
+        DateGrain::Month => day.format("%Y-%m").to_string(),
+        DateGrain::Week => (day - Days::new(u64::from(day.weekday().num_days_from_monday())))
+            .format("%Y-%m-%d")
+            .to_string(),
+        DateGrain::Day => day.format("%Y-%m-%d").to_string(),
+    }
+}
+
+/// Every period at `grain` from the one `from` is in to the one `to` is in.
+fn periods(grain: DateGrain, from: NaiveDate, to: NaiveDate) -> Vec<String> {
+    let last = period_of(grain, to);
+    let mut day = period_start(grain, &period_of(grain, from));
+    let mut out = Vec::new();
+    while let Some(at) = day {
+        let key = period_of(grain, at);
+        if key > last || out.len() >= MAX_GROUPS as usize {
+            break;
+        }
+        out.push(key);
+        day = period_after(grain, at);
+    }
+    out
+}
+
+/// A metric as SQL writes it, and as it is named: `SUM(amount)`,
+/// `COUNT(DISTINCT member)`, `COUNT(*)`.
+fn metric_name(metric: &ChartMetric) -> String {
+    let Some(name) = &metric.column else {
+        return "COUNT(*)".to_string();
     };
-    let column = columns.quoted(name)?;
-    let function = match metric.aggregate {
-        ChartAggregate::Count => return Ok(format!("CAST(COUNT({column}) AS DOUBLE)")),
-        ChartAggregate::Distinct => return Ok(format!("CAST(COUNT(DISTINCT {column}) AS DOUBLE)")),
+    match metric.aggregate {
+        ChartAggregate::Distinct => format!("COUNT(DISTINCT {name})"),
+        other => format!("{}({name})", function(other)),
+    }
+}
+
+fn function(aggregate: ChartAggregate) -> &'static str {
+    match aggregate {
         ChartAggregate::Sum => "SUM",
         ChartAggregate::Average => "AVG",
         ChartAggregate::Median => "MEDIAN",
         ChartAggregate::Min => "MIN",
         ChartAggregate::Max => "MAX",
+        ChartAggregate::Count | ChartAggregate::Distinct => "COUNT",
+    }
+}
+
+/// A metric as the query computes it, its columns read from `from`.
+fn metric(columns: &Columns, metric: &ChartMetric, from: &str) -> Result<String, ApiError> {
+    let Some(name) = &metric.column else {
+        return match metric.aggregate {
+            ChartAggregate::Count => Ok("COUNT(*)".to_string()),
+            _ => Err(ApiError::invalid("a metric without a column counts rows")),
+        };
     };
-    if !columns.is_number(name) {
-        return Err(ApiError::invalid(format!(
+    columns.has(name)?;
+    let column = col(from, name);
+    match metric.aggregate {
+        ChartAggregate::Count => Ok(format!("COUNT({column})")),
+        ChartAggregate::Distinct => Ok(format!("COUNT(DISTINCT {column})")),
+        aggregate if columns.is_number(name) => Ok(format!("{}({column})", function(aggregate))),
+        _ => Err(ApiError::invalid(format!(
             "{name} is not a number: it can be counted"
-        )));
-    }
-    Ok(format!(
-        "CAST({function}(TRY_CAST({column} AS DOUBLE)) AS DOUBLE)"
-    ))
-}
-
-/// A day as `YYYY-MM-DD`, and nothing else.
-fn day(text: &str) -> Result<String, ApiError> {
-    let bytes = text.as_bytes();
-    let shaped = bytes.len() == 10
-        && bytes.iter().enumerate().all(|(i, b)| match i {
-            4 | 7 => *b == b'-',
-            _ => b.is_ascii_digit(),
-        });
-    if shaped {
-        Ok(text.to_string())
-    } else {
-        Err(ApiError::invalid(format!(
-            "{text} is not a day (YYYY-MM-DD)"
-        )))
+        ))),
     }
 }
 
-/// A filter as a condition, its values bound; `None` when it asks nothing.
+/// A filter as a condition, its columns read from `from` and its values
+/// bound; `None` when it asks nothing.
 fn filter(
     columns: &Columns,
     filter: &ChartFilter,
+    from: &str,
     bound: &mut Bound,
 ) -> Result<Option<String>, ApiError> {
     let name = &filter.column;
-    let column = columns.quoted(name)?;
+    columns.has(name)?;
+    let column = col(from, name);
     let ranged = filter.min.is_some() || filter.max.is_some();
-    let kinds = [
-        !filter.values.is_empty(),
-        ranged,
-        filter.last_days.is_some(),
-        filter.this_year,
-    ];
+    let kinds = [!filter.values.is_empty(), ranged, filter.period.is_some()];
     if kinds.iter().filter(|k| **k).count() > 1 {
         return Err(ApiError::invalid(format!(
             "the filter on {name} is of more than one kind"
         )));
+    }
+    // A period of a column of time: the rows whose time falls in it.
+    if let Some(period) = &filter.period {
+        if !columns.is_time(name) {
+            return Err(ApiError::invalid(format!(
+                "{name} is not a column of time: it has no periods"
+            )));
+        }
+        if period_start(period.grain, &period.key).is_none() {
+            return Err(ApiError::invalid(format!(
+                "{} is not a period of {name}",
+                period.key
+            )));
+        }
+        let key = bound.bind(Value::Text(period.key.clone()));
+        return Ok(Some(format!("{} = {key}", at_grain(&column, period.grain))));
     }
     if !filter.values.is_empty() {
         if filter.values.len() > MAX_FILTER_VALUES
@@ -209,96 +295,158 @@ fn filter(
                 "the filter on {name} has too many values"
             )));
         }
+        // Text is compared as it is; another column as the text it is shown as.
+        let shown = if columns.is_text(name) {
+            column
+        } else {
+            format!("CAST({column} AS VARCHAR)")
+        };
         let values: Vec<String> = filter
             .values
             .iter()
             .map(|v| bound.bind(Value::Text(v.clone())))
             .collect();
-        return Ok(Some(format!(
-            "CAST({column} AS VARCHAR) IN ({})",
-            values.join(", ")
-        )));
-    }
-    let at = format!("TRY_CAST({column} AS TIMESTAMP)");
-    let timed = || {
-        if columns.is_time(name) {
-            Ok(())
-        } else {
-            Err(ApiError::invalid(format!("{name} is not a column of time")))
-        }
-    };
-    if let Some(days) = filter.last_days {
-        timed()?;
-        let days = bound.bind(Value::Int64(i64::from(days.min(36_500))));
-        return Ok(Some(format!(
-            "{at} >= CAST(current_date - CAST({days} AS INTEGER) AS TIMESTAMP)"
-        )));
-    }
-    if filter.this_year {
-        timed()?;
-        return Ok(Some(format!("year({at}) = year(current_date)")));
+        return Ok(Some(match values.as_slice() {
+            [one] => format!("{shown} = {one}"),
+            _ => format!("{shown} IN ({})", values.join(", ")),
+        }));
     }
     if !ranged {
         return Ok(None);
     }
+    if !columns.is_number(name) {
+        return Err(ApiError::invalid(format!(
+            "{name} is not a number: choose the values to keep"
+        )));
+    }
     let mut ends = Vec::new();
-    if columns.is_number(name) {
-        for (end, compare) in [(&filter.min, ">="), (&filter.max, "<=")] {
-            let Some(text) = end else { continue };
-            let number: f64 = text
-                .trim()
-                .parse()
-                .ok()
-                .filter(|n: &f64| n.is_finite())
-                .ok_or_else(|| ApiError::invalid(format!("{text} is not a number")))?;
-            let value = bound.bind(Value::Float64(number));
-            ends.push(format!("TRY_CAST({column} AS DOUBLE) {compare} {value}"));
-        }
-    } else {
-        timed()?;
-        if let Some(from) = &filter.min {
-            let value = bound.bind(Value::Text(day(from)?));
-            ends.push(format!("{at} >= CAST({value} AS TIMESTAMP)"));
-        }
-        // To the end of the last day.
-        if let Some(to) = &filter.max {
-            let value = bound.bind(Value::Text(day(to)?));
-            ends.push(format!(
-                "{at} < CAST({value} AS TIMESTAMP) + INTERVAL 1 DAY"
-            ));
-        }
+    for (end, compare) in [(&filter.min, ">="), (&filter.max, "<=")] {
+        let Some(text) = end else { continue };
+        let number: f64 = text
+            .trim()
+            .parse()
+            .ok()
+            .filter(|n: &f64| n.is_finite())
+            .ok_or_else(|| ApiError::invalid(format!("{text} is not a number")))?;
+        let value = bound.bind(Value::Float64(number));
+        ends.push(format!("{column} {compare} {value}"));
     }
     Ok(Some(ends.join(" AND ")))
 }
 
-/// The text at a row of a column of text.
-fn text_at(column: &dyn Array, row: usize) -> Option<String> {
-    if column.is_null(row) {
-        return None;
+/// The query as it runs, for the owner to read: its text, and the value
+/// each placeholder (`?1`, `?2`, …) is bound to.
+fn query_of(sql: &str, bound: &Bound) -> ChartQuery {
+    ChartQuery {
+        sql: sql.to_string(),
+        params: bound
+            .0
+            .iter()
+            .map(|value| match value {
+                Value::Null => "NULL".to_string(),
+                Value::Bool(b) => b.to_string(),
+                Value::Int64(n) => n.to_string(),
+                Value::Float64(n) => n.to_string(),
+                Value::Text(text) => format!("'{}'", text.replace('\'', "''")),
+                Value::Blob(bytes) => format!("<{} bytes>", bytes.len()),
+            })
+            .collect(),
     }
-    if let Some(texts) = column.as_any().downcast_ref::<StringArray>() {
-        return Some(texts.value(row).to_string());
-    }
-    column
-        .as_any()
-        .downcast_ref::<LargeStringArray>()
-        .map(|texts| texts.value(row).to_string())
 }
 
-fn number_at(column: &dyn Array, row: usize) -> Option<f64> {
-    if column.is_null(row) {
-        return None;
-    }
-    if let Some(numbers) = column.as_any().downcast_ref::<Float64Array>() {
-        return Some(numbers.value(row)).filter(|n| n.is_finite());
-    }
-    column
-        .as_any()
-        .downcast_ref::<Int64Array>()
-        .map(|numbers| numbers.value(row) as f64)
+/// A column of any type as the text it is shown as: a timestamp as DuckDB
+/// writes one (`2026-08-03 10:00:00`), so that a value shown is a value a
+/// filter keeps.
+fn texts(column: &ArrayRef) -> Vec<Option<String>> {
+    let stamp = matches!(column.data_type(), DataType::Timestamp(_, _));
+    let Ok(cast) = arrow_cast::cast(column, &DataType::Utf8) else {
+        return vec![None; column.len()];
+    };
+    let Some(cast) = cast.as_any().downcast_ref::<StringArray>() else {
+        return vec![None; column.len()];
+    };
+    (0..cast.len())
+        .map(|row| {
+            (!cast.is_null(row)).then(|| {
+                let text = cast.value(row);
+                if stamp {
+                    text.replacen('T', " ", 1)
+                } else {
+                    text.to_string()
+                }
+            })
+        })
+        .collect()
+}
+
+/// A column of numbers of any width (a count, a sum of integers, a
+/// decimal) as numbers.
+fn numbers(column: &ArrayRef) -> Vec<Option<f64>> {
+    let Ok(cast) = arrow_cast::cast(column, &DataType::Float64) else {
+        return vec![None; column.len()];
+    };
+    let Some(cast) = cast.as_any().downcast_ref::<Float64Array>() else {
+        return vec![None; column.len()];
+    };
+    (0..cast.len())
+        .map(|row| (!cast.is_null(row)).then(|| cast.value(row)).filter(|n| n.is_finite()))
+        .collect()
+}
+
+/// One row of a chart's answer: its group's keys, the compared values, and
+/// a total for each metric.
+type Cell = (Vec<Option<String>>, Vec<Option<String>>, Vec<Option<f64>>);
+
+/// Lines of a query, each set in by `pad`.
+fn indent(text: &str, pad: &str) -> String {
+    text.lines()
+        .map(|line| format!("{pad}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `1, 2, 3`: the first `n` columns of a query's answer, by their places.
+fn places(range: std::ops::Range<usize>) -> Vec<String> {
+    range.map(|i| (i + 1).to_string()).collect()
 }
 
 impl Api {
+    /// The analysis tables of `space` that can be charted, with what each
+    /// column holds.
+    pub(crate) async fn chartable(&self, space: &str) -> Result<Vec<ChartableTable>, ApiError> {
+        let mut out = Vec::new();
+        for (table, rows, charts) in self.analysis_kept(space)? {
+            let Ok((schema, _)) = self.analysis_columns(space, &table).await else {
+                continue;
+            };
+            let columns = Columns { schema: &schema };
+            out.push(ChartableTable {
+                collection: space.to_string(),
+                rows,
+                columns: schema
+                    .fields()
+                    .iter()
+                    .map(|f| f.name())
+                    .filter(|name| *name != SOURCE_FILE)
+                    .map(|name| ChartColumn {
+                        kind: if columns.is_number(name) {
+                            "number"
+                        } else if columns.is_time(name) {
+                            "time"
+                        } else {
+                            "text"
+                        }
+                        .to_string(),
+                        name: name.clone(),
+                    })
+                    .collect(),
+                charts,
+                table,
+            });
+        }
+        Ok(out)
+    }
+
     /// What a chart of an analysis table shows: its groups and series,
     /// computed by the node from the chart's description.
     pub async fn analysis_chart(
@@ -308,12 +456,22 @@ impl Api {
     ) -> Result<ChartResult, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let (schema, roles) = self.analysis_columns(&req.space, &req.table).await?;
-        let columns = Columns {
-            schema: &schema,
-            roles: &roles,
-        };
-        let spec: &ChartSpec = &req.spec;
+        let owner = self.session(None);
+        self.compute_chart(&owner, &req.space, &req.table, &req.spec)
+            .await
+    }
+
+    /// A chart of an analysis table, its query run in `session`: the
+    /// owner's, or an assistant's, whose grants then decide what it reads.
+    pub(crate) async fn compute_chart(
+        &self,
+        session: &OikomeSession,
+        space: &str,
+        table: &str,
+        spec: &ChartSpec,
+    ) -> Result<ChartResult, ApiError> {
+        let (schema, _) = self.analysis_columns(space, table).await?;
+        let columns = Columns { schema: &schema };
         if spec.dimensions.len() > MAX_DIMENSIONS
             || spec.compare.len() > MAX_COMPARE
             || spec.metrics.len() > MAX_METRICS
@@ -321,23 +479,68 @@ impl Api {
         {
             return Err(ApiError::invalid("the chart asks for too much at once"));
         }
-        let from = format!("{}.{}", quote_ident(&req.space), quote_ident(&req.table));
-        let mut bound = Bound::default();
-        let mut conditions = Vec::new();
-        for each in &spec.filters {
-            if let Some(condition) = filter(&columns, each, &mut bound)? {
-                conditions.push(condition);
+        // The time is a column of time, seen at a grain; any other column
+        // is a dimension or compared, once.
+        if let Some(time) = &spec.time {
+            columns.has(&time.column)?;
+            if !columns.is_time(&time.column) {
+                return Err(ApiError::invalid(format!(
+                    "{} is not a column of time",
+                    time.column
+                )));
             }
         }
-        // The rows the filters keep. Written out wherever they are read, not
-        // as a CTE read twice: DuckDB copies such a CTE's plan, which a scan
-        // of an Iceberg table read in place cannot be.
-        let kept = if conditions.is_empty() {
-            format!("SELECT * FROM {from}")
-        } else {
-            format!("SELECT * FROM {from} WHERE {}", conditions.join(" AND "))
+        let mut seen: BTreeSet<&str> = spec.time.iter().map(|t| t.column.as_str()).collect();
+        for d in spec.dimensions.iter().chain(&spec.compare) {
+            columns.has(&d.column)?;
+            if !seen.insert(d.column.as_str()) {
+                return Err(ApiError::invalid(format!(
+                    "{} is in the chart already: a column is grouped once",
+                    d.column
+                )));
+            }
+        }
+        let mut named = BTreeSet::new();
+        for m in &spec.metrics {
+            if !named.insert(metric_name(m)) {
+                return Err(ApiError::invalid(format!(
+                    "the chart has {} already",
+                    metric_name(m)
+                )));
+            }
+        }
+        let table_name = format!("{}.{}", quote_ident(space), quote_ident(table));
+        let mut bound = Bound::default();
+        // The rows kept, their columns read from `from`.
+        let conditions = |from: &str, bound: &mut Bound| -> Result<Vec<String>, ApiError> {
+            let mut out = Vec::new();
+            for each in &spec.filters {
+                if let Some(condition) = filter(&columns, each, from, bound)? {
+                    out.push(condition);
+                }
+            }
+            if let Some(time) = &spec.time {
+                let at = col(from, &time.column);
+                let since =
+                    |days: u32| format!("{at} >= current_date - INTERVAL {days} DAY");
+                match time.range {
+                    TimeRange::All => {}
+                    TimeRange::ThisYear => out.push(format!("year({at}) = year(current_date)")),
+                    TimeRange::Last30Days => out.push(since(30)),
+                    TimeRange::Last90Days => out.push(since(90)),
+                    TimeRange::Last365Days => out.push(since(365)),
+                }
+            }
+            Ok(out)
         };
-        let session = self.session(None);
+        let kept = conditions("", &mut bound)?;
+        let where_of = |list: &[String]| {
+            if list.is_empty() {
+                String::new()
+            } else {
+                format!("\nWHERE {}", list.join("\n  AND "))
+            }
+        };
         let batches_of = |result: QueryResult| match result {
             QueryResult::Batches { batches, .. } => Ok(batches),
             _ => Err(ApiError::internal("a chart's query returned no rows")),
@@ -345,42 +548,42 @@ impl Api {
 
         // How many rows the filters keep, whatever is made of them.
         let counted = session
-            .query_params(&format!("SELECT COUNT(*) FROM ({kept}) AS f"), &bound.0)
+            .query_params(
+                &format!("SELECT COUNT(*) FROM {table_name}{}", where_of(&kept)),
+                &bound.0,
+            )
             .await?;
         let matched = batches_of(counted)?
             .iter()
             .find(|b| b.num_rows() > 0)
-            .and_then(|b| number_at(b.column(0).as_ref(), 0))
+            .and_then(|b| numbers(b.column(0)).first().copied().flatten())
             .unwrap_or(0.0) as u64;
 
         // Nothing grouped, compared or totalled: the rows themselves.
-        if spec.dimensions.is_empty() && spec.compare.is_empty() && spec.metrics.is_empty() {
-            let names: Vec<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
-            let shown: Vec<String> = names
-                .iter()
-                .map(|n| format!("CAST({} AS VARCHAR)", quote_ident(n)))
-                .collect();
+        if spec.time.is_none()
+            && spec.dimensions.is_empty()
+            && spec.compare.is_empty()
+            && spec.metrics.is_empty()
+        {
             let sql = format!(
-                "SELECT {} FROM ({kept}) AS f LIMIT {}",
-                shown.join(", "),
-                MAX_ROWS + 1
+                "SELECT *\nFROM {table_name}{}\nLIMIT {MAX_ROWS}",
+                where_of(&kept)
             );
+            let query = query_of(&sql, &bound);
+            let names: Vec<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
             let mut rows = Vec::new();
             for batch in batches_of(session.query_params(&sql, &bound.0).await?)? {
+                let cells: Vec<Vec<Option<String>>> = batch.columns().iter().map(texts).collect();
                 for row in 0..batch.num_rows() {
-                    rows.push(
-                        (0..batch.num_columns())
-                            .map(|c| text_at(batch.column(c).as_ref(), row))
-                            .collect::<Vec<_>>(),
-                    );
+                    rows.push(cells.iter().map(|c| c[row].clone()).collect::<Vec<_>>());
                 }
             }
-            let truncated = rows.len() > MAX_ROWS;
-            rows.truncate(MAX_ROWS);
+            let truncated = matched > rows.len() as u64;
             return Ok(ChartResult {
+                query,
+                columns: Vec::new(),
                 series: Vec::new(),
                 groups: Vec::new(),
-                all_groups: 0,
                 matched,
                 rows: Some(ChartRows {
                     columns: names,
@@ -399,127 +602,173 @@ impl Api {
         } else {
             &spec.metrics
         };
-        let dims = spec
-            .dimensions
+        // What each group is keyed by: the time at its grain, then the
+        // dimensions; then what is compared within it.
+        let mut keyed: Vec<ChartLevel> = spec
+            .time
             .iter()
-            .map(|d| dimension(&columns, d))
-            .collect::<Result<Vec<_>, _>>()?;
-        let compared = spec
-            .compare
-            .iter()
-            .map(|d| dimension(&columns, d))
-            .collect::<Result<Vec<_>, _>>()?;
-        let totals = metrics
-            .iter()
-            .map(|m| metric(&columns, m))
-            .collect::<Result<Vec<_>, _>>()?;
-        let named = |list: &[String], prefix: &str| -> Vec<String> {
-            list.iter()
-                .enumerate()
-                .map(|(i, e)| format!("{e} AS oik_{prefix}{i}"))
+            .map(|t| ChartLevel {
+                column: t.column.clone(),
+                grain: Some(t.grain),
+            })
+            .collect();
+        keyed.extend(spec.dimensions.iter().map(|d| ChartLevel {
+            column: d.column.clone(),
+            grain: None,
+        }));
+        let keys = |from: &str| -> Vec<String> {
+            keyed
+                .iter()
+                .map(|level| match level.grain {
+                    Some(grain) => format!(
+                        "{} AS {}",
+                        at_grain(&col(from, &level.column), grain),
+                        quote_ident(&level.column)
+                    ),
+                    None => col(from, &level.column),
+                })
+                .chain(spec.compare.iter().map(|d| col(from, &d.column)))
                 .collect()
         };
-        let by: Vec<String> = dims.iter().chain(&compared).cloned().collect();
-        let mut picked = named(&dims, "d");
-        picked.extend(named(&compared, "c"));
-        picked.extend(named(&totals, "m"));
-        let grouped = format!(
-            "SELECT {} FROM ({kept}) AS f{}",
-            picked.join(", "),
-            if by.is_empty() {
-                String::new()
-            } else {
-                format!(" GROUP BY {}", by.join(", "))
-            }
-        );
-        let compare_order: Vec<String> = (0..compared.len()).map(|i| format!("oik_c{i}")).collect();
-        let sql = if dims.is_empty() {
-            // One group: everything the filters keep.
-            format!(
-                "WITH g AS ({grouped}) \
-                 SELECT g.*, 1 AS oik_n, 1 AS oik_all FROM g{} LIMIT {}",
-                if compare_order.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ORDER BY {}", compare_order.join(", "))
-                },
-                MAX_CELLS + 1
-            )
-        } else {
-            // The groups in order: by a metric over the whole group (whatever
-            // is compared within it), else by their own values; then as many
-            // as asked for.
-            let sorted = match &spec.sort {
-                Some(sort) => {
-                    let total = totals.get(sort.metric as usize).ok_or_else(|| {
-                        ApiError::invalid("the chart is ordered by a metric it has not")
-                    })?;
-                    Some((total.clone(), sort.descending))
-                }
-                None => None,
-            };
-            let keys: Vec<String> = (0..dims.len()).map(|i| format!("oik_d{i}")).collect();
-            let mut order = Vec::new();
-            if let Some((_, descending)) = &sorted {
-                order.push(format!(
-                    "oik_s {} NULLS LAST",
-                    if *descending { "DESC" } else { "ASC" }
+        let totals = |from: &str| -> Result<Vec<String>, ApiError> {
+            metrics
+                .iter()
+                .map(|m| {
+                    metric(&columns, m, from)
+                        .map(|sql| format!("{sql} AS {}", quote_ident(&metric_name(m))))
+                })
+                .collect()
+        };
+        let (nk, nc, nd) = (keyed.len(), spec.compare.len(), spec.dimensions.len());
+        let timed = spec.time.is_some();
+        // An order and a number of groups are for the dimensions: the time
+        // keeps its own order, all of it.
+        let sort = if nd > 0 { spec.sort.as_ref() } else { None };
+        if let Some(sort) = sort {
+            if sort.metric as usize >= metrics.len() {
+                return Err(ApiError::invalid(
+                    "the chart is ordered by a metric it has not",
                 ));
             }
-            order.extend(keys.iter().cloned());
-            let limit = bound.bind(Value::Int64(i64::from(
-                spec.limit.unwrap_or(MAX_GROUPS).clamp(1, MAX_GROUPS),
-            )));
-            let on: Vec<String> = keys
+        }
+        let direction = |s: &crate::ChartSort| if s.descending { "DESC" } else { "ASC" };
+        let limit = if nd > 0 && !timed {
+            spec.limit.map(|n| n.clamp(1, MAX_GROUPS))
+        } else {
+            None
+        };
+        let group_by = places(0..nk + nc);
+        let first = if timed { vec!["1".to_string()] } else { Vec::new() };
+        let rest = places(usize::from(timed)..nk + nc);
+        // Compared values with an order or a number of groups: the groups are
+        // picked and ordered by their own totals first (an average or a
+        // median over the whole group, not of what is compared within it).
+        let ranked = nc > 0 && nd > 0 && (sort.is_some() || limit.is_some());
+        let (sql, cap) = if !ranked {
+            let mut order = first.clone();
+            if let Some(sort) = sort {
+                order.push(format!(
+                    "{} {}",
+                    quote_ident(&metric_name(&metrics[sort.metric as usize])),
+                    direction(sort)
+                ));
+            }
+            order.extend(rest.clone());
+            let cap = match (limit, nc) {
+                (Some(n), _) => n as usize,
+                (None, 0) => MAX_GROUPS as usize,
+                (None, _) => MAX_CELLS,
+            };
+            let mut sql = format!(
+                "SELECT {}\nFROM {table_name}{}",
+                keys("").into_iter().chain(totals("")?).collect::<Vec<_>>().join(",\n       "),
+                where_of(&kept)
+            );
+            if !group_by.is_empty() {
+                sql.push_str(&format!("\nGROUP BY {}", group_by.join(", ")));
+            }
+            if !order.is_empty() {
+                sql.push_str(&format!("\nORDER BY {}", order.join(", ")));
+            }
+            sql.push_str(&format!("\nLIMIT {cap}"));
+            (sql, cap)
+        } else {
+            let dims: Vec<String> = spec.dimensions.iter().map(|d| col("", &d.column)).collect();
+            let picked = match sort {
+                Some(sort) => format!(
+                    "SELECT {}, {} AS total\nFROM {table_name}{}\nGROUP BY {}\nORDER BY total {}\nLIMIT {}",
+                    dims.join(", "),
+                    metric(&columns, &metrics[sort.metric as usize], "")?,
+                    where_of(&kept),
+                    places(0..nd).join(", "),
+                    direction(sort),
+                    limit.unwrap_or(MAX_GROUPS)
+                ),
+                None => format!(
+                    "SELECT {}\nFROM {table_name}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {}",
+                    dims.join(", "),
+                    where_of(&kept),
+                    places(0..nd).join(", "),
+                    places(0..nd).join(", "),
+                    limit.unwrap_or(MAX_GROUPS)
+                ),
+            };
+            let joined: Vec<String> = spec
+                .dimensions
                 .iter()
-                .map(|k| format!("g.{k} IS NOT DISTINCT FROM r.{k}"))
+                .map(|d| {
+                    format!(
+                        "{} IS NOT DISTINCT FROM {}",
+                        col("t.", &d.column),
+                        col("top.", &d.column)
+                    )
+                })
                 .collect();
-            let mut last = vec!["r.oik_n".to_string()];
-            last.extend(compare_order.iter().map(|c| format!("g.{c}")));
-            format!(
-                "WITH g AS ({grouped}), \
-                 k AS (SELECT {}, {} AS oik_s FROM ({kept}) AS f GROUP BY {}), \
-                 r AS (SELECT *, row_number() OVER (ORDER BY {}) AS oik_n, \
-                 COUNT(*) OVER () AS oik_all FROM k) \
-                 SELECT g.*, r.oik_n, r.oik_all FROM g JOIN r ON {} \
-                 WHERE r.oik_n <= {limit} ORDER BY {} LIMIT {}",
-                named(&dims, "d").join(", "),
-                sorted
-                    .as_ref()
-                    .map(|(total, _)| total.as_str())
-                    .unwrap_or("0"),
-                dims.join(", "),
-                order.join(", "),
-                on.join(" AND "),
-                last.join(", "),
-                MAX_CELLS + 1
-            )
+            let mut by = group_by.clone();
+            let mut order = first.clone();
+            if let Some(sort) = sort {
+                by.push("top.total".to_string());
+                order.push(format!("top.total {}", direction(sort)));
+            }
+            order.extend(rest.clone());
+            let inner = conditions("t.", &mut bound)?;
+            let sql = format!(
+                "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {MAX_CELLS}",
+                indent(&picked, "  "),
+                keys("t.").into_iter().chain(totals("t.")?).collect::<Vec<_>>().join(",\n       "),
+                joined.join("\n  AND "),
+                where_of(&inner),
+                by.join(", "),
+                order.join(", ")
+            );
+            (sql, MAX_CELLS)
         };
 
         // One row for each group and compared value: laid out as groups,
         // each with a total for every series.
-        let (nd, nc, nm) = (dims.len(), compared.len(), totals.len());
-        let mut cells = Vec::new();
-        let mut all_groups = 0u64;
+        let query = query_of(&sql, &bound);
+        let mut cells: Vec<Cell> = Vec::new();
         for batch in batches_of(session.query_params(&sql, &bound.0).await?)? {
+            let shown: Vec<Vec<Option<String>>> =
+                batch.columns()[..nk + nc].iter().map(texts).collect();
+            let totals: Vec<Vec<Option<f64>>> =
+                batch.columns()[nk + nc..].iter().map(numbers).collect();
             for row in 0..batch.num_rows() {
-                let text = |c: usize| text_at(batch.column(c).as_ref(), row);
-                let keys: Vec<Option<String>> = (0..nd).map(text).collect();
-                let compare: Vec<Option<String>> = (nd..nd + nc).map(text).collect();
-                let values: Vec<Option<f64>> = (nd + nc..nd + nc + nm)
-                    .map(|c| number_at(batch.column(c).as_ref(), row))
-                    .collect();
-                let n = number_at(batch.column(nd + nc + nm).as_ref(), row).unwrap_or(0.0) as u64;
-                all_groups =
-                    number_at(batch.column(nd + nc + nm + 1).as_ref(), row).unwrap_or(0.0) as u64;
-                cells.push((n, keys, compare, values));
+                cells.push((
+                    shown[..nk].iter().map(|c| c[row].clone()).collect(),
+                    shown[nk..].iter().map(|c| c[row].clone()).collect(),
+                    totals.iter().map(|c| c[row]).collect(),
+                ));
             }
         }
-        let truncated = cells.len() > MAX_CELLS;
-        cells.truncate(MAX_CELLS);
-        let compares: BTreeSet<Vec<Option<String>>> =
-            cells.iter().map(|(_, _, c, _)| c.clone()).collect();
-        let compares: Vec<Vec<Option<String>>> = compares.into_iter().collect();
+        let truncated = cells.len() >= cap;
+        let compares: Vec<Vec<Option<String>>> = cells
+            .iter()
+            .map(|(_, c, _)| c.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let nm = metrics.len();
         let series: Vec<ChartSeries> = compares
             .iter()
             .flat_map(|compare| {
@@ -529,28 +778,68 @@ impl Api {
                 })
             })
             .collect();
-        let mut groups: Vec<(u64, ChartGroup)> = Vec::new();
-        for (n, keys, compare, values) in cells {
-            if groups.last().is_none_or(|(last, _)| *last != n) {
-                groups.push((
-                    n,
-                    ChartGroup {
-                        keys,
-                        values: vec![None; series.len()],
-                    },
-                ));
+        let mut groups: Vec<ChartGroup> = Vec::new();
+        let mut at: HashMap<Vec<Option<String>>, usize> = HashMap::new();
+        for (keys, compare, values) in cells {
+            let i = *at.entry(keys.clone()).or_insert_with(|| {
+                groups.push(ChartGroup {
+                    keys,
+                    values: vec![None; series.len()],
+                });
+                groups.len() - 1
+            });
+            let first = compares.iter().position(|c| *c == compare).unwrap_or(0) * nm;
+            for (m, value) in values.into_iter().enumerate() {
+                groups[i].values[first + m] = value;
             }
-            let at = compares.iter().position(|c| *c == compare).unwrap_or(0) * nm;
-            if let Some((_, group)) = groups.last_mut() {
-                for (m, value) in values.into_iter().enumerate() {
-                    group.values[at + m] = value;
+        }
+        // The time alone: its periods with no rows keep their place, within
+        // the period a filter keeps or from the first period found to the last.
+        if let (Some(time), 0, false) = (&spec.time, nd, truncated) {
+            let within = spec.filters.iter().find_map(|f| {
+                f.period
+                    .as_ref()
+                    .filter(|_| f.column == time.column)
+                    .and_then(|p| {
+                        let start = period_start(p.grain, &p.key)?;
+                        Some((start, period_after(p.grain, start)?.pred_opt()?))
+                    })
+            });
+            let found: Vec<&String> = groups.iter().filter_map(|g| g.keys[0].as_ref()).collect();
+            let bounds = within.or_else(|| {
+                found
+                    .first()
+                    .and_then(|k| period_start(time.grain, k))
+                    .zip(found.last().and_then(|k| period_start(time.grain, k)))
+            });
+            if let Some((from, to)) = bounds {
+                let mut by_key: HashMap<String, ChartGroup> = HashMap::new();
+                let mut unreadable = Vec::new();
+                for group in groups {
+                    match group.keys[0].clone() {
+                        Some(key) => {
+                            by_key.insert(key, group);
+                        }
+                        None => unreadable.push(group),
+                    }
                 }
+                groups = periods(time.grain, from, to)
+                    .into_iter()
+                    .map(|key| {
+                        by_key.remove(&key).unwrap_or(ChartGroup {
+                            keys: vec![Some(key)],
+                            values: vec![None; series.len()],
+                        })
+                    })
+                    .collect();
+                groups.extend(unreadable);
             }
         }
         Ok(ChartResult {
+            query,
+            columns: keyed,
             series,
-            all_groups: all_groups.max(groups.len() as u64),
-            groups: groups.into_iter().map(|(_, group)| group).collect(),
+            groups,
             matched,
             rows: None,
             truncated,
@@ -566,12 +855,9 @@ impl Api {
     ) -> Result<Vec<String>, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
-        let (schema, roles) = self.analysis_columns(&req.space, &req.table).await?;
-        let column = Columns {
-            schema: &schema,
-            roles: &roles,
-        }
-        .quoted(&req.column)?;
+        let (schema, _) = self.analysis_columns(&req.space, &req.table).await?;
+        Columns { schema: &schema }.has(&req.column)?;
+        let column = quote_ident(&req.column);
         let sql = format!(
             "SELECT DISTINCT CAST({column} AS VARCHAR) AS value FROM {}.{} \
              WHERE {column} IS NOT NULL ORDER BY 1 LIMIT {MAX_OFFERED}",
@@ -583,9 +869,8 @@ impl Api {
         };
         Ok(batches
             .iter()
-            .flat_map(|batch| {
-                (0..batch.num_rows()).filter_map(|row| text_at(batch.column(0).as_ref(), row))
-            })
+            .flat_map(|batch| texts(batch.column(0)))
+            .flatten()
             .collect())
     }
 }

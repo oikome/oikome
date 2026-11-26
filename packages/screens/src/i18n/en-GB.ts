@@ -9,6 +9,9 @@ import type { Strings } from "./en";
 import { overlay } from "./helpers";
 
 export const enGB: Strings = overlay(en, {
+  explorer: {
+    sqlBody: "The DuckDB query your data centre ran for this chart. Each ?n is bound to the value listed below it, never written into the query.",
+  },
   brandSubtitle: "My data centre",
   defaultName: "My data centre",
   toast: {

@@ -93,6 +93,9 @@ export function sentence(item: AccessItem): string {
     return s.searched(name, what, item.detail ?? "");
   }
   if (item.outcome === "allowed" && item.method === "assistant_read") return s.readRows(name, what, item.count);
+  // An AI assistant's charts: worked out here, or kept with a table.
+  if (item.outcome === "allowed" && item.method === "assistant_chart") return s.charted(name, what);
+  if (item.outcome === "allowed" && item.method === "assistant_save_chart") return s.savedChart(name, what, item.detail ?? "");
   if (item.outcome === "denied") return s.turnedAway(name, what);
   if (item.outcome === "failed") return s.failed(name, what);
   if (item.method === "do_action:oikome.snapshot") return s.copied(name, what);
@@ -129,6 +132,18 @@ function detail(item: AccessItem): { body: string; go?: { to: string; label: str
               : s.detailAssistantRead(name, what, item.count),
         go: { to: "/assistants", label: s.goAssistants },
       };
+    case "assistant_chart":
+      return {
+        body: item.outcome === "allowed" ? s.detailCharted(name, what) : s.detailAssistantRefused(name, what),
+        go: { to: "/assistants", label: s.goAssistants },
+      };
+    case "assistant_save_chart":
+      return item.outcome === "allowed" && item.spaces.length === 1
+        ? {
+            body: s.detailSavedChart(name, what, item.detail ?? ""),
+            go: { to: `/collections/${encodeURIComponent(item.spaces[0]!)}?view=analysis`, label: s.goAnalysis },
+          }
+        : { body: s.detailAssistantRefused(name, what), go: { to: "/assistants", label: s.goAssistants } };
     case "connect":
       return { body: s.detailOutside, go: { to: "/settings", label: s.goSettings } };
     case "do_exchange:oikome.compute":

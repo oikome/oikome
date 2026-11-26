@@ -5108,9 +5108,6 @@ tr.screen-source {
   display: grid;
   gap: var(--space-4);
 }
-.screen-analysis__facts {
-  margin: 0;
-}
 /* A table's explorer: its views in a row, then the view shown, drawn in a
    panel beside it. */
 .screen-explorer {
@@ -5157,10 +5154,46 @@ tr.screen-source {
   border-color: var(--stroke-hover);
   color: var(--ink);
 }
-.screen-explorer__view[aria-pressed="true"] {
+/* The chart shown: its tab outlined, not filled (a filled control is an
+   action), and holding what can be done with the chart. */
+.screen-explorer__view--here {
+  padding: 0;
   border-color: var(--ink);
-  background: var(--ink);
-  color: var(--raised);
+  color: var(--ink);
+}
+.screen-explorer__view--here .oik-menu,
+.screen-explorer__view--here .oik-menu__chip {
+  height: 100%;
+}
+.screen-explorer__view--here .oik-menu__chip {
+  padding: 0 8px 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: var(--text);
+  font-weight: 600;
+}
+.screen-explorer__view--here .oik-menu__chip svg {
+  color: var(--ink3);
+}
+/* Bold marks every chosen tab one way: yellow, as its segments and tabs. */
+[data-theme="bold"] .screen-explorer__view--here,
+[data-theme="bold"] .screen-explorer__view--new {
+  border-color: #111;
+  background: #ffd23f;
+  color: #111;
+}
+/* A new chart, not saved yet; and the way to start one. */
+.screen-explorer__view--new,
+.screen-explorer__view--add {
+  border-style: dashed;
+}
+.screen-explorer__view--new {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+  cursor: default;
 }
 .screen-explorer__view svg {
   width: 13px;
@@ -5199,6 +5232,9 @@ tr.screen-source {
   padding: var(--space-4);
 }
 .screen-explorer__facts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
   margin: 0;
   color: var(--ink2);
   font: var(--text-meta);
@@ -5228,17 +5264,20 @@ tr.screen-source {
   width: 100%;
   border-collapse: collapse;
 }
-.screen-explorer__table th {
+/* The header stays as the rows scroll: both its rows, the metric over what is compared too. */
+.screen-explorer__table thead {
   position: sticky;
   top: 0;
+  z-index: 1;
+}
+.screen-explorer__table th {
   padding: 8px var(--space-4);
   border-bottom: var(--bw) solid var(--line);
   background: var(--raised);
-  color: var(--label-color);
-  font: var(--label-font);
-  letter-spacing: var(--label-spacing);
+  color: var(--ink2);
+  font: var(--text-small);
+  font-weight: 600;
   text-align: left;
-  text-transform: var(--label-case);
   white-space: nowrap;
 }
 .screen-explorer__table td {
@@ -5252,7 +5291,18 @@ tr.screen-source {
   text-align: right;
 }
 .screen-explorer__table th.screen-explorer__num {
-  font: var(--label-font);
+  font: var(--text-small);
+  font-weight: 600;
+}
+.screen-explorer__table thead tr:first-child:not(:last-child) th {
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+.screen-explorer__table .screen-explorer__over th.screen-explorer__num {
+  border-bottom: 1px solid var(--line2);
+  font: var(--text-data);
+  font-weight: 600;
+  text-align: center;
 }
 .screen-explorer__panel {
   display: grid;
@@ -5265,65 +5315,270 @@ tr.screen-source {
 .screen-explorer__panel .oik-select {
   width: 100%;
 }
-/* One part of the description (its dimensions, its metrics, its filters):
-   what is chosen, a row each, then what can be added. */
+.screen-explorer__panel .oik-field {
+  margin: 0;
+}
+/* One part of the description (its time, its dimensions, its metrics, its
+   filters): what is chosen, a row each, then a row to add another. */
 .screen-explorer__part {
   display: grid;
-  justify-items: start;
+  gap: 6px;
+}
+.screen-explorer__part > .oik-field__label {
+  display: flex;
+  align-items: baseline;
   gap: var(--space-2);
 }
-.screen-explorer__item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  width: 100%;
-  min-height: 36px;
-  padding: 0 2px 0 10px;
-  border: var(--bw) solid var(--stroke);
-  border-radius: var(--r-field);
-  background: var(--raised);
+.screen-explorer__note {
+  color: var(--ink3);
+  font: var(--text-small);
+  letter-spacing: 0;
+  text-transform: none;
 }
-.screen-explorer__item-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font: var(--text-data);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.screen-explorer__item .oik-field {
-  display: block;
-  flex: none;
-  width: 104px;
-}
-.screen-explorer__item .oik-select {
-  height: 28px;
-  border-color: transparent;
-  background-color: var(--sunk);
-}
-.screen-explorer__item-filter {
+.screen-explorer__time {
   display: grid;
-  flex: 1;
-  gap: 1px;
+  gap: var(--space-3);
+}
+/* How the time is seen, under the time chosen: its grain and its range belong to it. */
+.screen-explorer__sub {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--line2);
+}
+.screen-explorer__sub .oik-field__label {
+  color: var(--ink3);
+  font-weight: 500;
+}
+.screen-explorer__part .oik-seg {
+  display: flex;
+  width: 100%;
+}
+.screen-explorer__part .oik-seg__option {
+  flex: 1 1 0;
   min-width: 0;
-  margin-left: -10px;
-  padding: 6px 10px;
+  padding: 0 4px;
+}
+.screen-explorer__chip {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  border: var(--bw) solid var(--stroke);
+  border-radius: var(--r-btn);
+  background: var(--raised);
+  overflow: hidden;
+}
+.screen-explorer__chip .oik-menu {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.screen-explorer__chip .oik-menu__chip {
+  flex: 1;
+  justify-content: space-between;
+  min-width: 0;
+  height: 32px;
   border: 0;
-  border-radius: inherit;
-  background: transparent;
-  color: var(--ink);
-  font: var(--text-data);
+  border-radius: 0;
   text-align: left;
+}
+.screen-explorer__chip .oik-menu__chip:disabled {
+  color: var(--ink);
+}
+.screen-explorer__chip .oik-menu__shown {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.screen-explorer__chip-x {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  border: 0;
+  border-left: 1px solid var(--line2);
+  background: transparent;
+  color: var(--ink3);
   cursor: pointer;
 }
-.screen-explorer__item-filter > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.screen-explorer__chip-x svg {
+  width: 12px;
+  height: 12px;
 }
-.screen-explorer__item-what {
+.screen-explorer__chip-x:hover,
+.screen-explorer__chip-x:focus-visible {
+  background: var(--hover);
+  color: var(--ink);
+}
+/* Adding: a quieter, dashed row under what is chosen. */
+.screen-explorer__part > .oik-menu,
+.screen-explorer__part > .oik-menu > .oik-button,
+.screen-explorer__add {
+  width: 100%;
+}
+.screen-explorer__part > .oik-menu > .oik-button,
+.screen-explorer__part > .screen-explorer__add {
+  justify-content: flex-start;
+  height: 32px;
+  padding: 0 10px;
+  border-style: dashed;
+  background: transparent;
   color: var(--ink2);
+  box-shadow: none;
   font: var(--text-small);
+  font-weight: 500;
+}
+.screen-explorer__part > .oik-menu > .oik-button:hover,
+.screen-explorer__part > .screen-explorer__add:hover {
+  color: var(--ink);
+}
+.screen-explorer__part > .oik-menu > .oik-button svg,
+.screen-explorer__part > .screen-explorer__add svg {
+  width: 13px;
+  height: 13px;
+}
+/* Where the chart is on its path, what it holds, and where a click goes. */
+.screen-explorer__where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  min-height: 24px;
+}
+.screen-explorer__path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font: var(--text-small);
+}
+.screen-explorer__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.screen-explorer__step button {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--ink2);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.screen-explorer__step button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.screen-explorer__step svg {
+  width: 11px;
+  height: 11px;
+  color: var(--ink3);
+}
+.screen-explorer__step--here {
+  padding: 0 6px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.screen-explorer__hint {
+  color: var(--ink3);
+  font: var(--text-small);
+}
+/* Where the chart is and what it holds, on the left; on the right, what a
+   click does and the query behind it. */
+.screen-explorer__whereabouts,
+.screen-explorer__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.screen-explorer__tools {
+  margin-left: auto;
+}
+.screen-explorer__sql-button {
+  height: 28px;
+  padding: 0 10px;
+  font: var(--text-small);
+  font-weight: 500;
+}
+/* Nothing left to add to a part of the description. */
+.screen-explorer__none {
+  margin: 0;
+  color: var(--ink3);
+  font: var(--text-small);
+}
+.screen-explorer__drillable {
+  cursor: pointer;
+}
+.screen-explorer__drillable:hover td,
+.screen-explorer__drillable:focus-visible td {
+  background: var(--hover);
+}
+.screen-explorer__drillable td:first-child svg {
+  width: 11px;
+  height: 11px;
+  margin-left: 6px;
+  color: var(--ink3);
+  vertical-align: -1px;
+}
+/* The query a chart ran: its text, then the value of each placeholder. */
+.screen-explorer__sql {
+  max-height: 320px;
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-btn);
+  background: var(--sunk);
+  font: var(--text-data);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.screen-explorer__params {
+  display: grid;
+  gap: 4px;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font: var(--text-data);
+  font-size: 12px;
+}
+.screen-explorer__params li {
+  display: grid;
+  grid-template-columns: 3em minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.screen-explorer__params span {
+  color: var(--ink3);
+}
+.screen-explorer__params code {
+  word-break: break-word;
+}
+/* Adding a metric: how it is totalled, of which column, and what that means. */
+.screen-explorer__metric-form {
+  display: grid;
+  gap: var(--space-3);
+}
+.screen-explorer__metric-form .screen-help {
+  margin: 0;
+}
+.screen-explorer__will {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-btn);
+  background: var(--sunk);
+  font: var(--text-data);
 }
 /* Setting a filter: values to tick, or the two ends of a range. */
 .screen-explorer__filter {
@@ -5352,6 +5607,30 @@ tr.screen-source {
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
+/* On a phone every control is a whole finger high. */
+@media (max-width: 480px) {
+  .screen-explorer {
+    --control-height: 44px;
+  }
+  .screen-explorer__view {
+    height: 44px;
+    padding: 0 14px;
+  }
+  .screen-explorer__view--here {
+    padding: 0;
+  }
+  .screen-explorer__sql-button {
+    height: 44px;
+  }
+  .screen-explorer__chip .oik-menu__chip,
+  .screen-explorer__part > .oik-menu > .oik-button,
+  .screen-explorer__part > .screen-explorer__add {
+    height: 44px;
+  }
+  .screen-explorer__chip-x {
+    width: 44px;
+  }
+}
 @media (max-width: 900px) {
   .screen-explorer__body {
     grid-template-columns: minmax(0, 1fr);
@@ -5367,7 +5646,8 @@ tr.screen-source {
     border-left: 0;
   }
 }
-/* What a table is read from, and for a file's table, removing it. */
+/* What a table is, in a line: the name it is queried by, where it comes
+   from and how much it holds; for a file's table, removing it. */
 .screen-analysis__about {
   margin: 0;
   display: flex;
@@ -5376,9 +5656,23 @@ tr.screen-source {
   justify-content: space-between;
   gap: var(--space-3);
 }
-.screen-analysis__about .screen-help {
-  flex: 1 1 280px;
+.screen-analysis__line {
+  flex: 1 1 320px;
   margin: 0;
+}
+.screen-analysis__line .screen-help {
+  margin: 0;
+}
+.screen-analysis__query {
+  margin-right: var(--space-2);
+  color: var(--ink);
+  font: var(--text-data);
+  font-weight: 600;
+}
+/* A column's type as DuckDB names it. */
+.screen-analysis__type {
+  color: var(--ink3);
+  font: var(--text-data);
 }
 /* What reading a dataset needs: DuckDB's extension, and its download. */
 .screen-analysis__reader {

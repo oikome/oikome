@@ -21,11 +21,10 @@ import {
   Group,
   Row,
   Segmented,
-  Select,
   Status,
   useToast,
 } from "@oikome/ui";
-import type { AnalysisSource, AnalysisTable, DatasetFacts, FieldRole, FileAnalysis } from "@oikome/client";
+import type { AnalysisSource, AnalysisTable, DatasetFacts, FileAnalysis } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
 import { TransferProgress } from "../progress";
@@ -34,7 +33,6 @@ import { strings } from "../strings";
 import { Explorer } from "./Explorer";
 
 const a = strings.analysisView;
-const ROLES: FieldRole[] = ["time", "amount", "category", "title", "key", "other"];
 
 /** A column's type in words: date, date and time, text, number, yes or no. */
 function typeOf(dataType: string): string {
@@ -43,7 +41,58 @@ function typeOf(dataType: string): string {
   if (/Utf8|Binary/.test(dataType)) return a.types.text;
   if (/^(U?Int|Float|Decimal)/.test(dataType)) return a.types.number;
   if (dataType === "Boolean") return a.types.boolean;
-  return a.types.other;
+  // Any other type by the name DuckDB gives it, not a vague "other".
+  return duckType(dataType);
+}
+
+/** A column's type as DuckDB names it, from the Arrow type it was read as. */
+function duckType(dataType: string): string {
+  const named: Record<string, string> = {
+    Utf8: "VARCHAR",
+    LargeUtf8: "VARCHAR",
+    Utf8View: "VARCHAR",
+    Boolean: "BOOLEAN",
+    Int8: "TINYINT",
+    Int16: "SMALLINT",
+    Int32: "INTEGER",
+    Int64: "BIGINT",
+    UInt8: "UTINYINT",
+    UInt16: "USMALLINT",
+    UInt32: "UINTEGER",
+    UInt64: "UBIGINT",
+    Float32: "FLOAT",
+    Float64: "DOUBLE",
+    Date32: "DATE",
+    Date64: "DATE",
+    Binary: "BLOB",
+    LargeBinary: "BLOB",
+  };
+  if (dataType in named) return named[dataType]!;
+  if (dataType.startsWith("Timestamp")) return dataType.includes("Some") ? "TIMESTAMP WITH TIME ZONE" : "TIMESTAMP";
+  const decimal = /^Decimal(?:128|256)\((\d+), (\d+)\)$/.exec(dataType);
+  if (decimal) return `DECIMAL(${decimal[1]}, ${decimal[2]})`;
+  return dataType;
+}
+
+/** Where a file's table comes from, how much it holds and when it was made, in a sentence. */
+function aboutFiles(table: AnalysisTable): string {
+  const first = table.files[0] ?? "";
+  const folder = first.includes("/") ? first.slice(0, first.lastIndexOf("/")) : "";
+  const source = table.sheet
+    ? a.inSheet(first, table.sheet)
+    : table.files.length === 1
+      ? first
+      : folder
+        ? a.filesIn(folder, table.files.length)
+        : a.files(table.files.length);
+  return a.aboutFiles(source, a.rows(table.rows), since(table.builtAtMs));
+}
+
+/** What a dataset is, how much it holds and when it was written, in a sentence. */
+function aboutDataset(dataset: DatasetFacts, rows: number | undefined): string {
+  const kind = a.datasetKinds[dataset.kind] ?? dataset.kind;
+  const held = rows === undefined ? undefined : a.rows(rows);
+  return a.aboutDataset(kind, held, dataset.writtenAtMs ? since(dataset.writtenAtMs) : undefined);
 }
 
 /** One analysis table: its facts, its columns and what each is for, and its totals. */
@@ -277,8 +326,6 @@ function TableView({
   onChange: (next: FileAnalysis) => void;
   onReload: () => void;
 }) {
-  const client = useClient();
-  const setRole = useAction();
   const [removing, setRemoving] = useState(false);
   const dataset = table.dataset;
   const readable = !table.problem;
@@ -300,14 +347,16 @@ function TableView({
           </ErrorText>
         )
       )}
-      {dataset ? (
-        <p className="screen-help screen-analysis__about">{a.readInPlace}</p>
-      ) : (
-        <div className="screen-analysis__about">
-          <p className="screen-help">{a.madeOfFiles}</p>
-          <Button onClick={() => setRemoving(true)}>{a.remove}</Button>
-        </div>
-      )}
+      {/* What the table is, in one line: the name it is queried by, where it comes from, how much it holds. */}
+      <div className="screen-analysis__about">
+        <p className="screen-analysis__line">
+          <code className="screen-analysis__query" translate="no">
+            {space}.{table.name}
+          </code>{" "}
+          <span className="screen-help">{dataset ? aboutDataset(dataset, readable ? table.rows : undefined) : aboutFiles(table)}</span>
+        </p>
+        {!dataset && <Button onClick={() => setRemoving(true)}>{a.remove}</Button>}
+      </div>
       {removing && (
         <RemoveTable
           space={space}
@@ -319,87 +368,28 @@ function TableView({
           }}
         />
       )}
-      <dl className="oik-card screen-facts screen-analysis__facts">
-        {dataset && (
-          <div>
-            <dt className="oik-label">{a.kindLabel}</dt>
-            <dd>{a.datasetKinds[dataset.kind]}</dd>
-          </div>
-        )}
-        {/* When it was last written says how fresh it is; its version number
-            is shown only when that is all there is (the latest is always read). */}
-        {dataset?.writtenAtMs ? (
-          <div>
-            <dt className="oik-label">{a.writtenLabel}</dt>
-            <dd title={dataset.version ? `${a.versionLabel} ${dataset.version}` : undefined}>{since(dataset.writtenAtMs)}</dd>
-          </div>
-        ) : (
-          dataset?.version && (
-            <div>
-              <dt className="oik-label">{a.versionLabel}</dt>
-              <dd translate="no">{dataset.version}</dd>
-            </div>
-          )
-        )}
-        {readable && (
-          <div>
-            <dt className="oik-label">{a.rowsLabel}</dt>
-            <dd>{a.rows(table.rows)}</dd>
-          </div>
-        )}
-        <div>
-          <dt className="oik-label">{dataset ? a.folderLabel : a.filesLabel}</dt>
-          <dd translate="no" title={table.files.join("\n")}>
-            {table.sheet
-              ? a.inSheet(table.files[0], table.sheet)
-              : table.files.length === 1
-                ? table.files[0]
-                : a.files(table.files.length)}
-          </dd>
-        </div>
-        <div>
-          <dt className="oik-label">{dataset ? a.read : a.updated}</dt>
-          <dd>{since(table.builtAtMs)}</dd>
-        </div>
-        <div>
-          <dt className="oik-label">{a.queryAsLabel}</dt>
-          <dd className="oik-mono" translate="no">
-            {space}.{table.name}
-          </dd>
-        </div>
-      </dl>
 
       {/* Exploring needs the rows: nothing to explore while the table can't be read. */}
       {readable && <Explorer space={space} table={table} onChange={onChange} />}
 
       {table.fields.length > 0 && (
-      <Group title={a.fields} footnote={`${dataset ? a.datasetFieldsFootnote : a.fieldsFootnote} ${strings.explorer.timeNote} ${strings.explorer.assistantsNote}`}>
-        {table.fields
-          .filter((field) => field.name !== "_source_file")
-          .map((field) => (
-            <Row
-              key={field.name}
-              title={<span translate="no">{field.name}</span>}
-              meta={field.inferred ? `${typeOf(field.dataType)} · ${a.proposed}` : typeOf(field.dataType)}
-              trailing={
-                <Select
-                  label={a.roleFor(field.name)}
-                  hideLabel
-                  value={field.role}
-                  onChange={async (value) => {
-                    const next = await setRole.run(() =>
-                      client.setAnalysisField({ space, table: table.name, field: field.name, role: value as FieldRole }),
-                    );
-                    if (next) onChange(next);
-                  }}
-                  options={ROLES.map((role) => ({ value: role, label: a.roles[role] }))}
-                />
-              }
-            />
-          ))}
-      </Group>
+        <Group title={a.fields} footnote={`${a.fieldsNote} ${strings.explorer.assistantsNote}`}>
+          {table.fields
+            .filter((field) => field.name !== "_source_file")
+            .map((field) => (
+              <Row
+                key={field.name}
+                title={<span translate="no">{field.name}</span>}
+                meta={typeOf(field.dataType)}
+                trailing={
+                  <span className="screen-analysis__type" translate="no">
+                    {duckType(field.dataType)}
+                  </span>
+                }
+              />
+            ))}
+        </Group>
       )}
-      {setRole.error && <ErrorText>{setRole.error}</ErrorText>}
     </div>
   );
 }

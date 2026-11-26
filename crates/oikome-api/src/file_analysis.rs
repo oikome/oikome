@@ -57,9 +57,6 @@ use crate::{
 const MAX_VIEWS: usize = 100;
 const MAX_VIEW_BYTES: usize = 16 * 1024;
 const MAX_VIEW_NAME_CHARS: usize = 80;
-/// The views every table starts with, by the ids the app gives them. Saved
-/// in place, one is kept under its id; removed, it is as it started again.
-const STARTING_VIEWS: [&str; 3] = ["month", "category", "rows"];
 
 fn shown_view(view: &KeptView) -> AnalysisView {
     AnalysisView {
@@ -1012,6 +1009,28 @@ impl Api {
         self.follow_files(&req.space, &[]).await
     }
 
+    /// A collection's analysis tables as last made: each one's name, rows
+    /// and saved charts, those that could not be read left out. Nothing is
+    /// made again here: what an assistant lists is what the owner has.
+    pub(crate) fn analysis_kept(
+        &self,
+        space: &str,
+    ) -> Result<Vec<(String, u64, Vec<AnalysisView>)>, ApiError> {
+        Ok(self
+            .kept(space)?
+            .tables
+            .into_iter()
+            .filter(|(_, table)| table.problem.is_none())
+            .map(|(name, table)| {
+                (
+                    name,
+                    table.rows,
+                    table.views.iter().map(shown_view).collect(),
+                )
+            })
+            .collect())
+    }
+
     /// Keep a view; `by` names the assistant that made it.
     pub(crate) fn keep_view(
         &self,
@@ -1053,21 +1072,10 @@ impl Api {
                     .ok_or_else(|| ApiError::not_found(format!("{table} has no view {id}")))?;
                 view.name = name.to_string();
                 view.config = config;
+                // Saved again by the owner, it is the owner's now.
+                view.by = by.map(str::to_string);
                 view.saved_at_ms = crate::now_ms();
                 view.clone()
-            }
-            // A view the table starts with, saved in place: kept under its
-            // own id, in place of what its columns' roles would give.
-            Some(id) if STARTING_VIEWS.contains(&id) => {
-                let view = KeptView {
-                    id: id.to_string(),
-                    name: name.to_string(),
-                    config,
-                    by: by.map(str::to_string),
-                    saved_at_ms: crate::now_ms(),
-                };
-                entry.views.push(view.clone());
-                view
             }
             Some(id) => return Err(ApiError::not_found(format!("{table} has no view {id}"))),
             None => {

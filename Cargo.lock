@@ -6687,6 +6687,7 @@ name = "oikome-api"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "arrow-cast",
  "arrow-ipc",
  "arrow-schema",
  "base64 0.22.1",

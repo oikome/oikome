@@ -3,25 +3,29 @@
 //
 // Drawing a chart's result with ECharts (Apache-2.0). Loaded on demand, when
 // an Analysis view first shows a chart. Only the pieces used are bundled
-// (bars, lines, treemap; axes, legend, tooltip; the canvas renderer). It
+// (bars, lines, pie, treemap; axes, legend, tooltip; the canvas renderer). It
 // draws what the node computed and nothing else: no data is fetched or
 // totalled here. ECharts needs no script from strings, no WebAssembly and no
 // workers, so it runs under the app's own policy.
 
 import * as echarts from "echarts/core";
-import { BarChart, LineChart, TreemapChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart, TreemapChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
-echarts.use([BarChart, LineChart, TreemapChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, LineChart, PieChart, TreemapChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 /** What to draw: the groups along the axis, and a value of each for every series. */
 export interface Drawing {
-  kind: "column" | "bar" | "line" | "area" | "treemap";
+  kind: "column" | "bar" | "line" | "area" | "pie" | "treemap";
   groups: string[];
   series: { name: string; values: (number | null)[] }[];
+  /** What the values are, for the value axis, when there is no legend. */
+  valueName?: string;
   /** A number in the reader's words. */
   format: (value: number) => string;
+  /** A group clicked (its place in `groups`), and where, in the window's coordinates. */
+  onPick?: (group: number, at: { x: number; y: number }) => void;
 }
 
 /** Ink: every series is ink, told apart by its strength. Bold: the five tones, then ink. */
@@ -53,6 +57,29 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
     textStyle: { ...text, color: ink },
     valueFormatter: (value: unknown) => (typeof value === "number" ? drawing.format(value) : "–"),
   };
+  // A pie: each group a slice of the first series, its share told.
+  if (drawing.kind === "pie") {
+    const first = drawing.series[0];
+    return {
+      ...common,
+      legend: { show: drawing.groups.length > 1, type: "scroll", orient: "vertical", right: 0, top: "middle", icon: "rect", itemWidth: 10, itemHeight: 10, textStyle: { ...text, color: ink } },
+      tooltip: { ...tooltip, trigger: "item" },
+      series: [
+        {
+          type: "pie",
+          name: first?.name,
+          radius: ["0%", "72%"],
+          center: ["42%", "52%"],
+          cursor: drawing.onPick ? "pointer" : "default",
+          itemStyle: { borderColor: token("--raised", "#ffffff"), borderWidth: theme === "bold" ? 2 : 1 },
+          label: { fontFamily: style.fontFamily, fontSize: 12, color: ink, formatter: (p: { name: string; percent: number }) => `${p.name}\n${p.percent.toFixed(1)}%` },
+          data: drawing.groups
+            .map((name, i) => ({ name, value: first?.values[i] ?? 0, group: i }))
+            .filter((item) => item.value > 0),
+        },
+      ],
+    };
+  }
   if (drawing.kind === "treemap") {
     const first = drawing.series[0];
     return {
@@ -72,7 +99,7 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
           itemStyle: { borderColor: token("--raised", "#ffffff"), borderWidth: 2, gapWidth: 2 },
           label: { fontFamily: style.fontFamily, fontSize: 12, formatter: (p: { name: string; value: number }) => `${p.name}\n${drawing.format(p.value)}` },
           data: drawing.groups
-            .map((name, i) => ({ name, value: Math.max(first?.values[i] ?? 0, 0) }))
+            .map((name, i) => ({ name, value: Math.max(first?.values[i] ?? 0, 0), group: i }))
             .filter((item) => item.value > 0),
         },
       ],
@@ -87,8 +114,14 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
     axisLine: { lineStyle: { color: rule } },
     axisLabel: { ...text, hideOverlap: true },
   };
+  // Counts are whole: no ticks between them.
+  const whole = drawing.series.every((series) => series.values.every((v) => v === null || Number.isInteger(v)));
   const values = {
     type: "value",
+    minInterval: whole ? 1 : undefined,
+    name: drawing.valueName,
+    nameLocation: "end",
+    nameTextStyle: { ...text, align: across ? "right" : "left", padding: across ? [0, 0, 0, 0] : [0, 0, 4, 0] },
     axisLabel: { ...text, formatter: (value: number) => drawing.format(value) },
     splitLine: { lineStyle: { color: faint } },
   };
@@ -96,7 +129,14 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
   return {
     ...common,
     tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: lines ? "line" : "shadow" } },
-    grid: { left: 4, right: 16, top: many ? 36 : 12, bottom: 4, containLabel: true },
+    // The legend on top, and under it the name of the value axis: each a line of its own.
+    grid: {
+      left: 4,
+      right: 16,
+      top: many && drawing.valueName && !across ? 60 : many || (drawing.valueName && !across) ? 36 : 12,
+      bottom: across && drawing.valueName ? 24 : 4,
+      containLabel: true,
+    },
     xAxis: across ? values : groups,
     yAxis: across ? groups : values,
     series: drawing.series.map((series) => ({
@@ -115,8 +155,39 @@ export function mount(host: HTMLElement): { draw(drawing: Drawing): void; dispos
   const chart = echarts.init(host);
   const sized = new ResizeObserver(() => chart.resize());
   sized.observe(host);
+  let shown: Drawing | undefined;
+  // A click on a slice or a tile: the group it is. On columns, bars and
+  // lines, anywhere in a group's band (where its tooltip shows), not only on
+  // the bar itself.
+  const point = (event: unknown) => {
+    const e = event as { clientX?: number; clientY?: number } | undefined;
+    return { x: e?.clientX ?? 0, y: e?.clientY ?? 0 };
+  };
+  chart.on("click", (params) => {
+    const data = params.data as { group?: number } | undefined;
+    if (typeof data?.group === "number") shown?.onPick?.(data.group, point(params.event?.event));
+  });
+  chart.getZr().on("click", (event) => {
+    const kind = shown?.kind;
+    if (!shown?.onPick || kind === "pie" || kind === "treemap") return;
+    const at = [event.offsetX, event.offsetY];
+    if (!chart.containPixel({ gridIndex: 0 }, at)) return;
+    const [x, y] = chart.convertFromPixel({ gridIndex: 0 }, at) as number[];
+    const group = Math.round(kind === "bar" ? (y ?? -1) : (x ?? -1));
+    if (group >= 0 && group < shown.groups.length) shown.onPick(group, point(event.event));
+  });
+  // A hand over what drills in.
+  chart.getZr().on("mousemove", (event) => {
+    if (shown?.kind === "pie" || shown?.kind === "treemap") return;
+    const over = Boolean(shown?.onPick) && chart.containPixel({ gridIndex: 0 }, [event.offsetX, event.offsetY]);
+    chart.getZr().setCursorStyle(over ? "pointer" : "default");
+  });
   return {
-    draw: (drawing) => chart.setOption(option(drawing, host), true),
+    draw: (drawing) => {
+      shown = drawing;
+      chart.setOption(option(drawing, host), true);
+      host.style.cursor = "";
+    },
     dispose: () => {
       sized.disconnect();
       chart.dispose();

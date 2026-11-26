@@ -193,7 +193,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // Last year's receipts, kept in the bucket, are a folder of it.
     await expect(page.getByText("receipts-2024", { exact: true }).first()).toBeVisible();
     // Data Analysis: the household's table files become its analysis tables
-    // (a folder of monthly files read as one), with totals by month and category.
+    // (a folder of monthly files read as one), each explored as charts.
     await page.getByRole("radio", { name: "Analysis", exact: true }).click();
     // The view is in the address: reloading the page stays on it.
     await expect(page).toHaveURL(/\?view=analysis$/);
@@ -204,22 +204,22 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // for the owner.
     await expect(page.getByRole("radio", { name: "energy_meter", exact: true })).toBeVisible();
     await expect(page.getByRole("radio", { name: "sleep", exact: true })).toBeVisible();
-    await expect(page.getByText("6 more can be made")).toBeVisible();
+    await expect(page.getByText("6 more can be created")).toBeVisible();
     // The owner chooses which files to analyse; nothing is chosen at first.
     // The utility bills' workbook has a table per sheet, chosen together
     // under it. Last year's receipts folder holds one file, and its table is
     // named after it.
-    await page.getByRole("button", { name: "Make Analysis Tables…" }).click();
+    await page.getByRole("button", { name: "Create Analysis Tables…" }).click();
     const pick = page.getByRole("dialog", { name: "Choose Files to Analyze" });
     await expect(pick.getByText("0 of 6 selected")).toBeVisible();
-    await expect(pick.getByRole("button", { name: "Make", exact: true })).toBeDisabled();
+    await expect(pick.getByRole("button", { name: "Create", exact: true })).toBeDisabled();
     for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
       await expect(pick.getByRole("checkbox", { name: table })).not.toBeChecked();
     }
     await pick.getByRole("checkbox", { name: "spending" }).check();
     await pick.getByRole("checkbox", { name: "utilities.xlsx" }).check();
     await expect(pick.getByRole("checkbox", { name: "utilities_water" })).toBeChecked();
-    await pick.getByRole("button", { name: "Make 3 Tables" }).click();
+    await pick.getByRole("button", { name: "Create 3 Tables" }).click();
     await expect(pick).toHaveCount(0);
     for (const table of ["energy_meter", "sleep", "spending", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
@@ -227,7 +227,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     for (const table of ["readings", "receipts", "steps"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toHaveCount(0);
     }
-    await expect(page.getByText("3 more can be made")).toBeVisible();
+    await expect(page.getByText("3 more can be created")).toBeVisible();
     // A file's analysis table can be removed: the table goes, its file
     // stays, and it can be chosen again.
     await page.getByRole("radio", { name: "utilities_water", exact: true }).click();
@@ -236,52 +236,85 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(stop).toContainText("household.utilities_water");
     await stop.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
-    await expect(page.getByText("4 more can be made")).toBeVisible();
-    // A chart is described in the panel beside it (dimensions, comparisons,
-    // metrics, filters, order), and what it shows is computed by the node.
-    // Read as a table, its rows are there to check.
+    await expect(page.getByText("4 more can be created")).toBeVisible();
+    // A chart is described in the panel beside it (its time, dimensions,
+    // comparisons, metrics, filters) and what is chosen takes effect at once;
+    // what it shows is computed by the node. Read as a table, its rows are
+    // there to check.
     const panel = page.getByRole("group", { name: "Chart settings" });
     const result = page.locator(".screen-explorer__table");
-    const asTable = () => panel.getByLabel("Chart Type").selectOption({ label: "Table" });
+    const where = page.getByRole("navigation", { name: "Drill path" });
+    const chartType = (label) => panel.getByLabel("Chart Type").selectOption({ label });
+    const time = () => panel.getByRole("combobox", { name: "Time", exact: true });
+    const grain = (name) => panel.getByRole("radiogroup", { name: "Grain" }).getByRole("radio", { name, exact: true }).click();
     const add = async (button, column) => {
       await panel.getByRole("button", { name: button }).click();
       await page.getByRole("menuitem", { name: column, exact: true }).click();
     };
+    // A click on a group offers what can be done with it: zoom a period in,
+    // or break the group down by another column.
+    const point = async (text, item) => {
+      await result.locator(".screen-explorer__drillable", { hasText: text }).first().click();
+      await page.getByRole("menuitem", { name: item, exact: true }).click();
+    };
     // This node loads DuckDB's iceberg and lance extensions from the shared
-    // folder, so both are read, with totals by month.
-    for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
+    // folder, so both are read. A table starts with a new chart, nothing
+    // chosen: its rows. The time chosen, it is by month.
+    for (const [table, kind, month] of [["energy_meter", "Iceberg table", "Oct 2026"], ["sleep", "Lance dataset", "Nov 2026"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
-      await expect(page.locator(".screen-analysis__facts")).toContainText(kind);
-      await expect(page.getByRole("button", { name: "By Month", pressed: true })).toBeVisible();
-      await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
-      await asTable();
+      await expect(page.locator(".screen-analysis__about")).toContainText(kind);
+      await expect(page.locator(".screen-explorer__view--new")).toHaveText("New Chart");
+      await expect(result.locator("thead")).toContainText(table === "energy_meter" ? "kwh" : "hours");
+      await time().selectOption({ index: 1 });
       await expect(result).toContainText(month);
       if (table === "energy_meter") {
-        // Several metrics, the same column totalled more than one way.
-        await add("Add Metric", "kwh");
-        await add("Add Metric", "kwh");
-        await expect(panel.getByLabel("How kwh is totalled").first()).toHaveValue("sum");
-        await expect(panel.getByLabel("How kwh is totalled").nth(1)).toHaveValue("average");
-        await expect(result.locator("thead")).toContainText("Sum · kwh");
-        await expect(result.locator("thead")).toContainText("Average · kwh");
-        // A date at another grain; and the same date again, to compare by.
-        await panel.getByLabel("What read_on is grouped by").selectOption({ label: "Year" });
+        // A metric is an aggregate function of a column, chosen with what
+        // it means; the same column may be totalled more than one way.
+        await panel.getByRole("button", { name: "Add Metric" }).click();
+        const adding = page.getByRole("dialog", { name: "Add Metric" });
+        await adding.getByLabel("Aggregate Function").selectOption({ label: "AVG · Average" });
+        await adding.getByLabel("Column").selectOption({ label: "kwh" });
+        await expect(adding).toContainText("Will add: AVG(kwh)");
+        await adding.getByRole("button", { name: "Add", exact: true }).click();
+        await expect(panel.getByRole("group", { name: "Metrics" })).toContainText("AVG(kwh)");
+        await expect(result.locator("thead")).toContainText("AVG(kwh)");
+        // Time is one dimension seen at a grain: rolled up to the year, then
+        // zoomed into a quarter at a time, each zoom a filter on its period
+        // that the panel shows; the path above steps back.
+        await grain("Year");
         await expect(result.locator("tbody tr")).toHaveCount(1);
-        await add("Add Comparison", "read_on");
-        await expect(result.locator("thead")).toContainText("2026-10 · Sum · kwh");
+        await point("2026", "Zoom In to 2026");
+        await expect(result.locator("tbody tr")).toHaveCount(4);
+        await expect(where).toContainText("2026");
+        await expect(panel.getByRole("group", { name: "Filters" })).toContainText("2026");
+        await point("Q4 2026", "Zoom In to Q4 2026");
+        await expect(result.locator("tbody")).toContainText("Oct 2026");
+        await where.getByRole("button", { name: "All" }).click();
+        await expect(result.locator("tbody tr")).toHaveCount(1);
       }
       // A dataset is always analysed, and is not copied from here.
       await expect(page.getByRole("button", { name: "Remove Analysis Table…" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toHaveCount(0);
     }
+    // The household's ledger: two years of it, by month, in time's own
+    // order; an order by a metric is for dimensions, not for time.
     await page.getByRole("radio", { name: "spending", exact: true }).click();
-    await expect(page.getByText("household.spending")).toBeVisible();
-    await asTable();
-    await expect(result).toContainText("2026-09");
-    await expect(result).toContainText("2026-11");
-    await page.getByRole("button", { name: "By Category" }).click();
-    await expect(panel.getByLabel("Chart Type")).toHaveValue("bar");
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
+    await expect(page.locator(".screen-analysis__about")).toContainText("household.spending");
+    await time().selectOption({ label: "date" });
+    await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
+    await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
+    await expect(panel.getByLabel("Order")).toHaveCount(0);
+    // A dimension takes effect at once: every month and category together,
+    // ordered by the metric within each month.
+    await add("Add Dimension", "category");
+    await expect(result.locator("thead")).toContainText("category");
+    await expect.poll(() => result.locator("tbody tr").count()).toBeGreaterThan(23);
+    await panel.getByLabel("Order").selectOption({ index: 1 });
+    await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
+    // As columns over time, each category is a series.
+    await chartType("Column Chart");
+    await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+    await expect(panel).toContainText("laid out over time");
     // The app's policy is as strict as ever: charts need no script from
     // blob: URLs and no WebAssembly, and neither runs.
     const refused = await page.evaluate(async () => {
@@ -298,16 +331,32 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       return { ranFromBlob: window.ranFromBlob === true, compiled, frames: window.frames.length };
     });
     expect(refused).toEqual({ ranFromBlob: false, compiled: false, frames: 0 });
-    // Two dimensions, a filter of ticked values and one of a range, an
-    // order and a number of groups.
-    await asTable();
-    await add("Add Dimension", "date");
-    await add("Add Filter", "category");
-    const ticking = page.getByRole("dialog", { name: "Filter category" });
-    await ticking.getByRole("checkbox", { name: "Groceries" }).check();
+    await chartType("Pie Chart");
+    await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+    // A group broken down: its month and category kept as filters, grouped
+    // by another column instead; and again. The path steps back.
+    await chartType("Table");
+    await point("Groceries", "Break Down by subcategory");
+    await expect(where).toContainText("Groceries");
+    await expect(panel.getByRole("group", { name: "Filters" })).toContainText("category: Groceries");
+    await expect(result.locator("thead")).toContainText("subcategory");
+    await point("Supermarket", "Break Down by merchant");
+    await expect(result.locator("thead")).toContainText("merchant");
+    await where.getByRole("button", { name: "All" }).click();
+    await expect(result.locator("thead")).toContainText("category");
+    await page.getByRole("button", { name: "Discard Changes" }).click();
+    await expect(page.locator(".screen-explorer__facts")).toContainText("rows");
+    // Compared, filtered by ticked values and by a range, ordered, the top
+    // groups picked by their own totals.
+    await add("Add Dimension", "category");
+    await add("Add Comparison", "member");
+    await expect(result.locator("thead")).toContainText("Rosh");
+    await add("Add Filter", "city");
+    const ticking = page.getByRole("dialog", { name: "Filter city" });
+    await ticking.getByRole("checkbox", { name: "Porto" }).check();
     await ticking.getByRole("button", { name: "Done" }).click();
-    await expect(result.locator("tbody")).toContainText("Groceries");
-    await expect(result.locator("tbody")).not.toContainText("Books");
+    await expect(result.locator("tbody")).toContainText("Eating out");
+    await expect(result.locator("tbody")).not.toContainText("Utilities");
     await add("Add Filter", "amount");
     const ranging = page.getByRole("dialog", { name: "Filter amount" });
     await ranging.getByLabel("At least").fill("1");
@@ -315,43 +364,35 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await panel.getByLabel("Order").selectOption({ index: 1 });
     await panel.getByLabel("Show").selectOption({ label: "Top 5" });
     await expect.poll(() => result.locator("tbody tr").count()).toBeLessThanOrEqual(5);
-    // Kept as another chart, under a name.
-    await page.getByRole("button", { name: "More view actions" }).click();
-    await page.getByRole("menuitem", { name: "Save as New View…" }).click();
-    const saving = page.getByRole("dialog", { name: "Save as New View" });
-    await saving.getByLabel("View name").fill("Groceries by month");
+    // The query that ran is there to read, its values bound, not written in.
+    await page.getByRole("button", { name: "Show SQL" }).click();
+    const query = page.getByRole("dialog", { name: "DuckDB Query" });
+    await expect(query.locator(".screen-explorer__sql")).toContainText("WITH top AS");
+    await expect(query.locator(".screen-explorer__sql")).not.toContainText("Porto");
+    await expect(query.locator(".screen-explorer__params")).toContainText("'Porto'");
+    await query.getByRole("button", { name: "Done" }).click();
+    // A new chart is named the first time it is saved.
+    await page.getByRole("button", { name: "Save…" }).click();
+    const saving = page.getByRole("dialog", { name: "Save Chart" });
+    await saving.getByLabel("Chart name").fill("Porto trip");
     await saving.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Groceries by month", pressed: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Actions for Porto trip" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
-    // Save keeps a change where it is, with nothing to name or choose: in
-    // a chart of the owner's, and in one the table starts with, which can
-    // be restored.
-    await panel.getByLabel("Chart Type").selectOption({ label: "Column Chart" });
+    // Saved again, it is kept where it is, with nothing to name or choose.
+    await chartType("Column Chart");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await page.getByRole("button", { name: "By Category" }).click();
-    await expect(panel.getByLabel("Chart Type")).toHaveValue("bar");
-    await panel.getByLabel("Chart Type").selectOption({ label: "Treemap" });
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "By Month", exact: true }).click();
-    await page.getByRole("button", { name: "By Category" }).click();
-    await expect(panel.getByLabel("Chart Type")).toHaveValue("treemap");
-    await page.getByRole("button", { name: "More view actions" }).click();
-    await page.getByRole("menuitem", { name: "Restore Default" }).click();
-    await expect(panel.getByLabel("Chart Type")).toHaveValue("bar");
     // Reloading the page finds the saved chart as it was kept.
     await page.reload();
     await page.getByRole("radio", { name: "spending", exact: true }).click();
-    await page.getByRole("button", { name: "Groceries by month" }).click();
     await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
-    await expect(panel.getByRole("button", { name: "Filter category" })).toContainText("Groceries");
-    await page.getByRole("button", { name: "More view actions" }).click();
-    await page.getByRole("menuitem", { name: "Remove View…" }).click();
-    await page.getByRole("dialog", { name: "Remove the view Groceries by month?" }).getByRole("button", { name: "Remove", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Groceries by month" })).toHaveCount(0);
-    await expect(page.getByLabel("What category is for")).toHaveValue("category");
+    await expect(panel.getByRole("button", { name: "Filter city" })).toContainText("Porto");
+    await page.getByRole("button", { name: "Actions for Porto trip" }).click();
+    await page.getByRole("menuitem", { name: "Remove Chart…" }).click();
+    await page.getByRole("dialog", { name: "Remove the chart Porto trip?" }).getByRole("button", { name: "Remove", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Actions for Porto trip" })).toHaveCount(0);
+    await expect(page.locator(".screen-explorer__view--new")).toHaveText("New Chart");
     // The trams taken, an Iceberg table in the bucket, are one item of the
     // archive, not its files.
     await page.goto(`${running.base}/collections/rustfs-archive`);

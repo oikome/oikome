@@ -6983,9 +6983,10 @@ async fn a_folder_s_data_files_become_analysis_tables_that_follow_them() {
         .exists());
 }
 
-/// A chart is a description (dimensions, comparisons, metrics, filters,
-/// order, how many): the node writes its query and answers with its groups
-/// and series. Charts are kept with their table as views.
+/// A chart is a description (its time at a grain, dimensions, comparisons,
+/// metrics, filters, order, how many): the node writes one plain query from
+/// it, grouping by the time and every dimension together, and answers with
+/// its groups and series. Charts are kept with their table as views.
 #[tokio::test]
 async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     let n = node();
@@ -6993,13 +6994,18 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     let root = source.path().join("household");
     std::fs::create_dir_all(root.join("spending")).unwrap();
     std::fs::write(
+        root.join("spending/2026-07.csv"),
+        "date,category,merchant,amount,items\n2026-07-20,Books,Bertrand,30.00,2\n",
+    )
+    .unwrap();
+    std::fs::write(
         root.join("spending/2026-09.csv"),
-        "date,category,amount\n2026-09-02,Groceries,30.50\n2026-09-14,Books,12.00\n2026-09-20,Groceries,9.50\n",
+        "date,category,merchant,amount,items\n2026-09-02,Groceries,Lidl,30.50,3\n2026-09-14,Books,Bertrand,12.00,1\n2026-09-20,Groceries,Pingo Doce,9.50,2\n",
     )
     .unwrap();
     std::fs::write(
         root.join("spending/2026-10.csv"),
-        "date,category,amount\n2026-10-03,Groceries,20.00\n2026-10-09,It's \"odd\"; DROP TABLE x,8.25\n",
+        "date,category,merchant,amount,items\n2026-10-03,Groceries,Lidl,20.00,3\n2026-10-09,It's \"odd\"; DROP TABLE x,Somewhere,8.25,10\n",
     )
     .unwrap();
     n.api
@@ -7029,36 +7035,39 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         table: "spending".into(),
         spec: spec(json),
     };
-    let text = |v: &[Option<String>]| -> Vec<String> {
-        v.iter().map(|x| x.clone().unwrap_or_default()).collect()
+    let keys = |result: &ChartResult| -> Vec<Vec<String>> {
+        result
+            .groups
+            .iter()
+            .map(|g| g.keys.iter().map(|k| k.clone().unwrap_or_default()).collect())
+            .collect()
     };
+    let firsts = |result: &ChartResult| -> Vec<String> {
+        keys(result).into_iter().map(|k| k[0].clone()).collect()
+    };
+    let compute = |json: serde_json::Value| n.api.analysis_chart(&OWNER, chart(json));
 
-    // By month: one metric, and the same column totalled twice more, with
-    // the number of rows.
-    let by_month = n
-        .api
-        .analysis_chart(
-            &OWNER,
-            chart(serde_json::json!({
-                "chart": "column",
-                "dimensions": [{"column": "date", "grain": "month"}],
-                "metrics": [
-                    {"column": "amount", "aggregate": "sum"},
-                    {"column": "amount", "aggregate": "average"},
-                    {"column": "amount", "aggregate": "median"},
-                    {"column": "category", "aggregate": "distinct"},
-                    {"aggregate": "count"}
-                ]
-            })),
-        )
-        .await
-        .unwrap();
-    assert_eq!(by_month.matched, 5);
-    assert_eq!(by_month.all_groups, 2);
+    // By month: one metric, the same column totalled twice more, the
+    // number of rows. August has no rows and keeps its place.
+    let by_month = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month"},
+        "metrics": [
+            {"column": "amount", "aggregate": "sum"},
+            {"column": "amount", "aggregate": "average"},
+            {"column": "amount", "aggregate": "median"},
+            {"column": "category", "aggregate": "distinct"},
+            {"aggregate": "count"}
+        ]
+    }))
+    .await
+    .unwrap();
+    assert_eq!(by_month.matched, 6);
     assert_eq!(by_month.series.len(), 5);
-    assert_eq!(text(&by_month.groups[0].keys), ["2026-09"]);
+    assert_eq!(firsts(&by_month), ["2026-07", "2026-08", "2026-09", "2026-10"]);
+    assert_eq!(by_month.groups[1].values, [None, None, None, None, None]);
     assert_eq!(
-        by_month.groups[0].values,
+        by_month.groups[2].values,
         [
             Some(52.0),
             Some(52.0 / 3.0),
@@ -7067,139 +7076,252 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
             Some(3.0)
         ]
     );
-    assert_eq!(text(&by_month.groups[1].keys), ["2026-10"]);
-    assert_eq!(by_month.groups[1].values[0], Some(28.25));
-
-    // Two dimensions, a comparison, an order by a metric and a number of
-    // groups: the order is by the whole group, whatever is compared.
-    let compared = n
-        .api
-        .analysis_chart(
-            &OWNER,
-            chart(serde_json::json!({
-                "chart": "bar",
-                "dimensions": [{"column": "category"}],
-                "compare": [{"column": "date", "grain": "month"}],
-                "metrics": [{"column": "amount", "aggregate": "sum"}],
-                "sort": {"metric": 0, "descending": true},
-                "limit": 2
-            })),
-        )
-        .await
-        .unwrap();
-    assert_eq!(compared.all_groups, 3);
-    let series: Vec<_> = compared.series.iter().map(|s| text(&s.compare)).collect();
-    assert_eq!(series, [["2026-09"], ["2026-10"]]);
-    let groups: Vec<_> = compared
-        .groups
+    let columns: Vec<_> = by_month
+        .columns
         .iter()
-        .map(|g| (text(&g.keys)[0].clone(), g.values.clone()))
+        .map(|c| (c.column.as_str(), c.grain))
         .collect();
+    assert_eq!(columns, [("date", Some(DateGrain::Month))]);
+    // Time keeps its own order, all of it: an order by a metric and a
+    // number of groups are for the dimensions. The query is as plain as
+    // the chart.
+    let ordered = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month"},
+        "metrics": [{"column": "amount", "aggregate": "sum"}],
+        "sort": {"metric": 0, "descending": true},
+        "limit": 1
+    }))
+    .await
+    .unwrap();
+    assert_eq!(firsts(&ordered), ["2026-07", "2026-08", "2026-09", "2026-10"]);
     assert_eq!(
-        groups,
+        ordered.query.sql,
+        "SELECT strftime(\"date\", '%Y-%m') AS \"date\",\n       SUM(\"amount\") AS \"SUM(amount)\"\n\
+         FROM \"household\".\"spending\"\nGROUP BY 1\nORDER BY 1\nLIMIT 1000"
+    );
+    assert!(ordered.query.params.is_empty());
+
+    // Rolled up to the year, and zoomed into a period: a filter on it and
+    // a finer grain, its periods all there. Every grain is worked out from
+    // the rows: the year's average is of its rows, not of its months.
+    let at = |grain: &str, period: Option<(&str, &str)>| {
+        let filters = match period {
+            Some((of, key)) => serde_json::json!([{"column": "date", "period": {"grain": of, "key": key}}]),
+            None => serde_json::json!([]),
+        };
+        serde_json::json!({
+            "chart": "column",
+            "time": {"column": "date", "grain": grain},
+            "metrics": [{"column": "amount", "aggregate": "sum"}, {"column": "amount", "aggregate": "average"}],
+            "filters": filters
+        })
+    };
+    let year = compute(at("year", None)).await.unwrap();
+    assert_eq!(firsts(&year), ["2026"]);
+    assert_eq!(year.groups[0].values, [Some(110.25), Some(110.25 / 6.0)]);
+    let quarters = compute(at("quarter", Some(("year", "2026")))).await.unwrap();
+    assert_eq!(
+        firsts(&quarters),
+        ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4"]
+    );
+    assert_eq!(quarters.groups[0].values, [None, None]);
+    assert_eq!(quarters.groups[2].values[0], Some(82.0));
+    let months = compute(at("month", Some(("quarter", "2026-Q3")))).await.unwrap();
+    assert_eq!(firsts(&months), ["2026-07", "2026-08", "2026-09"]);
+    assert!(months.query.sql.contains("= ?1"));
+    assert_eq!(months.query.params, ["'2026-Q3'"]);
+    let days = compute(at("day", Some(("month", "2026-09")))).await.unwrap();
+    assert_eq!(days.groups.len(), 30);
+    assert_eq!(days.matched, 3);
+    let weeks = compute(at("week", None)).await.unwrap();
+    assert_eq!(firsts(&weeks)[0], "2026-07-20");
+
+    // The time and a dimension, grouped together: a group for each month
+    // and category, ordered by the metric within each month.
+    let month_category = compute(serde_json::json!({
+        "chart": "table",
+        "time": {"column": "date", "grain": "month"},
+        "dimensions": [{"column": "category"}],
+        "metrics": [{"column": "amount", "aggregate": "sum"}],
+        "sort": {"metric": 0, "descending": true}
+    }))
+    .await
+    .unwrap();
+    let odd = "It's \"odd\"; DROP TABLE x";
+    assert_eq!(
+        keys(&month_category),
         [
-            ("Groceries".to_string(), vec![Some(40.0), Some(20.0)]),
-            ("Books".to_string(), vec![Some(12.0), None]),
+            vec!["2026-07".to_string(), "Books".into()],
+            vec!["2026-09".into(), "Groceries".into()],
+            vec!["2026-09".into(), "Books".into()],
+            vec!["2026-10".into(), "Groceries".into()],
+            vec!["2026-10".into(), odd.into()],
         ]
     );
-    for (grain, first) in [
-        ("year", "2026"),
-        ("quarter", "2026-Q3"),
-        ("week", "2026-08-31"),
-        ("day", "2026-09-02"),
-    ] {
-        let grouped = n
-            .api
-            .analysis_chart(
-                &OWNER,
-                chart(serde_json::json!({
-                    "chart": "line",
-                    "dimensions": [{"column": "date", "grain": grain}]
-                })),
-            )
-            .await
-            .unwrap();
-        assert_eq!(text(&grouped.groups[0].keys), [first], "{grain}");
-    }
+    assert_eq!(month_category.columns.len(), 2);
 
-    // Filters: values ticked (bound, never part of the query's text), a
-    // range of numbers, a range of days.
+    // Several dimensions together, ordered by a metric, the first two.
+    let top = compute(serde_json::json!({
+        "chart": "bar",
+        "dimensions": [{"column": "category"}, {"column": "merchant"}],
+        "metrics": [{"column": "amount", "aggregate": "sum"}],
+        "sort": {"metric": 0, "descending": true},
+        "limit": 2
+    }))
+    .await
+    .unwrap();
+    assert_eq!(
+        keys(&top),
+        [
+            vec!["Groceries".to_string(), "Lidl".into()],
+            vec!["Books".into(), "Bertrand".into()]
+        ]
+    );
+    assert!(top.truncated);
+    assert!(top.query.sql.ends_with("LIMIT 2"));
+    // Compared values: the top group is picked by its own total, an
+    // average over all its rows (Books, 21), not one of what is compared
+    // within it (Groceries' Lidl, 25.25).
+    let compared = compute(serde_json::json!({
+        "chart": "bar",
+        "dimensions": [{"column": "category"}],
+        "compare": [{"column": "merchant"}],
+        "metrics": [{"column": "amount", "aggregate": "average"}],
+        "sort": {"metric": 0, "descending": true},
+        "limit": 1
+    }))
+    .await
+    .unwrap();
+    assert_eq!(firsts(&compared), ["Books"]);
+    let series: Vec<_> = compared.series.iter().map(|s| s.compare.clone()).collect();
+    assert_eq!(series, [vec![Some("Bertrand".to_string())]]);
+    assert!(compared.query.sql.starts_with("WITH top AS ("));
+    let compared = compute(serde_json::json!({
+        "chart": "bar",
+        "dimensions": [{"column": "category"}],
+        "compare": [{"column": "merchant"}],
+        "metrics": [{"column": "amount", "aggregate": "sum"}],
+        "filters": [{"column": "category", "values": ["Groceries", "Books"]}],
+        "sort": {"metric": 0, "descending": true},
+        "limit": 1
+    }))
+    .await
+    .unwrap();
+    assert_eq!(firsts(&compared), ["Groceries"]);
+    assert_eq!(compared.groups[0].values, [Some(50.5), Some(9.5)]);
+    // Each value is bound once, however often the query reads it.
+    assert_eq!(compared.query.params, ["'Groceries'", "'Books'"]);
+
+    // A number by its values, in their order; a date by its days; and a
+    // value of either kept as it is shown.
+    let by_items = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
+        .await
+        .unwrap();
+    assert_eq!(firsts(&by_items), ["1", "2", "3", "10"]);
+    assert_eq!(by_items.groups[1].values, [Some(2.0)]);
+    let by_day = compute(serde_json::json!({"chart": "table", "dimensions": [{"column": "date"}]}))
+        .await
+        .unwrap();
+    assert_eq!(firsts(&by_day)[0], "2026-07-20");
+    for (column, value) in [("items", "10"), ("date", "2026-09-02")] {
+        let kept = compute(serde_json::json!({
+            "chart": "table",
+            "dimensions": [{"column": "category"}],
+            "filters": [{"column": column, "values": [value]}]
+        }))
+        .await
+        .unwrap();
+        assert_eq!(kept.matched, 1, "{column}");
+    }
+    // A group broken down: a month and a category kept, by merchant.
+    let broken_down = compute(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "merchant"}],
+        "metrics": [{"column": "amount", "aggregate": "sum"}],
+        "filters": [
+            {"column": "date", "period": {"grain": "month", "key": "2026-09"}},
+            {"column": "category", "values": ["Groceries"]}
+        ]
+    }))
+    .await
+    .unwrap();
+    assert_eq!(firsts(&broken_down), ["Lidl", "Pingo Doce"]);
+    assert_eq!(broken_down.groups[0].values, [Some(30.5)]);
+
+    // Filters: values ticked (bound, never part of the query's text), and
+    // a range of numbers; the time's range.
     let filtered = |filters: serde_json::Value| {
-        chart(serde_json::json!({
+        serde_json::json!({
             "chart": "table",
             "dimensions": [{"column": "category"}],
             "metrics": [{"column": "amount", "aggregate": "sum"}],
             "filters": filters
-        }))
+        })
     };
-    let odd = "It's \"odd\"; DROP TABLE x";
-    let ticked = n
-        .api
-        .analysis_chart(
-            &OWNER,
-            filtered(serde_json::json!([{"column": "category", "values": [odd, "Books"]}])),
-        )
+    let ticked = compute(filtered(serde_json::json!([{"column": "category", "values": [odd, "Books"]}])))
         .await
         .unwrap();
-    assert_eq!(ticked.matched, 2);
-    let keys: Vec<_> = ticked
-        .groups
-        .iter()
-        .map(|g| text(&g.keys)[0].clone())
-        .collect();
-    assert_eq!(keys, ["Books", odd]);
-    let ranged = n
-        .api
-        .analysis_chart(
-            &OWNER,
-            filtered(serde_json::json!([
-                {"column": "amount", "min": "9", "max": "20"},
-                {"column": "date", "min": "2026-09-14", "max": "2026-10-03"}
-            ])),
-        )
+    assert_eq!(ticked.matched, 3);
+    assert_eq!(firsts(&ticked), ["Books", odd]);
+    assert!(!ticked.query.sql.contains("DROP TABLE x"));
+    assert!(ticked
+        .query
+        .params
+        .contains(&"'It''s \"odd\"; DROP TABLE x'".to_string()));
+    let ranged = compute(filtered(serde_json::json!([{"column": "amount", "min": "9", "max": "20"}])))
         .await
         .unwrap();
     assert_eq!(ranged.matched, 3);
-    let recent = n
-        .api
-        .analysis_chart(
-            &OWNER,
-            filtered(serde_json::json!([{"column": "date", "lastDays": 1}])),
-        )
-        .await
-        .unwrap();
+    let recent = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month", "range": "last30Days"}
+    }))
+    .await
+    .unwrap();
     assert_eq!(recent.matched, 0);
 
     // Nothing grouped or totalled: the rows themselves.
-    let rows = n
-        .api
-        .analysis_chart(&OWNER, chart(serde_json::json!({"chart": "table"})))
-        .await
-        .unwrap();
+    let rows = compute(serde_json::json!({"chart": "table"})).await.unwrap();
+    assert!(rows.query.sql.starts_with("SELECT *\nFROM \"household\".\"spending\""));
     let rows = rows.rows.unwrap();
-    assert_eq!(&rows.columns[..3], ["date", "category", "amount"]);
-    assert_eq!(rows.rows.len(), 5);
+    assert_eq!(
+        &rows.columns[..5],
+        ["date", "category", "merchant", "amount", "items"]
+    );
+    assert_eq!(rows.rows.len(), 6);
 
-    // What a chart may not ask: a column the table has not, a number's
-    // total of text, a grain of what is not time, two kinds of filter.
+    // What a chart may not ask: a column the table has not, a time that is
+    // not of time, a column grouped twice (the time too), a number's total
+    // of text, a metric twice, two kinds of filter, a period of what is not
+    // time or that is no period, SQL anywhere.
     for refused in [
         serde_json::json!({"chart": "bar", "dimensions": [{"column": "nothing"}]}),
         serde_json::json!({"chart": "bar", "dimensions": [{"column": "amount\" FROM x --"}]}),
+        serde_json::json!({"chart": "bar", "time": {"column": "category", "grain": "month"}}),
+        serde_json::json!({"chart": "bar", "time": {"column": "date", "grain": "month"}, "dimensions": [{"column": "date"}]}),
+        serde_json::json!({"chart": "bar", "dimensions": [{"column": "category"}], "compare": [{"column": "category"}]}),
         serde_json::json!({"chart": "bar", "metrics": [{"column": "category", "aggregate": "sum"}]}),
         serde_json::json!({"chart": "bar", "metrics": [{"aggregate": "sum"}]}),
-        serde_json::json!({"chart": "bar", "dimensions": [{"column": "category", "grain": "month"}]}),
+        serde_json::json!({"chart": "bar", "metrics": [{"column": "amount", "aggregate": "sum"}, {"column": "amount", "aggregate": "sum"}]}),
         serde_json::json!({"chart": "bar", "filters": [{"column": "amount", "min": "1 OR 1=1"}]}),
-        serde_json::json!({"chart": "bar", "filters": [{"column": "date", "min": "2026-09-01' --"}]}),
-        serde_json::json!({"chart": "bar", "filters": [{"column": "date", "values": ["a"], "thisYear": true}]}),
+        serde_json::json!({"chart": "bar", "filters": [{"column": "category", "min": "1"}]}),
+        serde_json::json!({"chart": "bar", "filters": [{"column": "category", "values": ["a"], "min": "1"}]}),
+        serde_json::json!({"chart": "bar", "filters": [{"column": "category", "period": {"grain": "month", "key": "2026-09"}}]}),
+        serde_json::json!({"chart": "bar", "filters": [{"column": "date", "period": {"grain": "month", "key": "2026-13"}}]}),
         serde_json::json!({"chart": "bar", "dimensions": [{"column": "category"}], "sort": {"metric": 4, "descending": true}}),
     ] {
         let err = n.api.analysis_chart(&OWNER, chart(refused.clone())).await;
         assert!(err.is_err(), "{refused} should be refused");
     }
-    assert!(serde_json::from_value::<ChartSpec>(
-        serde_json::json!({"chart": "bar", "sql": "SELECT 1"})
-    )
-    .is_err());
+    for unknown in [
+        serde_json::json!({"chart": "bar", "sql": "SELECT 1"}),
+        serde_json::json!({"chart": "bar", "dimensions": [{"column": "date", "grain": "month"}]}),
+        serde_json::json!({"chart": "bar", "time": {"column": "date", "grain": "decade"}}),
+        serde_json::json!({"chart": "bar", "drill": ["2026"]}),
+    ] {
+        assert!(serde_json::from_value::<ChartSpec>(unknown).is_err());
+    }
     assert!(n
         .api
         .analysis_chart(
@@ -7222,7 +7344,8 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .unwrap();
     assert_eq!(values, ["Books", "Groceries", odd]);
 
-    // A chart is kept with its table as a view: only a chart's description.
+    // A chart is kept with its table as a view, under a name: only a
+    // chart's description. A table starts with none.
     let save = |id: Option<&str>, name: &str, config: &str| SaveAnalysisView {
         space: "household".into(),
         table: "spending".into(),
@@ -7230,6 +7353,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         name: name.into(),
         config: config.into(),
     };
+    let household = || SpaceRef {
+        space: "household".into(),
+    };
+    let before = n.api.file_analysis(&OWNER, household()).await.unwrap();
+    assert!(before.tables[0].views.is_empty());
     let kept = n
         .api
         .save_analysis_view(
@@ -7237,7 +7365,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
             save(
                 None,
                 " Groceries by month ",
-                r#"{"chart":"column","dimensions":[{"column":"date","grain":"month"}],"metrics":[{"column":"amount","aggregate":"sum"}]}"#,
+                r#"{"chart":"column","time":{"column":"date","grain":"month"},"metrics":[{"column":"amount","aggregate":"sum"}]}"#,
             ),
         )
         .await
@@ -7248,7 +7376,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(views[0].by, None);
     let kept_spec: ChartSpec = serde_json::from_str(&views[0].config).unwrap();
     assert_eq!(kept_spec.chart, ChartKind::Column);
-    assert_eq!(kept_spec.dimensions[0].grain, Some(DateGrain::Month));
+    assert_eq!(kept_spec.time.unwrap().grain, DateGrain::Month);
     let id = views[0].id.clone();
     // Another view may not take its name; what is not a chart is not kept.
     let err = n
@@ -7265,6 +7393,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         "not json",
         "{}",
         r#"{"chart":"bar","sql":"SELECT 1"}"#,
+        r#"{"chart":"bar","drill":["2026"]}"#,
     ] {
         let err = n
             .api
@@ -7285,33 +7414,20 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .unwrap();
     assert_eq!(kept.tables[0].views.len(), 1);
     assert_eq!(kept.tables[0].views[0].name, "By month");
-
-    // A view the table starts with is saved in place, under its own id;
-    // removing that restores it. Any other unknown id is not found.
-    let kept = n
-        .api
-        .save_analysis_view(&OWNER, save(Some("month"), "month", r#"{"chart":"area"}"#))
-        .await
-        .unwrap();
-    let ids: Vec<_> = kept.tables[0].views.iter().map(|v| v.id.as_str()).collect();
-    assert_eq!(ids, [id.as_str(), "month"]);
+    // An id the table has not is not found: there are no views it starts with.
+    for unknown in ["month", "v42"] {
+        let err = n
+            .api
+            .save_analysis_view(&OWNER, save(Some(unknown), "Other", r#"{"chart":"bar"}"#))
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    }
     let view = |id: &str| AnalysisViewRef {
         space: "household".into(),
         table: "spending".into(),
         id: id.into(),
     };
-    let kept = n
-        .api
-        .remove_analysis_view(&OWNER, view("month"))
-        .await
-        .unwrap();
-    assert_eq!(kept.tables[0].views.len(), 1);
-    let err = n
-        .api
-        .save_analysis_view(&OWNER, save(Some("v42"), "Other", r#"{"chart":"bar"}"#))
-        .await
-        .unwrap_err();
-    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
 
     // The table is made again when its files change; its views stay.
     std::fs::write(
@@ -7319,12 +7435,9 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         "date,category,amount\n2026-11-01,Rent,900.00\n",
     )
     .unwrap();
-    let household = || SpaceRef {
-        space: "household".into(),
-    };
     n.api.refresh_space(&OWNER, household()).await.unwrap();
     let again = n.api.file_analysis(&OWNER, household()).await.unwrap();
-    assert_eq!(again.tables[0].rows, 6);
+    assert_eq!(again.tables[0].rows, 7);
     assert_eq!(again.tables[0].views.len(), 1);
     let err = n
         .api
@@ -7334,6 +7447,268 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
     let gone = n.api.remove_analysis_view(&OWNER, view(&id)).await.unwrap();
     assert!(gone.tables[0].views.is_empty());
+}
+
+/// An assistant charts the analysis tables of its collections as itself,
+/// and may keep a chart for the owner, marked as its own; nothing else.
+#[tokio::test]
+async fn an_assistant_charts_its_collections_and_keeps_charts_marked_as_its_own() {
+    let n = logged_node();
+    let source = tempfile::tempdir().unwrap();
+    for name in ["household", "private"] {
+        let root = source.path().join(name);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("spending.csv"),
+            "date,category,amount\n2026-09-02,Groceries,30.50\n2026-09-14,Books,12.00\n2026-10-03,Groceries,20.00\n",
+        )
+        .unwrap();
+        n.api
+            .view_in_place(
+                &OWNER,
+                ViewInPlace {
+                    place: None,
+                    path: root.to_string_lossy().into_owned(),
+                    name: Some(name.into()),
+                },
+            )
+            .await
+            .unwrap();
+        n.api
+            .build_analysis(
+                &OWNER,
+                BuildAnalysis {
+                    space: name.into(),
+                    tables: vec!["spending".into()],
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let connected = n
+        .api
+        .connect_assistant(
+            &OWNER,
+            ConnectAssistant {
+                name: "Claude Code".into(),
+                app: AssistantApp::ClaudeCode,
+                plugin: None,
+                client: None,
+                collections: vec!["household".into()],
+            },
+        )
+        .await
+        .unwrap();
+    let me = n.api.assistant_by_token(&connected.token).unwrap();
+    let spec = |json: serde_json::Value| -> ChartSpec { serde_json::from_value(json).unwrap() };
+    let by_month = || {
+        spec(serde_json::json!({
+            "chart": "column",
+            "time": {"column": "date", "grain": "month"},
+            "metrics": [{"column": "amount", "aggregate": "sum"}]
+        }))
+    };
+
+    // What it may chart: its collection's analysis tables, with what each
+    // column holds and is for.
+    let tables = n
+        .api
+        .assistant_charts(&me, ListSkills { collection: None })
+        .await
+        .unwrap();
+    assert_eq!(tables.len(), 1);
+    assert_eq!(
+        (
+            tables[0].collection.as_str(),
+            tables[0].table.as_str(),
+            tables[0].rows
+        ),
+        ("household", "spending", 3)
+    );
+    let kinds: Vec<(&str, &str)> = tables[0]
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.kind.as_str()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [("date", "time"), ("category", "text"), ("amount", "number")]
+    );
+    assert!(n
+        .api
+        .assistant_charts(
+            &me,
+            ListSkills {
+                collection: Some("private".into())
+            }
+        )
+        .await
+        .is_err());
+
+    // A chart, computed as itself.
+    let chart = |collection: &str, spec: ChartSpec| AssistantChart {
+        collection: collection.into(),
+        table: "spending".into(),
+        spec,
+    };
+    let result = n
+        .api
+        .assistant_chart(&me, chart("household", by_month()))
+        .await
+        .unwrap();
+    let totals: Vec<_> = result.groups.iter().map(|g| g.values[0]).collect();
+    assert_eq!(totals, [Some(42.5), Some(20.0)]);
+    let err = n
+        .api
+        .assistant_chart(&me, chart("private", by_month()))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
+    // The owner is not an assistant here, nor is an assistant the owner.
+    assert!(n
+        .api
+        .assistant_chart(&OWNER, chart("household", by_month()))
+        .await
+        .is_err());
+    assert!(n
+        .api
+        .analysis_chart(
+            &me,
+            AnalysisChart {
+                space: "household".into(),
+                table: "spending".into(),
+                spec: by_month()
+            }
+        )
+        .await
+        .is_err());
+
+    // Kept, marked as its own; saved again under its name, replaced; a
+    // chart it can't compute, or another's name, is not kept.
+    let save = |collection: &str, name: &str, spec: ChartSpec| AssistantSaveChart {
+        collection: collection.into(),
+        table: "spending".into(),
+        name: name.into(),
+        spec,
+    };
+    let saved = n
+        .api
+        .assistant_save_chart(&me, save("household", "Spending by month", by_month()))
+        .await
+        .unwrap();
+    assert_eq!(saved.by.as_deref(), Some("Claude Code"));
+    let again = n
+        .api
+        .assistant_save_chart(
+            &me,
+            save(
+                "household",
+                "Spending by month",
+                spec(serde_json::json!({"chart": "line", "time": {"column": "date", "grain": "month"}})),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again.id, saved.id);
+    for refused in [
+        save(
+            "household",
+            "Nothing",
+            spec(serde_json::json!({"chart": "bar", "dimensions": [{"column": "nothing"}]})),
+        ),
+        save("private", "Elsewhere", by_month()),
+    ] {
+        assert!(n.api.assistant_save_chart(&me, refused).await.is_err());
+    }
+    n.api
+        .save_analysis_view(
+            &OWNER,
+            SaveAnalysisView {
+                space: "household".into(),
+                table: "spending".into(),
+                id: None,
+                name: "Mine".into(),
+                config: r#"{"chart":"bar"}"#.into(),
+            },
+        )
+        .await
+        .unwrap();
+    let err = n
+        .api
+        .assistant_save_chart(&me, save("household", "Mine", by_month()))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err:?}");
+    let analysis = n
+        .api
+        .file_analysis(
+            &OWNER,
+            SpaceRef {
+                space: "household".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let views: Vec<(&str, Option<&str>)> = analysis.tables[0]
+        .views
+        .iter()
+        .map(|v| (v.name.as_str(), v.by.as_deref()))
+        .collect();
+    assert_eq!(
+        views,
+        [("Spending by month", Some("Claude Code")), ("Mine", None)]
+    );
+    // Changed and saved by the owner, it is the owner's.
+    let owned = n
+        .api
+        .save_analysis_view(
+            &OWNER,
+            SaveAnalysisView {
+                space: "household".into(),
+                table: "spending".into(),
+                id: Some(saved.id.clone()),
+                name: "Spending by month".into(),
+                config: r#"{"chart":"area"}"#.into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(owned.tables[0].views[0].by, None);
+
+    // All of it is in Activity: the charts, the one kept, the refusals.
+    let log = n
+        .api
+        .list_access(&OWNER, ListAccess::default())
+        .await
+        .unwrap();
+    let methods: Vec<(&str, String)> = log
+        .iter()
+        .filter(|item| item.method.starts_with("assistant_"))
+        .map(|item| (item.method.as_str(), format!("{:?}", item.outcome)))
+        .collect();
+    assert!(
+        methods.contains(&("assistant_chart", "Allowed".into())),
+        "{methods:?}"
+    );
+    assert!(
+        methods.contains(&("assistant_chart", "Denied".into())),
+        "{methods:?}"
+    );
+    assert!(
+        methods.contains(&("assistant_save_chart", "Allowed".into())),
+        "{methods:?}"
+    );
+    assert!(
+        methods.contains(&("assistant_save_chart", "Denied".into())),
+        "{methods:?}"
+    );
+    let kept = log
+        .iter()
+        .find(|item| {
+            item.method == "assistant_save_chart" && item.outcome == AccessOutcome::Allowed
+        })
+        .unwrap();
+    assert_eq!(kept.detail.as_deref(), Some("Spending by month"));
 }
 
 /// A node that loads DuckDB's extensions, shared by the tests that need

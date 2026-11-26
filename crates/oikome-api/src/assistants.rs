@@ -35,8 +35,9 @@ use serde::{Deserialize, Serialize};
 use crate::invites::read_private;
 use crate::search::{hits_wanted, terms_of, MAX_KEY_COLUMNS};
 use crate::{
-    encode_rows, first_count, now_ms, Api, ApiError, Assistant, AssistantApp, AssistantCollections,
-    AssistantConnected, AssistantRef, Caller, ConnectAssistant, Empty, ErrorCode, GetSkill,
+    encode_rows, first_count, now_ms, AnalysisView, Api, ApiError, Assistant, AssistantApp,
+    AssistantChart, AssistantCollections, AssistantConnected, AssistantRef, AssistantSaveChart,
+    Caller, ChartResult, ChartableTable, ConnectAssistant, Empty, ErrorCode, GetSkill,
     InstallAssistant, KnowledgePassage, KnowledgeText, ListSkills, ReadKnowledge, ReadRow,
     ReadableCollection, ReadableTable, Rows, Search, SearchResults, SkillContent, SkillInfo,
 };
@@ -51,6 +52,8 @@ const MAX_NAME_CHARS: usize = 64;
 pub(crate) const METHOD_PREFIX: &str = "assistant_";
 const SEARCH_METHOD: &str = "assistant_search";
 const READ_METHOD: &str = "assistant_read";
+const CHART_METHOD: &str = "assistant_chart";
+const SAVE_CHART_METHOD: &str = "assistant_save_chart";
 /// How often its last use is written down.
 const USED_EVERY_MS: u64 = 60_000;
 const MAX_READ_BYTES: usize = 32 << 20;
@@ -796,6 +799,127 @@ impl Api {
                 Err(e)
             }
         }
+    }
+
+    /// The analysis tables the calling assistant may chart: in its
+    /// collections, or one of them; their columns, and the charts kept.
+    pub async fn assistant_charts(
+        &self,
+        caller: &Caller,
+        req: ListSkills,
+    ) -> Result<Vec<ChartableTable>, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        let names = match &req.collection {
+            Some(name) => {
+                validate_space_name(name)?;
+                if !me.collections.contains(name) {
+                    return Err(no_collection(name));
+                }
+                vec![name.clone()]
+            }
+            None => me.collections.clone(),
+        };
+        let mut out = Vec::new();
+        for name in names {
+            // A collection that views no folder has no analysis tables.
+            if self.in_place_of(&name).is_ok() {
+                out.extend(self.chartable(&name).await?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// A chart of an analysis table of one of the calling assistant's
+    /// collections, computed as the assistant: its grants decide.
+    pub async fn assistant_chart(
+        &self,
+        caller: &Caller,
+        req: AssistantChart,
+    ) -> Result<ChartResult, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        validate_space_name(&req.collection)?;
+        let done = entry(&me, CHART_METHOD, vec![req.collection.clone()]);
+        if !me.collections.contains(&req.collection) {
+            self.record(AccessEntry {
+                outcome: Outcome::Denied,
+                reason: Some("not one of its collections".to_string()),
+                ..done
+            });
+            return Err(no_collection(&req.collection));
+        }
+        let session = self.assistant_session(&me.did);
+        let result = self
+            .compute_chart(&session, &req.collection, &req.table, &req.spec)
+            .await;
+        self.record(match &result {
+            Ok(_) => AccessEntry {
+                merge: true,
+                detail: Some(req.table.clone()),
+                ..done
+            },
+            Err(e) => AccessEntry {
+                outcome: if e.code == ErrorCode::PermissionDenied {
+                    Outcome::Denied
+                } else {
+                    Outcome::Failed
+                },
+                reason: Some(e.message.clone()),
+                ..done
+            },
+        });
+        result
+    }
+
+    /// Keep a chart with an analysis table of one of the calling assistant's
+    /// collections, marked as the assistant's. It must be one the assistant
+    /// can compute; under a name it used before, its own chart is replaced,
+    /// and another's name is not taken.
+    pub async fn assistant_save_chart(
+        &self,
+        caller: &Caller,
+        req: AssistantSaveChart,
+    ) -> Result<AnalysisView, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        validate_space_name(&req.collection)?;
+        let saved = entry(&me, SAVE_CHART_METHOD, vec![req.collection.clone()]);
+        if !me.collections.contains(&req.collection) {
+            self.record(AccessEntry {
+                outcome: Outcome::Denied,
+                reason: Some("not one of its collections".to_string()),
+                ..saved
+            });
+            return Err(no_collection(&req.collection));
+        }
+        let session = self.assistant_session(&me.did);
+        self.compute_chart(&session, &req.collection, &req.table, &req.spec)
+            .await?;
+        let mine = self
+            .analysis_kept(&req.collection)?
+            .into_iter()
+            .find(|(table, _, _)| *table == req.table)
+            .and_then(|(_, _, views)| {
+                views.into_iter().find(|v| {
+                    v.name == req.name.trim() && v.by.as_deref() == Some(me.name.as_str())
+                })
+            })
+            .map(|v| v.id);
+        let config = serde_json::to_string(&req.spec).map_err(ApiError::internal)?;
+        let view = self.keep_view(
+            &req.collection,
+            &req.table,
+            mine.as_deref(),
+            &req.name,
+            &config,
+            Some(&me.name),
+        )?;
+        self.record(AccessEntry {
+            detail: Some(view.name.clone()),
+            ..saved
+        });
+        Ok(view)
     }
 
     /// The connected assistant `caller` is; anyone else is refused.

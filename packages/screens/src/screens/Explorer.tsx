@@ -1,27 +1,47 @@
 // Copyright 2025 The Oikome Authors
 // SPDX-License-Identifier: Apache-2.0
 //
-// The explorer of an analysis table: its saved charts in a row, the one
-// shown, and beside it the panel that describes it the way OLAP tools do.
+// The explorer of an analysis table: the charts kept with it in a row, the
+// one shown, and beside it the panel that describes it the way BI tools do.
 //
-// A chart is a description, never SQL: its dimensions (the columns its
-// rows are grouped by; a column of time at a grain), what is compared
-// within each group (further dimensions, drawn as series), its metrics (a
-// column and how it is totalled, the same column as often as wanted, or
-// the number of rows), its filters, its order and how many groups it
-// shows. The node writes the query from the description and answers with
-// the result; this component draws that result (a table here, the charts
-// with ECharts, loaded on demand). Nothing is computed in the browser.
+// A chart is a description, never SQL, and whatever is chosen takes effect
+// at once. The rows are grouped by the time (a column of time seen at a
+// grain, over a range) and by every dimension together, as SQL's GROUP BY
+// is: a table shows a column for each; a chart lays its groups along its
+// axis (the time, else the dimensions), and with the time along it the
+// dimensions' values are series, as what is compared is. The time keeps its
+// own order; an order by a metric and a number of groups are for the
+// dimensions. A click on a group zooms a period into its next grain or
+// breaks the group down by another column: either is an edit of the
+// description (a filter, and a finer grain or another dimension), so the
+// panel always says what is drawn, and the path above the chart steps back
+// through them. The node writes the query and answers; this component draws
+// it (a table here, the charts with ECharts, loaded on demand) and shows the
+// query that ran.
 //
-// A table starts with the charts its columns' roles give (by month, by
-// category). What the owner changes is a draft of the chart shown, until
-// Save keeps it where it is (a starting chart too, which can be restored),
-// or it is saved as another chart under a name, or discarded. Assistants
-// allowed to read the collection may save charts too; those say who made
-// them.
+// Nothing is chosen at first: a new chart is the table's rows. A chart is
+// kept when saved, under a name the first time, and opens again from the
+// row above; what the owner changes is a draft until saved or discarded.
+// Assistants allowed to read the collection may keep charts too; those say
+// who made them.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Card, Checkbox, ConfirmDialog, Dialog, ErrorText, Icon, IconButton, Menu, Select, Tag, TextField, useToast } from "@oikome/ui";
+import {
+  Button,
+  Card,
+  Checkbox,
+  ConfirmDialog,
+  Dialog,
+  ErrorText,
+  Icon,
+  Menu,
+  PointMenu,
+  Segmented,
+  Select,
+  Tag,
+  TextField,
+  useToast,
+} from "@oikome/ui";
 import type { MenuItem } from "@oikome/ui";
 import type {
   AnalysisTable,
@@ -29,11 +49,15 @@ import type {
   ChartDimension,
   ChartFilter,
   ChartKind,
+  ChartLevel,
   ChartMetric,
+  ChartQuery,
   ChartResult,
   ChartSpec,
+  ChartTime,
   DateGrain,
   FileAnalysis,
+  TimeRange,
 } from "@oikome/client";
 import { useAction, useClient } from "../data";
 import { strings } from "../strings";
@@ -42,36 +66,66 @@ import type { Drawing } from "../chartDraw";
 
 const x = strings.explorer;
 
-const CHARTS: ChartKind[] = ["table", "column", "bar", "line", "area", "treemap"];
+const CHARTS: ChartKind[] = ["table", "column", "bar", "line", "area", "pie", "treemap"];
 const GRAINS: DateGrain[] = ["year", "quarter", "month", "week", "day"];
+/** The grain a period zooms into; a week opens into its days. */
+const FINER: Partial<Record<DateGrain, DateGrain>> = { year: "quarter", quarter: "month", month: "day", week: "day" };
+const RANGES: TimeRange[] = ["all", "thisYear", "last30Days", "last90Days", "last365Days"];
 const NUMBER_AGGREGATES: ChartAggregate[] = ["sum", "average", "median", "min", "max", "count", "distinct"];
 const OTHER_AGGREGATES: ChartAggregate[] = ["count", "distinct"];
 const LIMITS = [5, 10, 20, 50];
-/** The ids of the charts a table starts with, as the node knows them. */
-const STARTING = ["month", "category", "rows"];
+/** A new chart: nothing chosen, so the table's rows. */
+const NEW_CHART: ChartSpec = { chart: "table", time: null, dimensions: [], compare: [], metrics: [], filters: [], sort: null, limit: null };
+const NEW = "new";
 
 interface View {
   id: string;
   name: string;
   spec: ChartSpec;
-  /** One the table starts with: not renamed or removed. */
-  builtin: boolean;
-  /** A starting chart the owner saved changes to: it can be restored. */
-  changed?: boolean;
   by?: string;
   savedAtMs?: number;
 }
 
 type Field = AnalysisTable["fields"][number];
 const isNumber = (field: Field | undefined) => field !== undefined && /^(U?Int|Float|Decimal)/.test(field.dataType);
-/** A column of time: by its type, or because the owner said so (the node agrees). */
-const isTime = (field: Field | undefined) => field !== undefined && (/^(Date|Timestamp)/.test(field.dataType) || field.role === "time");
+/** A column of time: a date or a timestamp, as DuckDB read it. */
+const isTime = (field: Field | undefined) => field !== undefined && /^(Date|Timestamp)/.test(field.dataType);
 const shownFields = (table: AnalysisTable) => table.fields.filter((f) => f.name !== "_source_file");
 const fieldOf = (table: AnalysisTable, name: string | null) => table.fields.find((f) => f.name === name);
 
 const number = (value: number) => new Intl.NumberFormat(locale(), { maximumFractionDigits: 2 }).format(value);
-const dimensionName = (d: ChartDimension) => (d.grain ? `${d.column} · ${x.grains[d.grain] ?? d.grain}` : d.column);
-const metricName = (m: ChartMetric) => (m.column ? x.metricOf(x.aggregates[m.aggregate] ?? m.aggregate, m.column) : x.rowCount);
+/** A metric as SQL writes it, the way BI tools show one: SUM(cost), COUNT(DISTINCT author), COUNT(*). */
+const FUNCTIONS: Record<ChartAggregate, string> = {
+  sum: "SUM",
+  average: "AVG",
+  median: "MEDIAN",
+  min: "MIN",
+  max: "MAX",
+  count: "COUNT",
+  distinct: "COUNT(DISTINCT",
+};
+const COUNT_ROWS: ChartMetric = { column: null, aggregate: "count" };
+const metricName = (m: ChartMetric) =>
+  !m.column ? "COUNT(*)" : m.aggregate === "distinct" ? `COUNT(DISTINCT ${m.column})` : `${FUNCTIONS[m.aggregate]}(${m.column})`;
+/** An aggregate function as a choice: its name, and what it does in words. */
+const functionName = (a: ChartAggregate) => `${a === "distinct" ? "COUNT DISTINCT" : FUNCTIONS[a]} · ${x.aggregates[a] ?? a}`;
+const day = (key: string) => new Date(`${key}T00:00`);
+/** A value a group is keyed by, in the reader's words: a period of time, or the value itself. */
+function keyName(level: ChartLevel | undefined, key: string | null): string {
+  if (key === null) return x.blank;
+  if (!level?.grain) return key;
+  try {
+    if (level.grain === "year") return key;
+    if (level.grain === "quarter") return x.quarter(key.slice(0, 4), key.slice(6));
+    if (level.grain === "month") return new Intl.DateTimeFormat(locale(), { year: "numeric", month: "short" }).format(day(`${key}-01`));
+    const date = new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric" }).format(day(key));
+    return level.grain === "week" ? x.weekOf(date) : date;
+  } catch {
+    return key;
+  }
+}
+/** A column a chart's groups are keyed by, as a heading: the time with its grain. */
+const levelName = (level: ChartLevel) => (level.grain ? x.colAt(level.column, x.grains[level.grain] ?? level.grain) : level.column);
 
 /** A chart's description with every part present, or nothing if it is not one. */
 function chartOf(raw: unknown): ChartSpec | undefined {
@@ -79,79 +133,180 @@ function chartOf(raw: unknown): ChartSpec | undefined {
   const given = raw as Partial<ChartSpec>;
   if (!CHARTS.includes(given.chart as ChartKind)) return undefined;
   const list = <T,>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : []);
+  const time = given.time && GRAINS.includes(given.time.grain) ? { column: given.time.column, grain: given.time.grain, range: given.time.range ?? "all" } : null;
   return {
     chart: given.chart as ChartKind,
-    dimensions: list(given.dimensions).map((d) => ({ column: d.column, grain: d.grain ?? null })),
-    compare: list(given.compare).map((d) => ({ column: d.column, grain: d.grain ?? null })),
+    time,
+    dimensions: list(given.dimensions).map((d) => ({ column: d.column })),
+    compare: list(given.compare).map((d) => ({ column: d.column })),
     metrics: list(given.metrics).map((m) => ({ column: m.column ?? null, aggregate: m.aggregate })),
     filters: list(given.filters).map((f) => ({
       column: f.column,
       values: list(f.values),
       min: f.min ?? null,
       max: f.max ?? null,
-      lastDays: f.lastDays ?? null,
-      thisYear: f.thisYear === true,
+      ...(f.period ? { period: { grain: f.period.grain, key: f.period.key } } : {}),
     })),
     sort: given.sort ? { metric: given.sort.metric, descending: given.sort.descending } : null,
     limit: given.limit ?? null,
   };
 }
 
-/** The charts a table starts with, from what its columns are for. */
-function starting(table: AnalysisTable): View[] {
-  const of = (role: string) => table.fields.find((f) => f.role === role)?.name;
-  const [time, amount, category] = [of("time"), of("amount"), of("category")];
-  // Without an amount, rows are counted.
-  const metrics: ChartMetric[] = [amount ? { column: amount, aggregate: "sum" } : { column: null, aggregate: "count" }];
-  const base = { compare: [], metrics, filters: [], sort: null, limit: null };
-  const out: View[] = [];
-  if (time) {
-    out.push({ id: "month", name: x.byMonth, builtin: true, spec: { ...base, chart: "column", dimensions: [{ column: time, grain: "month" }] } });
-  }
-  if (category) {
-    out.push({
-      id: "category",
-      name: x.byCategory,
-      builtin: true,
-      spec: { ...base, chart: "bar", dimensions: [{ column: category, grain: null }], sort: { metric: 0, descending: true } },
-    });
-  }
-  if (out.length === 0) out.push({ id: "rows", name: x.allRows, builtin: true, spec: { ...base, chart: "table", dimensions: [], metrics: [] } });
-  return out;
-}
-
 function viewsOf(table: AnalysisTable): View[] {
-  const kept = table.views.flatMap((view): View[] => {
+  return table.views.flatMap((view): View[] => {
     let spec: ChartSpec | undefined;
     try {
       spec = chartOf(JSON.parse(view.config));
     } catch {
       // Kept in a shape this app can't read: left out.
     }
-    return spec ? [{ id: view.id, name: view.name, spec, builtin: false, by: view.by ?? undefined, savedAtMs: view.savedAtMs }] : [];
+    return spec ? [{ id: view.id, name: view.name, spec, by: view.by ?? undefined, savedAtMs: view.savedAtMs }] : [];
   });
-  // A starting chart saved in place is kept under its own id, and shown in
-  // place of what the columns' roles give.
-  const first = starting(table).map((v): View => {
-    const own = kept.find((k) => k.id === v.id);
-    return own ? { ...v, spec: own.spec, changed: true } : v;
-  });
-  return [...first, ...kept.filter((k) => !STARTING.includes(k.id))];
 }
 
 /** What a filter keeps, in a few words. */
 function filterText(filter: ChartFilter): string {
+  if (filter.period) return keyName({ column: filter.column, grain: filter.period.grain }, filter.period.key);
   if (filter.values.length > 0) return filter.values.length <= 2 ? filter.values.join(", ") : x.chosenCount(filter.values.length);
-  if (filter.lastDays !== null) return x.lastDays(filter.lastDays);
-  if (filter.thisYear) return x.thisYear;
   if (filter.min !== null && filter.max !== null) return `${filter.min} – ${filter.max}`;
   if (filter.min !== null) return `≥ ${filter.min}`;
   if (filter.max !== null) return `≤ ${filter.max}`;
   return x.anyValue;
 }
-const emptyFilter = (column: string): ChartFilter => ({ column, values: [], min: null, max: null, lastDays: null, thisYear: false });
+const emptyFilter = (column: string): ChartFilter => ({ column, values: [], min: null, max: null });
 
-/** Name a chart: a new one saved, or one renamed. */
+/** A drill into a group, as an edit of the description. */
+type Step =
+  | { zoom: { column: string; grain: DateGrain; key: string } }
+  | { by: string; keep: [string, string][]; period?: { column: string; grain: DateGrain; key: string } };
+
+function drilled(spec: ChartSpec, step: Step): ChartSpec {
+  // A filter replaces another on the same column.
+  let filters = spec.filters;
+  const only = (filter: ChartFilter) => {
+    filters = [...filters.filter((f) => f.column !== filter.column), filter];
+  };
+  if ("zoom" in step) {
+    const { column, grain, key } = step.zoom;
+    only({ ...emptyFilter(column), period: { grain, key } });
+    return { ...spec, filters, time: spec.time ? { ...spec.time, grain: FINER[grain] ?? grain } : null };
+  }
+  for (const [column, value] of step.keep) only({ ...emptyFilter(column), values: [value] });
+  if (step.period) only({ ...emptyFilter(step.period.column), period: { grain: step.period.grain, key: step.period.key } });
+  const metrics = spec.metrics.length > 0 ? spec.metrics : [COUNT_ROWS];
+  return { ...spec, filters, metrics, time: null, dimensions: [{ column: step.by }], limit: null, sort: spec.sort ?? { metric: 0, descending: true } };
+}
+
+/** Whether a chart lays the time along its axis and the dimensions' values as series. */
+const splits = (spec: ChartSpec) => !["table", "pie", "treemap"].includes(spec.chart) && spec.time !== null && spec.dimensions.length > 0;
+
+/**
+ * One chosen part of a chart (a dimension, a metric, a filter), a row of
+ * its own: its name, which opens what can be chosen of it (a way to total)
+ * or does `onOpen` (a filter's dialog), and a cross that removes it.
+ */
+function Chip({
+  text,
+  label,
+  items,
+  onOpen,
+  onRemove,
+  removeLabel,
+}: {
+  text: string;
+  label: string;
+  items?: MenuItem[];
+  onOpen?: () => void;
+  /** None when it can't be removed (the one metric of a grouped chart). */
+  onRemove?: () => void;
+  removeLabel: string;
+}) {
+  return (
+    <span className="screen-explorer__chip">
+      {items ? (
+        <Menu label={label} trigger={{ chip: true, text }} items={items} />
+      ) : (
+        <button type="button" className="oik-menu__chip" title={label} aria-label={label} onClick={onOpen} disabled={!onOpen}>
+          <span className="oik-menu__shown">{text}</span>
+          {onOpen && <Icon name="chevron" />}
+        </button>
+      )}
+      {onRemove && (
+        <button type="button" className="screen-explorer__chip-x" aria-label={removeLabel} title={removeLabel} onClick={onRemove}>
+          <Icon name="close" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Add a metric: how it is totalled, then of which column (only those it can
+ * total), with what that means. The number of rows needs no column.
+ */
+function AddMetric({
+  table,
+  taken,
+  onAdd,
+  onClose,
+}: {
+  table: AnalysisTable;
+  taken: ChartMetric[];
+  onAdd: (metric: ChartMetric) => void;
+  onClose: () => void;
+}) {
+  const fields = shownFields(table);
+  const numbers = fields.filter((f) => isNumber(f));
+  const ways: ("rows" | ChartAggregate)[] = ["rows", ...(numbers.length > 0 ? NUMBER_AGGREGATES : OTHER_AGGREGATES)];
+  const usableFor = (w: "rows" | ChartAggregate) => (w === "rows" ? [] : OTHER_AGGREGATES.includes(w) ? fields : numbers);
+  const free = (w: "rows" | ChartAggregate, column: string | null) =>
+    !taken.some((m) => (w === "rows" ? m.column === null : m.column === column && m.aggregate === w));
+  // The first metric not in the chart yet: a sum of a number, else a count.
+  type Choice = { how: "rows" | ChartAggregate; column: string | null };
+  const choices: Choice[] = ways.flatMap((w): Choice[] =>
+    w === "rows" ? [{ how: w, column: null }] : usableFor(w).map((f) => ({ how: w, column: f.name })),
+  );
+  const first = [...choices.filter((c) => c.how === "sum"), ...choices.filter((c) => c.how !== "sum")].find((c) => free(c.how, c.column));
+  const [how, setHow] = useState<"rows" | ChartAggregate>(first?.how ?? "rows");
+  const usable = usableFor(how);
+  const [column, setColumn] = useState<string>(first?.column ?? usable[0]?.name ?? "");
+  const chosen = usable.some((f) => f.name === column) ? column : (usable[0]?.name ?? "");
+  const metric: ChartMetric = how === "rows" ? COUNT_ROWS : { column: chosen, aggregate: how };
+  const already = taken.some((m) => m.column === metric.column && m.aggregate === metric.aggregate);
+  return (
+    <Dialog
+      title={x.addMetricTitle}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" disabled={already || (how !== "rows" && !chosen)} onClick={() => onAdd(metric)}>
+            {x.add}
+          </Button>
+        </>
+      }
+    >
+      <div className="screen-explorer__metric-form">
+        <Select
+          label={x.totalledBy}
+          value={how}
+          onChange={(value) => setHow(value as "rows" | ChartAggregate)}
+          options={ways.map((w) => ({ value: w, label: w === "rows" ? `COUNT(*) · ${x.rowCount}` : functionName(w) }))}
+        />
+        {how !== "rows" && (
+          <Select label={x.column} value={chosen} onChange={setColumn} options={usable.map((f) => ({ value: f.name, label: f.name }))} />
+        )}
+        <p className="screen-help">{x.aggregateNotes[how]}</p>
+        <p className="screen-explorer__will" translate="no">
+          {already ? x.already : x.willAdd(metricName(metric))}
+        </p>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Name a chart: saved the first time, saved as another, or renamed. */
 function NameView({
   title,
   start,
@@ -198,10 +353,7 @@ function NameView({
   );
 }
 
-/**
- * A filter on one column: the values to keep, ticked (text); a range with
- * either end open (a number); a period (a column of time).
- */
+/** A filter on one column: the values to keep, ticked (text), or a range (a number). */
 function FilterDialog({
   space,
   table,
@@ -217,17 +369,15 @@ function FilterDialog({
   onClose: () => void;
 }) {
   const client = useClient();
-  const field = fieldOf(table, was.column);
-  const kind = isNumber(field) ? "number" : isTime(field) ? "time" : "text";
+  const ranged = isNumber(fieldOf(table, was.column)) && was.values.length === 0;
   const [values, setValues] = useState(was.values);
   const [offered, setOffered] = useState<string[]>();
   const [sought, setSought] = useState("");
   const [min, setMin] = useState(was.min ?? "");
   const [max, setMax] = useState(was.max ?? "");
-  const [period, setPeriod] = useState(was.thisYear ? "year" : was.lastDays !== null ? String(was.lastDays) : was.min !== null || was.max !== null ? "range" : "90");
 
   useEffect(() => {
-    if (kind !== "text") return;
+    if (ranged) return;
     let stale = false;
     client.analysisValues({ space, table: table.name, column: was.column }).then(
       (list) => !stale && setOffered(list),
@@ -236,14 +386,13 @@ function FilterDialog({
     return () => {
       stale = true;
     };
-  }, [client, space, table.name, was.column, kind]);
+  }, [client, space, table.name, was.column, ranged]);
 
   const apply = () => {
     const base = emptyFilter(was.column);
-    if (kind === "text") return onApply(values.length > 0 ? { ...base, values } : undefined);
+    if (!ranged) return onApply(values.length > 0 ? { ...base, values } : undefined);
     const ends = { min: min.trim() === "" ? null : min.trim(), max: max.trim() === "" ? null : max.trim() };
-    if (kind === "number" || period === "range") return onApply(ends.min === null && ends.max === null ? undefined : { ...base, ...ends });
-    return onApply(period === "year" ? { ...base, thisYear: true } : { ...base, lastDays: Number(period) });
+    return onApply(ends.min === null && ends.max === null ? undefined : { ...base, ...ends });
   };
   const all = [...new Set([...was.values, ...(offered ?? [])])];
   const found = all.filter((v) => v.toLocaleLowerCase().includes(sought.trim().toLocaleLowerCase()));
@@ -257,7 +406,7 @@ function FilterDialog({
       placement="top"
       footer={
         <>
-          {kind === "text" && values.length > 0 && <Button onClick={() => setValues([])}>{x.clearValues}</Button>}
+          {!ranged && values.length > 0 && <Button onClick={() => setValues([])}>{x.clearValues}</Button>}
           <Button onClick={onClose}>{strings.common.cancel}</Button>
           <Button variant="primary" onClick={apply}>
             {strings.common.done}
@@ -265,7 +414,21 @@ function FilterDialog({
         </>
       }
     >
-      {kind === "text" && (
+      {ranged ? (
+        <div className="screen-explorer__range">
+          {(
+            [
+              [x.atLeast, min, setMin],
+              [x.atMost, max, setMax],
+            ] as const
+          ).map(([label, value, set]) => (
+            <label key={label} className="oik-field">
+              <span className="oik-field__label">{label}</span>
+              <input className="oik-input" type="text" inputMode="decimal" value={value} placeholder={x.anyValue} onChange={(event) => set(event.target.value)} />
+            </label>
+          ))}
+        </div>
+      ) : (
         <div className="screen-explorer__filter">
           {all.length > 8 && <TextField label={x.searchValues} name="filter-search" value={sought} onChange={setSought} />}
           <p className="screen-help">{values.length > 0 ? x.chosenCount(values.length) : x.anyValue}</p>
@@ -284,49 +447,71 @@ function FilterDialog({
           )}
         </div>
       )}
-      {kind === "time" && (
-        <div className="screen-explorer__filter">
-          <Select
-            label={x.period}
-            value={period}
-            onChange={setPeriod}
-            options={[
-              { value: "30", label: x.lastDays(30) },
-              { value: "90", label: x.lastDays(90) },
-              { value: "365", label: x.lastDays(365) },
-              { value: "year", label: x.thisYear },
-              { value: "range", label: x.dateRange },
-            ]}
-          />
-        </div>
-      )}
-      {(kind === "number" || (kind === "time" && period === "range")) && (
-        <div className="screen-explorer__range">
-          {(
-            [
-              [kind === "number" ? x.atLeast : x.from, min, setMin],
-              [kind === "number" ? x.atMost : x.to, max, setMax],
-            ] as const
-          ).map(([label, value, set]) => (
-            <label key={label} className="oik-field">
-              <span className="oik-field__label">{label}</span>
-              <input
-                className="oik-input"
-                type={kind === "number" ? "text" : "date"}
-                inputMode={kind === "number" ? "decimal" : undefined}
-                value={value}
-                onChange={(event) => set(event.target.value)}
-              />
-            </label>
-          ))}
-        </div>
+    </Dialog>
+  );
+}
+
+/** The query a chart ran, for those who want to read it, with the value each placeholder is bound to. */
+function QueryDialog({ query, onClose }: { query: ChartQuery; onClose: () => void }) {
+  const toast = useToast();
+  const copy = async () => {
+    const params = query.params.map((p, i) => `-- ?${i + 1} = ${p}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(params ? `${query.sql}\n${params}` : query.sql);
+      toast(x.sqlCopied);
+    } catch {
+      // No clipboard here: the text can still be selected.
+    }
+  };
+  return (
+    <Dialog
+      title={x.sqlTitle}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={() => void copy()}>{x.copySql}</Button>
+          <Button variant="primary" onClick={onClose}>
+            {strings.common.done}
+          </Button>
+        </>
+      }
+    >
+      <p className="oik-dialog__text">{x.sqlBody}</p>
+      <pre className="screen-explorer__sql" translate="no">
+        {query.sql}
+      </pre>
+      {query.params.length > 0 && (
+        <>
+          <h3 className="oik-label">{x.params}</h3>
+          <ol className="screen-explorer__params" translate="no">
+            {query.params.map((param, i) => (
+              <li key={i}>
+                <span>?{i + 1}</span>
+                <code>{param}</code>
+              </li>
+            ))}
+          </ol>
+        </>
       )}
     </Dialog>
   );
 }
 
-/** A chart's result as a table: a column for each dimension, then one for each series. */
-function ResultTable({ spec, result, seriesNames }: { spec: ChartSpec; result: ChartResult; seriesNames: string[] }) {
+/**
+ * A chart's result as a table: a column for the time and each dimension,
+ * then the metrics, under each compared value when there are any. A group
+ * opens what can be done with it.
+ */
+function ResultTable({
+  result,
+  metrics,
+  onPick,
+}: {
+  result: ChartResult;
+  metrics: ChartMetric[];
+  onPick?: (group: number, at: { x: number; y: number }) => void;
+}) {
   if (result.rows) {
     return (
       <div className="screen-explorer__table">
@@ -355,38 +540,81 @@ function ResultTable({ spec, result, seriesNames }: { spec: ChartSpec; result: C
       </div>
     );
   }
+  const columns = result.columns;
+  const compared = result.series.some((s) => s.compare.length > 0);
+  const many = metrics.length > 1;
+  const comparedName = (values: (string | null)[]) => values.map((v) => v ?? x.blank).join(" / ");
+  // Compared values: one metric over them all, or each value over its metrics.
+  const values = [...new Map(result.series.map((s) => [JSON.stringify(s.compare), s.compare])).values()];
+  const pads = Math.max(columns.length, 1);
   return (
     <div className="screen-explorer__table">
       <table>
         <thead>
+          {compared && (
+            <tr className="screen-explorer__over">
+              {Array.from({ length: pads }, (_, i) => (
+                <th key={i} aria-hidden="true" />
+              ))}
+              {many ? (
+                values.map((v) => (
+                  <th key={JSON.stringify(v)} colSpan={metrics.length} className="screen-explorer__num" translate="no">
+                    {comparedName(v)}
+                  </th>
+                ))
+              ) : (
+                <th colSpan={result.series.length} className="screen-explorer__num" translate="no">
+                  {metricName(metrics[0] ?? COUNT_ROWS)}
+                </th>
+              )}
+            </tr>
+          )}
           <tr>
-            {spec.dimensions.length === 0 ? <th /> : spec.dimensions.map((d, i) => <th key={i}>{dimensionName(d)}</th>)}
-            {seriesNames.map((name, i) => (
-              <th key={i} className="screen-explorer__num">
-                {name}
+            {columns.length === 0 && <th aria-hidden="true" />}
+            {columns.map((c) => (
+              <th key={c.column} translate={c.grain ? undefined : "no"}>
+                {levelName(c)}
+              </th>
+            ))}
+            {result.series.map((s, i) => (
+              <th key={i} className="screen-explorer__num" translate="no">
+                {compared && !many ? comparedName(s.compare) : metricName(metrics[s.metric] ?? COUNT_ROWS)}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {result.groups.map((group, i) => (
-            <tr key={i}>
-              {spec.dimensions.length === 0 ? (
-                <td>{x.total}</td>
-              ) : (
-                group.keys.map((key, j) => (
-                  <td key={j} translate="no">
-                    {key ?? x.blank}
+          {result.groups.map((group, i) => {
+            const pick = onPick && columns.length > 0 ? (at: { x: number; y: number }) => onPick(i, at) : undefined;
+            return (
+              <tr
+                key={i}
+                className={pick ? "screen-explorer__drillable" : undefined}
+                tabIndex={pick ? 0 : undefined}
+                onClick={pick ? (event) => pick({ x: event.clientX, y: event.clientY }) : undefined}
+                onKeyDown={(event) => {
+                  if (pick && (event.key === "Enter" || event.key === " ")) {
+                    event.preventDefault();
+                    const box = event.currentTarget.getBoundingClientRect();
+                    pick({ x: box.left + 16, y: box.bottom });
+                  }
+                }}
+              >
+                {columns.length === 0 && <td>{x.total}</td>}
+                {columns.map((c, j) => (
+                  <td key={c.column} translate={c.grain ? undefined : "no"}>
+                    {keyName(c, group.keys[j] ?? null)}
+                    {pick && j === 0 && <Icon name="chevron" />}
                   </td>
-                ))
-              )}
-              {group.values.map((value, j) => (
-                <td key={j} className="screen-explorer__num">
-                  {value === null ? "–" : number(value)}
-                </td>
-              ))}
-            </tr>
-          ))}
+                ))}
+                {group.values.map((value, j) => (
+                  <td key={j} className="screen-explorer__num">
+                    {value === null ? "–" : number(value)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -416,6 +644,50 @@ function Drawn({ drawing, label }: { drawing: Drawing; label: string }) {
   return <div ref={host} className="screen-explorer__chart" role="img" aria-label={label} />;
 }
 
+/** What a chart lays along its axis: each item, the columns it stands for and its values of them. */
+interface Axis {
+  labels: string[];
+  columns: ChartLevel[];
+  keys: (string | null)[][];
+  series: { name: string; values: (number | null)[] }[];
+}
+
+/** A chart's result as what is drawn: along the axis, the time (its dimensions' values then series) or the groups. */
+function axisOf(result: ChartResult, spec: ChartSpec, metrics: ChartMetric[]): Axis {
+  const many = metrics.length > 1;
+  const named = (parts: string[], metric: ChartMetric) =>
+    parts.length === 0 ? metricName(metric) : many ? `${metricName(metric)}, ${parts.join(" / ")}` : parts.join(" / ");
+  const shown = (values: (string | null)[]) => values.map((v) => v ?? x.blank);
+  if (splits(spec) && result.columns.length > 1) {
+    const time = result.columns[0]!;
+    const periods = [...new Set(result.groups.map((g) => g.keys[0] ?? null))];
+    const combos = [...new Map(result.groups.map((g) => [JSON.stringify(g.keys.slice(1)), g.keys.slice(1)])).values()].sort((a, b) =>
+      shown(a).join(" / ").localeCompare(shown(b).join(" / "), locale(), { numeric: true }),
+    );
+    const at = new Map(result.groups.map((g) => [JSON.stringify(g.keys), g]));
+    return {
+      labels: periods.map((p) => keyName(time, p)),
+      columns: [time],
+      keys: periods.map((p) => [p]),
+      series: combos.flatMap((combo) =>
+        result.series.map((s, i) => ({
+          name: named([...shown(combo), ...shown(s.compare)], metrics[s.metric] ?? COUNT_ROWS),
+          values: periods.map((p) => at.get(JSON.stringify([p, ...combo]))?.values[i] ?? null),
+        })),
+      ),
+    };
+  }
+  return {
+    labels: result.groups.map((g) => (result.columns.length === 0 ? x.total : result.columns.map((c, j) => keyName(c, g.keys[j] ?? null)).join(" / "))),
+    columns: result.columns,
+    keys: result.groups.map((g) => g.keys),
+    series: result.series.map((s, i) => ({
+      name: named(shown(s.compare), metrics[s.metric] ?? COUNT_ROWS),
+      values: result.groups.map((g) => g.values[i] ?? null),
+    })),
+  };
+}
+
 export function Explorer({
   space,
   table,
@@ -430,27 +702,45 @@ export function Explorer({
   const saving = useAction();
   const removing = useAction();
   const [picked, setPicked] = useState<string>();
-  // What the owner made of the chart shown, not saved yet.
+  // What the owner made of the chart shown, not saved yet; and the drills that led there.
   const [draft, setDraft] = useState<{ of: string; spec: ChartSpec }>();
+  const [trail, setTrail] = useState<{ of: string; steps: { label: string; before: ChartSpec }[] }>();
   const [result, setResult] = useState<ChartResult>();
   const [failed, setFailed] = useState<string>();
-  const [dialog, setDialog] = useState<"save" | "rename" | "remove">();
+  const [dialog, setDialog] = useState<"saveNew" | "saveAs" | "rename" | "remove" | "sql" | "metric">();
   const [filtering, setFiltering] = useState<ChartFilter>();
+  const [pointed, setPointed] = useState<{ at: { x: number; y: number }; items: MenuItem[]; label: string }>();
 
   const views = useMemo(() => viewsOf(table), [table]);
-  const view = views.find((v) => v.id === picked) ?? views[0]!;
+  // The chart picked; else the first kept; else a new one.
+  const kept = picked === NEW ? undefined : (views.find((v) => v.id === picked) ?? views[0]);
+  const view: View = kept ?? { id: NEW, name: x.newChart, spec: NEW_CHART };
+  const fresh = view.id === NEW;
   const spec = draft?.of === view.id ? draft.spec : view.spec;
   const edited = JSON.stringify(spec) !== JSON.stringify(view.spec);
+  const steps = trail?.of === view.id ? trail.steps : [];
+  /** The description as changed: made whole (an order and a number for dimensions; rows counted when grouped). */
+  const settle = (made: ChartSpec): ChartSpec => {
+    const next = { ...made };
+    if (next.dimensions.length === 0) next.sort = null;
+    if (next.time !== null || next.dimensions.length === 0) next.limit = null;
+    const grouped = next.time !== null || next.dimensions.length > 0 || next.compare.length > 0;
+    if (grouped && next.metrics.length === 0) next.metrics = [COUNT_ROWS];
+    if (next.sort && next.sort.metric >= next.metrics.length) next.sort = next.metrics.length > 0 ? { ...next.sort, metric: 0 } : null;
+    return next;
+  };
+  const show = (next: ChartSpec) => setDraft(JSON.stringify(next) === JSON.stringify(view.spec) ? undefined : { of: view.id, spec: next });
   const change = (next: Partial<ChartSpec>) => {
-    const made = { ...spec, ...next };
-    // The order and the number shown are of the groups: none without a dimension.
-    if (made.dimensions.length === 0) Object.assign(made, { sort: null, limit: null });
-    if (made.sort && made.sort.metric >= Math.max(made.metrics.length, 1)) made.sort = made.metrics.length > 0 ? { ...made.sort, metric: 0 } : null;
-    setDraft({ of: view.id, spec: made });
+    show(settle({ ...spec, ...next }));
+    setTrail(undefined);
+  };
+  const open = (id: string) => {
+    setPicked(id);
+    setTrail(undefined);
   };
 
-  // What the chart shows, asked of the node whenever its description (or
-  // the table) changes; an answer that arrives late is dropped.
+  // What the chart shows, asked of the node whenever its description or the
+  // table changes; an answer that arrives late is dropped.
   const asked = JSON.stringify(spec);
   useEffect(() => {
     let stale = false;
@@ -471,19 +761,20 @@ export function Explorer({
 
   // Once a chart is saved, its draft is done with: that chart's only. By
   // then the owner may be changing another, whose draft stays.
-  const forget = (id: string) => setDraft((was) => (was?.of === id ? undefined : was));
-  /** Save the chart shown, where it is: no name to give, nothing to choose. */
+  const forget = (id: string) => {
+    setDraft((was) => (was?.of === id ? undefined : was));
+    setTrail(undefined);
+  };
+  /** Save a kept chart where it is: nothing to name, nothing to choose. */
   const saveHere = async () => {
     const of = view.id;
-    const next = await saving.run(() =>
-      client.saveAnalysisView({ space, table: table.name, id: view.id, name: view.builtin ? view.id : view.name, config: JSON.stringify(spec) }),
-    );
+    const next = await saving.run(() => client.saveAnalysisView({ space, table: table.name, id: view.id, name: view.name, config: JSON.stringify(spec) }));
     if (!next) return;
     onChange(next);
     forget(of);
     toast(x.savedNow);
   };
-  /** Keep what is shown as another chart, under a name. */
+  /** Keep what is shown as a chart of its own, under a name: a new chart's first save, or another. */
   const saveAs = async (name: string) => {
     const of = view.id;
     const next = await saving.run(() => client.saveAnalysisView({ space, table: table.name, name, config: JSON.stringify(spec) }));
@@ -495,113 +786,97 @@ export function Explorer({
     toast(x.saved(name));
   };
   const rename = async (name: string) => {
-    const next = await saving.run(() =>
-      client.saveAnalysisView({ space, table: table.name, id: view.id, name, config: JSON.stringify(view.spec) }),
-    );
+    const next = await saving.run(() => client.saveAnalysisView({ space, table: table.name, id: view.id, name, config: JSON.stringify(view.spec) }));
     if (!next) return;
     setDialog(undefined);
     onChange(next);
   };
-  const restore = async () => {
-    const of = view.id;
-    const next = await saving.run(() => client.removeAnalysisView({ space, table: table.name, id: view.id }));
-    if (!next) return;
-    onChange(next);
-    forget(of);
-  };
-
-  const more: MenuItem[] = [
-    {
-      label: x.saveAs,
-      onSelect: () => {
-        saving.clear();
-        setDialog("save");
-      },
-    },
-    ...(edited ? [{ label: x.discard, onSelect: () => setDraft(undefined) }] : []),
-    ...(view.builtin && view.changed ? [{ label: x.reset, onSelect: () => void restore() }] : []),
-    ...(view.builtin
-      ? []
-      : [
-          { label: x.rename, onSelect: () => setDialog("rename") },
-          { label: x.remove, destructive: true, onSelect: () => setDialog("remove") },
-        ]),
-  ];
   const when = (ms: number) => new Intl.DateTimeFormat(locale(), { dateStyle: "medium" }).format(new Date(ms));
 
   // ---- What the panel offers ----
   const fields = shownFields(table);
-  const metrics: ChartMetric[] = spec.metrics.length > 0 || (spec.dimensions.length === 0 && spec.compare.length === 0) ? spec.metrics : [{ column: null, aggregate: "count" }];
-  // A column is a dimension once, a column of time once at each grain.
-  const offered = (list: ChartDimension[]) => {
-    const used = [...spec.dimensions, ...spec.compare];
-    return fields
-      .filter((f) => !isNumber(f) && (isTime(f) ? GRAINS.some((g) => !used.some((d) => d.column === f.name && d.grain === g)) : !used.some((d) => d.column === f.name)))
-      .map((f): MenuItem => ({
-        label: f.name,
-        onSelect: () => {
-          const taken = used.filter((d) => d.column === f.name).map((d) => d.grain);
-          const grain = isTime(f) ? ((taken.includes("month") ? GRAINS.find((g) => !taken.includes(g)) : "month") ?? "year") : null;
-          change(list === spec.dimensions ? { dimensions: [...list, { column: f.name, grain }] } : { compare: [...list, { column: f.name, grain }] });
-        },
-      }));
-  };
-  const addMetric = (metric: ChartMetric) => change({ metrics: [...spec.metrics, metric] });
-  const metricItems: MenuItem[] = [
-    ...(spec.metrics.some((m) => m.column === null) ? [] : [{ label: x.rowCount, onSelect: () => addMetric({ column: null, aggregate: "count" }) }]),
-    ...fields.flatMap((f): MenuItem[] => {
-      // A number is summed first; totalled again, another way each time.
-      const ways = isNumber(f) ? NUMBER_AGGREGATES : OTHER_AGGREGATES;
-      const free = ways.find((a) => !spec.metrics.some((m) => m.column === f.name && m.aggregate === a));
-      return free ? [{ label: f.name, onSelect: () => addMetric({ column: f.name, aggregate: free }) }] : [];
-    }),
-  ];
+  const times = fields.filter((f) => isTime(f));
+  const grouped = spec.time !== null || spec.dimensions.length > 0;
+  const metrics: ChartMetric[] = spec.metrics.length > 0 || (!grouped && spec.compare.length === 0) ? spec.metrics : [COUNT_ROWS];
+  // Any column is a dimension or compared, once; the chart's time is chosen above.
+  const used = [...(spec.time ? [spec.time.column] : []), ...spec.dimensions.map((d) => d.column), ...spec.compare.map((d) => d.column)];
+  const offered = (list: "dimensions" | "compare") =>
+    fields
+      .filter((f) => !used.includes(f.name))
+      .map((f): MenuItem => ({ label: f.name, onSelect: () => change({ [list]: [...spec[list], { column: f.name }] }) }));
   const filterItems: MenuItem[] = fields
-    .filter((f) => !spec.filters.some((filter) => filter.column === f.name))
+    .filter((f) => !isTime(f) && !spec.filters.some((filter) => filter.column === f.name))
     .map((f) => ({ label: f.name, onSelect: () => setFiltering(emptyFilter(f.name)) }));
-
-  const dimensionRows = (list: ChartDimension[], put: (next: ChartDimension[]) => void) =>
-    list.map((d, at) => (
-      <div key={`${d.column}:${d.grain ?? ""}`} className="screen-explorer__item">
-        <span className="screen-explorer__item-name" translate="no">
-          {d.column}
-        </span>
-        {isTime(fieldOf(table, d.column)) && (
-          <Select
-            label={x.grainOf(d.column)}
-            hideLabel
-            value={d.grain ?? "day"}
-            onChange={(grain) => put(list.map((o, i) => (i === at ? { ...o, grain: grain as DateGrain } : o)))}
-            options={GRAINS.map((g) => ({ value: g, label: x.grains[g] ?? g }))}
-          />
-        )}
-        <IconButton icon="close" label={x.removeItem(dimensionName(d))} onClick={() => put(list.filter((_, i) => i !== at))} />
-      </div>
+  const dimensionChips = (list: "dimensions" | "compare") =>
+    spec[list].map((d: ChartDimension, at) => (
+      <Chip
+        key={d.column}
+        text={d.column}
+        label={d.column}
+        removeLabel={x.removeItem(d.column)}
+        onRemove={() => change({ [list]: spec[list].filter((_, i) => i !== at) })}
+      />
     ));
+  const adding = (label: string, items: MenuItem[]) =>
+    items.length > 0 ? <Menu label={label} trigger={{ icon: "plus", text: label }} items={items} /> : <p className="screen-explorer__none">{x.allUsed}</p>;
+  // A column chosen as the time leaves the dimensions: it is grouped once, at its grain.
+  const setTime = (next: ChartTime | null) =>
+    change({
+      time: next,
+      dimensions: spec.dimensions.filter((d) => d.column !== next?.column),
+      compare: spec.compare.filter((d) => d.column !== next?.column),
+    });
 
-  // ---- What is drawn ----
-  const seriesNames = (result?.series ?? []).map((s) => {
-    const compared = s.compare.map((v) => v ?? x.blank).join(" · ");
-    const metric = metricName(metrics[s.metric] ?? { column: null, aggregate: "count" });
-    return compared === "" ? metric : metrics.length > 1 ? `${compared} · ${metric}` : compared;
-  });
-  const named = seriesNames.join("\u0001");
+  // ---- What is drawn, and what a click on a group does ----
+  const axis = useMemo(() => (result && !result.rows ? axisOf(result, spec, metrics) : undefined), [result, spec, metrics]);
+  /** Step down into a group: an edit, the chart it came from kept to step back to. */
+  const drill = (label: string, step: Step) => {
+    show(settle(drilled(spec, step)));
+    setTrail({ of: view.id, steps: [...steps, { label, before: spec }] });
+  };
+  const back = (to: number) => {
+    show(steps[to]!.before);
+    setTrail(to === 0 ? undefined : { of: view.id, steps: steps.slice(0, to) });
+  };
+  /** What a group of the chart can be: a period zoomed into, or broken down by a column not in use. */
+  const pointAt = (columns: ChartLevel[], keys: (string | null)[], at: { x: number; y: number }) => {
+    const items: MenuItem[] = [];
+    const t = columns.findIndex((c) => c.grain);
+    const period = t >= 0 && keys[t] !== null ? { column: columns[t]!.column, grain: columns[t]!.grain!, key: keys[t]! } : undefined;
+    if (period && FINER[period.grain]) {
+      const name = keyName(columns[t], period.key);
+      items.push({ label: x.zoomInto(name), onSelect: () => drill(name, { zoom: period }) });
+    }
+    const keep = columns.flatMap((c, j): [string, string][] => (c.grain || keys[j] === null ? [] : [[c.column, keys[j]!]]));
+    const label = columns.map((c, j) => keyName(c, keys[j] ?? null)).join(" / ");
+    for (const f of fields.filter((f) => !used.includes(f.name))) {
+      items.push({ label: x.breakDownBy(f.name), onSelect: () => drill(x.drillStep(label, f.name), { by: f.name, keep, period }) });
+    }
+    if (items.length > 0) setPointed({ at, items, label });
+  };
+  const clickable = Boolean(axis && axis.columns.length > 0);
+  // The grain a click on a period zooms into, when the time is drawn and can go finer.
+  const finer = axis?.columns.some((c) => c.grain) && spec.time ? FINER[spec.time.grain] : undefined;
+  const named = axis ? JSON.stringify(axis) : "";
   const drawing = useMemo((): Drawing | undefined => {
-    if (!result || result.rows || spec.chart === "table") return undefined;
-    const names = named === "" ? [] : named.split("\u0001");
+    if (!axis || spec.chart === "table") return undefined;
     return {
       kind: spec.chart,
-      groups: result.groups.map((g) => (g.keys.length === 0 ? x.total : g.keys.map((k) => k ?? x.blank).join(" · "))),
-      series: names.map((name, i) => ({ name, values: result.groups.map((g) => g.values[i] ?? null) })),
+      groups: axis.labels,
+      series: axis.series,
+      valueName: metrics.length === 1 ? metricName(metrics[0]!) : undefined,
       format: number,
+      onPick: clickable ? (i, at) => pointAt(axis.columns, axis.keys[i] ?? [], at) : undefined,
     };
-  }, [result, spec.chart, named]);
+    // `pointAt` stands for the chart shown, which `axis` follows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [named, spec.chart, clickable]);
   const empty = result !== undefined && (result.rows ? result.rows.rows.length === 0 : result.groups.length === 0);
   const facts = result
     ? [
         result.matched === table.rows ? undefined : x.matched(result.matched, table.rows),
         result.rows && result.truncated ? x.firstRows(result.rows.rows.length) : undefined,
-        !result.rows && result.allGroups > result.groups.length ? x.topOf(result.groups.length, result.allGroups) : undefined,
+        !result.rows && result.truncated ? x.firstGroups(result.groups.length) : undefined,
       ].filter((fact): fact is string => fact !== undefined)
     : [];
   const sortValue = spec.sort ? `${spec.sort.metric}:${spec.sort.descending ? "desc" : "asc"}` : "";
@@ -611,29 +886,65 @@ export function Explorer({
       <Card className="screen-explorer">
         <div className="screen-explorer__head">
           <div className="screen-explorer__views" role="group" aria-label={x.views}>
-            {views.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                className="screen-explorer__view"
-                aria-pressed={v.id === view.id}
-                title={v.by ? x.madeByShort(v.by) : undefined}
-                onClick={() => setPicked(v.id)}
-              >
-                {v.by && <Icon name="ai" />}
-                <span translate={v.builtin ? undefined : "no"}>{v.name}</span>
-              </button>
-            ))}
-          </div>
-          <div className="screen-explorer__actions">
-            {edited && <Tag>{x.edited}</Tag>}
-            {edited && (
-              <Button variant="primary" disabled={saving.busy} onClick={() => void saveHere()}>
-                {saving.busy ? x.saving : strings.common.save}
-              </Button>
+            {views.map((v) =>
+              v.id === view.id ? (
+                // The chart shown: its tab holds what can be done with it.
+                <span key={v.id} className="screen-explorer__view screen-explorer__view--here" translate="no">
+                  <Menu
+                    label={x.chartActions(v.name)}
+                    trigger={{ chip: true, text: v.name }}
+                    items={[
+                      { label: x.rename, onSelect: () => setDialog("rename") },
+                      {
+                        label: x.saveAs,
+                        onSelect: () => {
+                          saving.clear();
+                          setDialog("saveAs");
+                        },
+                      },
+                      { label: x.remove, onSelect: () => setDialog("remove") },
+                    ]}
+                  />
+                </span>
+              ) : (
+                <button key={v.id} type="button" className="screen-explorer__view" title={v.by ? x.madeByShort(v.by) : undefined} onClick={() => open(v.id)}>
+                  {v.by && <Icon name="ai" />}
+                  <span translate="no">{v.name}</span>
+                </button>
+              ),
             )}
-            <Menu label={x.more} items={more} />
+            {fresh ? (
+              <span className="screen-explorer__view screen-explorer__view--new" aria-current="true">
+                {x.newChart}
+              </span>
+            ) : (
+              <button type="button" className="screen-explorer__view screen-explorer__view--add" onClick={() => open(NEW)}>
+                <Icon name="plus" />
+                <span>{x.newChart}</span>
+              </button>
+            )}
           </div>
+          {edited && (
+            <div className="screen-explorer__actions">
+              <Tag>{fresh ? x.unsaved : x.edited}</Tag>
+              <Button onClick={() => forget(view.id)}>{x.discard}</Button>
+              {fresh ? (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    saving.clear();
+                    setDialog("saveNew");
+                  }}
+                >
+                  {x.saveDots}
+                </Button>
+              ) : (
+                <Button variant="primary" disabled={saving.busy} onClick={() => void saveHere()}>
+                  {saving.busy ? x.saving : strings.common.save}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
         {view.by && view.savedAtMs !== undefined && (
           <p className="screen-explorer__by">
@@ -648,7 +959,41 @@ export function Explorer({
         )}
         <div className="screen-explorer__body">
           <div className="screen-explorer__stage" aria-busy={result === undefined && failed === undefined}>
-            {facts.length > 0 && <p className="screen-explorer__facts">{facts.join(" · ")}</p>}
+            <div className="screen-explorer__where">
+              <div className="screen-explorer__whereabouts">
+                {steps.length > 0 && (
+                  <nav className="screen-explorer__path" aria-label={x.drillPath}>
+                    {[x.drillAll, ...steps.map((s) => s.label)].map((name, j) =>
+                      j < steps.length ? (
+                        <span key={j} className="screen-explorer__step">
+                          <button type="button" onClick={() => back(j)}>
+                            {name}
+                          </button>
+                          <Icon name="chevron" />
+                        </span>
+                      ) : (
+                        <span key={j} className="screen-explorer__step screen-explorer__step--here" aria-current="location" translate="no">
+                          {name}
+                        </span>
+                      ),
+                    )}
+                  </nav>
+                )}
+                {facts.length > 0 && (
+                  <span className="screen-explorer__facts">
+                    {facts.map((fact) => (
+                      <span key={fact}>{fact}</span>
+                    ))}
+                  </span>
+                )}
+              </div>
+              <div className="screen-explorer__tools">
+                {clickable && <span className="screen-explorer__hint">{finer ? x.drillHintZoom(x.grains[finer] ?? finer) : x.drillHint}</span>}
+                <Button className="screen-explorer__sql-button" disabled={!result} onClick={() => setDialog("sql")}>
+                  {x.showSql}
+                </Button>
+              </div>
+            </div>
             {failed ? (
               <ErrorText>
                 {x.failed} {failed}
@@ -660,7 +1005,11 @@ export function Explorer({
             ) : drawing ? (
               <Drawn drawing={drawing} label={view.name} />
             ) : (
-              <ResultTable spec={spec} result={result} seriesNames={seriesNames} />
+              <ResultTable
+                result={result}
+                metrics={metrics}
+                onPick={clickable ? (i, at) => pointAt(result.columns, result.groups[i]?.keys ?? [], at) : undefined}
+              />
             )}
           </div>
           <div className="screen-explorer__panel" role="group" aria-label={x.settings}>
@@ -670,86 +1019,138 @@ export function Explorer({
               onChange={(chart) => change({ chart: chart as ChartKind })}
               options={CHARTS.map((chart) => ({ value: chart, label: x.charts[chart] ?? chart }))}
             />
+            {times.length > 0 && (
+              <div className="screen-explorer__part" role="group" aria-label={x.time}>
+                <Select
+                  label={x.time}
+                  value={spec.time?.column ?? ""}
+                  onChange={(column) => setTime(column === "" ? null : { column, grain: spec.time?.grain ?? "month", range: spec.time?.range ?? "all" })}
+                  options={[{ value: "", label: x.noTime }, ...times.map((f) => ({ value: f.name, label: f.name }))]}
+                />
+                {spec.time && (
+                  <div className="screen-explorer__sub">
+                    <div className="oik-field">
+                      <span className="oik-field__label">{x.grain}</span>
+                      <Segmented
+                        label={x.grain}
+                        value={spec.time.grain}
+                        onChange={(grain) => setTime({ ...spec.time!, grain: grain as DateGrain })}
+                        options={GRAINS.map((g) => ({ value: g, label: x.grains[g] ?? g }))}
+                      />
+                    </div>
+                    <Select
+                      label={x.range}
+                      value={spec.time.range}
+                      onChange={(range) => setTime({ ...spec.time!, range: range as TimeRange })}
+                      options={RANGES.map((r) => ({ value: r, label: x.ranges[r] ?? r }))}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             <div className="screen-explorer__part" role="group" aria-label={x.dimensions}>
-              <span className="oik-field__label">{x.dimensions}</span>
-              {dimensionRows(spec.dimensions, (dimensions) => change({ dimensions }))}
-              {offered(spec.dimensions).length > 0 && <Menu label={x.addDimension} trigger={{ icon: "plus", text: x.addDimension }} items={offered(spec.dimensions)} />}
+              <span className="oik-field__label">
+                {x.dimensions}
+                {splits(spec) && <span className="screen-explorer__note">{x.dimsSeries}</span>}
+              </span>
+              {dimensionChips("dimensions")}
+              {adding(x.addDimension, offered("dimensions"))}
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.compare}>
               <span className="oik-field__label">{x.compare}</span>
-              {dimensionRows(spec.compare, (compare) => change({ compare }))}
-              {offered(spec.compare).length > 0 && <Menu label={x.addComparison} trigger={{ icon: "plus", text: x.addComparison }} items={offered(spec.compare)} />}
+              {dimensionChips("compare")}
+              {adding(x.addComparison, offered("compare"))}
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.metrics}>
               <span className="oik-field__label">{x.metrics}</span>
               {spec.metrics.map((m, at) => (
-                <div key={`${m.column ?? ""}:${m.aggregate}`} className="screen-explorer__item">
-                  <span className="screen-explorer__item-name" translate={m.column ? "no" : undefined}>
-                    {m.column ?? x.rowCount}
-                  </span>
-                  {m.column && (
-                    <Select
-                      label={x.aggregateOf(m.column)}
-                      hideLabel
-                      value={m.aggregate}
-                      onChange={(aggregate) => change({ metrics: spec.metrics.map((o, i) => (i === at ? { ...o, aggregate: aggregate as ChartAggregate } : o)) })}
-                      options={(isNumber(fieldOf(table, m.column)) ? NUMBER_AGGREGATES : OTHER_AGGREGATES).map((a) => ({
-                        value: a,
-                        label: x.aggregates[a] ?? a,
-                        disabled: a !== m.aggregate && spec.metrics.some((o) => o.column === m.column && o.aggregate === a),
-                      }))}
-                    />
-                  )}
-                  <IconButton icon="close" label={x.removeItem(metricName(m))} onClick={() => change({ metrics: spec.metrics.filter((_, i) => i !== at) })} />
-                </div>
+                <Chip
+                  key={`${m.column ?? ""}:${m.aggregate}`}
+                  text={metricName(m)}
+                  label={m.column ? x.aggregateOf(m.column) : x.rowCount}
+                  items={
+                    m.column
+                      ? (isNumber(fieldOf(table, m.column)) ? NUMBER_AGGREGATES : OTHER_AGGREGATES)
+                          .filter((a) => a === m.aggregate || !spec.metrics.some((o) => o.column === m.column && o.aggregate === a))
+                          .map((a) => ({
+                            label: functionName(a),
+                            checked: a === m.aggregate,
+                            onSelect: () => change({ metrics: spec.metrics.map((o, i) => (i === at ? { ...o, aggregate: a } : o)) }),
+                          }))
+                      : undefined
+                  }
+                  removeLabel={x.removeItem(metricName(m))}
+                  onRemove={
+                    spec.metrics.length === 1 && m.column === null && (grouped || spec.compare.length > 0)
+                      ? undefined
+                      : () => change({ metrics: spec.metrics.filter((_, i) => i !== at) })
+                  }
+                />
               ))}
-              {metricItems.length > 0 && <Menu label={x.addMetric} trigger={{ icon: "plus", text: x.addMetric }} items={metricItems} />}
+              <Button icon="plus" className="screen-explorer__add" onClick={() => setDialog("metric")}>
+                {x.addMetric}
+              </Button>
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.filter}>
               <span className="oik-field__label">{x.filter}</span>
               {spec.filters.map((filter, at) => (
-                <div key={filter.column} className="screen-explorer__item">
-                  <button type="button" className="screen-explorer__item-filter" aria-label={x.filterOn(filter.column)} onClick={() => setFiltering(filter)}>
-                    <span translate="no">{filter.column}</span>
-                    <span className="screen-explorer__item-what">{filterText(filter)}</span>
-                  </button>
-                  <IconButton icon="close" label={x.removeItem(filter.column)} onClick={() => change({ filters: spec.filters.filter((_, i) => i !== at) })} />
-                </div>
+                <Chip
+                  key={filter.column}
+                  text={x.filterChip(filter.column, filterText(filter))}
+                  label={x.filterOn(filter.column)}
+                  // A period kept by a zoom or a breakdown is removed, not edited.
+                  onOpen={filter.period ? undefined : () => setFiltering(filter)}
+                  removeLabel={x.removeItem(filter.column)}
+                  onRemove={() => change({ filters: spec.filters.filter((_, i) => i !== at) })}
+                />
               ))}
-              {filterItems.length > 0 && <Menu label={x.addFilter} trigger={{ icon: "plus", text: x.addFilter }} items={filterItems} />}
+              {adding(x.addFilter, filterItems)}
             </div>
             {spec.dimensions.length > 0 && (
-              <>
-                <Select
-                  label={x.order}
-                  value={sortValue}
-                  onChange={(value) => {
-                    const [metric, direction] = value.split(":");
-                    change({ sort: value === "" ? null : { metric: Number(metric), descending: direction === "desc" } });
-                  }}
-                  options={[
-                    { value: "", label: x.orderDefault },
-                    ...metrics.flatMap((m, i) => [
-                      { value: `${i}:desc`, label: x.orderBy(metricName(m), x.descending) },
-                      { value: `${i}:asc`, label: x.orderBy(metricName(m), x.ascending) },
-                    ]),
-                  ]}
-                />
-                <Select
-                  label={x.show}
-                  value={spec.limit === null ? "" : String(spec.limit)}
-                  onChange={(value) => change({ limit: value === "" ? null : Number(value) })}
-                  options={[
-                    { value: "", label: x.showAll },
-                    ...[...new Set([...LIMITS, ...(spec.limit === null ? [] : [spec.limit])])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: x.showTop(n) })),
-                  ]}
-                />
-              </>
+              <Select
+                label={x.order}
+                value={sortValue}
+                onChange={(value) => {
+                  const [metric, direction] = value.split(":");
+                  change({ sort: value === "" ? null : { metric: Number(metric), descending: direction === "desc" } });
+                }}
+                options={[
+                  { value: "", label: x.orderDefault },
+                  ...metrics.flatMap((m, i) => [
+                    { value: `${i}:desc`, label: x.orderBy(metricName(m), x.descending) },
+                    { value: `${i}:asc`, label: x.orderBy(metricName(m), x.ascending) },
+                  ]),
+                ]}
+              />
+            )}
+            {spec.dimensions.length > 0 && spec.time === null && (
+              <Select
+                label={x.show}
+                value={spec.limit === null ? "" : String(spec.limit)}
+                onChange={(value) => change({ limit: value === "" ? null : Number(value) })}
+                options={[
+                  { value: "", label: x.showAll },
+                  ...[...new Set([...LIMITS, ...(spec.limit === null ? [] : [spec.limit])])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: x.showTop(n) })),
+                ]}
+              />
             )}
           </div>
         </div>
       </Card>
       {/* Outside the card: a dialog is laid out by the page, not by the card's own rules. */}
+      {pointed && <PointMenu label={pointed.label} at={pointed.at} items={pointed.items} onClose={() => setPointed(undefined)} />}
+      {dialog === "sql" && result && <QueryDialog query={result.query} onClose={() => setDialog(undefined)} />}
+      {dialog === "metric" && (
+        <AddMetric
+          table={table}
+          taken={spec.metrics}
+          onClose={() => setDialog(undefined)}
+          onAdd={(metric) => {
+            setDialog(undefined);
+            change({ metrics: [...spec.metrics, metric] });
+          }}
+        />
+      )}
       {filtering && (
         <FilterDialog
           space={space}
@@ -765,8 +1166,16 @@ export function Explorer({
           }}
         />
       )}
-      {dialog === "save" && (
-        <NameView title={x.saveTitle} start="" hint={x.saveHint} busy={saving.busy} error={saving.error} onSave={(name) => void saveAs(name)} onClose={() => setDialog(undefined)} />
+      {(dialog === "saveNew" || dialog === "saveAs") && (
+        <NameView
+          title={dialog === "saveNew" ? x.saveFirstTitle : x.saveTitle}
+          start=""
+          hint={x.saveHint}
+          busy={saving.busy}
+          error={saving.error}
+          onSave={(name) => void saveAs(name)}
+          onClose={() => setDialog(undefined)}
+        />
       )}
       {dialog === "rename" && (
         <NameView title={x.renameTitle} start={view.name} busy={saving.busy} error={saving.error} onSave={(name) => void rename(name)} onClose={() => setDialog(undefined)} />
@@ -785,6 +1194,7 @@ export function Explorer({
             if (!next) return;
             setDialog(undefined);
             setPicked(undefined);
+            forget(view.id);
             onChange(next);
             toast(x.removed(view.name));
           }}

@@ -26,7 +26,7 @@
 //! step only when compared values need the top groups picked by their own
 //! totals. DuckDB computes; the page draws the answer.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use arrow_array::{Array, ArrayRef, Float64Array, StringArray};
 use arrow_schema::{DataType, Schema};
@@ -39,7 +39,7 @@ use crate::file_analysis::SOURCE_FILE;
 use crate::{
     AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartColumn, ChartFilter,
     ChartGroup, ChartLevel, ChartMetric, ChartQuery, ChartResult, ChartRows, ChartSeries,
-    ChartSpec, ChartableTable, DateGrain, TimeRange,
+    ChartSpec, ChartableTable, ColumnType, DateGrain, TimeRange,
 };
 
 /// How much a chart may ask for.
@@ -57,12 +57,47 @@ const MAX_ROWS: usize = 200;
 /// The most values of a column offered to a filter.
 const MAX_OFFERED: usize = 500;
 
-/// A table's columns as a chart may use them.
+/// A table's columns as a chart may use them: as DuckDB read them, or as
+/// the owner has them read.
 struct Columns<'a> {
     schema: &'a Schema,
+    types: &'a BTreeMap<String, ColumnType>,
+}
+
+/// A type as DuckDB names it.
+fn sql_type(read_as: ColumnType) -> &'static str {
+    match read_as {
+        ColumnType::Text => "VARCHAR",
+        ColumnType::Number => "DOUBLE",
+        ColumnType::Date => "DATE",
+        ColumnType::Timestamp => "TIMESTAMP",
+        ColumnType::Boolean => "BOOLEAN",
+    }
 }
 
 impl Columns<'_> {
+    fn read_as(&self, name: &str) -> Option<ColumnType> {
+        self.types.get(name).copied()
+    }
+
+    /// A column's values as the chart reads them: as they are, or converted
+    /// to the type the owner chose, a value that does not convert empty.
+    fn value(&self, from: &str, name: &str) -> String {
+        let column = col(from, name);
+        match self.read_as(name) {
+            Some(read_as) => format!("TRY_CAST({column} AS {})", sql_type(read_as)),
+            None => column,
+        }
+    }
+
+    /// A column as a group is keyed by it, named as the column.
+    fn key(&self, from: &str, name: &str) -> String {
+        match self.read_as(name) {
+            Some(_) => format!("{} AS {}", self.value(from, name), quote_ident(name)),
+            None => col(from, name),
+        }
+    }
+
     /// Whether the table has the column; the answer for a chart that names
     /// one it has not.
     fn has(&self, name: &str) -> Result<(), ApiError> {
@@ -77,6 +112,9 @@ impl Columns<'_> {
     }
 
     fn is_number(&self, name: &str) -> bool {
+        if let Some(read_as) = self.read_as(name) {
+            return read_as == ColumnType::Number;
+        }
         matches!(
             self.data_type(name),
             Some(
@@ -99,6 +137,9 @@ impl Columns<'_> {
 
     /// A column of time: a date or a timestamp, as DuckDB read it.
     fn is_time(&self, name: &str) -> bool {
+        if let Some(read_as) = self.read_as(name) {
+            return matches!(read_as, ColumnType::Date | ColumnType::Timestamp);
+        }
         matches!(
             self.data_type(name),
             Some(DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _))
@@ -106,6 +147,9 @@ impl Columns<'_> {
     }
 
     fn is_text(&self, name: &str) -> bool {
+        if let Some(read_as) = self.read_as(name) {
+            return read_as == ColumnType::Text;
+        }
         matches!(
             self.data_type(name),
             Some(DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View)
@@ -242,7 +286,7 @@ fn metric(columns: &Columns, metric: &ChartMetric, from: &str) -> Result<String,
         };
     };
     columns.has(name)?;
-    let column = col(from, name);
+    let column = columns.value(from, name);
     match metric.aggregate {
         ChartAggregate::Count => Ok(format!("COUNT({column})")),
         ChartAggregate::Distinct => Ok(format!("COUNT(DISTINCT {column})")),
@@ -263,7 +307,7 @@ fn filter(
 ) -> Result<Option<String>, ApiError> {
     let name = &filter.column;
     columns.has(name)?;
-    let column = col(from, name);
+    let column = columns.value(from, name);
     let ranged = filter.min.is_some() || filter.max.is_some();
     let kinds = [!filter.values.is_empty(), ranged, filter.period.is_some()];
     if kinds.iter().filter(|k| **k).count() > 1 {
@@ -419,7 +463,11 @@ impl Api {
             let Ok((schema, _)) = self.analysis_columns(space, &table).await else {
                 continue;
             };
-            let columns = Columns { schema: &schema };
+            let types = self.analysis_types(space, &table)?;
+            let columns = Columns {
+                schema: &schema,
+                types: &types,
+            };
             out.push(ChartableTable {
                 collection: space.to_string(),
                 rows,
@@ -471,7 +519,11 @@ impl Api {
         spec: &ChartSpec,
     ) -> Result<ChartResult, ApiError> {
         let (schema, _) = self.analysis_columns(space, table).await?;
-        let columns = Columns { schema: &schema };
+        let types = self.analysis_types(space, table)?;
+        let columns = Columns {
+            schema: &schema,
+            types: &types,
+        };
         if spec.dimensions.len() > MAX_DIMENSIONS
             || spec.compare.len() > MAX_COMPARE
             || spec.metrics.len() > MAX_METRICS
@@ -481,6 +533,8 @@ impl Api {
         }
         // The time is a column of time, seen at a grain; any other column
         // is a dimension or compared, once.
+        // A custom range's ends are days, in order; other ranges have none.
+        let mut ends: (Option<NaiveDate>, Option<NaiveDate>) = (None, None);
         if let Some(time) = &spec.time {
             columns.has(&time.column)?;
             if !columns.is_time(&time.column) {
@@ -488,6 +542,23 @@ impl Api {
                     "{} is not a column of time",
                     time.column
                 )));
+            }
+            let day = |text: &Option<String>| -> Result<Option<NaiveDate>, ApiError> {
+                text.as_deref()
+                    .map(|t| {
+                        NaiveDate::parse_from_str(t.trim(), "%Y-%m-%d")
+                            .map_err(|_| ApiError::invalid(format!("{t} is not a day (2026-08-01)")))
+                    })
+                    .transpose()
+            };
+            ends = (day(&time.from)?, day(&time.to)?);
+            if time.range != TimeRange::Custom && (ends.0.is_some() || ends.1.is_some()) {
+                return Err(ApiError::invalid("from and to are the ends of a custom range"));
+            }
+            if let (Some(from), Some(to)) = ends {
+                if from > to {
+                    return Err(ApiError::invalid("a range ends after it starts"));
+                }
             }
         }
         let mut seen: BTreeSet<&str> = spec.time.iter().map(|t| t.column.as_str()).collect();
@@ -520,15 +591,27 @@ impl Api {
                 }
             }
             if let Some(time) = &spec.time {
-                let at = col(from, &time.column);
+                let at = columns.value(from, &time.column);
                 let since =
                     |days: u32| format!("{at} >= current_date - INTERVAL {days} DAY");
                 match time.range {
                     TimeRange::All => {}
-                    TimeRange::ThisYear => out.push(format!("year({at}) = year(current_date)")),
+                    TimeRange::Last7Days => out.push(since(7)),
                     TimeRange::Last30Days => out.push(since(30)),
                     TimeRange::Last90Days => out.push(since(90)),
                     TimeRange::Last365Days => out.push(since(365)),
+                    TimeRange::ThisYear => out.push(format!("year({at}) = year(current_date)")),
+                    // Whole days: the last one up to its end, for a timestamp too.
+                    TimeRange::Custom => {
+                        if let Some(first) = ends.0 {
+                            let day = bound.bind(Value::Text(first.format("%Y-%m-%d").to_string()));
+                            out.push(format!("{at} >= CAST({day} AS DATE)"));
+                        }
+                        if let Some(last) = ends.1 {
+                            let day = bound.bind(Value::Text(last.format("%Y-%m-%d").to_string()));
+                            out.push(format!("{at} < CAST({day} AS DATE) + INTERVAL 1 DAY"));
+                        }
+                    }
                 }
             }
             Ok(out)
@@ -565,8 +648,19 @@ impl Api {
             && spec.compare.is_empty()
             && spec.metrics.is_empty()
         {
+            // Every column as the chart reads it: converted where the owner chose.
+            let shown = if types.is_empty() {
+                "*".to_string()
+            } else {
+                schema
+                    .fields()
+                    .iter()
+                    .map(|f| columns.key("", f.name()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             let sql = format!(
-                "SELECT *\nFROM {table_name}{}\nLIMIT {MAX_ROWS}",
+                "SELECT {shown}\nFROM {table_name}{}\nLIMIT {MAX_ROWS}",
                 where_of(&kept)
             );
             let query = query_of(&sql, &bound);
@@ -622,12 +716,12 @@ impl Api {
                 .map(|level| match level.grain {
                     Some(grain) => format!(
                         "{} AS {}",
-                        at_grain(&col(from, &level.column), grain),
+                        at_grain(&columns.value(from, &level.column), grain),
                         quote_ident(&level.column)
                     ),
-                    None => col(from, &level.column),
+                    None => columns.key(from, &level.column),
                 })
-                .chain(spec.compare.iter().map(|d| col(from, &d.column)))
+                .chain(spec.compare.iter().map(|d| columns.key(from, &d.column)))
                 .collect()
         };
         let totals = |from: &str| -> Result<Vec<String>, ApiError> {
@@ -693,7 +787,11 @@ impl Api {
             sql.push_str(&format!("\nLIMIT {cap}"));
             (sql, cap)
         } else {
-            let dims: Vec<String> = spec.dimensions.iter().map(|d| col("", &d.column)).collect();
+            let dims: Vec<String> = spec
+                .dimensions
+                .iter()
+                .map(|d| columns.key("", &d.column))
+                .collect();
             let picked = match sort {
                 Some(sort) => format!(
                     "SELECT {}, {} AS total\nFROM {table_name}{}\nGROUP BY {}\nORDER BY total {}\nLIMIT {}",
@@ -719,7 +817,7 @@ impl Api {
                 .map(|d| {
                     format!(
                         "{} IS NOT DISTINCT FROM {}",
-                        col("t.", &d.column),
+                        columns.value("t.", &d.column),
                         col("top.", &d.column)
                     )
                 })
@@ -794,7 +892,8 @@ impl Api {
             }
         }
         // The time alone: its periods with no rows keep their place, within
-        // the period a filter keeps or from the first period found to the last.
+        // the period a filter keeps, or the custom range, or from the first
+        // period found to the last.
         if let (Some(time), 0, false) = (&spec.time, nd, truncated) {
             let within = spec.filters.iter().find_map(|f| {
                 f.period
@@ -806,7 +905,11 @@ impl Api {
                     })
             });
             let found: Vec<&String> = groups.iter().filter_map(|g| g.keys[0].as_ref()).collect();
-            let bounds = within.or_else(|| {
+            let ranged = match ends {
+                (Some(from), Some(to)) => Some((from, to)),
+                _ => None,
+            };
+            let bounds = within.or(ranged).or_else(|| {
                 found
                     .first()
                     .and_then(|k| period_start(time.grain, k))
@@ -856,8 +959,13 @@ impl Api {
         caller.require_owner()?;
         self.refresh()?;
         let (schema, _) = self.analysis_columns(&req.space, &req.table).await?;
-        Columns { schema: &schema }.has(&req.column)?;
-        let column = quote_ident(&req.column);
+        let types = self.analysis_types(&req.space, &req.table)?;
+        let columns = Columns {
+            schema: &schema,
+            types: &types,
+        };
+        columns.has(&req.column)?;
+        let column = columns.value("", &req.column);
         let sql = format!(
             "SELECT DISTINCT CAST({column} AS VARCHAR) AS value FROM {}.{} \
              WHERE {column} IS NOT NULL ORDER BY 1 LIMIT {MAX_OFFERED}",

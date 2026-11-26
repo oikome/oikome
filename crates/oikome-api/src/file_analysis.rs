@@ -49,8 +49,8 @@ use crate::analysis::schema_profile;
 use crate::datasets::{capability_of, kind_of};
 use crate::{
     AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, AnalysisView,
-    AnalysisViewRef, Api, ApiError, BuildAnalysis, Caller, ChartSpec, ErrorCode, FieldRole,
-    FileAnalysis, SaveAnalysisView, SetAnalysisField, SpaceRef,
+    AnalysisViewRef, Api, ApiError, BuildAnalysis, Caller, ChartSpec, ColumnType, ErrorCode,
+    FieldRole, FileAnalysis, SaveAnalysisView, SetAnalysisField, SetAnalysisType, SpaceRef,
 };
 
 /// The most views kept with a table, and the size of each.
@@ -105,6 +105,9 @@ struct KeptTable {
     /// Roles the owner chose, by column.
     #[serde(default)]
     roles: BTreeMap<String, FieldRole>,
+    /// Types the owner has columns read as, by column.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    types: BTreeMap<String, ColumnType>,
     built_at_ms: u64,
     rows: u64,
     #[serde(default)]
@@ -633,6 +636,7 @@ impl Api {
             }],
             sheet: None,
             roles: was.map(|t| t.roles.clone()).unwrap_or_default(),
+            types: was.map(|t| t.types.clone()).unwrap_or_default(),
             built_at_ms: crate::now_ms(),
             rows,
             problem,
@@ -743,6 +747,7 @@ impl Api {
                 continue;
             }
             let roles = entry.map(|t| t.roles.clone()).unwrap_or_default();
+            let types = entry.map(|t| t.types.clone()).unwrap_or_default();
             let views = entry.map(|t| t.views.clone()).unwrap_or_default();
             if let Input::Dataset(dataset) = &input {
                 let table = self.read_dataset_table(&found, &name, dataset, entry).await;
@@ -763,6 +768,7 @@ impl Api {
                     files: now,
                     sheet,
                     roles,
+                    types: types.clone(),
                     built_at_ms: crate::now_ms(),
                     rows,
                     problem: None,
@@ -773,6 +779,7 @@ impl Api {
                     files: now,
                     sheet,
                     roles,
+                    types: types.clone(),
                     built_at_ms: crate::now_ms(),
                     rows: 0,
                     problem: Some(e.to_string()),
@@ -815,6 +822,7 @@ impl Api {
                                     field.role = *role;
                                     field.inferred = false;
                                 }
+                                field.read_as = table.types.get(&field.name).copied();
                                 field
                             })
                             .collect()
@@ -953,6 +961,49 @@ impl Api {
         table.roles.insert(req.field, req.role);
         self.keep(&req.space, &kept)?;
         self.follow_files(&req.space, &[]).await
+    }
+
+    /// Read a column of an analysis table as another type, or as DuckDB
+    /// read it again. Only how charts read it changes: not the table, not
+    /// its files.
+    pub async fn set_analysis_type(
+        &self,
+        caller: &Caller,
+        req: SetAnalysisType,
+    ) -> Result<FileAnalysis, ApiError> {
+        caller.require_owner()?;
+        self.refresh()?;
+        let (schema, _) = self.analysis_columns(&req.space, &req.table).await?;
+        if req.column == SOURCE_FILE || schema.field_with_name(&req.column).is_err() {
+            return Err(ApiError::invalid(format!(
+                "{} has no column {}",
+                req.table, req.column
+            )));
+        }
+        let mut kept = self.kept(&req.space)?;
+        let table = kept.tables.get_mut(&req.table).ok_or_else(|| {
+            ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table))
+        })?;
+        match req.read_as {
+            Some(read_as) => table.types.insert(req.column, read_as),
+            None => table.types.remove(&req.column),
+        };
+        self.keep(&req.space, &kept)?;
+        self.follow_files(&req.space, &[]).await
+    }
+
+    /// The types the owner has columns of an analysis table read as.
+    pub(crate) fn analysis_types(
+        &self,
+        space: &str,
+        table: &str,
+    ) -> Result<BTreeMap<String, ColumnType>, ApiError> {
+        Ok(self
+            .kept(space)?
+            .tables
+            .get(table)
+            .map(|t| t.types.clone())
+            .unwrap_or_default())
     }
 
     /// An analysis table's columns and what each is for (as proposed, or as

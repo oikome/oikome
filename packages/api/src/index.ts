@@ -1550,7 +1550,11 @@ export type FieldRole = "time" | "amount" | "category" | "title" | "key" | "othe
 /**
  * One source field in a dataset profile.
  */
-export type FieldProfile = { name: string, dataType: string, role: FieldRole, inferred: boolean, };
+export type FieldProfile = { name: string, dataType: string, role: FieldRole, inferred: boolean,
+/**
+ * The type the owner has it read as, in place of `data_type`.
+ */
+readAs?: ColumnType, };
 
 /**
  * `dataset_profile`: inferred roles the owner can correct before analysis.
@@ -1729,7 +1733,7 @@ export type ChartAggregate = "sum" | "average" | "median" | "min" | "max" | "cou
 /**
  * What part of its time a chart covers.
  */
-export type TimeRange = "all" | "thisYear" | "last30Days" | "last90Days" | "last365Days";
+export type TimeRange = "all" | "last7Days" | "last30Days" | "last90Days" | "last365Days" | "thisYear" | "custom";
 
 /**
  * A chart's time: a column of time (a date or a timestamp, as DuckDB read
@@ -1737,7 +1741,15 @@ export type TimeRange = "all" | "thisYear" | "last30Days" | "last90Days" | "last
  * (year, quarter, month, day; a week stands apart), rolled up or zoomed
  * into; it is never a second dimension.
  */
-export type ChartTime = { column: string, grain: DateGrain, range: TimeRange, };
+export type ChartTime = { column: string, grain: DateGrain, range: TimeRange,
+/**
+ * The first day of a custom range, `2026-08-01`.
+ */
+from?: string,
+/**
+ * The last day of a custom range, itself included.
+ */
+to?: string, };
 
 /**
  * A dimension: a column the rows are grouped by, together with the time and
@@ -1775,6 +1787,20 @@ export type ChartFilter = { column: string, values: Array<string>, min: string |
  * `2026`, `2026-Q3`, `2026-08`, or the day a week or a day starts.
  */
 export type ChartPeriod = { grain: DateGrain, key: string, };
+
+/**
+ * The type a column of an analysis table is read as, when the owner
+ * changed the one DuckDB read: charts read it so (`TRY_CAST`), a value that
+ * does not convert counting as empty. The table and its files stay as they
+ * are.
+ */
+export type ColumnType = "text" | "number" | "date" | "timestamp" | "boolean";
+
+/**
+ * `set_analysis_type`: read a column of an analysis table as another type
+ * (`read_as`), or, with none, as DuckDB read it again.
+ */
+export type SetAnalysisType = { space: string, table: string, column: string, readAs?: ColumnType, };
 
 /**
  * The order of a chart's groups: by one of its metrics (its place in

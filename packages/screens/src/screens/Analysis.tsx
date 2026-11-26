@@ -21,10 +21,11 @@ import {
   Group,
   Row,
   Segmented,
+  Select,
   Status,
   useToast,
 } from "@oikome/ui";
-import type { AnalysisSource, AnalysisTable, DatasetFacts, FileAnalysis } from "@oikome/client";
+import type { AnalysisSource, AnalysisTable, ColumnType, DatasetFacts, FileAnalysis } from "@oikome/client";
 import { useAction, useClient, useLoad } from "../data";
 import { homeRelative } from "../format";
 import { TransferProgress } from "../progress";
@@ -34,16 +35,18 @@ import { Explorer } from "./Explorer";
 
 const a = strings.analysisView;
 
-/** A column's type in words: date, date and time, text, number, yes or no. */
-function typeOf(dataType: string): string {
-  if (/^Date/.test(dataType)) return a.types.date;
-  if (/^Timestamp/.test(dataType)) return a.types.datetime;
-  if (/Utf8|Binary/.test(dataType)) return a.types.text;
-  if (/^(U?Int|Float|Decimal)/.test(dataType)) return a.types.number;
-  if (dataType === "Boolean") return a.types.boolean;
-  // Any other type by the name DuckDB gives it, not a vague "other".
-  return duckType(dataType);
+/** The types a column can be read as, and the one DuckDB read it as, if it is one of them. */
+const READ_AS: ColumnType[] = ["text", "number", "date", "timestamp", "boolean"];
+function kindOf(dataType: string): ColumnType | undefined {
+  if (/^Date/.test(dataType)) return "date";
+  if (/^Timestamp/.test(dataType)) return "timestamp";
+  if (/^(Utf8|LargeUtf8|Utf8View)$/.test(dataType)) return "text";
+  if (/^(U?Int|Float|Decimal)/.test(dataType)) return "number";
+  if (dataType === "Boolean") return "boolean";
+  return undefined;
 }
+/** A type in words: date, date and time, text, number, yes or no. */
+const kindName = (kind: ColumnType) => (kind === "timestamp" ? a.types.datetime : a.types[kind]);
 
 /** A column's type as DuckDB names it, from the Arrow type it was read as. */
 function duckType(dataType: string): string {
@@ -326,6 +329,8 @@ function TableView({
   onChange: (next: FileAnalysis) => void;
   onReload: () => void;
 }) {
+  const client = useClient();
+  const setType = useAction();
   const [removing, setRemoving] = useState(false);
   const dataset = table.dataset;
   const readable = !table.problem;
@@ -376,20 +381,35 @@ function TableView({
         <Group title={a.fields} footnote={`${a.fieldsNote} ${strings.explorer.assistantsNote}`}>
           {table.fields
             .filter((field) => field.name !== "_source_file")
-            .map((field) => (
-              <Row
-                key={field.name}
-                title={<span translate="no">{field.name}</span>}
-                meta={typeOf(field.dataType)}
-                trailing={
-                  <span className="screen-analysis__type" translate="no">
-                    {duckType(field.dataType)}
-                  </span>
-                }
-              />
-            ))}
+            .map((field) => {
+              // Read as DuckDB read it, or as the owner chose: charts read it so.
+              const natural = kindOf(field.dataType);
+              const shown = field.readAs ?? natural;
+              const read = duckType(field.dataType);
+              return (
+                <Row
+                  key={field.name}
+                  title={<span translate="no">{field.name}</span>}
+                  meta={field.readAs ? a.convertedFrom(read) : a.readAs(read)}
+                  trailing={
+                    <Select
+                      label={a.typeFor(field.name)}
+                      hideLabel
+                      value={shown ?? ""}
+                      onChange={async (value) => {
+                        const readAs = value === "" || value === natural ? undefined : (value as ColumnType);
+                        const next = await setType.run(() => client.setAnalysisType({ space, table: table.name, column: field.name, readAs }));
+                        if (next) onChange(next);
+                      }}
+                      options={[...(natural ? [] : [{ value: "", label: read }]), ...READ_AS.map((kind) => ({ value: kind, label: kindName(kind) }))]}
+                    />
+                  }
+                />
+              );
+            })}
         </Group>
       )}
+      {setType.error && <ErrorText>{setType.error}</ErrorText>}
     </div>
   );
 }

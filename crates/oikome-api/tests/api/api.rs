@@ -7281,6 +7281,70 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     .unwrap();
     assert_eq!(recent.matched, 0);
 
+    // A range of its own: whole days, either end open; with the time alone,
+    // every period in it keeps its place. The last 7 days hold none here.
+    let custom = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month", "range": "custom", "from": "2026-08-01", "to": "2026-09-14"}
+    }))
+    .await
+    .unwrap();
+    assert_eq!(custom.matched, 2);
+    assert_eq!(firsts(&custom), ["2026-08", "2026-09"]);
+    assert!(custom.query.sql.contains("\"date\" >= CAST(?1 AS DATE)"));
+    assert_eq!(custom.query.params, ["'2026-08-01'", "'2026-09-14'"]);
+    let week = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "day", "range": "last7Days"}
+    }))
+    .await
+    .unwrap();
+    assert_eq!(week.matched, 0);
+
+    // A column read as another type: charts read it so, the table and its
+    // files as they were. A number read as text is grouped as text and not
+    // totalled; read as DuckDB read it again, it is a number again.
+    let read_as = |column: &str, read_as: Option<ColumnType>| SetAnalysisType {
+        space: "household".into(),
+        table: "spending".into(),
+        column: column.into(),
+        read_as,
+    };
+    let changed = n
+        .api
+        .set_analysis_type(&OWNER, read_as("items", Some(ColumnType::Text)))
+        .await
+        .unwrap();
+    let items = changed.tables[0].fields.iter().find(|f| f.name == "items").unwrap();
+    assert_eq!(items.read_as, Some(ColumnType::Text));
+    assert_eq!(items.data_type, "Int64");
+    let as_text = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
+        .await
+        .unwrap();
+    assert_eq!(firsts(&as_text), ["1", "10", "2", "3"]);
+    assert!(as_text
+        .query
+        .sql
+        .contains("TRY_CAST(\"items\" AS VARCHAR) AS \"items\""));
+    assert!(compute(serde_json::json!({"chart": "bar", "metrics": [{"column": "items", "aggregate": "sum"}]}))
+        .await
+        .is_err());
+    n.api
+        .set_analysis_type(&OWNER, read_as("items", None))
+        .await
+        .unwrap();
+    let as_number = compute(serde_json::json!({"chart": "bar", "dimensions": [{"column": "items"}]}))
+        .await
+        .unwrap();
+    assert_eq!(firsts(&as_number), ["1", "2", "3", "10"]);
+    for refused in ["nothing", "_source_file"] {
+        assert!(n
+            .api
+            .set_analysis_type(&OWNER, read_as(refused, Some(ColumnType::Text)))
+            .await
+            .is_err());
+    }
+
     // Nothing grouped or totalled: the rows themselves.
     let rows = compute(serde_json::json!({"chart": "table"})).await.unwrap();
     assert!(rows.query.sql.starts_with("SELECT *\nFROM \"household\".\"spending\""));
@@ -7310,6 +7374,9 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         serde_json::json!({"chart": "bar", "filters": [{"column": "category", "period": {"grain": "month", "key": "2026-09"}}]}),
         serde_json::json!({"chart": "bar", "filters": [{"column": "date", "period": {"grain": "month", "key": "2026-13"}}]}),
         serde_json::json!({"chart": "bar", "dimensions": [{"column": "category"}], "sort": {"metric": 4, "descending": true}}),
+        serde_json::json!({"chart": "bar", "time": {"column": "date", "grain": "month", "range": "custom", "from": "2026-09-30", "to": "2026-09-01"}}),
+        serde_json::json!({"chart": "bar", "time": {"column": "date", "grain": "month", "range": "custom", "from": "yesterday"}}),
+        serde_json::json!({"chart": "bar", "time": {"column": "date", "grain": "month", "from": "2026-09-01"}}),
     ] {
         let err = n.api.analysis_chart(&OWNER, chart(refused.clone())).await;
         assert!(err.is_err(), "{refused} should be refused");

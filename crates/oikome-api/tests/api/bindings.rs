@@ -199,6 +199,8 @@ fn bindings() -> String {
         ChartMetric,
         ChartFilter,
         ChartPeriod,
+        ColumnType,
+        SetAnalysisType,
         ChartSort,
         ChartSpec,
         AnalysisChart,

@@ -5177,23 +5177,23 @@ tr.screen-source {
 .screen-explorer__view--here .oik-menu__chip svg {
   color: var(--ink3);
 }
+/* The chart being made, not kept yet: chosen as the others are, by its
+   outline, and named when saved. */
+.screen-explorer__view--untitled {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
 /* Bold marks every chosen tab one way: yellow, as its segments and tabs. */
 [data-theme="bold"] .screen-explorer__view--here,
-[data-theme="bold"] .screen-explorer__view--new {
+[data-theme="bold"] .screen-explorer__view--untitled {
   border-color: #111;
   background: #ffd23f;
   color: #111;
 }
-/* A new chart, not saved yet; and the way to start one. */
-.screen-explorer__view--new,
+/* The way to start another chart: dashed, as every add is. */
 .screen-explorer__view--add {
   border-style: dashed;
-}
-.screen-explorer__view--new {
-  border-color: var(--ink);
-  color: var(--ink);
-  font-weight: 600;
-  cursor: default;
 }
 .screen-explorer__view svg {
   width: 13px;
@@ -5351,15 +5351,6 @@ tr.screen-source {
   color: var(--ink3);
   font-weight: 500;
 }
-.screen-explorer__part .oik-seg {
-  display: flex;
-  width: 100%;
-}
-.screen-explorer__part .oik-seg__option {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 0 4px;
-}
 .screen-explorer__chip {
   display: flex;
   align-items: stretch;
@@ -5488,9 +5479,18 @@ tr.screen-source {
   color: var(--ink);
   font-weight: 600;
 }
+/* What a click on a group does: said beside the chart, with a sign. */
 .screen-explorer__hint {
-  color: var(--ink3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink2);
   font: var(--text-small);
+}
+.screen-explorer__hint svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 /* Where the chart is and what it holds, on the left; on the right, what a
    click does and the query behind it. */
@@ -5511,6 +5511,16 @@ tr.screen-source {
   font: var(--text-small);
   font-weight: 500;
 }
+/* A range of its own: its first and last day, side by side. */
+.screen-explorer__days {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.screen-explorer__days .oik-input {
+  width: 100%;
+  min-width: 0;
+}
 /* Nothing left to add to a part of the description. */
 .screen-explorer__none {
   margin: 0;
@@ -5528,7 +5538,7 @@ tr.screen-source {
   width: 11px;
   height: 11px;
   margin-left: 6px;
-  color: var(--ink3);
+  color: var(--ink2);
   vertical-align: -1px;
 }
 /* The query a chart ran: its text, then the value of each placeholder. */

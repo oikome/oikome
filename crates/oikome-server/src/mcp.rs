@@ -614,7 +614,9 @@ fn chart_spec_schema() -> Value {
                 "properties": {
                     "column": { "type": "string" },
                     "grain": { "enum": ["year", "quarter", "month", "week", "day"] },
-                    "range": { "enum": ["all", "thisYear", "last30Days", "last90Days", "last365Days"], "description": "all when left out." }
+                    "range": { "enum": ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"], "description": "all when left out; custom is from from to to." },
+                    "from": { "type": "string", "description": "The first day of a custom range: 2026-08-01. Either end may be left out." },
+                    "to": { "type": "string", "description": "The last day of a custom range, itself included." }
                 },
                 "required": ["column", "grain"],
                 "additionalProperties": false

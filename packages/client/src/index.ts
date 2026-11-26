@@ -25,6 +25,7 @@ import type {
   ExtensionRef,
   FileAnalysis,
   SetAnalysisField,
+  SetAnalysisType,
   AnalysisProfile,
   DatasetAnalysis,
   DatasetProfile,
@@ -183,6 +184,8 @@ export interface NodeClient {
   installExtension(request: ExtensionRef): Promise<ExtensionDownload>;
   /** Correct what a column of an analysis table is for. */
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
+  /** Read a column of an analysis table as another type, or as DuckDB read it again. */
+  setAnalysisType(request: SetAnalysisType): Promise<FileAnalysis>;
   /** An analysis table's totals by month and by category. */
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary>;
   /** What a chart of an analysis table shows, computed by the node from the chart's description. */
@@ -488,6 +491,10 @@ export class HttpClient implements NodeClient {
 
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis> {
     return this.#json("set_analysis_field", request);
+  }
+
+  setAnalysisType(request: SetAnalysisType): Promise<FileAnalysis> {
+    return this.#json("set_analysis_type", request);
   }
 
   installExtension(request: ExtensionRef): Promise<ExtensionDownload> {

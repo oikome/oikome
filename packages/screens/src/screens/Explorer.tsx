@@ -19,9 +19,10 @@
 // it (a table here, the charts with ECharts, loaded on demand) and shows the
 // query that ran.
 //
-// Nothing is chosen at first: a new chart is the table's rows. A chart is
-// kept when saved, under a name the first time, and opens again from the
-// row above; what the owner changes is a draft until saved or discarded.
+// A new chart starts over the table's first column of time, by month, or,
+// without one, with nothing chosen: the table's rows. A chart is kept when
+// saved, under a name the first time, and opens again from the row above;
+// what the owner changes is a draft until saved or discarded.
 // Assistants allowed to read the collection may keep charts too; those say
 // who made them.
 
@@ -36,7 +37,6 @@ import {
   Icon,
   Menu,
   PointMenu,
-  Segmented,
   Select,
   Tag,
   TextField,
@@ -70,12 +70,10 @@ const CHARTS: ChartKind[] = ["table", "column", "bar", "line", "area", "pie", "t
 const GRAINS: DateGrain[] = ["year", "quarter", "month", "week", "day"];
 /** The grain a period zooms into; a week opens into its days. */
 const FINER: Partial<Record<DateGrain, DateGrain>> = { year: "quarter", quarter: "month", month: "day", week: "day" };
-const RANGES: TimeRange[] = ["all", "thisYear", "last30Days", "last90Days", "last365Days"];
+const RANGES: TimeRange[] = ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"];
 const NUMBER_AGGREGATES: ChartAggregate[] = ["sum", "average", "median", "min", "max", "count", "distinct"];
 const OTHER_AGGREGATES: ChartAggregate[] = ["count", "distinct"];
 const LIMITS = [5, 10, 20, 50];
-/** A new chart: nothing chosen, so the table's rows. */
-const NEW_CHART: ChartSpec = { chart: "table", time: null, dimensions: [], compare: [], metrics: [], filters: [], sort: null, limit: null };
 const NEW = "new";
 
 interface View {
@@ -87,9 +85,17 @@ interface View {
 }
 
 type Field = AnalysisTable["fields"][number];
-const isNumber = (field: Field | undefined) => field !== undefined && /^(U?Int|Float|Decimal)/.test(field.dataType);
-/** A column of time: a date or a timestamp, as DuckDB read it. */
-const isTime = (field: Field | undefined) => field !== undefined && /^(Date|Timestamp)/.test(field.dataType);
+/** What a column holds: as the owner has it read, else as DuckDB read it. */
+function kindOf(field: Field): string {
+  if (field.readAs) return field.readAs;
+  if (/^Date/.test(field.dataType)) return "date";
+  if (/^Timestamp/.test(field.dataType)) return "timestamp";
+  if (/^(U?Int|Float|Decimal)/.test(field.dataType)) return "number";
+  return "text";
+}
+const isNumber = (field: Field | undefined) => field !== undefined && kindOf(field) === "number";
+/** A column of time: a date or a timestamp. */
+const isTime = (field: Field | undefined) => field !== undefined && (kindOf(field) === "date" || kindOf(field) === "timestamp");
 const shownFields = (table: AnalysisTable) => table.fields.filter((f) => f.name !== "_source_file");
 const fieldOf = (table: AnalysisTable, name: string | null) => table.fields.find((f) => f.name === name);
 
@@ -127,13 +133,34 @@ function keyName(level: ChartLevel | undefined, key: string | null): string {
 /** A column a chart's groups are keyed by, as a heading: the time with its grain. */
 const levelName = (level: ChartLevel) => (level.grain ? x.colAt(level.column, x.grains[level.grain] ?? level.grain) : level.column);
 
+/**
+ * A new chart: over the table's first column of time, by month, when it has
+ * one (what is wanted most often, and a click on a month goes on from
+ * there); else nothing chosen, so the table's rows.
+ */
+function newChart(table: AnalysisTable): ChartSpec {
+  const time = shownFields(table).find((f) => isTime(f));
+  return time
+    ? { chart: "column", time: { column: time.name, grain: "month", range: "all" }, dimensions: [], compare: [], metrics: [COUNT_ROWS], filters: [], sort: null, limit: null }
+    : { chart: "table", time: null, dimensions: [], compare: [], metrics: [], filters: [], sort: null, limit: null };
+}
+
 /** A chart's description with every part present, or nothing if it is not one. */
 function chartOf(raw: unknown): ChartSpec | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const given = raw as Partial<ChartSpec>;
   if (!CHARTS.includes(given.chart as ChartKind)) return undefined;
   const list = <T,>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : []);
-  const time = given.time && GRAINS.includes(given.time.grain) ? { column: given.time.column, grain: given.time.grain, range: given.time.range ?? "all" } : null;
+  const time =
+    given.time && GRAINS.includes(given.time.grain)
+      ? {
+          column: given.time.column,
+          grain: given.time.grain,
+          range: given.time.range ?? "all",
+          ...(given.time.from ? { from: given.time.from } : {}),
+          ...(given.time.to ? { to: given.time.to } : {}),
+        }
+      : null;
   return {
     chart: given.chart as ChartKind,
     time,
@@ -714,7 +741,8 @@ export function Explorer({
   const views = useMemo(() => viewsOf(table), [table]);
   // The chart picked; else the first kept; else a new one.
   const kept = picked === NEW ? undefined : (views.find((v) => v.id === picked) ?? views[0]);
-  const view: View = kept ?? { id: NEW, name: x.newChart, spec: NEW_CHART };
+  const started = useMemo(() => newChart(table), [table]);
+  const view: View = kept ?? { id: NEW, name: x.untitled, spec: started };
   const fresh = view.id === NEW;
   const spec = draft?.of === view.id ? draft.spec : view.spec;
   const edited = JSON.stringify(spec) !== JSON.stringify(view.spec);
@@ -914,9 +942,19 @@ export function Explorer({
               ),
             )}
             {fresh ? (
-              <span className="screen-explorer__view screen-explorer__view--new" aria-current="true">
-                {x.newChart}
-              </span>
+              // The chart being made, not kept yet: named when saved, which a click on it starts.
+              <button
+                type="button"
+                className="screen-explorer__view screen-explorer__view--untitled"
+                aria-current="true"
+                title={x.nameToSave}
+                onClick={() => {
+                  saving.clear();
+                  setDialog("saveNew");
+                }}
+              >
+                {x.untitled}
+              </button>
             ) : (
               <button type="button" className="screen-explorer__view screen-explorer__view--add" onClick={() => open(NEW)}>
                 <Icon name="plus" />
@@ -924,10 +962,10 @@ export function Explorer({
               </button>
             )}
           </div>
-          {edited && (
+          {(edited || fresh) && (
             <div className="screen-explorer__actions">
-              <Tag>{fresh ? x.unsaved : x.edited}</Tag>
-              <Button onClick={() => forget(view.id)}>{x.discard}</Button>
+              {edited && <Tag>{fresh ? x.unsaved : x.edited}</Tag>}
+              {edited && <Button onClick={() => forget(view.id)}>{x.discard}</Button>}
               {fresh ? (
                 <Button
                   variant="primary"
@@ -988,7 +1026,12 @@ export function Explorer({
                 )}
               </div>
               <div className="screen-explorer__tools">
-                {clickable && <span className="screen-explorer__hint">{finer ? x.drillHintZoom(x.grains[finer] ?? finer) : x.drillHint}</span>}
+                {clickable && (
+                  <span className="screen-explorer__hint">
+                    <Icon name="info" />
+                    <span>{finer ? x.drillHintZoom(x.grains[finer] ?? finer) : x.drillHint}</span>
+                  </span>
+                )}
                 <Button className="screen-explorer__sql-button" disabled={!result} onClick={() => setDialog("sql")}>
                   {x.showSql}
                 </Button>
@@ -1029,21 +1072,48 @@ export function Explorer({
                 />
                 {spec.time && (
                   <div className="screen-explorer__sub">
-                    <div className="oik-field">
-                      <span className="oik-field__label">{x.grain}</span>
-                      <Segmented
-                        label={x.grain}
-                        value={spec.time.grain}
-                        onChange={(grain) => setTime({ ...spec.time!, grain: grain as DateGrain })}
-                        options={GRAINS.map((g) => ({ value: g, label: x.grains[g] ?? g }))}
-                      />
-                    </div>
+                    {/* A grain is picked from a list, as BI tools do: five buttons don't fit the panel. */}
+                    <Select
+                      label={x.grain}
+                      value={spec.time.grain}
+                      onChange={(grain) => setTime({ ...spec.time!, grain: grain as DateGrain })}
+                      options={GRAINS.map((g) => ({ value: g, label: x.grains[g] ?? g }))}
+                    />
                     <Select
                       label={x.range}
                       value={spec.time.range}
-                      onChange={(range) => setTime({ ...spec.time!, range: range as TimeRange })}
+                      onChange={(range) => {
+                        // A range of its own keeps its days; another has none.
+                        const { from: _from, to: _to, ...rest } = spec.time!;
+                        setTime(range === "custom" ? { ...spec.time!, range: "custom" } : { ...rest, range: range as TimeRange });
+                      }}
                       options={RANGES.map((r) => ({ value: r, label: x.ranges[r] ?? r }))}
                     />
+                    {spec.time.range === "custom" && (
+                      <div className="screen-explorer__days">
+                        {(
+                          [
+                            ["from", x.rangeFrom],
+                            ["to", x.rangeTo],
+                          ] as const
+                        ).map(([end, label]) => (
+                          <label key={end} className="oik-field">
+                            <span className="oik-field__label">{label}</span>
+                            <input
+                              className="oik-input"
+                              type="date"
+                              value={spec.time![end] ?? ""}
+                              min={end === "to" ? spec.time!.from : undefined}
+                              max={end === "from" ? spec.time!.to : undefined}
+                              onChange={(event) => {
+                                const { [end]: _was, ...rest } = spec.time!;
+                                setTime(event.target.value ? { ...spec.time!, [end]: event.target.value } : rest);
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

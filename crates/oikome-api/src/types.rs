@@ -465,6 +465,20 @@ pub enum FieldRole {
     Other,
 }
 
+/// The type a column of an analysis table is read as, when the owner
+/// changed the one DuckDB read: charts read it so (`TRY_CAST`), a value that
+/// does not convert counting as empty. The table and its files stay as they
+/// are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ColumnType {
+    Text,
+    Number,
+    Date,
+    Timestamp,
+    Boolean,
+}
+
 /// One source field in a dataset profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -473,6 +487,10 @@ pub struct FieldProfile {
     pub data_type: String,
     pub role: FieldRole,
     pub inferred: bool,
+    /// The type the owner has it read as, in place of `data_type`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub read_as: Option<ColumnType>,
 }
 
 /// `dataset_profile`: inferred roles the owner can correct before analysis.
@@ -630,10 +648,13 @@ pub enum ChartAggregate {
 pub enum TimeRange {
     #[default]
     All,
-    ThisYear,
+    Last7Days,
     Last30Days,
     Last90Days,
     Last365Days,
+    ThisYear,
+    /// From `from` to `to`, whole days, either end open.
+    Custom,
 }
 
 /// A chart's time: a column of time (a date or a timestamp, as DuckDB read
@@ -647,6 +668,14 @@ pub struct ChartTime {
     pub grain: DateGrain,
     #[serde(default)]
     pub range: TimeRange,
+    /// The first day of a custom range, `2026-08-01`.
+    #[serde(default)]
+    #[ts(optional)]
+    pub from: Option<String>,
+    /// The last day of a custom range, itself included.
+    #[serde(default)]
+    #[ts(optional)]
+    pub to: Option<String>,
 }
 
 /// A dimension: a column the rows are grouped by, together with the time and
@@ -881,6 +910,19 @@ pub struct SetAnalysisField {
     pub table: String,
     pub field: String,
     pub role: FieldRole,
+}
+
+/// `set_analysis_type`: read a column of an analysis table as another type
+/// (`read_as`), or, with none, as DuckDB read it again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAnalysisType {
+    pub space: String,
+    pub table: String,
+    pub column: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub read_as: Option<ColumnType>,
 }
 
 /// `build_analysis`: make the analysis tables the owner chose of a folder

@@ -246,7 +246,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     const where = page.getByRole("navigation", { name: "Drill path" });
     const chartType = (label) => panel.getByLabel("Chart Type").selectOption({ label });
     const time = () => panel.getByRole("combobox", { name: "Time", exact: true });
-    const grain = (name) => panel.getByRole("radiogroup", { name: "Grain" }).getByRole("radio", { name, exact: true }).click();
+    const grain = (name) => panel.getByLabel("Grain").selectOption({ label: name });
     const add = async (button, column) => {
       await panel.getByRole("button", { name: button }).click();
       await page.getByRole("menuitem", { name: column, exact: true }).click();
@@ -263,9 +263,12 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     for (const [table, kind, month] of [["energy_meter", "Iceberg table", "Oct 2026"], ["sleep", "Lance dataset", "Nov 2026"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
       await expect(page.locator(".screen-analysis__about")).toContainText(kind);
-      await expect(page.locator(".screen-explorer__view--new")).toHaveText("New Chart");
-      await expect(result.locator("thead")).toContainText(table === "energy_meter" ? "kwh" : "hours");
-      await time().selectOption({ index: 1 });
+      await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled Chart");
+      // A table with a column of time starts over it, by month, as columns.
+      await expect(time()).toHaveValue(table === "energy_meter" ? "read_on" : "night");
+      await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
+      await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+      await chartType("Table");
       await expect(result).toContainText(month);
       if (table === "energy_meter") {
         // A metric is an aggregate function of a column, chosen with what
@@ -300,10 +303,19 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // order; an order by a metric is for dimensions, not for time.
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.locator(".screen-analysis__about")).toContainText("household.spending");
-    await time().selectOption({ label: "date" });
+    await expect(time()).toHaveValue("date");
+    await chartType("Table");
     await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
     await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
     await expect(panel.getByLabel("Order")).toHaveCount(0);
+    // A range of its own: the days chosen, either end open.
+    await panel.getByLabel("Range").selectOption({ label: "Custom Range" });
+    await panel.getByLabel("From", { exact: true }).fill("2025-08-01");
+    await panel.getByLabel("To", { exact: true }).fill("2025-08-31");
+    await expect(result.locator("tbody tr")).toHaveCount(1);
+    await expect(result.locator("tbody tr").first()).toContainText("Aug 2025");
+    await panel.getByLabel("Range").selectOption({ label: "All Time" });
+    await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
     // A dimension takes effect at once: every month and category together,
     // ordered by the metric within each month.
     await add("Add Dimension", "category");
@@ -345,9 +357,11 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await where.getByRole("button", { name: "All" }).click();
     await expect(result.locator("thead")).toContainText("category");
     await page.getByRole("button", { name: "Discard Changes" }).click();
-    await expect(page.locator(".screen-explorer__facts")).toContainText("rows");
-    // Compared, filtered by ticked values and by a range, ordered, the top
-    // groups picked by their own totals.
+    await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
+    // Without the time: compared, filtered by ticked values and by a range,
+    // ordered, the top groups picked by their own totals.
+    await time().selectOption({ label: "No Time" });
+    await chartType("Table");
     await add("Add Dimension", "category");
     await add("Add Comparison", "member");
     await expect(result.locator("thead")).toContainText("Rosh");
@@ -392,7 +406,14 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.getByRole("menuitem", { name: "Remove Chart…" }).click();
     await page.getByRole("dialog", { name: "Remove the chart Porto trip?" }).getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("button", { name: "Actions for Porto trip" })).toHaveCount(0);
-    await expect(page.locator(".screen-explorer__view--new")).toHaveText("New Chart");
+    await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled Chart");
+    // A column's type can be changed: charts read it so; back as DuckDB read it.
+    const itemsType = page.getByLabel("Type of items");
+    await expect(itemsType).toHaveValue("number");
+    await itemsType.selectOption({ label: "Text" });
+    await expect(page.getByText("Read as BIGINT, changed here")).toBeVisible();
+    await itemsType.selectOption({ label: "Number" });
+    await expect(page.getByText("Read as BIGINT, changed here")).toHaveCount(0);
     // The trams taken, an Iceberg table in the bucket, are one item of the
     // archive, not its files.
     await page.goto(`${running.base}/collections/rustfs-archive`);

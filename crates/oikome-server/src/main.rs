@@ -17,7 +17,9 @@
 //! ```text
 //! oikome [--root DIR] identity          print this node's DID
 //! oikome [--root DIR] identity restore  restore it from a recovery key
-//! oikome [--root DIR] sql "<SQL>"       run statements as the node owner
+//! oikome [--root DIR] sql ["<SQL>"]     run statements as the node owner; with
+//!                                       none, a prompt (oiql>); `oikome oiql`
+//!                                       is the same command
 //! oikome [--root DIR] serve             serve this node's Spaces to peers
 //!                                       (--web: also the owner's web API)
 //! oikome [--root DIR] web open          open the web app, logged in
@@ -409,10 +411,14 @@ enum Command {
         #[command(subcommand)]
         command: WebCommand,
     },
-    /// Run SQL statements (separated by `;`) as the node owner.
+    /// Run SQL statements (separated by `;`) as the node owner: those given,
+    /// or, with none, typed at a prompt (`oiql>`), each run when it ends
+    /// with `;`. Also called `oiql`.
+    #[command(alias = "oiql")]
     Sql {
-        /// The statements; `-` reads them from standard input.
-        sql: String,
+        /// The statements; `-` reads them from standard input. Left out at a
+        /// terminal, they are typed at the prompt.
+        sql: Option<String>,
         /// Space that bare table names resolve against.
         #[arg(long)]
         space: Option<String>,
@@ -576,6 +582,51 @@ fn print_result(result: &QueryResult, raw: bool) -> Result<(), BoxError> {
         QueryResult::Batches { batches, .. } => println!("{}", pretty_format_batches(batches)?),
         QueryResult::RowsAffected(n) => println!("{n} row(s) affected"),
         QueryResult::Empty => println!("OK"),
+    }
+    Ok(())
+}
+
+/// `oiql>`: statements typed one after another, each run once it ends with
+/// `;`, a statement going on over lines until then. Up and down go through
+/// those typed before; Ctrl-C drops the one being typed; Ctrl-D or `.quit`
+/// leaves. A statement that fails says why, and the prompt stays.
+async fn prompt(session: &OikomeSession, raw: bool) -> Result<(), BoxError> {
+    use rustyline::error::ReadlineError;
+    let mut editor = rustyline::DefaultEditor::new()?;
+    println!(
+        "Oikome SQL, as the owner of this node. End a statement with ; to run it; .quit leaves."
+    );
+    let mut typed = String::new();
+    loop {
+        let line = match editor.readline(if typed.is_empty() { "oiql> " } else { "   -> " }) {
+            Ok(line) => line,
+            Err(ReadlineError::Interrupted) => {
+                typed.clear();
+                continue;
+            }
+            Err(ReadlineError::Eof) => break,
+            Err(e) => return Err(e.into()),
+        };
+        let done = line.trim();
+        if typed.is_empty() && matches!(done, ".quit" | ".exit" | "quit" | "exit") {
+            break;
+        }
+        if typed.is_empty() && done.is_empty() {
+            continue;
+        }
+        typed.push_str(&line);
+        typed.push('\n');
+        if !done.ends_with(';') {
+            continue;
+        }
+        let _ = editor.add_history_entry(typed.trim_end());
+        for statement in oikome_semantic::split_statements(&typed) {
+            match session.sql(&statement).await {
+                Ok(result) => print_result(&result, raw)?,
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
+        typed.clear();
     }
     Ok(())
 }
@@ -967,12 +1018,16 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
             println!("Opened the web app in your browser.");
         }
         Command::Sql { sql, space, raw } => {
-            let sql = if sql == "-" {
-                let mut buf = String::new();
-                std::io::stdin().read_to_string(&mut buf)?;
-                buf
-            } else {
-                sql
+            use std::io::IsTerminal;
+            let typed = sql.is_none() && std::io::stdin().is_terminal();
+            let sql = match sql {
+                Some(sql) if sql != "-" => sql,
+                _ if typed => String::new(),
+                _ => {
+                    let mut buf = String::new();
+                    std::io::stdin().read_to_string(&mut buf)?;
+                    buf
+                }
             };
             let (catalog, engines) =
                 open_node(&cli.root, cli.allow_http, cli.extension_dir.as_deref())?;
@@ -984,6 +1039,9 @@ async fn run(cli: Cli) -> Result<(), BoxError> {
                     principal: None,
                 },
             );
+            if typed {
+                prompt(&session, raw).await?;
+            }
             for statement in oikome_semantic::split_statements(&sql) {
                 let result = session.sql(&statement).await?;
                 print_result(&result, raw)?;

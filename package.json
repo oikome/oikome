@@ -13,6 +13,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspace @oikome/e2e",
     "acceptance": "node e2e/acceptance.mjs",
+    "oiql": "node e2e/oiql.mjs",
     "test:acceptance": "npm test --workspace @oikome/e2e -- --workers=1 acceptance.spec.mjs"
   },
   "devDependencies": {

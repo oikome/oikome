@@ -7199,27 +7199,27 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     );
     assert!(top.truncated);
     assert!(top.query.sql.ends_with("LIMIT 2"));
-    // Compared values: the top group is picked by its own total, an
-    // average over all its rows (Books, 21), not one of what is compared
-    // within it (Groceries' Lidl, 25.25).
-    let compared = compute(serde_json::json!({
+    // Pivots: the top group is picked by its own total, an average over all
+    // its rows (Books, 21), not one of a pivoted value within it
+    // (Groceries' Lidl, 25.25).
+    let pivoted = compute(serde_json::json!({
         "chart": "bar",
         "dimensions": [{"column": "category"}],
-        "compare": [{"column": "merchant"}],
+        "pivots": [{"column": "merchant"}],
         "metrics": [{"column": "amount", "aggregate": "average"}],
         "sort": {"metric": 0, "descending": true},
         "limit": 1
     }))
     .await
     .unwrap();
-    assert_eq!(firsts(&compared), ["Books"]);
-    let series: Vec<_> = compared.series.iter().map(|s| s.compare.clone()).collect();
+    assert_eq!(firsts(&pivoted), ["Books"]);
+    let series: Vec<_> = pivoted.series.iter().map(|s| s.pivot.clone()).collect();
     assert_eq!(series, [vec![Some("Bertrand".to_string())]]);
-    assert!(compared.query.sql.starts_with("WITH top AS ("));
-    let compared = compute(serde_json::json!({
+    assert!(pivoted.query.sql.starts_with("WITH top AS ("));
+    let pivoted = compute(serde_json::json!({
         "chart": "bar",
         "dimensions": [{"column": "category"}],
-        "compare": [{"column": "merchant"}],
+        "pivots": [{"column": "merchant"}],
         "metrics": [{"column": "amount", "aggregate": "sum"}],
         "filters": [{"column": "category", "values": ["Groceries", "Books"]}],
         "sort": {"metric": 0, "descending": true},
@@ -7227,10 +7227,10 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     }))
     .await
     .unwrap();
-    assert_eq!(firsts(&compared), ["Groceries"]);
-    assert_eq!(compared.groups[0].values, [Some(50.5), Some(9.5)]);
+    assert_eq!(firsts(&pivoted), ["Groceries"]);
+    assert_eq!(pivoted.groups[0].values, [Some(50.5), Some(9.5)]);
     // Each value is bound once, however often the query reads it.
-    assert_eq!(compared.query.params, ["'Groceries'", "'Books'"]);
+    assert_eq!(pivoted.query.params, ["'Groceries'", "'Books'"]);
 
     // A number by its values, in their order; a date by its days; and a
     // value of either kept as it is shown.
@@ -7474,7 +7474,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         serde_json::json!({"chart": "bar", "dimensions": [{"column": "amount\" FROM x --"}]}),
         serde_json::json!({"chart": "bar", "time": {"column": "category", "grain": "month"}}),
         serde_json::json!({"chart": "bar", "time": {"column": "date", "grain": "month"}, "dimensions": [{"column": "date"}]}),
-        serde_json::json!({"chart": "bar", "dimensions": [{"column": "category"}], "compare": [{"column": "category"}]}),
+        serde_json::json!({"chart": "bar", "dimensions": [{"column": "category"}], "pivots": [{"column": "category"}]}),
         serde_json::json!({"chart": "bar", "metrics": [{"column": "category", "aggregate": "sum"}]}),
         serde_json::json!({"chart": "bar", "metrics": [{"aggregate": "sum"}]}),
         serde_json::json!({"chart": "bar", "metrics": [{"column": "amount", "aggregate": "sum"}, {"column": "amount", "aggregate": "sum"}]}),

@@ -753,11 +753,13 @@ pub struct ChartSort {
 /// A chart, described: never SQL. The node writes the query from it.
 ///
 /// The rows are grouped by the time (at its grain) and every dimension
-/// together, as SQL's GROUP BY is. Within each group, `compare` makes a
-/// series for each of its values; each of `metrics` is totalled for every
-/// group and series. The time keeps its own order; `sort` orders the groups
-/// within it, and `limit` (without a time) keeps the first of them. With
-/// nothing grouped, compared or totalled, it is the table's rows. Zooming
+/// together, as SQL's GROUP BY is: a chart's axis, a table's rows. Within
+/// each group, `pivots` are dimensions too, laid across: each of their values
+/// is a series (a chart's colour) or a column (a table's), as a pivot is in
+/// BI tools; each of `metrics` is totalled for every group and series. The
+/// time keeps its own order; `sort` orders the groups within it, and `limit`
+/// (without a time) keeps the first of them. With nothing grouped, pivoted
+/// or totalled, it is the table's rows. Zooming
 /// into a period or breaking a group down is an edit of the description: a
 /// filter, and a finer grain or another dimension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -769,7 +771,7 @@ pub struct ChartSpec {
     #[serde(default)]
     pub dimensions: Vec<ChartDimension>,
     #[serde(default)]
-    pub compare: Vec<ChartDimension>,
+    pub pivots: Vec<ChartDimension>,
     #[serde(default)]
     pub metrics: Vec<ChartMetric>,
     #[serde(default)]
@@ -798,12 +800,12 @@ pub struct AnalysisChart {
     pub spec: ChartSpec,
 }
 
-/// One series of a chart's result: a value of each compared dimension (none
-/// when nothing is compared) and the metric totalled, by its place.
+/// One series of a chart's result: a value of each pivot (none when nothing
+/// is pivoted) and the metric totalled, by its place.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChartSeries {
-    pub compare: Vec<Option<String>>,
+    pub pivot: Vec<Option<String>>,
     pub metric: u32,
 }
 

@@ -14,8 +14,8 @@
 
 //! Charts of an analysis table. A chart is a description: its time (a
 //! column of time at a grain, over a range), the dimensions its rows are
-//! grouped by together with the time, the dimensions compared within each
-//! group, the metrics totalled, the filters, the order and how many groups
+//! grouped by together with the time, the dimensions pivoted (laid across
+//! each group, a series or a column for each value), the metrics totalled, the filters, the order and how many groups
 //! to show. Every group is worked out from the rows, so an average or a
 //! median is right at any grain.
 //!
@@ -23,7 +23,7 @@
 //! description: every column is one of the table's own and is quoted, every
 //! value a filter gives is a bound parameter, and everything else is this
 //! file's own text. It is as plain as the chart: one GROUP BY, with a first
-//! step only when compared values need the top groups picked by their own
+//! step only when pivoted values need the top groups picked by their own
 //! totals. DuckDB computes; the page draws the answer.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -44,12 +44,12 @@ use crate::{
 
 /// How much a chart may ask for.
 const MAX_DIMENSIONS: usize = 4;
-const MAX_COMPARE: usize = 2;
+const MAX_PIVOTS: usize = 2;
 const MAX_METRICS: usize = 8;
 const MAX_FILTERS: usize = 12;
 const MAX_FILTER_VALUES: usize = 500;
 const MAX_VALUE_BYTES: usize = 1024;
-/// The most groups shown, the most cells (a group and a compared value)
+/// The most groups shown, the most cells (a group and a pivoted value)
 /// answered with, and the most rows of a chart that groups nothing.
 const MAX_GROUPS: u32 = 1000;
 const MAX_CELLS: usize = 20_000;
@@ -436,7 +436,7 @@ fn numbers(column: &ArrayRef) -> Vec<Option<f64>> {
         .collect()
 }
 
-/// One row of a chart's answer: its group's keys, the compared values, and
+/// One row of a chart's answer: its group's keys, the pivoted values, and
 /// a total for each metric.
 type Cell = (Vec<Option<String>>, Vec<Option<String>>, Vec<Option<f64>>);
 
@@ -524,14 +524,14 @@ impl Api {
             types: &types,
         };
         if spec.dimensions.len() > MAX_DIMENSIONS
-            || spec.compare.len() > MAX_COMPARE
+            || spec.pivots.len() > MAX_PIVOTS
             || spec.metrics.len() > MAX_METRICS
             || spec.filters.len() > MAX_FILTERS
         {
             return Err(ApiError::invalid("the chart asks for too much at once"));
         }
         // The time is a column of time, seen at a grain; any other column
-        // is a dimension or compared, once.
+        // is a dimension or a pivot, once.
         // A custom range's ends are days, in order; other ranges have none.
         let mut ends: (Option<NaiveDate>, Option<NaiveDate>) = (None, None);
         if let Some(time) = &spec.time {
@@ -564,7 +564,7 @@ impl Api {
             }
         }
         let mut seen: BTreeSet<&str> = spec.time.iter().map(|t| t.column.as_str()).collect();
-        for d in spec.dimensions.iter().chain(&spec.compare) {
+        for d in spec.dimensions.iter().chain(&spec.pivots) {
             columns.has(&d.column)?;
             if !seen.insert(d.column.as_str()) {
                 return Err(ApiError::invalid(format!(
@@ -643,10 +643,10 @@ impl Api {
             .and_then(|b| numbers(b.column(0)).first().copied().flatten())
             .unwrap_or(0.0) as u64;
 
-        // Nothing grouped, compared or totalled: the rows themselves.
+        // Nothing grouped, pivoted or totalled: the rows themselves.
         if spec.time.is_none()
             && spec.dimensions.is_empty()
-            && spec.compare.is_empty()
+            && spec.pivots.is_empty()
             && spec.metrics.is_empty()
         {
             // Every column as the chart reads it: converted where the owner chose.
@@ -698,7 +698,7 @@ impl Api {
             &spec.metrics
         };
         // What each group is keyed by: the time at its grain, then the
-        // dimensions; then what is compared within it.
+        // dimensions; then the pivots within it.
         let mut keyed: Vec<ChartLevel> = spec
             .time
             .iter()
@@ -722,7 +722,7 @@ impl Api {
                     ),
                     None => columns.key(from, &level.column),
                 })
-                .chain(spec.compare.iter().map(|d| columns.key(from, &d.column)))
+                .chain(spec.pivots.iter().map(|d| columns.key(from, &d.column)))
                 .collect()
         };
         let totals = |from: &str| -> Result<Vec<String>, ApiError> {
@@ -734,7 +734,7 @@ impl Api {
                 })
                 .collect()
         };
-        let (nk, nc, nd) = (keyed.len(), spec.compare.len(), spec.dimensions.len());
+        let (nk, nc, nd) = (keyed.len(), spec.pivots.len(), spec.dimensions.len());
         let timed = spec.time.is_some();
         // An order and a number of groups are for the dimensions: the time
         // keeps its own order, all of it.
@@ -759,9 +759,9 @@ impl Api {
             Vec::new()
         };
         let rest = places(usize::from(timed)..nk + nc);
-        // Compared values with an order or a number of groups: the groups are
-        // picked and ordered by their own totals first (an average or a
-        // median over the whole group, not of what is compared within it).
+        // Pivots with an order or a number of groups: the groups are picked
+        // and ordered by their own totals first (an average or a median over
+        // the whole group, not of a pivoted value within it).
         let ranked = nc > 0 && nd > 0 && (sort.is_some() || limit.is_some());
         let (sql, cap) = if !ranked {
             let mut order = first.clone();
@@ -851,7 +851,7 @@ impl Api {
             (sql, MAX_CELLS)
         };
 
-        // One row for each group and compared value: laid out as groups,
+        // One row for each group and pivoted value: laid out as groups,
         // each with a total for every series.
         let query = query_of(&sql, &bound);
         let mut cells: Vec<Cell> = Vec::new();
@@ -869,25 +869,25 @@ impl Api {
             }
         }
         let truncated = cells.len() >= cap;
-        let compares: Vec<Vec<Option<String>>> = cells
+        let pivoted: Vec<Vec<Option<String>>> = cells
             .iter()
             .map(|(_, c, _)| c.clone())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
         let nm = metrics.len();
-        let series: Vec<ChartSeries> = compares
+        let series: Vec<ChartSeries> = pivoted
             .iter()
-            .flat_map(|compare| {
+            .flat_map(|pivot| {
                 (0..nm).map(|m| ChartSeries {
-                    compare: compare.clone(),
+                    pivot: pivot.clone(),
                     metric: m as u32,
                 })
             })
             .collect();
         let mut groups: Vec<ChartGroup> = Vec::new();
         let mut at: HashMap<Vec<Option<String>>, usize> = HashMap::new();
-        for (keys, compare, values) in cells {
+        for (keys, pivot, values) in cells {
             let i = *at.entry(keys.clone()).or_insert_with(|| {
                 groups.push(ChartGroup {
                     keys,
@@ -895,7 +895,7 @@ impl Api {
                 });
                 groups.len() - 1
             });
-            let first = compares.iter().position(|c| *c == compare).unwrap_or(0) * nm;
+            let first = pivoted.iter().position(|c| *c == pivot).unwrap_or(0) * nm;
             for (m, value) in values.into_iter().enumerate() {
                 groups[i].values[first + m] = value;
             }

@@ -546,7 +546,7 @@ fn tools() -> Value {
         {
             "name": "chart",
             "title": "Compute a chart",
-            "description": "What a chart of an analysis table shows, computed by Oikome from its description (never SQL). The rows are grouped by the time at its grain and every dimension together; within each group, every value of compare is a series; each metric is totalled for every group and series. The answer names what the groups are keyed by (columns: the time with its grain, then the dimensions), lists the series (a compared value and a metric, by its place) and the groups (a value of each column and a total for each series; with the time alone, periods with no rows keep their place), how many rows the filters keep, whether more groups were found than given, and the DuckDB query it ran. With no time, dimension, comparison or metric, it gives the rows themselves (up to 200).",
+            "description": "What a chart of an analysis table shows, computed by Oikome from its description (never SQL). The rows are grouped by the time at its grain and every dimension together; within each group, every value of the pivots is a series (a table's column); each metric is totalled for every group and series. The answer names what the groups are keyed by (columns: the time with its grain, then the dimensions), lists the series (a value of the pivots and a metric, by its place) and the groups (a value of each column and a total for each series; with the time alone, periods with no rows keep their place), how many rows the filters keep, whether more groups were found than given, and the DuckDB query it ran. With no time, dimension, pivot or metric, it gives the rows themselves (up to 200).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -622,7 +622,7 @@ fn chart_spec_schema() -> Value {
                 "additionalProperties": false
             },
             "dimensions": { "type": "array", "items": dimension, "maxItems": 4, "description": "Columns the rows are grouped by, all together, with the time." },
-            "compare": { "type": "array", "items": dimension, "maxItems": 2, "description": "Columns whose values are compared within each group, each a series." },
+            "pivots": { "type": "array", "items": dimension, "maxItems": 2, "description": "Dimensions laid across each group, as a BI tool's pivot: each value is a series of a chart (its colour) or a column of a table." },
             "metrics": {
                 "type": "array",
                 "maxItems": 8,

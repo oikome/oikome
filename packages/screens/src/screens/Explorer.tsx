@@ -5,13 +5,13 @@
 // one shown, and beside it the panel that describes it the way BI tools do.
 //
 // A chart is a description, never SQL, and whatever is chosen takes effect
-// at once. The rows are grouped by the time (a column of time seen at a
-// grain, over a range) and by every dimension together, as SQL's GROUP BY
-// is: a table shows a column for each; a chart lays its groups along its
-// axis (the time, else the dimensions), and with the time along it the
-// dimensions' values are series, as what is compared is. The time keeps its
-// own order; an order by a metric and a number of groups are for the
-// dimensions. A click on a group zooms a period into its next grain or
+// at once. Its dimensions are all grouped by together, as SQL's GROUP BY
+// is, and each goes in one of two places, as in Tableau or Power BI: along
+// (a chart's axis, a table's rows), the time first at its grain, then the
+// others; or across, pivoted (a chart's colour, a table's columns: one for
+// each value). A pie or a treemap has only its slices. The time keeps its
+// own order; its range is a filter; an order by a metric and a number of
+// groups are for the dimensions. A click on a group zooms a period into its next grain or
 // breaks the group down by another column: either is an edit of the
 // description (a filter, and a finer grain or another dimension), so the
 // panel always says what is drawn, and the path above the chart steps back
@@ -77,6 +77,14 @@ const OTHER_AGGREGATES: ChartAggregate[] = ["count", "distinct"];
 const LIMITS = [5, 10, 20, 50];
 /** The chart being made with + New Chart, not saved yet. */
 const UNTITLED = "untitled";
+/** A chart whose groups are its slices, with nothing laid across them. */
+const sliced = (chart: ChartKind) => chart === "pie" || chart === "treemap";
+/** Where dimensions go, as the chart names the place: along it, and across it (none for slices). */
+function placesOf(chart: ChartKind): { along: string; across?: string; acrossNote?: string } {
+  if (chart === "table") return { along: x.rows, across: x.columns, acrossNote: x.columnsNote };
+  if (sliced(chart)) return { along: chart === "pie" ? x.slices : x.tiles };
+  return { along: chart === "bar" ? x.yAxis : x.xAxis, across: x.color, acrossNote: x.colorNote };
+}
 
 interface View {
   id: string;
@@ -146,14 +154,15 @@ const levelName = (level: ChartLevel) => (level.grain ? x.colAt(level.column, x.
 function newChart(table: AnalysisTable): ChartSpec {
   const time = shownFields(table).find((f) => isTime(f));
   return time
-    ? { chart: "column", time: { column: time.name, grain: "month", range: "all" }, dimensions: [], compare: [], metrics: [COUNT_ROWS], filters: [], sort: null, limit: null }
-    : { chart: "table", time: null, dimensions: [], compare: [], metrics: [], filters: [], sort: null, limit: null };
+    ? { chart: "column", time: { column: time.name, grain: "month", range: "all" }, dimensions: [], pivots: [], metrics: [COUNT_ROWS], filters: [], sort: null, limit: null }
+    : { chart: "table", time: null, dimensions: [], pivots: [], metrics: [], filters: [], sort: null, limit: null };
 }
 
 /** A chart's description with every part present, or nothing if it is not one. */
 function chartOf(raw: unknown): ChartSpec | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
-  const given = raw as Partial<ChartSpec>;
+  // Charts saved before pivots were named so call them `compare`.
+  const given = raw as Partial<ChartSpec> & { compare?: ChartDimension[] };
   if (!CHARTS.includes(given.chart as ChartKind)) return undefined;
   const list = <T,>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : []);
   const time =
@@ -170,7 +179,7 @@ function chartOf(raw: unknown): ChartSpec | undefined {
     chart: given.chart as ChartKind,
     time,
     dimensions: list(given.dimensions).map((d) => ({ column: d.column })),
-    compare: list(given.compare).map((d) => ({ column: d.column })),
+    pivots: list(given.pivots ?? given.compare).map((d) => ({ column: d.column })),
     metrics: list(given.metrics).map((m) => ({ column: m.column ?? null, aggregate: m.aggregate })),
     filters: list(given.filters).map((f) => ({
       column: f.column,
@@ -231,12 +240,19 @@ function drilled(spec: ChartSpec, step: Step): ChartSpec {
   return { ...spec, filters, metrics, time: null, dimensions: [{ column: step.by }], limit: null, sort: spec.sort ?? { metric: 0, descending: true } };
 }
 
-/** A description made whole: an order and a number for dimensions; rows counted when grouped. */
+/**
+ * A description made whole: an order and a number for dimensions; rows
+ * counted when grouped; a pie's or a treemap's pivots among its slices.
+ */
 function settle(made: ChartSpec): ChartSpec {
   const next = { ...made };
+  if (sliced(next.chart) && next.pivots.length > 0) {
+    next.dimensions = [...next.dimensions, ...next.pivots];
+    next.pivots = [];
+  }
   if (next.dimensions.length === 0) next.sort = null;
   if (next.time !== null || next.dimensions.length === 0) next.limit = null;
-  const grouped = next.time !== null || next.dimensions.length > 0 || next.compare.length > 0;
+  const grouped = next.time !== null || next.dimensions.length > 0 || next.pivots.length > 0;
   if (grouped && next.metrics.length === 0) next.metrics = [COUNT_ROWS];
   if (next.sort && next.sort.metric >= next.metrics.length) next.sort = next.metrics.length > 0 ? { ...next.sort, metric: 0 } : null;
   return next;
@@ -256,7 +272,7 @@ function fitted(spec: ChartSpec, table: AnalysisTable): ChartSpec {
     ...spec,
     time: spec.time && isTime(field(spec.time.column)) ? spec.time : null,
     dimensions: spec.dimensions.filter((d) => there(d.column) && d.column !== spec.time?.column),
-    compare: spec.compare.filter((d) => there(d.column)),
+    pivots: spec.pivots.filter((d) => there(d.column)),
     metrics: spec.metrics.filter((m) => m.column === null || (there(m.column) && (counts(m) || isNumber(field(m.column))))),
     filters: spec.filters.filter(
       (f) =>
@@ -267,9 +283,6 @@ function fitted(spec: ChartSpec, table: AnalysisTable): ChartSpec {
   };
   return JSON.stringify(next) === JSON.stringify(spec) ? spec : settle(next);
 }
-
-/** Whether a chart lays the time along its axis and the dimensions' values as series. */
-const splits = (spec: ChartSpec) => !["table", "pie", "treemap"].includes(spec.chart) && spec.time !== null && spec.dimensions.length > 0;
 
 /**
  * One chosen part of a chart (a dimension, a metric, a filter), a row of
@@ -571,9 +584,9 @@ function QueryDialog({ query, onClose }: { query: ChartQuery; onClose: () => voi
 }
 
 /**
- * A chart's result as a table: a column for the time and each dimension,
- * then the metrics, under each compared value when there are any. A group
- * opens what can be done with it.
+ * A chart's result as a table: its rows, the time and each dimension along,
+ * then the metrics, under each pivoted value when there are any (a pivot
+ * table's columns). A group opens what can be done with it.
  */
 function ResultTable({
   result,
@@ -613,17 +626,17 @@ function ResultTable({
     );
   }
   const columns = result.columns;
-  const compared = result.series.some((s) => s.compare.length > 0);
+  const pivoted = result.series.some((s) => s.pivot.length > 0);
   const many = metrics.length > 1;
-  const comparedName = (values: (string | null)[]) => values.map((v) => v ?? x.blank).join(" / ");
-  // Compared values: one metric over them all, or each value over its metrics.
-  const values = [...new Map(result.series.map((s) => [JSON.stringify(s.compare), s.compare])).values()];
+  const pivotName = (values: (string | null)[]) => values.map((v) => v ?? x.blank).join(" / ");
+  // Pivoted values: one metric over them all, or each value over its metrics.
+  const values = [...new Map(result.series.map((s) => [JSON.stringify(s.pivot), s.pivot])).values()];
   const pads = Math.max(columns.length, 1);
   return (
     <div className="screen-explorer__table">
       <table>
         <thead>
-          {compared && (
+          {pivoted && (
             <tr className="screen-explorer__over">
               {Array.from({ length: pads }, (_, i) => (
                 <th key={i} aria-hidden="true" />
@@ -631,7 +644,7 @@ function ResultTable({
               {many ? (
                 values.map((v) => (
                   <th key={JSON.stringify(v)} colSpan={metrics.length} className="screen-explorer__num" translate="no">
-                    {comparedName(v)}
+                    {pivotName(v)}
                   </th>
                 ))
               ) : (
@@ -650,7 +663,7 @@ function ResultTable({
             ))}
             {result.series.map((s, i) => (
               <th key={i} className="screen-explorer__num" translate="no">
-                {compared && !many ? comparedName(s.compare) : metricName(metrics[s.metric] ?? COUNT_ROWS)}
+                {pivoted && !many ? pivotName(s.pivot) : metricName(metrics[s.metric] ?? COUNT_ROWS)}
               </th>
             ))}
           </tr>
@@ -724,37 +737,22 @@ interface Axis {
   series: { name: string; values: (number | null)[] }[];
 }
 
-/** A chart's result as what is drawn: along the axis, the time (its dimensions' values then series) or the groups. */
-function axisOf(result: ChartResult, spec: ChartSpec, metrics: ChartMetric[]): Axis {
+/**
+ * A chart's result as what is drawn: along its axis every group, the time
+ * and the dimensions together (2025-01 / Groceries); a series, a colour, for
+ * each pivoted value and metric.
+ */
+function axisOf(result: ChartResult, metrics: ChartMetric[]): Axis {
   const many = metrics.length > 1;
   const named = (parts: string[], metric: ChartMetric) =>
     parts.length === 0 ? metricName(metric) : many ? `${metricName(metric)}, ${parts.join(" / ")}` : parts.join(" / ");
   const shown = (values: (string | null)[]) => values.map((v) => v ?? x.blank);
-  if (splits(spec) && result.columns.length > 1) {
-    const time = result.columns[0]!;
-    const periods = [...new Set(result.groups.map((g) => g.keys[0] ?? null))];
-    const combos = [...new Map(result.groups.map((g) => [JSON.stringify(g.keys.slice(1)), g.keys.slice(1)])).values()].sort((a, b) =>
-      shown(a).join(" / ").localeCompare(shown(b).join(" / "), locale(), { numeric: true }),
-    );
-    const at = new Map(result.groups.map((g) => [JSON.stringify(g.keys), g]));
-    return {
-      labels: periods.map((p) => keyName(time, p)),
-      columns: [time],
-      keys: periods.map((p) => [p]),
-      series: combos.flatMap((combo) =>
-        result.series.map((s, i) => ({
-          name: named([...shown(combo), ...shown(s.compare)], metrics[s.metric] ?? COUNT_ROWS),
-          values: periods.map((p) => at.get(JSON.stringify([p, ...combo]))?.values[i] ?? null),
-        })),
-      ),
-    };
-  }
   return {
     labels: result.groups.map((g) => (result.columns.length === 0 ? x.total : result.columns.map((c, j) => keyName(c, g.keys[j] ?? null)).join(" / "))),
     columns: result.columns,
     keys: result.groups.map((g) => g.keys),
     series: result.series.map((s, i) => ({
-      name: named(shown(s.compare), metrics[s.metric] ?? COUNT_ROWS),
+      name: named(shown(s.pivot), metrics[s.metric] ?? COUNT_ROWS),
       values: result.groups.map((g) => g.values[i] ?? null),
     })),
   };
@@ -879,19 +877,28 @@ export function Explorer({
 
   // ---- What the panel offers ----
   const fields = shownFields(table);
-  const times = fields.filter((f) => isTime(f));
   const grouped = spec.time !== null || spec.dimensions.length > 0;
-  const metrics: ChartMetric[] = spec.metrics.length > 0 || (!grouped && spec.compare.length === 0) ? spec.metrics : [COUNT_ROWS];
-  // Any column is a dimension or compared, once; the chart's time is chosen above.
-  const used = [...(spec.time ? [spec.time.column] : []), ...spec.dimensions.map((d) => d.column), ...spec.compare.map((d) => d.column)];
-  const offered = (list: "dimensions" | "compare") =>
+  const metrics: ChartMetric[] = spec.metrics.length > 0 || (!grouped && spec.pivots.length === 0) ? spec.metrics : [COUNT_ROWS];
+  // Any column is a dimension once, along or across. Along, a column of
+  // time becomes the time, by month, when there is none yet.
+  const used = [...(spec.time ? [spec.time.column] : []), ...spec.dimensions.map((d) => d.column), ...spec.pivots.map((d) => d.column)];
+  const places = placesOf(spec.chart);
+  const offered = (list: "dimensions" | "pivots") =>
     fields
       .filter((f) => !used.includes(f.name))
-      .map((f): MenuItem => ({ label: f.name, onSelect: () => change({ [list]: [...spec[list], { column: f.name }] }) }));
+      .map(
+        (f): MenuItem => ({
+          label: f.name,
+          onSelect: () =>
+            list === "dimensions" && !spec.time && isTime(f)
+              ? setTime({ column: f.name, grain: "month", range: "all" })
+              : change({ [list]: [...spec[list], { column: f.name }] }),
+        }),
+      );
   const filterItems: MenuItem[] = fields
     .filter((f) => !isTime(f) && !spec.filters.some((filter) => filter.column === f.name))
     .map((f) => ({ label: f.name, onSelect: () => setFiltering(emptyFilter(f.name)) }));
-  const dimensionChips = (list: "dimensions" | "compare") =>
+  const dimensionChips = (list: "dimensions" | "pivots") =>
     spec[list].map((d: ChartDimension, at) => (
       <Chip
         key={d.column}
@@ -908,11 +915,11 @@ export function Explorer({
     change({
       time: next,
       dimensions: spec.dimensions.filter((d) => d.column !== next?.column),
-      compare: spec.compare.filter((d) => d.column !== next?.column),
+      pivots: spec.pivots.filter((d) => d.column !== next?.column),
     });
 
   // ---- What is drawn, and what a click on a group does ----
-  const axis = useMemo(() => (result && !result.rows ? axisOf(result, spec, metrics) : undefined), [result, spec, metrics]);
+  const axis = useMemo(() => (result && !result.rows ? axisOf(result, metrics) : undefined), [result, metrics]);
   /** Step down into a group: an edit, the chart it came from kept to step back to. */
   const drill = (label: string, step: Step) => {
     show(settle(drilled(spec, step)));
@@ -1122,77 +1129,37 @@ export function Explorer({
               onChange={(chart) => change({ chart: chart as ChartKind })}
               options={CHARTS.map((chart) => ({ value: chart, label: x.charts[chart] ?? chart }))}
             />
-            {times.length > 0 && (
-              <div className="screen-explorer__part" role="group" aria-label={x.time}>
-                <Select
-                  label={x.time}
-                  value={spec.time?.column ?? ""}
-                  onChange={(column) => setTime(column === "" ? null : { column, grain: spec.time?.grain ?? "month", range: spec.time?.range ?? "all" })}
-                  options={[{ value: "", label: x.noTime }, ...times.map((f) => ({ value: f.name, label: f.name }))]}
-                />
-                {spec.time && (
-                  <div className="screen-explorer__sub">
-                    {/* A grain is picked from a list, as BI tools do: five buttons don't fit the panel. */}
-                    <Select
-                      label={x.grain}
-                      value={spec.time.grain}
-                      onChange={(grain) => setTime({ ...spec.time!, grain: grain as DateGrain })}
-                      options={GRAINS.map((g) => ({ value: g, label: x.grains[g] ?? g }))}
-                    />
-                    <Select
-                      label={x.range}
-                      value={spec.time.range}
-                      onChange={(range) => {
-                        // A range of its own keeps its days; another has none.
-                        const { from: _from, to: _to, ...rest } = spec.time!;
-                        setTime(range === "custom" ? { ...spec.time!, range: "custom" } : { ...rest, range: range as TimeRange });
-                      }}
-                      options={RANGES.map((r) => ({ value: r, label: x.ranges[r] ?? r }))}
-                    />
-                    {spec.time.range === "custom" && (
-                      <div className="screen-explorer__days">
-                        {(
-                          [
-                            ["from", x.rangeFrom],
-                            ["to", x.rangeTo],
-                          ] as const
-                        ).map(([end, label]) => (
-                          <DateField
-                            key={end}
-                            label={label}
-                            value={spec.time![end]}
-                            min={end === "to" ? spec.time!.from : undefined}
-                            max={end === "from" ? spec.time!.to : undefined}
-                            locale={locale()}
-                            words={{ none: x.anyDay, previous: x.previousMonth, next: x.nextMonth, today: x.today, clear: x.clearDay }}
-                            onChange={(day) => {
-                              const { [end]: _was, ...rest } = spec.time!;
-                              setTime(day ? { ...spec.time!, [end]: day } : rest);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* The dimensions, each in its place: along (the time first, at its grain), and across. */}
             <div className="screen-explorer__part" role="group" aria-label={x.dimensions}>
-              <span className="oik-field__label">
-                {x.dimensions}
-                {splits(spec) && <span className="screen-explorer__note">{x.dimsSeries}</span>}
-              </span>
-              {dimensionChips("dimensions")}
-              {adding(x.addDimension, offered("dimensions"))}
-            </div>
-            {/* What is compared: a chart's legend (a colour for each value), a table's columns (a column for each). */}
-            <div className="screen-explorer__part" role="group" aria-label={spec.chart === "table" ? x.pivotColumns : x.legend}>
-              <span className="oik-field__label">
-                {spec.chart === "table" ? x.pivotColumns : x.legend}
-                <span className="screen-explorer__note">{spec.chart === "table" ? x.pivotNote : x.legendNote}</span>
-              </span>
-              {dimensionChips("compare")}
-              {adding(spec.chart === "table" ? x.addPivotColumn : x.addLegend, offered("compare"))}
+              <span className="oik-field__label">{x.dimensions}</span>
+              <div className="screen-explorer__slot" role="group" aria-label={places.along}>
+                <span className="screen-explorer__slot-name">{places.along}</span>
+                {spec.time && (
+                  <Chip
+                    text={levelName({ column: spec.time.column, grain: spec.time.grain })}
+                    label={x.grainFor(spec.time.column)}
+                    items={GRAINS.map((g) => ({
+                      label: x.grains[g] ?? g,
+                      checked: g === spec.time!.grain,
+                      onSelect: () => setTime({ ...spec.time!, grain: g }),
+                    }))}
+                    removeLabel={x.removeItem(spec.time.column)}
+                    onRemove={() => setTime(null)}
+                  />
+                )}
+                {dimensionChips("dimensions")}
+                {adding(x.addTo(places.along), offered("dimensions"))}
+              </div>
+              {places.across && (
+                <div className="screen-explorer__slot" role="group" aria-label={places.across}>
+                  <span className="screen-explorer__slot-name">
+                    {places.across}
+                    <span className="screen-explorer__note">{places.acrossNote}</span>
+                  </span>
+                  {dimensionChips("pivots")}
+                  {adding(x.addTo(places.across), offered("pivots"))}
+                </div>
+              )}
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.metrics}>
               <span className="oik-field__label">{x.metrics}</span>
@@ -1214,7 +1181,7 @@ export function Explorer({
                   }
                   removeLabel={x.removeItem(metricName(m))}
                   onRemove={
-                    spec.metrics.length === 1 && m.column === null && (grouped || spec.compare.length > 0)
+                    spec.metrics.length === 1 && m.column === null && (grouped || spec.pivots.length > 0)
                       ? undefined
                       : () => change({ metrics: spec.metrics.filter((_, i) => i !== at) })
                   }
@@ -1226,6 +1193,45 @@ export function Explorer({
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.filter}>
               <span className="oik-field__label">{x.filter}</span>
+              {/* The time's range is a filter on it, as BI tools have it. */}
+              {spec.time && (
+                <div className="screen-explorer__time-range">
+                  <Select
+                    label={x.range}
+                    value={spec.time.range}
+                    onChange={(range) => {
+                      // A range of its own keeps its days; another has none.
+                      const { from: _from, to: _to, ...rest } = spec.time!;
+                      setTime(range === "custom" ? { ...spec.time!, range: "custom" } : { ...rest, range: range as TimeRange });
+                    }}
+                    options={RANGES.map((r) => ({ value: r, label: x.ranges[r] ?? r }))}
+                  />
+                  {spec.time.range === "custom" && (
+                    <div className="screen-explorer__days">
+                      {(
+                        [
+                          ["from", x.rangeFrom],
+                          ["to", x.rangeTo],
+                        ] as const
+                      ).map(([end, label]) => (
+                        <DateField
+                          key={end}
+                          label={label}
+                          value={spec.time![end]}
+                          min={end === "to" ? spec.time!.from : undefined}
+                          max={end === "from" ? spec.time!.to : undefined}
+                          locale={locale()}
+                          words={{ none: x.anyDay, previous: x.previousMonth, next: x.nextMonth, today: x.today, clear: x.clearDay }}
+                          onChange={(day) => {
+                            const { [end]: _was, ...rest } = spec.time!;
+                            setTime(day ? { ...spec.time!, [end]: day } : rest);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {spec.filters.map((filter, at) => (
                 <Chip
                   key={filter.column}

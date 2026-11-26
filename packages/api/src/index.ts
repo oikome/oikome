@@ -1827,15 +1827,17 @@ export type ChartSort = { metric: number, descending: boolean, };
  * A chart, described: never SQL. The node writes the query from it.
  *
  * The rows are grouped by the time (at its grain) and every dimension
- * together, as SQL's GROUP BY is. Within each group, `compare` makes a
- * series for each of its values; each of `metrics` is totalled for every
- * group and series. The time keeps its own order; `sort` orders the groups
- * within it, and `limit` (without a time) keeps the first of them. With
- * nothing grouped, compared or totalled, it is the table's rows. Zooming
+ * together, as SQL's GROUP BY is: a chart's axis, a table's rows. Within
+ * each group, `pivots` are dimensions too, laid across: each of their values
+ * is a series (a chart's colour) or a column (a table's), as a pivot is in
+ * BI tools; each of `metrics` is totalled for every group and series. The
+ * time keeps its own order; `sort` orders the groups within it, and `limit`
+ * (without a time) keeps the first of them. With nothing grouped, pivoted
+ * or totalled, it is the table's rows. Zooming
  * into a period or breaking a group down is an edit of the description: a
  * filter, and a finer grain or another dimension.
  */
-export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, compare: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
+export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, pivots: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
 /**
  * Show only the first groups, in the chart's order.
  */
@@ -1847,10 +1849,10 @@ limit: number | null, };
 export type AnalysisChart = { space: string, table: string, spec: ChartSpec, };
 
 /**
- * One series of a chart's result: a value of each compared dimension (none
- * when nothing is compared) and the metric totalled, by its place.
+ * One series of a chart's result: a value of each pivot (none when nothing
+ * is pivoted) and the metric totalled, by its place.
  */
-export type ChartSeries = { compare: Array<string | null>, metric: number, };
+export type ChartSeries = { pivot: Array<string | null>, metric: number, };
 
 /**
  * One group of a chart's result: its value of each of the result's

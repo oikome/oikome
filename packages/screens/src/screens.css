@@ -5335,21 +5335,37 @@ tr.screen-source {
   letter-spacing: 0;
   text-transform: none;
 }
-.screen-explorer__time {
+/* A place for dimensions (along, across), within Dimensions: its name, what
+   is in it, a row to add another. Both places are dimensions, so they sit
+   under the one heading, set in by a rule. */
+.screen-explorer__slot {
   display: grid;
-  gap: var(--space-3);
-}
-/* How the time is seen, under the time chosen: its grain and its range belong to it. */
-.screen-explorer__sub {
-  display: grid;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
+  gap: 6px;
   padding-left: var(--space-3);
   border-left: 2px solid var(--line2);
 }
-.screen-explorer__sub .oik-field__label {
-  color: var(--ink3);
+.screen-explorer__slot + .screen-explorer__slot {
+  margin-top: var(--space-2);
+}
+.screen-explorer__slot-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--ink2);
+  font: var(--text-small);
   font-weight: 500;
+}
+/* The time's range, first among the filters, named as a place is. */
+.screen-explorer__time-range {
+  display: grid;
+  gap: var(--space-2);
+}
+.screen-explorer__time-range .oik-field__label {
+  color: var(--ink2);
+  font: var(--text-small);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 .screen-explorer__chip {
   display: flex;
@@ -5406,10 +5422,13 @@ tr.screen-source {
 /* Adding: a quieter, dashed row under what is chosen. */
 .screen-explorer__part > .oik-menu,
 .screen-explorer__part > .oik-menu > .oik-button,
+.screen-explorer__slot > .oik-menu,
+.screen-explorer__slot > .oik-menu > .oik-button,
 .screen-explorer__add {
   width: 100%;
 }
 .screen-explorer__part > .oik-menu > .oik-button,
+.screen-explorer__slot > .oik-menu > .oik-button,
 .screen-explorer__part > .screen-explorer__add {
   justify-content: flex-start;
   height: 32px;
@@ -5422,10 +5441,12 @@ tr.screen-source {
   font-weight: 500;
 }
 .screen-explorer__part > .oik-menu > .oik-button:hover,
+.screen-explorer__slot > .oik-menu > .oik-button:hover,
 .screen-explorer__part > .screen-explorer__add:hover {
   color: var(--ink);
 }
 .screen-explorer__part > .oik-menu > .oik-button svg,
+.screen-explorer__slot > .oik-menu > .oik-button svg,
 .screen-explorer__part > .screen-explorer__add svg {
   width: 13px;
   height: 13px;
@@ -5647,6 +5668,7 @@ tr.screen-source {
   }
   .screen-explorer__chip .oik-menu__chip,
   .screen-explorer__part > .oik-menu > .oik-button,
+  .screen-explorer__slot > .oik-menu > .oik-button,
   .screen-explorer__part > .screen-explorer__add {
     height: 44px;
   }

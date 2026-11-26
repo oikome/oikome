@@ -237,16 +237,20 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await stop.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
     await expect(page.getByText("4 more can be created")).toBeVisible();
-    // A chart is described in the panel beside it (its time, dimensions,
-    // comparisons, metrics, filters) and what is chosen takes effect at once;
+    // A chart is described in the panel beside it (its dimensions along and
+    // across, the time first, its metrics, filters) and what is chosen takes effect at once;
     // what it shows is computed by the node. Read as a table, its rows are
     // there to check.
     const panel = page.getByRole("group", { name: "Chart settings" });
     const result = page.locator(".screen-explorer__table");
     const where = page.getByRole("navigation", { name: "Drill path" });
     const chartType = (label) => panel.getByLabel("Chart Type").selectOption({ label });
-    const time = () => panel.getByRole("combobox", { name: "Time", exact: true });
-    const grain = (name) => panel.getByLabel("Grain").selectOption({ label: name });
+    // The time is a dimension along the chart (a table's rows), at a grain.
+    const time = (column) => panel.getByRole("button", { name: `Grain of ${column}` });
+    const grain = async (column, name) => {
+      await time(column).click();
+      await page.getByRole("menuitemradio", { name, exact: true }).click();
+    };
     const add = async (button, column) => {
       await panel.getByRole("button", { name: button }).click();
       await page.getByRole("menuitem", { name: column, exact: true }).click();
@@ -267,7 +271,8 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       // by month, as columns; + New Chart is always there for another.
       await expect(page.getByRole("button", { name: "Actions for Default Chart" })).toBeVisible();
       await expect(page.getByRole("button", { name: "New Chart" })).toBeVisible();
-      await expect(time()).toHaveValue(table === "energy_meter" ? "read_on" : "night");
+      await expect(time(table === "energy_meter" ? "read_on" : "night")).toContainText("Month");
+      await expect(panel.getByRole("group", { name: "X-Axis" })).toBeVisible();
       await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
       await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
       await chartType("Table");
@@ -286,7 +291,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
         // Time is one dimension seen at a grain: rolled up to the year, then
         // zoomed into a quarter at a time, each zoom a filter on its period
         // that the panel shows; the path above steps back.
-        await grain("Year");
+        await grain("read_on", "Year");
         await expect(result.locator("tbody tr")).toHaveCount(1);
         await point("2026", "Zoom In to 2026");
         await expect(result.locator("tbody tr")).toHaveCount(4);
@@ -305,14 +310,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // order; an order by a metric is for dimensions, not for time.
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.locator(".screen-analysis__about")).toContainText("household.spending");
-    await expect(time()).toHaveValue("date");
+    await expect(time("date")).toBeVisible();
     await chartType("Table");
+    await expect(panel.getByRole("group", { name: "Rows" })).toContainText("date (Month)");
     await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
     await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
     await expect(panel.getByLabel("Order")).toHaveCount(0);
-    // A range of its own: the days chosen from the app's calendar, either
-    // end open.
-    await panel.getByLabel("Range").selectOption({ label: "Custom Range" });
+    // The time's range is a filter: here one of its own, the days chosen
+    // from the app's calendar, either end open.
+    await panel.getByLabel("Time Range").selectOption({ label: "Custom Range" });
     const pickDay = async (end, day) => {
       await panel.getByRole("button", { name: new RegExp(`^${end} `) }).click();
       const calendar = page.getByRole("dialog", { name: end });
@@ -326,19 +332,22 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await pickDay("To", "2025-08-31");
     await expect(result.locator("tbody tr")).toHaveCount(1);
     await expect(result.locator("tbody tr").first()).toContainText("Aug 2025");
-    await panel.getByLabel("Range").selectOption({ label: "All Time" });
+    await panel.getByLabel("Time Range").selectOption({ label: "All Time" });
     await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
     // A dimension takes effect at once: every month and category together,
     // ordered by the metric within each month.
-    await add("Add Dimension", "category");
+    await add("Add to Rows", "category");
     await expect(result.locator("thead")).toContainText("category");
     await expect.poll(() => result.locator("tbody tr").count()).toBeGreaterThan(23);
     await panel.getByLabel("Order").selectOption({ index: 1 });
     await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
-    // As columns over time, each category is a series.
+    // As columns over time, each category a colour of its own: the same
+    // dimension, laid across instead of along.
     await chartType("Column Chart");
+    await panel.getByRole("button", { name: "Remove category" }).click();
+    await add("Add to Color", "category");
+    await expect(panel.getByRole("group", { name: "Color" })).toContainText("category");
     await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
-    await expect(panel).toContainText("laid out over time");
     // The app's policy is as strict as ever: charts need no script from
     // blob: URLs and no WebAssembly, and neither runs.
     const refused = await page.evaluate(async () => {
@@ -355,7 +364,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       return { ranFromBlob: window.ranFromBlob === true, compiled, frames: window.frames.length };
     });
     expect(refused).toEqual({ ranFromBlob: false, compiled: false, frames: 0 });
+    // A pie has only its slices: what was across joins them.
     await chartType("Pie Chart");
+    await expect(panel.getByRole("group", { name: "Color" })).toHaveCount(0);
+    await expect(panel.getByRole("group", { name: "Slices" })).toContainText("category");
     await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
     // A group broken down: its month and category kept as filters, grouped
     // by another column instead; and again. The path steps back.
@@ -371,14 +383,14 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.getByRole("button", { name: "Discard Changes" }).click();
     await expect(panel.getByLabel("Chart Type")).toHaveValue("column");
     // A chart of one's own, Untitled until it is saved: without the time,
-    // compared, filtered by ticked values and by a range, ordered, the top
+    // members as columns, filtered by ticked values and by a range, ordered, the top
     // groups picked by their own totals.
     await page.getByRole("button", { name: "New Chart" }).click();
     await expect(page.locator(".screen-explorer__view--untitled")).toHaveText("Untitled");
-    await time().selectOption({ label: "No Time" });
+    await panel.getByRole("button", { name: "Remove date" }).click();
     await chartType("Table");
-    await add("Add Dimension", "category");
-    await add("Add Column", "member");
+    await add("Add to Rows", "category");
+    await add("Add to Columns", "member");
     await expect(result.locator("thead")).toContainText("Rosh");
     await add("Add Filter", "city");
     const ticking = page.getByRole("dialog", { name: "Filter city" });

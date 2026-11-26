@@ -741,6 +741,39 @@ impl Api {
         })
     }
 
+    /// The ids of Oikome's own plugins in this build.
+    fn built_in_ids() -> Vec<String> {
+        BUILT_IN
+            .iter()
+            .filter_map(|files| {
+                let (_, bytes) = files.iter().find(|(name, _)| *name == MANIFEST)?;
+                read_manifest(bytes, true).ok().map(|p| p.id)
+            })
+            .collect()
+    }
+
+    /// Change the record of the official packages the owner removed. A node
+    /// without one yet (made before official packages, or whose first plugin
+    /// was one of the owner's own) starts it with those not installed now:
+    /// the owner's choices so far stand, and installing or removing one
+    /// never brings in the others.
+    fn change_removed(&self, change: impl FnOnce(&mut Vec<String>)) -> Result<(), ApiError> {
+        if !self.removed_built_ins_path().exists() {
+            let installed: Vec<String> = self.installed()?.into_iter().map(|p| p.id).collect();
+            let missing: Vec<String> = Self::built_in_ids()
+                .into_iter()
+                .filter(|id| !installed.contains(id))
+                .collect();
+            self.change_private(
+                &self.removed_built_ins_path(),
+                |removed: &mut Vec<String>| {
+                    *removed = missing;
+                },
+            )?;
+        }
+        self.change_private(&self.removed_built_ins_path(), change)
+    }
+
     /// One of Oikome's own plugins, as its manifest in this build says.
     fn built_in_manifest(id: &str) -> Option<Plugin> {
         Self::built_in(id)?
@@ -943,6 +976,10 @@ impl Api {
     ) -> Result<Plugin, ApiError> {
         caller.require_owner()?;
         self.refresh()?;
+        // A new node's official packages come first: one of the owner's own,
+        // installed before anything has listed the plugins, would otherwise
+        // make the node look old, and they would never be installed.
+        self.ensure_built_ins()?;
         let (plugin, files) = match (&req.built_in, &req.path) {
             (Some(id), None) => {
                 let files = Self::built_in(id).ok_or_else(|| {
@@ -1046,12 +1083,9 @@ impl Api {
         };
         let installed = self.grant_plugin(installed, collections)?;
         if Self::built_in(&installed.id).is_some() {
-            self.change_private(
-                &self.removed_built_ins_path(),
-                |removed: &mut Vec<String>| {
-                    removed.retain(|id| id != &installed.id);
-                },
-            )?;
+            self.change_removed(|removed: &mut Vec<String>| {
+                removed.retain(|id| id != &installed.id);
+            })?;
         }
         Ok(installed.plugin())
     }
@@ -1094,14 +1128,11 @@ impl Api {
             all.retain(|p| p.id != req.id)
         })?;
         if Self::built_in(&installed.id).is_some() {
-            self.change_private(
-                &self.removed_built_ins_path(),
-                |removed: &mut Vec<String>| {
-                    if !removed.contains(&req.id) {
-                        removed.push(req.id.clone());
-                    }
-                },
-            )?;
+            self.change_removed(|removed: &mut Vec<String>| {
+                if !removed.contains(&req.id) {
+                    removed.push(req.id.clone());
+                }
+            })?;
         }
         self.remember_name(&installed.did, &installed.name);
         let dir = self.plugins_dir().join(&req.id);

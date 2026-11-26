@@ -652,10 +652,10 @@ export const zhHans: Strings = {
 
   sources: {
     title: "数据源",
-    ledeShort: "把你的数据带进来的文件夹和文件。",
+    ledeShort: "数据源把文件夹、文件和笔记带进你的资料库。",
     lede: (count: number, failing: number, paused: number) => {
-      const intro = "把你的数据带进来的文件夹和文件。";
-      if (count === 0) return `${intro}可以用任何应用编辑它们，Oikome 每分钟重新读取一次。`;
+      const intro = "数据源把文件夹、文件和笔记带进你的资料库。";
+      if (count === 0) return `${intro}每个数据源都由插件提供，添加一个就能开始。`;
       if (failing > 0) return `${intro}有 ${num(failing)} 个需要你处理。`;
       if (paused === 0) return `${intro}${count === 1 ? "它已是最新。" : `全部 ${num(count)} 个都已是最新。`}`;
       if (paused === count) return `${intro}${count === 1 ? "它已暂停。" : `全部 ${num(count)} 个都已暂停。`}`;

@@ -684,10 +684,10 @@ export const ko: Strings = {
 
   sources: {
     title: "소스",
-    ledeShort: "데이터를 가져오는 폴더와 파일이에요.",
+    ledeShort: "데이터 소스는 폴더, 파일, 메모를 컬렉션으로 가져와요.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "데이터를 가져오는 폴더와 파일이에요.";
-      if (count === 0) return `${lead} 어떤 앱으로든 편집하세요. Oikome가 1분마다 다시 읽어요.`;
+      const lead = "데이터 소스는 폴더, 파일, 메모를 컬렉션으로 가져와요.";
+      if (count === 0) return `${lead} 데이터 소스는 모두 플러그인이 제공해요. 하나를 추가하면 시작할 수 있어요.`;
       if (failing > 0) return `${lead} ${num(failing)}개는 확인이 필요해요.`;
       if (paused === 0) return `${lead} ${count === 1 ? "최신 상태예요." : `${num(count)}개 모두 최신 상태예요.`}`;
       if (paused === count)

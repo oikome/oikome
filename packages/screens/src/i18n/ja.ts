@@ -659,10 +659,10 @@ export const ja: Strings = {
 
   sources: {
     title: "ソース",
-    ledeShort: "データを取り込むフォルダとファイルです。",
+    ledeShort: "データソースは、フォルダ、ファイル、メモをコレクションに取り込みます。",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "データを取り込むフォルダとファイルです。";
-      if (count === 0) return `${lead}どのアプリで編集しても、Oikome が 1 分ごとに読み直します。`;
+      const lead = "データソースは、フォルダ、ファイル、メモをコレクションに取り込みます。";
+      if (count === 0) return `${lead}データソースはそれぞれプラグインが提供します。追加すると始められます。`;
       if (failing > 0) return `${lead}${num(failing)} 個は対応が必要です。`;
       if (paused === 0) return `${lead}${count === 1 ? "最新の状態です。" : `${num(count)} 個すべてが最新です。`}`;
       if (paused === count) return `${lead}${count === 1 ? "一時停止中です。" : `${num(count)} 個すべてが一時停止中です。`}`;

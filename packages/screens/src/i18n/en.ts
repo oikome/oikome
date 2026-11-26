@@ -684,10 +684,10 @@ export const en = {
 
   sources: {
     title: "Sources",
-    ledeShort: "Folders and files that bring your data in.",
+    ledeShort: "Data sources bring folders, files and notes into your collections.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Folders and files that bring your data in.";
-      if (count === 0) return `${lead} Edit them with any app; Oikome reads them again every minute.`;
+      const lead = "Data sources bring folders, files and notes into your collections.";
+      if (count === 0) return `${lead} Each comes from a plugin; add one to begin.`;
       if (failing > 0) return `${lead} ${failing === 1 ? "One needs" : `${failing} need`} you.`;
       if (paused === 0) return `${lead} ${count === 1 ? "It is" : `All ${count} are`} up to date.`;
       if (paused === count) return `${lead} ${count === 1 ? "It is" : `All ${count} are`} paused.`;

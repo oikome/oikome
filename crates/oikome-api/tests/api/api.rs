@@ -6574,6 +6574,60 @@ async fn official_registry_packages_are_verified_before_installation() {
 }
 
 #[tokio::test]
+async fn a_new_node_has_its_official_packages_whatever_is_installed_first() {
+    let n = node();
+    // A package of one's own installed before anything lists the plugins,
+    // as the acceptance workspace does: the official ones still come, so
+    // Sources has File Import, RustFS and flomo to offer.
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../oikome-sandbox/tests/plugins/stored-picture");
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(package.to_string_lossy().into_owned()),
+            },
+        )
+        .await
+        .unwrap();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    for id in ["file-import", "rustfs", "flomo", "stored-picture"] {
+        assert!(plugins.iter().any(|p| p.id == id && p.installed), "{id}");
+    }
+}
+
+#[tokio::test]
+async fn adding_one_official_package_never_brings_the_others() {
+    let n = node();
+    n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    // A node from before its record of removed packages: two official
+    // packages not installed, and no record of it.
+    for id in ["file-import", "rustfs"] {
+        n.api
+            .remove_plugin(&OWNER, PluginRef { id: id.into() })
+            .await
+            .unwrap();
+    }
+    std::fs::remove_file(n.catalog.oikome_dir().join("removed-built-in-plugins.json")).unwrap();
+    // Adding one adds that one: the other stays as the owner left it.
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("rustfs".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    let installed = |id: &str| plugins.iter().any(|p| p.id == id && p.installed);
+    assert!(installed("rustfs"));
+    assert!(!installed("file-import"));
+}
+
+#[tokio::test]
 async fn removed_official_plugins_stay_removed_and_hide_mcp_clients() {
     let n = node();
     let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();

@@ -693,10 +693,10 @@ export const fr: Strings = {
 
   sources: {
     title: "Sources",
-    ledeShort: "Les dossiers et fichiers qui apportent vos données.",
+    ledeShort: "Les sources de données apportent dossiers, fichiers et notes dans vos collections.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Les dossiers et fichiers qui apportent vos données.";
-      if (count === 0) return `${lead} Modifiez-les avec n’importe quelle app : Oikome les relit chaque minute.`;
+      const lead = "Les sources de données apportent dossiers, fichiers et notes dans vos collections.";
+      if (count === 0) return `${lead} Chacune vient d’un plugin : ajoutez-en une pour commencer.`;
       if (failing > 0) return `${lead} ${failing === 1 ? "Une a besoin de vous." : `${num(failing)} ont besoin de vous.`}`;
       if (paused === 0) return `${lead} ${count === 1 ? "Elle est à jour." : `Toutes les ${num(count)} sont à jour.`}`;
       if (paused === count) return `${lead} ${count === 1 ? "Elle est en pause." : `Toutes les ${num(count)} sont en pause.`}`;

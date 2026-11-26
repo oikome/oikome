@@ -680,10 +680,10 @@ export const de: Strings = {
 
   sources: {
     title: "Quellen",
-    ledeShort: "Ordner und Dateien, die deine Daten hereinbringen.",
+    ledeShort: "Datenquellen bringen Ordner, Dateien und Notizen in deine Sammlungen.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Ordner und Dateien, die deine Daten hereinbringen.";
-      if (count === 0) return `${lead} Bearbeite sie mit einer beliebigen App; Oikome liest sie jede Minute neu.`;
+      const lead = "Datenquellen bringen Ordner, Dateien und Notizen in deine Sammlungen.";
+      if (count === 0) return `${lead} Jede kommt aus einem Plugin; füge eine hinzu, um zu beginnen.`;
       if (failing > 0) return `${lead} ${failing === 1 ? "Eine braucht" : `${num(failing)} brauchen`} dich.`;
       if (paused === 0) return `${lead} ${count === 1 ? "Sie ist" : `Alle ${num(count)} sind`} aktuell.`;
       if (paused === count) return `${lead} ${count === 1 ? "Sie ist" : `Alle ${num(count)} sind`} pausiert.`;

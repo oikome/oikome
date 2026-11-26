@@ -647,10 +647,10 @@ export const zhHant: Strings = {
 
   sources: {
     title: "來源",
-    ledeShort: "把你的資料帶進來的資料夾和檔案。",
+    ledeShort: "資料來源把資料夾、檔案和筆記帶進你的資料庫。",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "把你的資料帶進來的資料夾和檔案。";
-      if (count === 0) return `${lead}可以用任何 App 編輯它們，Oikome 每分鐘都會重新讀取。`;
+      const lead = "資料來源把資料夾、檔案和筆記帶進你的資料庫。";
+      if (count === 0) return `${lead}每個資料來源都由外掛程式提供，新增一個就能開始。`;
       if (failing > 0) return `${lead}有 ${num(failing)} 個需要你處理。`;
       if (paused === 0) return count === 1 ? `${lead}它已是最新。` : `${lead}全部 ${num(count)} 個都已是最新。`;
       if (paused === count) return count === 1 ? `${lead}它已暫停。` : `${lead}全部 ${num(count)} 個都已暫停。`;

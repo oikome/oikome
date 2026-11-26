@@ -798,6 +798,22 @@ html:lang(zh-Hant) { --cjk: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC";
 .pv__grid .table td { height: 36px; font-size: 13px; }
 .pv__grid .table th { position: sticky; top: 0; }
 .pv__empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--ink2); padding: 24px; }
+.an__grains { display: flex; width: 100%; }
+.an__grains button { flex: 1 1 0; padding: 0 4px; height: 28px; font-size: 12.5px; }
+.an__note { margin-left: 4px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink3); }
+.an__crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; font-size: 12.5px; }
+.an__crumbs button { height: 24px; padding: 0 6px; border: 0; border-radius: var(--r-btn); background: transparent; color: var(--ink2); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+.an__crumbs button:hover { background: var(--hover); color: var(--ink); }
+.an__crumbs > span:not(.faint) { padding: 0 6px; font-weight: 600; }
+.an__crumbs svg { color: var(--ink3); }
+.an__drillhint { font-size: 12px; white-space: nowrap; }
+.an__drillable { cursor: pointer; }
+.pv__lab--free { width: 0; overflow: visible; text-overflow: clip; text-align: left; }
+.pv__col .pv__lab { min-height: 14px; }
+.pv__col.an__drillable:hover .pv__bars i, .pv__hgroup.an__drillable:hover i, .pv__tile.an__drillable:hover { filter: brightness(1.25); }
+[data-theme="ink"] .pv__col.an__drillable:hover .pv__bars i[data-s="0"] { filter: none; opacity: .78; }
+tr.an__drillable:hover td { background: var(--hover); }
+.pv__lab.an__drillable { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
 .an__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .an__chip { display: inline-flex; max-width: 100%; border: var(--bw) solid var(--line); border-radius: var(--r-btn); background: var(--raised); overflow: hidden; }
 .an__chip-b { display: inline-flex; align-items: center; gap: 5px; min-width: 0; height: 26px; padding: 0 4px 0 8px; border: 0; background: transparent; cursor: pointer; font: 400 12.5px/1 var(--mono); }
@@ -1298,7 +1314,7 @@ const AN = {
         ['2025-09-01', 'Rent', 'Home', 1250], ['2025-09-03', 'Groceries at Pingo Doce', 'Food', 54.2], ['2025-09-06', 'Metro pass', 'Transport', 40], ['2025-09-09', 'Dinner at Zé da Mouraria', 'Food', 31.5], ['2025-09-14', 'Electricity', 'Home', 58.4], ['2025-09-18', 'Blindness', 'Books', 16.9], ['2025-09-21', 'Groceries at Pingo Doce', 'Food', 47.8], ['2025-09-27', 'Train to Sintra', 'Transport', 4.6],
         ['2025-10-01', 'Rent', 'Home', 1250], ['2025-10-04', 'Groceries at Pingo Doce', 'Food', 61.3], ['2025-10-06', 'Metro pass', 'Transport', 40], ['2025-10-11', 'Concert at Musicbox', 'Leisure', 28], ['2025-10-19', 'Groceries at Pingo Doce', 'Food', 52.4], ['2025-10-24', 'Dinner with Sam', 'Food', 38.5], ['2025-10-28', 'Electricity', 'Home', 61.2], ['2025-10-30', 'The Book of Disquiet', 'Books', 24.9], ['2025-10-31', 'Train to Porto', 'Transport', 18.4],
         ['2025-11-01', 'Rent', 'Home', 1250], ['2025-11-02', 'Groceries at Pingo Doce', 'Food', 42.1]],
-      views: [{ id: 'v1', name: 'Food by month', by: 'Claude Desktop', on: '2025-11-01', spec: { chart: 'line', dims: [{ f: 'date', g: 'month' }], cmp: [], mets: [{ f: 'amount', a: 'sum' }], filters: [{ f: 'category', in: ['Food'] }], sort: null, limit: null } }] },
+      views: [{ id: 'v1', name: 'Food by month', by: 'Claude Desktop', on: '2025-11-01', spec: { chart: 'line', time: { f: 'date', g: 'month', range: 'all' }, dims: [], cmp: [], mets: [{ f: 'amount', a: 'sum' }], filters: [{ f: 'category', in: ['Food'] }], sort: null, limit: null } }] },
     budget: { files: 1, file: 'budget.csv', updated: '2025-09-02T21:15',
       fields: [['category', 'text', 'category'], ['monthly_limit', 'number', 'amount']],
       rows: [['Home', 1350], ['Food', 220], ['Transport', 80], ['Books', 30], ['Leisure', 60]], views: [] },
@@ -1368,26 +1384,31 @@ function folderView(c) {
 }
 
 // ---- Analysis: a folder collection's tables, each explored as a chart and its charts kept ----
-// A chart is a description, never SQL: its dimensions (what the rows are grouped by, a date at a
-// grain), what is compared within each (a second set of dimensions, as series), its metrics (a
-// column and how it is totalled; the same column as often as wanted; or the count of rows), its
-// filters, its order and how many groups are shown. The data center writes the query from it.
+// A chart is a description, never SQL. Time is a dimension of its own: a column of time, seen at a grain (year,
+// quarter, month, week, day) and over a range; its grain is a level of one hierarchy, rolled up or drilled down,
+// never a second dimension. The other dimensions, in order, carry on the same path: the chart shows one level at a
+// time, a click on a bar (or a row) drills into it, the path above rolls back up. What is compared (a series each)
+// and the metrics stay as they are at every level. A table with no time has no time to choose and drills through
+// its dimensions alone, and no time section is shown. The data center writes the query from the description.
 const anTable = (c) => (AN[c][S.an.table[c]] ? S.an.table[c] : Object.keys(AN[c])[0]);
 const anField = (tb, role) => (tb.fields.find((f) => f[2] === role) || [])[0];
 const anType = (tb, f) => (tb.fields.find((x) => x[0] === f) || [])[1];
+// Columns of time: by their type, or because the owner said so.
+const anTimeFields = (tb) => tb.fields.filter((x) => x[1] === 'date' || x[2] === 'time').map((x) => x[0]);
 const AN_TYPES = ['table', 'col', 'bar', 'line', 'area', 'treemap'];
 const AN_ROLES = ['time', 'amount', 'category', 'title', 'key', 'other'];
 const AN_GRAINS = ['year', 'quarter', 'month', 'week', 'day'];
+// The time hierarchy a click drills down; a week is not in it (a week can straddle two months).
+const AN_PATH = ['year', 'quarter', 'month', 'day'];
+const AN_RANGES = ['all', 'year', 'd30', 'd90', 'd365'];
 const AN_AGGS = { number: ['sum', 'avg', 'median', 'min', 'max', 'count', 'distinct'], text: ['count', 'distinct'], date: ['count', 'distinct', 'min', 'max'] };
-// The charts every table starts with, from what its columns are for; one saved in place is kept
-// instead (tb.over), until it is restored.
 function anBuiltin(tb) {
   const time = anField(tb, 'time'), amount = anField(tb, 'amount'), cat = anField(tb, 'category');
-  const base = { cmp: [], mets: [amount ? { f: amount, a: 'sum' } : { f: null, a: 'count' }], filters: [], sort: null, limit: null };
+  const base = { time: null, dims: [], cmp: [], mets: [amount ? { f: amount, a: 'sum' } : { f: null, a: 'count' }], filters: [], sort: null, limit: null };
   const out = [];
-  if (time) out.push({ id: 'month', spec: { ...base, chart: 'col', dims: [{ f: time, g: 'month' }] } });
+  if (time) out.push({ id: 'month', spec: { ...base, chart: 'col', time: { f: time, g: 'month', range: 'all' } } });
   if (cat) out.push({ id: 'category', spec: { ...base, chart: 'bar', dims: [{ f: cat }], sort: { by: 0, dir: 'desc' } } });
-  if (!out.length) out.push({ id: 'rows', spec: { ...base, chart: 'table', dims: [], mets: [] } });
+  if (!out.length) out.push({ id: 'rows', spec: { ...base, chart: 'table', mets: [] } });
   return out.map((v) => ({ ...v, builtin: true, changed: !!(tb.over && tb.over[v.id]), spec: (tb.over && tb.over[v.id]) || v.spec }));
 }
 const anViews = (tb) => [...anBuiltin(tb), ...tb.views];
@@ -1396,28 +1417,65 @@ function anNow(c) {
   const name = anTable(c), tb = AN[c][name], key = `${c}.${name}`, views = anViews(tb);
   const saved = views.find((v) => v.id === S.an.view[key]) || views[0];
   const draft = S.an.draft && S.an.draft.key === key && S.an.draft.id === saved.id ? S.an.draft.cfg : null;
-  return { name, tb, key, views, saved, cfg: draft || saved.spec, edited: !!draft && JSON.stringify(draft) !== JSON.stringify(saved.spec) };
+  const drill = S.an.drill && S.an.drill.key === key && S.an.drill.id === saved.id ? S.an.drill.path : [];
+  return { name, tb, key, views, saved, drill, cfg: draft || saved.spec, edited: !!draft && JSON.stringify(draft) !== JSON.stringify(saved.spec) };
 }
-const anDimName = (d) => (d.g ? t('an.dimOf', { col: d.f, grain: H(t(`an.g.${d.g}`)) }) : esc(d.f));
+// The path a click drills down: the time's levels from its grain, then the dimensions in order.
+function anLevels(cfg) {
+  const time = cfg.time ? (cfg.time.g === 'week' ? ['week'] : AN_PATH.slice(AN_PATH.indexOf(cfg.time.g))).map((g) => ({ f: cfg.time.f, g })) : [];
+  return [...time, ...cfg.dims.map((d) => ({ f: d.f }))];
+}
 const anMetName = (m) => (m.f ? t('an.metOf', { agg: H(t(`an.a.${m.a}`)), col: m.f }) : t('an.rowsMetric'));
 const anRaw = (tb, row, f) => row[tb.fields.findIndex((x) => x[0] === f)];
-// A date at its grain, as text that sorts.
+const anIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// A day at a grain, as text that sorts: 2025, 2025-Q3, 2025-08, the Monday of its week, the day.
 function anAt(v, g) {
   const day = String(v);
   if (g === 'year') return day.slice(0, 4);
   if (g === 'quarter') return `${day.slice(0, 4)}-Q${Math.ceil(Number(day.slice(5, 7)) / 3)}`;
   if (g === 'month') return day.slice(0, 7);
-  if (g === 'week') { const d = new Date(`${day}T00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
-  return day;
+  if (g === 'week') { const d = new Date(`${day}T00:00`); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return anIso(d); }
+  return day.slice(0, 10);
 }
-const anDimVal = (tb, row, d) => (d.g ? anAt(anRaw(tb, row, d.f), d.g) : String(anRaw(tb, row, d.f)));
-const anShown = (d, v) => (d.g === 'month' ? dfmt(`${v}-01`, { year: 'numeric', month: 'short' }) : esc(v));
+// The first and last day of a period.
+function anBounds(g, v) {
+  if (g === 'year') return [`${v}-01-01`, `${v}-12-31`];
+  const y = Number(v.slice(0, 4));
+  const last = (yy, m) => anIso(new Date(yy, m, 0));
+  if (g === 'quarter') { const q = Number(v.slice(6)); return [`${y}-${String(q * 3 - 2).padStart(2, '0')}-01`, last(y, q * 3)]; }
+  if (g === 'month') return [`${v}-01`, last(y, Number(v.slice(5, 7)))];
+  if (g === 'week') { const d = new Date(`${v}T00:00`); d.setDate(d.getDate() + 6); return [v, anIso(d)]; }
+  return [v, v];
+}
+// Every period from one to another: those with no rows have a place too.
+function anPeriods(g, from, to) {
+  const out = [], d = new Date(`${anBounds(g, from)[0]}T00:00`);
+  for (let k = anAt(anIso(d), g); k <= to && out.length < 400; k = anAt(anIso(d), g)) {
+    out.push(k);
+    if (g === 'year') d.setFullYear(d.getFullYear() + 1); else if (g === 'quarter') d.setMonth(d.getMonth() + 3); else if (g === 'month') d.setMonth(d.getMonth() + 1); else d.setDate(d.getDate() + (g === 'week' ? 7 : 1));
+  }
+  return out;
+}
+function anTimeLabel(g, v) {
+  if (g === 'year') return esc(v);
+  if (g === 'quarter') return t('an.q', { y: v.slice(0, 4), q: v.slice(6) });
+  if (g === 'month') return dfmt(`${v}-01T00:00`, { year: 'numeric', month: 'short' });
+  if (g === 'week') return t('an.weekOf', { date: dfmt(`${v}T00:00`, { month: 'short', day: 'numeric' }) });
+  return dfmt(`${v}T00:00`, { month: 'short', day: 'numeric' });
+}
+const anVal = (tb, row, lvl) => (lvl.g ? anAt(anRaw(tb, row, lvl.f), lvl.g) : String(anRaw(tb, row, lvl.f)));
+const anLabel = (lvl, v) => (lvl.g ? anTimeLabel(lvl.g, v) : esc(v));
+const anLevelName = (lvl) => (lvl.g ? t(`an.g.${lvl.g}`) : esc(lvl.f));
 const anNum = (v) => nf(v, { maximumFractionDigits: 2 });
+function anInRange(tb, row, time) {
+  if (time.range === 'all') return true;
+  const day = new Date(`${anRaw(tb, row, time.f)}T00:00`);
+  if (time.range === 'year') return day.getFullYear() === NOW.getFullYear();
+  return day >= new Date(NOW.getTime() - { d30: 30, d90: 90, d365: 365 }[time.range] * 864e5);
+}
 function anKeeps(tb, row, f) {
   const v = anRaw(tb, row, f.f);
   if (f.in) return f.in.includes(String(v));
-  if (f.days) return new Date(`${v}T00:00`) >= new Date(NOW.getTime() - f.days * 864e5);
-  if (f.thisYear) return String(v).slice(0, 4) === String(NOW.getFullYear());
   return (f.min === '' || f.min == null || Number(v) >= Number(f.min)) && (f.max === '' || f.max == null || Number(v) <= Number(f.max));
 }
 function anTotal(tb, list, m) {
@@ -1432,52 +1490,68 @@ function anTotal(tb, list, m) {
   const sum = nums.reduce((a, b) => a + b, 0);
   return m.a === 'avg' ? sum / nums.length : sum;
 }
-function anCompute(tb, cfg) {
-  const rows = tb.rows.filter((r) => cfg.filters.every((f) => anKeeps(tb, r, f)));
-  if (!cfg.dims.length && !cfg.cmp.length && !cfg.mets.length) return { rows };
+// Every level is worked out from the rows themselves, so an average or a median rolled up is right.
+function anCompute(tb, cfg, drill) {
+  let rows = tb.rows.filter((r) => cfg.filters.every((f) => anKeeps(tb, r, f)) && (!cfg.time || anInRange(tb, r, cfg.time)));
+  const levels = anLevels(cfg);
+  if (!levels.length && !cfg.cmp.length && !cfg.mets.length) return { rows, levels, drill: [] };
+  drill = drill.filter((e) => e.i < levels.length - 1);
+  rows = rows.filter((r) => drill.every((e) => anVal(tb, r, levels[e.i]) === e.v));
+  const at = drill.length, lvl = levels[at];
   const mets = cfg.mets.length ? cfg.mets : [{ f: null, a: 'count' }];
-  const path = (r, list) => list.map((d) => anDimVal(tb, r, d)).join('\u0001');
-  const label = (id, list) => (list.length ? id.split('\u0001').map((v, i) => anShown(list[i], v)).join(' · ') : t('an.total'));
-  let keys = [...new Set(rows.map((r) => path(r, cfg.dims)))].sort();
-  const cmps = cfg.cmp.length ? [...new Set(rows.map((r) => path(r, cfg.cmp)))].sort() : [null];
-  const series = cmps.flatMap((c) => mets.map((m) => ({ c, m, label: [c === null ? null : label(c, cfg.cmp), c === null || mets.length > 1 ? anMetName(m) : null].filter(Boolean).join(' · ') })));
-  const of = (k, c) => rows.filter((r) => path(r, cfg.dims) === k && (c === null || path(r, cfg.cmp) === c));
-  const val = (k, i) => anTotal(tb, of(k, series[i].c), series[i].m);
-  // Ordered by a metric over the whole group, whatever is compared within it.
-  if (cfg.sort) { const m = mets[cfg.sort.by] || mets[0], total = (k) => anTotal(tb, of(k, null), m); keys = keys.sort((a, b) => (cfg.sort.dir === 'desc' ? total(b) - total(a) : total(a) - total(b))); }
+  const key = (r) => (lvl ? anVal(tb, r, lvl) : '');
+  const cpath = (r) => cfg.cmp.map((d) => String(anRaw(tb, r, d.f))).join(' · ');
+  let keys = [...new Set(rows.map(key))].sort();
+  // A time level's periods with no rows keep their place, within what was drilled into.
+  if (lvl && lvl.g && keys.length) {
+    const parent = drill.length ? drill[drill.length - 1] : null;
+    const within = parent && levels[parent.i].g ? anBounds(levels[parent.i].g, parent.v).map((x) => anAt(x, lvl.g)) : [keys[0], keys[keys.length - 1]];
+    keys = anPeriods(lvl.g, within[0], within[1]);
+  }
+  const cmps = cfg.cmp.length ? [...new Set(rows.map(cpath))].sort() : [null];
+  const series = cmps.flatMap((c) => mets.map((m) => ({ c, m, label: [c, c === null || mets.length > 1 ? anMetName(m) : null].filter(Boolean).join(' · ') })));
+  const of = (k, c) => rows.filter((r) => key(r) === k && (c === null || cpath(r) === c));
+  const val = (k, i) => { const list = of(k, series[i].c); return list.length ? anTotal(tb, list, series[i].m) : null; };
+  if (cfg.sort && lvl) { const m = mets[cfg.sort.by] || mets[0], total = (k) => anTotal(tb, of(k, null), m); keys = keys.sort((a, b) => (cfg.sort.dir === 'desc' ? total(b) - total(a) : total(a) - total(b))); }
   const all = keys.length;
-  if (cfg.limit) keys = keys.slice(0, cfg.limit);
-  const top = Math.max(...keys.flatMap((k) => series.map((_, i) => val(k, i))), 0) || 1;
-  return { rows, keys: keys.map((k) => ({ id: k, label: label(k, cfg.dims) })), series, val, top, all, head: cfg.dims.map(anDimName).join(' · ') };
+  if (cfg.limit && lvl) keys = keys.slice(0, cfg.limit);
+  const top = Math.max(...keys.flatMap((k) => series.map((_, i) => val(k, i) || 0)), 0) || 1;
+  return { rows, levels, drill, at, lvl, series, val, top, all, canDrill: !!lvl && at < levels.length - 1, keys: keys.map((k) => ({ id: k, label: lvl ? anLabel(lvl, k) : t('an.total') })) };
 }
-function anDraw(tb, cfg) {
-  const d = anCompute(tb, cfg);
+function anDraw(tb, cfg, d, c) {
   if (!d.rows.length) return `<div class="pv__empty">${t('an.noRows')}</div>`;
   if (!d.keys) {
+    if (cfg.chart !== 'table') return `<div class="pv__empty">${t('an.needDim')}</div>`;
     return `<div class="pv__grid"><table class="table"><thead><tr>${tb.fields.map((f) => `<th class="label ${f[1] === 'number' ? 'num' : ''}">${esc(f[0])}</th>`).join('')}</tr></thead><tbody>${d.rows.slice().reverse().map((r) => `<tr>${r.map((v, i) => `<td class="${tb.fields[i][1] === 'number' ? 'num mono' : tb.fields[i][1] === 'date' ? 'mono' : ''}">${tb.fields[i][1] === 'number' ? anNum(v) : esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
-  const many = d.series.length > 1;
-  const legend = many ? `<div class="pv__keys">${d.series.map((x, i) => `<span class="pv__key"><i data-s="${i % 5}"></i>${x.label}</span>`).join('')}</div>` : '';
-  const tip = (k, i) => `${k.label}${many ? ` · ${d.series[i].label}` : ''}: ${anNum(d.val(k.id, i))}`;
+  const many = d.series.length > 1, show = (v) => (v === null ? '–' : anNum(v));
+  // A group drills into the next level when there is one.
+  const drillTo = (k) => (d.canDrill ? `data-act="andrill" data-c="${c}" data-v="${esc(k.id)}" role="button" tabindex="0" title="${t('an.drill.into', { name: H(k.label) })}"` : '');
+  const legend = many ? `<div class="pv__keys">${d.series.map((x, i) => `<span class="pv__key"><i data-s="${i % 5}"></i>${esc(x.label)}</span>`).join('')}</div>` : '';
+  const tip = (k, i) => `${k.label}${many ? ` · ${esc(d.series[i].label)}` : ''}: ${show(d.val(k.id, i))}`;
   if (cfg.chart === 'table') {
-    return `<div class="pv__grid"><table class="table"><thead><tr>${cfg.dims.length ? cfg.dims.map((x) => `<th class="label">${anDimName(x)}</th>`).join('') : '<th></th>'}${d.series.map((x) => `<th class="label num">${x.label || anMetName(x.m)}</th>`).join('')}</tr></thead><tbody>${d.keys.map((k) => `<tr>${cfg.dims.length ? k.id.split('\u0001').map((v, i) => `<td>${anShown(cfg.dims[i], v)}</td>`).join('') : `<td>${k.label}</td>`}${d.series.map((_, i) => `<td class="num mono">${anNum(d.val(k.id, i))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    return `<div class="pv__grid"><table class="table"><thead><tr><th class="label">${d.lvl ? anLevelName(d.lvl) : ''}</th>${d.series.map((x) => `<th class="label num">${esc(x.label)}</th>`).join('')}</tr></thead><tbody>${d.keys.map((k) => `<tr ${drillTo(k)} class="${d.canDrill ? 'an__drillable' : ''}"><td>${k.label}${d.canDrill ? ` <span class="faint">${Is('chevron', 11)}</span>` : ''}</td>${d.series.map((_, i) => `<td class="num mono">${show(d.val(k.id, i))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
+  // Many groups: no number over each, and only every so many named, so neither runs into the next.
+  const every = Math.ceil(d.keys.length / 12), named = (j) => j % every === 0;
   if (cfg.chart === 'col') {
-    return `${legend}<div class="pv__cols">${d.keys.map((k) => `<div class="pv__col"><div class="pv__track">${many ? '' : `<span class="pv__val">${anNum(d.val(k.id, 0))}</span>`}<div class="pv__bars" style="height:88%">${d.series.map((_, i) => `<i data-s="${i % 5}" style="height:${Math.max(1, (d.val(k.id, i) / d.top) * 100)}%" title="${tip(k, i)}"></i>`).join('')}</div></div><span class="pv__lab">${k.label}</span></div>`).join('')}</div>`;
+    return `${legend}<div class="pv__cols">${d.keys.map((k, j) => `<div class="pv__col ${d.canDrill ? 'an__drillable' : ''}" ${drillTo(k)} title="${tip(k, 0)}"><div class="pv__track">${many || every > 1 || d.val(k.id, 0) === null ? '' : `<span class="pv__val">${show(d.val(k.id, 0))}</span>`}<div class="pv__bars" style="height:88%">${d.series.map((_, i) => `<i data-s="${i % 5}" style="height:${Math.max(d.val(k.id, i) ? 1 : 0, ((d.val(k.id, i) || 0) / d.top) * 100)}%" title="${tip(k, i)}"></i>`).join('')}</div></div><span class="pv__lab ${every > 1 ? 'pv__lab--free' : ''}">${named(j) ? k.label : ''}</span></div>`).join('')}</div>`;
   }
   if (cfg.chart === 'bar') {
-    return `${legend}<div class="pv__hbars">${d.keys.map((k) => `<span class="pv__lab">${k.label}</span><div class="pv__hgroup">${d.series.map((_, i) => `<i data-s="${i % 5}" style="width:${Math.max(0.5, (d.val(k.id, i) / d.top) * 100)}%" title="${tip(k, i)}"></i>`).join('')}</div><span class="pv__val">${many ? '' : anNum(d.val(k.id, 0))}</span>`).join('')}</div>`;
+    return `${legend}<div class="pv__hbars">${d.keys.map((k) => `<span class="pv__lab ${d.canDrill ? 'an__drillable' : ''}" ${drillTo(k)}>${k.label}</span><div class="pv__hgroup ${d.canDrill ? 'an__drillable' : ''}" ${drillTo(k)}>${d.series.map((_, i) => `<i data-s="${i % 5}" style="width:${Math.max(d.val(k.id, i) ? 0.5 : 0, ((d.val(k.id, i) || 0) / d.top) * 100)}%" title="${tip(k, i)}"></i>`).join('')}</div><span class="pv__val">${many ? '' : show(d.val(k.id, 0))}</span>`).join('')}</div>`;
   }
   if (cfg.chart === 'line' || cfg.chart === 'area') {
+    // A period with no rows breaks the line rather than joining its neighbours.
     const n = d.keys.length, x = (i) => (n === 1 ? 50 : (i / (n - 1)) * 100), y = (v) => 100 - (v / d.top) * 92;
-    const pts = (i) => d.keys.map((k, j) => `${x(j).toFixed(2)},${y(d.val(k.id, i)).toFixed(2)}`).join(' ') + (n === 1 ? ` 50.5,${y(d.val(d.keys[0].id, i)).toFixed(2)}` : '');
-    return `${legend}<div class="pv__line"><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img">${d.series.map((_, i) => `${cfg.chart === 'area' ? `<polygon data-s="${i % 5}" points="${x(0)},100 ${pts(i)} ${x(n - 1)},100"/>` : ''}<polyline data-s="${i % 5}" points="${pts(i)}"/>`).join('')}</svg><div class="pv__ticks">${d.keys.map((k) => `<span class="pv__lab">${k.label}${many ? '' : `<br>${anNum(d.val(k.id, 0))}`}</span>`).join('')}</div></div>`;
+    const runs = (i) => d.keys.reduce((acc, k, j) => { const v = d.val(k.id, i); if (v === null) acc.push([]); else acc[acc.length - 1].push(`${x(j).toFixed(2)},${y(v).toFixed(2)}`); return acc; }, [[]]).filter((r) => r.length);
+    const svg = d.series.map((_, i) => runs(i).map((r) => `${cfg.chart === 'area' && r.length > 1 ? `<polygon data-s="${i % 5}" points="${r[0].split(',')[0]},100 ${r.join(' ')} ${r[r.length - 1].split(',')[0]},100"/>` : ''}<polyline data-s="${i % 5}" points="${r.join(' ')}${r.length === 1 ? ` ${(Number(r[0].split(',')[0]) + 0.5).toFixed(2)},${r[0].split(',')[1]}` : ''}"/>`).join('')).join('');
+    return `${legend}<div class="pv__line"><svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img">${svg}</svg><div class="pv__ticks">${d.keys.map((k, j) => (named(j) ? `<span class="pv__lab ${d.canDrill ? 'an__drillable' : ''}" ${drillTo(k)}>${k.label}${many || every > 1 ? '' : `<br>${show(d.val(k.id, 0))}`}</span>` : '')).join('')}</div></div>`;
   }
   // Treemap: each group a tile, its area its share of the first metric.
-  const items = d.keys.map((k) => ({ k, v: Math.max(d.val(k.id, 0), 0) })).filter((it) => it.v > 0).sort((a, b) => b.v - a.v).map((it, i) => ({ ...it, i }));
+  const items = d.keys.map((k) => ({ k, v: Math.max(d.val(k.id, 0) || 0, 0) })).filter((it) => it.v > 0).sort((a, b) => b.v - a.v).map((it, i) => ({ ...it, i }));
   const sum = (list) => list.reduce((a, it) => a + it.v, 0);
   const tm = (list, across) => {
-    if (list.length === 1) return `<div class="pv__tile" data-s="${Math.min(list[0].i, 4)}" style="flex:${list[0].v} 1 0" title="${list[0].k.label}: ${anNum(list[0].v)}"><b>${list[0].k.label}</b><span>${anNum(list[0].v)}</span></div>`;
+    if (list.length === 1) return `<div class="pv__tile ${d.canDrill ? 'an__drillable' : ''}" ${drillTo(list[0].k)} data-s="${Math.min(list[0].i, 4)}" style="flex:${list[0].v} 1 0"><b>${list[0].k.label}</b><span>${anNum(list[0].v)}</span></div>`;
     let cut = 1; const half = sum(list) / 2;
     while (cut < list.length - 1 && sum(list.slice(0, cut)) < half) cut++;
     return `<div class="pv__tm ${across ? '' : 'pv__tm--v'}" style="flex:${sum(list)} 1 0">${tm(list.slice(0, cut), !across)}${tm(list.slice(cut), !across)}</div>`;
@@ -1486,31 +1560,41 @@ function anDraw(tb, cfg) {
 }
 function anFilterText(f) {
   if (f.in) return f.in.length <= 2 ? f.in.map(esc).join(', ') : t('an.f.count', { n: f.in.length });
-  if (f.days) return t('an.d.last', { n: f.days });
-  if (f.thisYear) return t('an.d.year');
   const lo = f.min !== '' && f.min != null, hi = f.max !== '' && f.max != null;
   return lo && hi ? `${esc(f.min)} – ${esc(f.max)}` : lo ? `≥ ${esc(f.min)}` : hi ? `≤ ${esc(f.max)}` : t('an.f.any');
 }
 function analysisView(c) {
   const now = anNow(c.name), { tb, cfg } = now, names = Object.keys(AN[c.name]);
   const pick = (k, label, off) => `<button class="pv__pick" data-act="anpick" data-c="${c.name}" data-k="${k}" aria-haspopup="menu" ${off ? 'disabled' : ''}><span>${label}</span>${Is('chevron', 12)}</button>`;
-  // What is chosen is a chip: its name opens how it is taken (a grain, a way to total, its values), its cross removes it.
-  const chip = (k, i, label, more) => `<span class="an__chip"><button class="an__chip-b" data-act="anchip" data-c="${c.name}" data-k="${k}" data-i="${i}" ${more ? 'aria-haspopup="menu"' : 'disabled'}><span>${label}</span>${more ? Is('chevron', 11) : ''}</button><button class="an__chip-x" data-act="anrm" data-c="${c.name}" data-k="${k}" data-i="${i}" aria-label="${t('an.removeItem', { name: H(label) })}">${Is('close', 11)}</button></span>`;
-  const part = (k, title, chips, add) => `<div class="pv__f"><span class="label">${t(title)}</span><div class="an__chips">${chips.join('')}<button class="an__add" data-act="anadd" data-c="${c.name}" data-k="${k}" aria-haspopup="menu">${Is('plus', 12)}${t(add)}</button></div></div>`;
-  const dimChip = (k) => (d, i) => chip(k, i, anDimName(d), anType(tb, d.f) === 'date');
-  const mets = cfg.mets, sortName = cfg.sort && mets[cfg.sort.by] ? t('an.sortItem', { name: H(anMetName(mets[cfg.sort.by])), dir: H(t(`an.o.${cfg.sort.dir}`)) }) : t('an.o.none');
-  const d = anCompute(tb, cfg);
+  const chip = (k, i, label, more, fixed) => `<span class="an__chip"><button class="an__chip-b" data-act="anchip" data-c="${c.name}" data-k="${k}" data-i="${i}" ${more ? 'aria-haspopup="menu"' : 'disabled'}><span>${label}</span>${more ? Is('chevron', 11) : ''}</button>${fixed ? '' : `<button class="an__chip-x" data-act="anrm" data-c="${c.name}" data-k="${k}" data-i="${i}" aria-label="${t('an.removeItem', { name: H(label) })}">${Is('close', 11)}</button>`}</span>`;
+  const part = (k, title, chips, add, note) => `<div class="pv__f"><span class="label">${t(title)}${note ? ` <span class="an__note">${t(note)}</span>` : ''}</span><div class="an__chips">${chips.join('')}<button class="an__add" data-act="anadd" data-c="${c.name}" data-k="${k}" aria-haspopup="menu">${Is('plus', 12)}${t(add)}</button></div></div>`;
+  const mets = cfg.mets, grouped = !!(cfg.time || cfg.dims.length);
+  const sortName = cfg.sort && mets[cfg.sort.by] ? t('an.sortItem', { name: H(anMetName(mets[cfg.sort.by])), dir: H(t(`an.o.${cfg.sort.dir}`)) }) : t('an.o.none');
+  const d = anCompute(tb, cfg, now.drill);
+  const times = anTimeFields(tb);
+  const grainNow = d.lvl && d.lvl.g ? d.lvl.g : cfg.time && cfg.time.g;
+  const timePart = times.length
+    ? `<div class="pv__f"><span class="label">${t('an.p.time')}</span>${pick('time', cfg.time ? esc(cfg.time.f) : t('an.time.none'))}</div>
+      ${cfg.time ? `<div class="pv__f"><span class="label">${t('an.p.grain')}</span><div class="seg an__grains" role="group" aria-label="${t('an.p.grain')}">${AN_GRAINS.map((g) => `<button class="${grainNow === g ? 'on' : ''}" data-act="angrain" data-c="${c.name}" data-g="${g}">${t(`an.g.${g}`)}</button>`).join('')}</div></div>
+      <div class="pv__f"><span class="label">${t('an.p.range')}</span>${pick('range', t(`an.rg.${cfg.time.range}`))}</div>` : ''}`
+    : '';
   const side = `<div class="pv__side">
     <div class="pv__f"><span class="label">${t('an.p.type')}</span>${pick('chart', t(`an.t.${cfg.chart}`))}</div>
-    ${part('dims', 'an.p.dims', cfg.dims.map(dimChip('dims')), 'an.addDim')}
-    ${part('cmp', 'an.p.cmp', cfg.cmp.map(dimChip('cmp')), 'an.addCmp')}
-    ${part('mets', 'an.p.mets', mets.map((m, i) => chip('mets', i, anMetName(m), !!m.f)), 'an.addMet')}
+    ${timePart}
+    ${part('dims', 'an.p.dims', cfg.dims.map((x, i) => chip('dims', i, esc(x.f), false)), 'an.addDim', cfg.dims.length > 1 || (cfg.time && cfg.dims.length) ? 'an.dimsNote' : null)}
+    ${part('cmp', 'an.p.cmp', cfg.cmp.map((x, i) => chip('cmp', i, esc(x.f), false)), 'an.addCmp')}
+    ${part('mets', 'an.p.mets', mets.map((m, i) => chip('mets', i, anMetName(m), !!m.f, grouped && mets.length === 1 && !m.f)), 'an.addMet')}
     ${part('filters', 'an.p.where', cfg.filters.map((f, i) => chip('filters', i, `${esc(f.f)}: ${anFilterText(f)}`, true)), 'an.addFilter')}
-    <div class="pv__f"><span class="label">${t('an.p.order')}</span>${pick('sort', sortName, !cfg.dims.length)}</div>
-    <div class="pv__f"><span class="label">${t('an.p.limit')}</span>${pick('limit', cfg.limit ? t('an.limit.top', { n: cfg.limit }) : t('an.limit.all'), !cfg.dims.length)}</div>
+    <div class="pv__f"><span class="label">${t('an.p.order')}</span>${pick('sort', sortName, !grouped)}</div>
+    <div class="pv__f"><span class="label">${t('an.p.limit')}</span>${pick('limit', cfg.limit ? t('an.limit.top', { n: cfg.limit }) : t('an.limit.all'), !grouped)}</div>
   </div>`;
+  // Where the chart is on the path: everything, then each group drilled into; any of them rolls back up to it.
+  const crumbs = d.levels && d.levels.length > 1 && d.keys
+    ? `<nav class="an__crumbs" aria-label="${t('an.drill.path')}">${[t('an.drill.all'), ...d.drill.map((e) => anLabel(d.levels[e.i], e.v))].map((label, j) => (j < d.drill.length ? `<button data-act="anup" data-c="${c.name}" data-n="${j}">${label}</button>${Is('chevron', 11)}` : `<span>${label}</span>`)).join('')}<span class="faint">· ${t('an.drill.by', { level: H(anLevelName(d.lvl)) })}</span></nav>`
+    : '';
+  const hint = d.canDrill ? `<span class="faint an__drillhint">${t('an.drill.hint', { level: H(anLevelName(d.levels[d.at + 1])) })}</span>` : '';
   const tabs = now.views.map((v) => `<button class="an__tab ${v.id === now.saved.id ? 'on' : ''}" data-act="anview" data-c="${c.name}" data-v="${v.id}" ${v.by ? `title="${t('an.madeByShort', { who: v.by })}"` : ''}>${v.by ? Is('ai', 13) : ''}${esc(anViewName(v))}</button>`).join('');
-  const shown = d.rows.length, groups = d.keys ? (d.all > d.keys.length ? t('an.limit.top', { n: d.keys.length }) : '') : '';
+  const shown = d.rows.length, groups = d.keys && d.all > d.keys.length ? t('an.limit.top', { n: d.keys.length }) : '';
   return `<div class="an__top">${names.length > 1 ? `<div class="seg" role="group" aria-label="${t('an.tables')}">${names.map((n) => `<button class="${n === now.name ? 'on' : ''} mono" data-act="antable" data-c="${c.name}" data-n="${n}">${n}</button>`).join('')}</div>` : '<span></span>'}<span class="faint mono" style="font-size:12px">${t('an.queryAs', { name: H(`${c.name}.${now.name}`) })}</span></div>
   ${facts([['an.f.rows', cnt({ n: tb.rows.length, u: 'rows' })], ['an.f.files', tb.file ? esc(tb.file) : t('an.filesIn', { n: tb.files, folder: tb.folder })], ['an.f.updated', when(tb.updated)], ['an.f.views', nf(now.views.length)]])}
   <div class="card" style="margin-bottom:20px">
@@ -1518,8 +1602,8 @@ function analysisView(c) {
       <div class="row" style="flex:none">${now.edited ? `<span class="tag">${t('an.edited')}</span><button class="btn btn--primary" data-act="ansavenow" data-c="${c.name}">${t('save')}</button>` : ''}<button class="btn icon-btn" data-act="anmore" data-c="${c.name}" aria-label="${t('more')}">${I('more')}</button></div></div>
     ${now.saved.by ? `<div class="an__by">${Is('ai', 14)}<span>${t('an.madeBy', { who: now.saved.by, date: md(now.saved.on) })}</span></div>` : ''}
     <div class="pv">
-      <div class="pv__main"><div class="pv__bar"><span class="faint">${[shown === tb.rows.length ? cnt({ n: shown, u: 'rows' }) : t('an.rowsOf', { n: shown, total: tb.rows.length }), groups].filter(Boolean).join(' · ')}</span></div>
-        <div class="pv__viz">${cfg.chart !== 'table' && !d.keys ? `<div class="pv__empty">${t('an.needDim')}</div>` : anDraw(tb, cfg)}</div></div>
+      <div class="pv__main"><div class="pv__bar">${crumbs || `<span class="faint">${[shown === tb.rows.length ? cnt({ n: shown, u: 'rows' }) : t('an.rowsOf', { n: shown, total: tb.rows.length }), groups].filter(Boolean).join(' · ')}</span>`}${hint}</div>
+        <div class="pv__viz">${anDraw(tb, cfg, d, c.name)}</div></div>
       ${side}
     </div>
   </div>
@@ -1529,13 +1613,16 @@ function analysisView(c) {
   <p class="hint" style="margin:10px 2px 0">${t('an.colsNote')}</p>
   <p class="hint" style="margin:6px 2px 0">${t('an.aiNote', { link: H(`<a class="link" href="#assistants">${t('nav.assistants')}</a>`) })}</p>`;
 }
-// Any change is a draft of the chart shown, until it is saved or discarded.
+// Any change is a draft of the chart shown, until it is saved or discarded; it starts from the top of the path again.
 function anEdit(c, change) {
   const now = anNow(c), cfg = JSON.parse(JSON.stringify(now.cfg));
   change(cfg);
-  if (!cfg.dims.length) { cfg.sort = null; cfg.limit = null; }
+  const grouped = cfg.time || cfg.dims.length;
+  if (!grouped) { cfg.sort = null; cfg.limit = null; }
+  if (grouped && !cfg.mets.length) cfg.mets = [{ f: null, a: 'count' }];
   if (cfg.sort && !(cfg.mets[cfg.sort.by])) cfg.sort = cfg.mets.length ? { by: 0, dir: cfg.sort.dir } : null;
   S.an.draft = { key: now.key, id: now.saved.id, cfg };
+  S.an.drill = null;
   render(true);
 }
 function masonry(name) {
@@ -2575,45 +2662,45 @@ const ACT = {
   fsort: (el) => { const k = el.dataset.k; if (S.fsort === k) S.fdir = S.fdir === 'asc' ? 'desc' : 'asc'; else { S.fsort = k; S.fdir = SORT_FIRST[k]; } render(true); },
   fview: (el) => { S.fview = el.dataset.v; render(true); },
   fmode: (el) => { S.fmode[el.dataset.c] = el.dataset.v; render(true); },
-  antable: (el) => { S.an.table[el.dataset.c] = el.dataset.n; S.an.draft = null; render(true); },
-  anview: (el) => { const now = anNow(el.dataset.c); S.an.view[now.key] = el.dataset.v; S.an.draft = null; render(true); },
+  antable: (el) => { S.an.table[el.dataset.c] = el.dataset.n; S.an.draft = null; S.an.drill = null; render(true); },
+  anview: (el) => { const now = anNow(el.dataset.c); S.an.view[now.key] = el.dataset.v; S.an.draft = null; S.an.drill = null; render(true); },
+  // Down into a group: the next level of the path, within it. Up: back to any level above.
+  andrill: (el) => { const now = anNow(el.dataset.c), d = anCompute(now.tb, now.cfg, now.drill); if (!d.canDrill) return; S.an.drill = { key: now.key, id: now.saved.id, path: [...d.drill, { i: d.at, v: el.dataset.v }] }; render(true); },
+  anup: (el) => { const now = anNow(el.dataset.c); S.an.drill = { key: now.key, id: now.saved.id, path: now.drill.slice(0, +el.dataset.n) }; render(true); },
+  angrain: (el) => anEdit(el.dataset.c, (x) => { x.time.g = el.dataset.g; }),
   anpick: (el) => {
-    const c = el.dataset.c, k = el.dataset.k, cfg = anNow(c).cfg;
+    const c = el.dataset.c, k = el.dataset.k, now = anNow(c), cfg = now.cfg;
     if (k === 'chart') return menu(el, AN_TYPES.map((p) => [t(`an.t.${p}`), null, () => anEdit(c, (x) => { x.chart = p; }), cfg.chart === p]));
+    if (k === 'time') return menu(el, [[t('an.time.none'), null, () => anEdit(c, (x) => { x.time = null; }), !cfg.time], ...anTimeFields(now.tb).map((f) => [esc(f), null, () => anEdit(c, (x) => { x.time = { f, g: (x.time && x.time.g) || 'month', range: (x.time && x.time.range) || 'all' }; }), !!cfg.time && cfg.time.f === f])]);
+    if (k === 'range') return menu(el, AN_RANGES.map((r) => [t(`an.rg.${r}`), null, () => anEdit(c, (x) => { x.time.range = r; }), cfg.time.range === r]));
     if (k === 'limit') return menu(el, [null, 5, 10, 20].map((n) => [n ? t('an.limit.top', { n }) : t('an.limit.all'), null, () => anEdit(c, (x) => { x.limit = n; }), cfg.limit === n]));
     const by = (i, dir) => [t('an.sortItem', { name: H(anMetName(cfg.mets[i])), dir: H(t(`an.o.${dir}`)) }), null, () => anEdit(c, (x) => { x.sort = { by: i, dir }; }), !!cfg.sort && cfg.sort.by === i && cfg.sort.dir === dir];
     return menu(el, [[t('an.o.none'), null, () => anEdit(c, (x) => { x.sort = null; }), !cfg.sort], ...cfg.mets.flatMap((_, i) => [by(i, 'desc'), by(i, 'asc')])]);
   },
-  // Add a dimension, something to compare, a metric or a filter: from the table's columns, each marked as a dimension or a metric.
+  // Add a dimension, something to compare, a metric or a filter. Time is chosen above, not here: a column of
+  // time is one dimension, seen at a grain.
   anadd: (el) => {
-    const c = el.dataset.c, k = el.dataset.k, now = anNow(c), tb = now.tb, cfg = now.cfg;
+    const c = el.dataset.c, k = el.dataset.k, now = anNow(c), tb = now.tb, cfg = now.cfg, times = anTimeFields(tb);
     const kind = (x) => t(x[1] === 'number' ? 'an.kind.met' : 'an.kind.dim');
     if (k === 'mets') {
       return menu(el, [[t('an.rowsMetric'), null, () => anEdit(c, (x) => { x.mets.push({ f: null, a: 'count' }); })], '-',
         ...tb.fields.map((x) => [esc(x[0]), null, () => anEdit(c, (y) => { y.mets.push({ f: x[0], a: x[1] === 'number' ? (y.mets.some((m) => m.f === x[0] && m.a === 'sum') ? 'avg' : 'sum') : 'distinct' }); }), false, kind(x)])]);
     }
     if (k === 'filters') {
-      return menu(el, tb.fields.filter((x) => !cfg.filters.some((f) => f.f === x[0])).map((x) => [esc(x[0]), null, () => {
-        if (x[1] === 'date') return anEdit(c, (y) => { y.filters.push({ f: x[0], days: 90 }); });
+      return menu(el, tb.fields.filter((x) => !times.includes(x[0]) && !cfg.filters.some((f) => f.f === x[0])).map((x) => [esc(x[0]), null, () => {
         if (x[1] === 'number') return open('anrange', { c, f: x[0], i: -1, min: '', max: '' });
         open('anfilter', { c, f: x[0], i: -1, vals: [], all: [...new Set(tb.rows.map((r) => String(anRaw(tb, r, x[0]))))].sort() });
       }, false, kind(x)]));
     }
     const used = [...cfg.dims, ...cfg.cmp].map((d) => d.f);
-    return menu(el, tb.fields.filter((x) => x[1] !== 'number' && (x[1] === 'date' || !used.includes(x[0]))).map((x) => [esc(x[0]), null, () => anEdit(c, (y) => {
-      const grains = [...y.dims, ...y.cmp].filter((d) => d.f === x[0]).map((d) => d.g);
-      y[k].push(x[1] === 'date' ? { f: x[0], g: AN_GRAINS.find((g) => !grains.includes(g) && (g === 'month' || grains.includes('month'))) || 'year' } : { f: x[0] });
-    }), false, kind(x)]));
+    return menu(el, tb.fields.filter((x) => x[1] !== 'number' && !times.includes(x[0]) && !used.includes(x[0])).map((x) => [esc(x[0]), null, () => anEdit(c, (y) => { y[k].push({ f: x[0] }); }), false, kind(x)]));
   },
-  // A chip's name: how the column is taken. A date's grain, a metric's way of totalling, a filter's values.
+  // A chip's name: how it is taken. A metric's way of totalling, a filter's values.
   anchip: (el) => {
     const c = el.dataset.c, k = el.dataset.k, i = +el.dataset.i, now = anNow(c), tb = now.tb, it = now.cfg[k][i];
     if (k === 'mets') return menu(el, AN_AGGS[anType(tb, it.f)].map((a) => [t(`an.a.${a}`), null, () => anEdit(c, (x) => { x.mets[i].a = a; }), it.a === a]));
-    if (k !== 'filters') return menu(el, AN_GRAINS.map((g) => [t(`an.g.${g}`), null, () => anEdit(c, (x) => { x[k][i].g = g; }), it.g === g]));
     if (it.in) return open('anfilter', { c, f: it.f, i, vals: it.in.slice(), all: [...new Set(tb.rows.map((r) => String(anRaw(tb, r, it.f))))].sort() });
-    if (anType(tb, it.f) === 'number') return open('anrange', { c, f: it.f, i, min: it.min ?? '', max: it.max ?? '' });
-    const set = (f) => () => anEdit(c, (x) => { x.filters[i] = { f: it.f, ...f }; });
-    return menu(el, [[t('an.d.last', { n: 30 }), null, set({ days: 30 }), it.days === 30], [t('an.d.last', { n: 90 }), null, set({ days: 90 }), it.days === 90], [t('an.d.year'), null, set({ thisYear: true }), !!it.thisYear]]);
+    return open('anrange', { c, f: it.f, i, min: it.min ?? '', max: it.max ?? '' });
   },
   anrm: (el) => anEdit(el.dataset.c, (x) => { x[el.dataset.k].splice(+el.dataset.i, 1); }),
   anfilterok: () => { const { c, f, i, vals } = D; close(); anEdit(c, (x) => { if (!vals.length) { if (i >= 0) x.filters.splice(i, 1); } else if (i >= 0) x.filters[i] = { f, in: vals }; else x.filters.push({ f, in: vals }); }); },
@@ -3074,6 +3161,7 @@ document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change]');
   if (el && ACT[el.dataset.change]) ACT[el.dataset.change](el);
 });
+document.addEventListener('keydown', (e) => { const el = e.target; if ((e.key === 'Enter' || e.key === ' ') && el && el.dataset && el.dataset.act === 'andrill') { e.preventDefault(); ACT.andrill(el); } });
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.id === 'q' && D && D.name === 'cmdk') { D.q = el.value; D.sel = 0; layer.querySelector('#hits').innerHTML = hitsHTML(D); return; }

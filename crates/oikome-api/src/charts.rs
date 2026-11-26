@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use arrow_array::{Array, ArrayRef, Float64Array, StringArray};
 use arrow_schema::{DataType, Schema};
-use chrono::{Datelike, Days, Months, NaiveDate};
+use chrono::{Datelike, Days, Months, NaiveDate, NaiveDateTime, TimeDelta, Weekday};
 use oikome_engine::Value;
 use oikome_node::{OikomeSession, QueryResult};
 use oikome_semantic::rewrite::quote_ident;
@@ -49,10 +49,13 @@ const MAX_METRICS: usize = 8;
 const MAX_FILTERS: usize = 12;
 const MAX_FILTER_VALUES: usize = 500;
 const MAX_VALUE_BYTES: usize = 1024;
-/// The most groups shown, the most cells (a group and a pivoted value)
-/// answered with, and the most rows of a chart that groups nothing.
-const MAX_GROUPS: u32 = 1000;
-const MAX_CELLS: usize = 20_000;
+/// The groups shown unless a number is chosen, and the most that may be;
+/// the cells (a group and a pivoted value) answered with, likewise; and the
+/// most rows of a chart that groups nothing.
+const GROUPS: u32 = 1000;
+const MAX_GROUPS: u32 = 10_000;
+const CELLS: usize = 20_000;
+const MAX_CELLS: usize = 100_000;
 const MAX_ROWS: usize = 200;
 /// The most values of a column offered to a filter.
 const MAX_OFFERED: usize = 500;
@@ -141,6 +144,14 @@ impl Columns<'_> {
         )
     }
 
+    /// Whether a column of time has times of day: a timestamp, not a date.
+    fn is_timestamp(&self, name: &str) -> bool {
+        if let Some(read_as) = self.read_as(name) {
+            return read_as == ColumnType::Timestamp;
+        }
+        matches!(self.data_type(name), Some(DataType::Timestamp(_, _)))
+    }
+
     fn is_text(&self, name: &str) -> bool {
         if let Some(read_as) = self.read_as(name) {
             return read_as == ColumnType::Text;
@@ -177,78 +188,128 @@ impl Bound {
     }
 }
 
-/// A time at a grain, as text that sorts: `2026`, `2026-Q3`, `2026-08`,
-/// and the day a week (from Monday) or a day starts.
+/// A column of time at a grain, as the period it falls in, written in a
+/// standard way: 2026, 2026Q3, 2026-10, 2026-W40 (an ISO week), 2026-10-05,
+/// 2026-10-05 22, 2026-10-05 22:04, 2026-10-05 22:05:30.
 fn at_grain(column: &str, grain: DateGrain) -> String {
-    match grain {
-        DateGrain::Year => format!("strftime({column}, '%Y')"),
+    let format = match grain {
+        DateGrain::Year => "%Y",
         DateGrain::Quarter => {
-            format!("strftime({column}, '%Y') || '-Q' || CAST(quarter({column}) AS VARCHAR)")
+            return format!("strftime({column}, '%Y') || 'Q' || CAST(quarter({column}) AS VARCHAR)")
         }
-        DateGrain::Month => format!("strftime({column}, '%Y-%m')"),
-        DateGrain::Week => format!("strftime(date_trunc('week', {column}), '%Y-%m-%d')"),
-        DateGrain::Day => format!("strftime({column}, '%Y-%m-%d')"),
-    }
+        DateGrain::Month => "%Y-%m",
+        DateGrain::Week => "%G-W%V",
+        DateGrain::Day => "%Y-%m-%d",
+        DateGrain::Hour => "%Y-%m-%d %H",
+        DateGrain::Minute => "%Y-%m-%d %H:%M",
+        DateGrain::Second => "%Y-%m-%d %H:%M:%S",
+    };
+    format!("strftime({column}, '{format}')")
 }
 
-/// The first day of a period written as [`at_grain`] writes it.
-fn period_start(grain: DateGrain, key: &str) -> Option<NaiveDate> {
+/// Whether a grain is finer than a day: for a timestamp only.
+fn within_a_day(grain: DateGrain) -> bool {
+    matches!(
+        grain,
+        DateGrain::Hour | DateGrain::Minute | DateGrain::Second
+    )
+}
+
+/// When a period written as [`at_grain`] writes it begins. A quarter written
+/// 2026-Q3 and a week written as the Monday it starts on, as they were
+/// written before, are read too.
+fn period_start(grain: DateGrain, key: &str) -> Option<NaiveDateTime> {
+    let midnight = |day: NaiveDate| day.and_hms_opt(0, 0, 0);
     let year: i32 = key.get(..4)?.parse().ok()?;
+    let rest = key.get(4..)?;
     match grain {
-        DateGrain::Year => (key.len() == 4)
+        DateGrain::Year => rest
+            .is_empty()
             .then(|| NaiveDate::from_ymd_opt(year, 1, 1))
-            .flatten(),
+            .flatten()
+            .and_then(midnight),
         DateGrain::Quarter => {
-            let quarter: u32 = key.strip_prefix(&format!("{year}-Q"))?.parse().ok()?;
-            NaiveDate::from_ymd_opt(year, quarter.checked_mul(3)?.checked_sub(2)?, 1)
+            let quarter: u32 = rest
+                .strip_prefix('-')
+                .unwrap_or(rest)
+                .strip_prefix('Q')?
+                .parse()
+                .ok()?;
+            if !(1..=4).contains(&quarter) {
+                return None;
+            }
+            NaiveDate::from_ymd_opt(year, quarter * 3 - 2, 1).and_then(midnight)
         }
         DateGrain::Month => (key.len() == 7)
             .then(|| NaiveDate::from_ymd_opt(year, key.get(5..7)?.parse().ok()?, 1))
-            .flatten(),
-        DateGrain::Week | DateGrain::Day => NaiveDate::parse_from_str(key, "%Y-%m-%d").ok(),
+            .flatten()
+            .and_then(midnight),
+        DateGrain::Week => match rest.strip_prefix("-W") {
+            Some(week) => NaiveDate::from_isoywd_opt(year, week.parse().ok()?, Weekday::Mon),
+            None => NaiveDate::parse_from_str(key, "%Y-%m-%d")
+                .ok()
+                .map(|day| day - Days::new(u64::from(day.weekday().num_days_from_monday()))),
+        }
+        .and_then(midnight),
+        DateGrain::Day => NaiveDate::parse_from_str(key, "%Y-%m-%d")
+            .ok()
+            .and_then(midnight),
+        DateGrain::Hour => {
+            NaiveDateTime::parse_from_str(&format!("{key}:00:00"), "%Y-%m-%d %H:%M:%S").ok()
+        }
+        DateGrain::Minute => {
+            NaiveDateTime::parse_from_str(&format!("{key}:00"), "%Y-%m-%d %H:%M:%S").ok()
+        }
+        DateGrain::Second => NaiveDateTime::parse_from_str(key, "%Y-%m-%d %H:%M:%S").ok(),
     }
 }
 
-/// The period after the one starting on `day`.
-fn period_after(grain: DateGrain, day: NaiveDate) -> Option<NaiveDate> {
+/// The period after the one beginning `at`.
+fn period_after(grain: DateGrain, at: NaiveDateTime) -> Option<NaiveDateTime> {
     match grain {
-        DateGrain::Year => day.checked_add_months(Months::new(12)),
-        DateGrain::Quarter => day.checked_add_months(Months::new(3)),
-        DateGrain::Month => day.checked_add_months(Months::new(1)),
-        DateGrain::Week => day.checked_add_days(Days::new(7)),
-        DateGrain::Day => day.checked_add_days(Days::new(1)),
+        DateGrain::Year => at.checked_add_months(Months::new(12)),
+        DateGrain::Quarter => at.checked_add_months(Months::new(3)),
+        DateGrain::Month => at.checked_add_months(Months::new(1)),
+        DateGrain::Week => at.checked_add_days(Days::new(7)),
+        DateGrain::Day => at.checked_add_days(Days::new(1)),
+        DateGrain::Hour => at.checked_add_signed(TimeDelta::try_hours(1)?),
+        DateGrain::Minute => at.checked_add_signed(TimeDelta::try_minutes(1)?),
+        DateGrain::Second => at.checked_add_signed(TimeDelta::try_seconds(1)?),
     }
 }
 
-/// A day as [`at_grain`] writes the period it falls in.
-fn period_of(grain: DateGrain, day: NaiveDate) -> String {
+/// The period a moment falls in, written as [`at_grain`] writes it.
+fn period_of(grain: DateGrain, at: NaiveDateTime) -> String {
     match grain {
-        DateGrain::Year => day.format("%Y").to_string(),
-        DateGrain::Quarter => format!("{}-Q{}", day.year(), (day.month() - 1) / 3 + 1),
-        DateGrain::Month => day.format("%Y-%m").to_string(),
-        DateGrain::Week => (day - Days::new(u64::from(day.weekday().num_days_from_monday())))
-            .format("%Y-%m-%d")
-            .to_string(),
-        DateGrain::Day => day.format("%Y-%m-%d").to_string(),
+        DateGrain::Year => at.format("%Y").to_string(),
+        DateGrain::Quarter => format!("{}Q{}", at.year(), (at.month() - 1) / 3 + 1),
+        DateGrain::Month => at.format("%Y-%m").to_string(),
+        DateGrain::Week => {
+            let week = at.date().iso_week();
+            format!("{:04}-W{:02}", week.year(), week.week())
+        }
+        DateGrain::Day => at.format("%Y-%m-%d").to_string(),
+        DateGrain::Hour => at.format("%Y-%m-%d %H").to_string(),
+        DateGrain::Minute => at.format("%Y-%m-%d %H:%M").to_string(),
+        DateGrain::Second => at.format("%Y-%m-%d %H:%M:%S").to_string(),
     }
 }
 
 /// Every period at `grain` from the one `from` is in to the one `to` is in;
 /// none when they are more than a chart shows.
-fn periods(grain: DateGrain, from: NaiveDate, to: NaiveDate) -> Option<Vec<String>> {
-    let last = period_of(grain, to);
-    let mut day = period_start(grain, &period_of(grain, from));
+fn periods(grain: DateGrain, from: NaiveDateTime, to: NaiveDateTime) -> Option<Vec<String>> {
+    let last = period_start(grain, &period_of(grain, to))?;
+    let mut next = period_start(grain, &period_of(grain, from));
     let mut out = Vec::new();
-    while let Some(at) = day {
-        let key = period_of(grain, at);
-        if key > last {
+    while let Some(at) = next {
+        if at > last {
             break;
         }
-        if out.len() >= MAX_GROUPS as usize {
+        if out.len() >= GROUPS as usize {
             return None;
         }
-        out.push(key);
-        day = period_after(grain, at);
+        out.push(period_of(grain, at));
+        next = period_after(grain, at);
     }
     Some(out)
 }
@@ -354,13 +415,18 @@ fn filter(
                 "{name} is not a column of time: it has no periods"
             )));
         }
-        if period_start(period.grain, &period.key).is_none() {
+        if within_a_day(period.grain) && !columns.is_timestamp(name) {
+            return Err(ApiError::invalid(format!(
+                "{name} is a date: it has no hours, minutes or seconds"
+            )));
+        }
+        let Some(start) = period_start(period.grain, &period.key) else {
             return Err(ApiError::invalid(format!(
                 "{} is not a period of {name}",
                 period.key
             )));
-        }
-        let key = bound.bind(Value::Text(period.key.clone()));
+        };
+        let key = bound.bind(Value::Text(period_of(period.grain, start)));
         return Ok(Some(format!("{} = {key}", at_grain(&column, period.grain))));
     }
     if !filter.values.is_empty() {
@@ -576,6 +642,12 @@ impl Api {
             if !columns.is_time(&time.column) {
                 return Err(ApiError::invalid(format!(
                     "{} is not a column of time",
+                    time.column
+                )));
+            }
+            if within_a_day(time.grain) && !columns.is_timestamp(&time.column) {
+                return Err(ApiError::invalid(format!(
+                    "{} is a date: it has no hours, minutes or seconds",
                     time.column
                 )));
             }
@@ -815,8 +887,8 @@ impl Api {
             }
             let cap = match (limit, nc) {
                 (Some(n), _) => n as usize,
-                (None, 0) => MAX_GROUPS as usize,
-                (None, _) => MAX_CELLS,
+                (None, 0) => GROUPS as usize,
+                (None, _) => CELLS,
             };
             let mut sql = format!(
                 "SELECT {}\nFROM {table_name}{}",
@@ -860,7 +932,7 @@ impl Api {
                     where_of(&kept),
                     places(0..nk).join(", "),
                     direction(sort),
-                    limit.unwrap_or(MAX_GROUPS)
+                    limit.unwrap_or(GROUPS)
                 ),
                 None => format!(
                     "SELECT {}\nFROM {table_name}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {}",
@@ -868,7 +940,7 @@ impl Api {
                     where_of(&kept),
                     places(0..nk).join(", "),
                     places(0..nk).join(", "),
-                    limit.unwrap_or(MAX_GROUPS)
+                    limit.unwrap_or(GROUPS)
                 ),
             };
             let joined: Vec<String> = keyed
@@ -956,12 +1028,14 @@ impl Api {
                     .filter(|_| f.column == time.column)
                     .and_then(|p| {
                         let start = period_start(p.grain, &p.key)?;
-                        Some((start, period_after(p.grain, start)?.pred_opt()?))
+                        let end = period_after(p.grain, start)?
+                            .checked_sub_signed(TimeDelta::try_seconds(1)?)?;
+                        Some((start, end))
                     })
             });
             let found: Vec<&String> = groups.iter().filter_map(|g| g.keys[0].as_ref()).collect();
             let ranged = match ends {
-                (Some(from), Some(to)) => Some((from, to)),
+                (Some(from), Some(to)) => from.and_hms_opt(0, 0, 0).zip(to.and_hms_opt(23, 59, 59)),
                 _ => None,
             };
             let bounds = within.or(ranged).or_else(|| {

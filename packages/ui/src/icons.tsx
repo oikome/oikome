@@ -22,6 +22,8 @@ export type IconName =
   | "drag"
   | "drive"
   | "error"
+  | "expand"
+  | "shrink"
   | "folder"
   | "home"
   | "info"
@@ -187,6 +189,17 @@ const PATHS: Record<IconName, ReactElement> = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 7.5v5.5m0 3v.01" />
+    </>
+  ),
+  // Full screen, as a video player draws it: corners out, and back in.
+  expand: (
+    <>
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </>
+  ),
+  shrink: (
+    <>
+      <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
     </>
   ),
   info: (

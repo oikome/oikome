@@ -36,6 +36,7 @@ import {
   Dialog,
   ErrorText,
   Icon,
+  IconButton,
   Menu,
   PointMenu,
   Select,
@@ -69,12 +70,18 @@ const x = strings.explorer;
 
 const CHARTS: ChartKind[] = ["table", "column", "bar", "line", "area", "pie", "treemap"];
 const GRAINS: DateGrain[] = ["year", "quarter", "month", "week", "day"];
-/** The grain a period zooms into; a week opens into its days. */
-const FINER: Partial<Record<DateGrain, DateGrain>> = { year: "quarter", quarter: "month", month: "day", week: "day" };
+/** A timestamp's grains, finer than a day. */
+const TIMES_OF_DAY: DateGrain[] = ["hour", "minute", "second"];
+/** The grain a period drills down to: a week opens into its days, a timestamp's day into its hours. */
+const FINER: Partial<Record<DateGrain, DateGrain>> = { year: "quarter", quarter: "month", month: "day", week: "day", day: "hour", hour: "minute", minute: "second" };
+const finerOf = (grain: DateGrain, timestamp: boolean) => (grain === "day" && !timestamp ? undefined : FINER[grain]);
 const RANGES: TimeRange[] = ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"];
 const NUMBER_AGGREGATES: ChartAggregate[] = ["sum", "average", "median", "min", "max", "count", "distinct"];
 const OTHER_AGGREGATES: ChartAggregate[] = ["count", "distinct"];
-const LIMITS = [5, 10, 20, 50];
+/** How many groups are shown: these to choose from, or a number of one's own up to the most; 1000 unless chosen. */
+const LIMITS = [10, 20, 50, 100, 1000];
+const GROUPS = 1000;
+const MAX_GROUPS = 10_000;
 /** The chart being made with + New Chart, not saved yet. */
 const UNTITLED = "untitled";
 /** A chart whose groups are its slices, with nothing laid across them. */
@@ -109,6 +116,8 @@ function kindOf(field: Field): string {
 const isNumber = (field: Field | undefined) => field !== undefined && kindOf(field) === "number";
 /** A column of time: a date or a timestamp. */
 const isTime = (field: Field | undefined) => field !== undefined && (kindOf(field) === "date" || kindOf(field) === "timestamp");
+/** A column of time with times of day too. */
+const isTimestamp = (field: Field | undefined) => field !== undefined && kindOf(field) === "timestamp";
 const shownFields = (table: AnalysisTable) => table.fields.filter((f) => f.name !== "_source_file");
 const fieldOf = (table: AnalysisTable, name: string | null) => table.fields.find((f) => f.name === name);
 
@@ -128,20 +137,13 @@ const metricName = (m: ChartMetric) =>
   !m.column ? "COUNT(*)" : m.aggregate === "distinct" ? `COUNT(DISTINCT ${m.column})` : `${FUNCTIONS[m.aggregate]}(${m.column})`;
 /** An aggregate function as a choice: its name, and what it does in words. */
 const functionName = (a: ChartAggregate) => `${a === "distinct" ? "COUNT DISTINCT" : FUNCTIONS[a]} · ${x.aggregates[a] ?? a}`;
-const day = (key: string) => new Date(`${key}T00:00`);
-/** A value a group is keyed by, in the reader's words: a period of time, or the value itself. */
-function keyName(level: ChartLevel | undefined, key: string | null): string {
-  if (key === null) return x.blank;
-  if (!level?.grain) return key;
-  try {
-    if (level.grain === "year") return key;
-    if (level.grain === "quarter") return x.quarter(key.slice(0, 4), key.slice(6));
-    if (level.grain === "month") return new Intl.DateTimeFormat(locale(), { year: "numeric", month: "short" }).format(day(`${key}-01`));
-    const date = new Intl.DateTimeFormat(locale(), { month: "short", day: "numeric" }).format(day(key));
-    return level.grain === "week" ? x.weekOf(date) : date;
-  } catch {
-    return key;
-  }
+/**
+ * A value a group is keyed by, as the node writes it: a period in a standard
+ * way (2026, 2026Q3, 2026-10, 2026-W40, 2026-10-05, 2026-10-05 22, …), or
+ * the value itself.
+ */
+function keyName(_level: ChartLevel | undefined, key: string | null): string {
+  return key ?? x.blank;
 }
 /** A column a chart's groups are keyed by, as a heading: the time with its grain. */
 const levelName = (level: ChartLevel) => (level.grain ? x.colAt(level.column, x.grains[level.grain] ?? level.grain) : level.column);
@@ -166,7 +168,7 @@ function chartOf(raw: unknown): ChartSpec | undefined {
   if (!CHARTS.includes(given.chart as ChartKind)) return undefined;
   const list = <T,>(value: T[] | undefined): T[] => (Array.isArray(value) ? value : []);
   const time =
-    given.time && GRAINS.includes(given.time.grain)
+    given.time && [...GRAINS, ...TIMES_OF_DAY].includes(given.time.grain)
       ? {
           column: given.time.column,
           grain: given.time.grain,
@@ -220,7 +222,7 @@ const emptyFilter = (column: string): ChartFilter => ({ column, values: [], min:
 
 /** A drill into a group, as an edit of the description. */
 type Step =
-  | { zoom: { column: string; grain: DateGrain; key: string } }
+  | { zoom: { column: string; grain: DateGrain; key: string; to: DateGrain } }
   | { by: string; keep: [string, string][]; period?: { column: string; grain: DateGrain; key: string } };
 
 function drilled(spec: ChartSpec, step: Step): ChartSpec {
@@ -230,9 +232,9 @@ function drilled(spec: ChartSpec, step: Step): ChartSpec {
     filters = [...filters.filter((f) => f.column !== filter.column), filter];
   };
   if ("zoom" in step) {
-    const { column, grain, key } = step.zoom;
+    const { column, grain, key, to } = step.zoom;
     only({ ...emptyFilter(column), period: { grain, key } });
-    return { ...spec, filters, time: spec.time ? { ...spec.time, grain: FINER[grain] ?? grain } : null };
+    return { ...spec, filters, time: spec.time ? { ...spec.time, grain: to } : null };
   }
   for (const [column, value] of step.keep) only({ ...emptyFilter(column), values: [value] });
   if (step.period) only({ ...emptyFilter(step.period.column), period: { grain: step.period.grain, key: step.period.key } });
@@ -273,7 +275,13 @@ function fitted(spec: ChartSpec, table: AnalysisTable): ChartSpec {
   const counts = (m: ChartMetric) => m.aggregate === "count" || m.aggregate === "distinct";
   const next: ChartSpec = {
     ...spec,
-    time: spec.time && isTime(field(spec.time.column)) ? spec.time : null,
+    // A time read as a date has no hours: its finest grain is the day.
+    time:
+      spec.time && isTime(field(spec.time.column))
+        ? TIMES_OF_DAY.includes(spec.time.grain) && !isTimestamp(field(spec.time.column))
+          ? { ...spec.time, grain: "day" }
+          : spec.time
+        : null,
     dimensions: spec.dimensions.filter((d) => there(d.column) && d.column !== spec.time?.column),
     pivots: spec.pivots.filter((d) => there(d.column)),
     metrics: spec.metrics.filter((m) => m.column === null || (there(m.column) && (counts(m) || isNumber(field(m.column))))),
@@ -712,6 +720,44 @@ function ResultTable({
   );
 }
 
+/** A number of groups of one's own, 1 to 10,000: applied when the box is left or on Enter; one out of range is put back. */
+function CountField({ value, onApply }: { value: number; onApply: (count: number) => void }) {
+  const [typed, setTyped] = useState(String(value));
+  const [wrong, setWrong] = useState(false);
+  useEffect(() => setTyped(String(value)), [value]);
+  const apply = () => {
+    const count = /^\d{1,5}$/.test(typed.trim()) ? Number(typed) : Number.NaN;
+    if (count >= 1 && count <= MAX_GROUPS) {
+      setWrong(false);
+      if (count !== value) onApply(count);
+    } else {
+      setWrong(true);
+      setTyped(String(value));
+    }
+  };
+  return (
+    <div className="screen-explorer__count-own">
+      <input
+        className="oik-input"
+        name="chart-count"
+        aria-label={x.countOwn}
+        aria-invalid={wrong || undefined}
+        inputMode="numeric"
+        autoComplete="off"
+        maxLength={5}
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={apply}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+      {wrong ? <ErrorText>{x.countRange(MAX_GROUPS)}</ErrorText> : <span className="screen-explorer__note">{x.countRange(MAX_GROUPS)}</span>}
+    </div>
+  );
+}
+
 /** The chart itself, drawn by ECharts once it has loaded. */
 function Drawn({ drawing, label }: { drawing: Drawing; label: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -788,6 +834,49 @@ export function Explorer({
   const [pointed, setPointed] = useState<{ at: { x: number; y: number }; items: MenuItem[]; label: string }>();
   // A chart being made with + New Chart, until it is saved under a name or discarded.
   const [making, setMaking] = useState(false);
+  // A number of groups of one's own is being typed.
+  const [customCount, setCustomCount] = useState(false);
+  // The chart and its panel on the whole screen, as a video player does: the
+  // browser's full screen where it gives one, else the whole window, in the
+  // page's top layer (as a popover is), above whatever holds it.
+  const body = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const changed = () => setFull(document.fullscreenElement !== null && document.fullscreenElement === body.current);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, []);
+  const leaveFull = () => {
+    if (document.fullscreenElement) return void document.exitFullscreen();
+    const el = body.current;
+    if (el?.hasAttribute("popover")) {
+      el.hidePopover();
+      el.removeAttribute("popover");
+    }
+    setFull(false);
+  };
+  const enterFull = async () => {
+    const el = body.current;
+    if (!el) return;
+    if (document.fullscreenEnabled) {
+      try {
+        return await el.requestFullscreen();
+      } catch {
+        // Refused (an iPhone, a frame): the whole window instead.
+      }
+    }
+    el.setAttribute("popover", "manual");
+    el.showPopover();
+    setFull(true);
+  };
+  useEffect(() => {
+    if (!full || document.fullscreenElement) return;
+    const leave = (e: KeyboardEvent) => e.key === "Escape" && leaveFull();
+    window.addEventListener("keydown", leave);
+    return () => window.removeEventListener("keydown", leave);
+    // `leaveFull` only reads the element and sets state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full]);
 
   // The tabs: the charts kept (a table starts with one, an ordinary chart),
   // and the one being made. There may be none.
@@ -936,15 +1025,18 @@ export function Explorer({
     setTrail(to === 0 ? undefined : { of: view.id, steps: steps.slice(0, to) });
   };
   /** What a group of the chart can be: a period zoomed into, or broken down by a column not in use. */
+  // A timestamp drills down past its days, to hours, minutes and seconds.
+  const timestamp = isTimestamp(fieldOf(table, spec.time?.column ?? null));
   // Drilling down goes by a column of kinds (text, dates, true or false), as BI tools do: a measure has no groups worth one.
   const drillBy = fields.filter((f) => !used.includes(f.name) && !isNumber(f));
   const actionsAt = (columns: ChartLevel[], keys: (string | null)[]): MenuItem[] => {
     const items: MenuItem[] = [];
     const t = columns.findIndex((c) => c.grain);
     const period = t >= 0 && keys[t] !== null ? { column: columns[t]!.column, grain: columns[t]!.grain!, key: keys[t]! } : undefined;
-    if (period && FINER[period.grain]) {
+    const to = period ? finerOf(period.grain, timestamp) : undefined;
+    if (period && to) {
       const name = keyName(columns[t], period.key);
-      items.push({ label: x.zoomInto(name), onSelect: () => drill(name, { zoom: period }) });
+      items.push({ label: x.zoomInto(name), onSelect: () => drill(name, { zoom: { ...period, to } }) });
     }
     const keep = columns.flatMap((c, j): [string, string][] => (c.grain || keys[j] === null ? [] : [[c.column, keys[j]!]]));
     const label = columns.map((c, j) => keyName(c, keys[j] ?? null)).join(" / ");
@@ -958,7 +1050,7 @@ export function Explorer({
     if (items.length > 0) setPointed({ at, items, label: columns.map((c, j) => keyName(c, keys[j] ?? null)).join(" / ") });
   };
   // The grain a click on a period zooms into, when the time is drawn and can go finer.
-  const finer = axis?.columns.some((c) => c.grain) && spec.time ? FINER[spec.time.grain] : undefined;
+  const finer = axis?.columns.some((c) => c.grain) && spec.time ? finerOf(spec.time.grain, timestamp) : undefined;
   // A group is clicked only when something can be done with it: at the finest grain, with no column left to go by, nothing.
   const clickable = Boolean(axis && axis.columns.length > 0 && (finer || drillBy.length > 0));
   const named = axis ? JSON.stringify(axis) : "";
@@ -969,12 +1061,19 @@ export function Explorer({
       groups: axis.labels,
       series: axis.series,
       valueName: metrics.length === 1 ? metricName(metrics[0]!) : undefined,
+      // In time's own order, the newest are seen first when not all fit.
+      newest: Boolean(spec.time && !spec.sort),
       format: number,
-      onPick: clickable ? (i, at) => pointAt(axis.columns, axis.keys[i] ?? [], at) : undefined,
+      onPick: clickable
+        ? (i, at) => {
+            // A period put in its place with no rows has nothing to drill into.
+            if (axis.series.some((s) => s.values[i] !== null)) pointAt(axis.columns, axis.keys[i] ?? [], at);
+          }
+        : undefined,
     };
     // `pointAt` stands for the chart shown, which `axis` follows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [named, spec.chart, clickable]);
+  }, [named, spec.chart, clickable, spec.time, spec.sort]);
   const empty = result !== undefined && (result.rows ? result.rows.rows.length === 0 : result.groups.length === 0);
   const facts = result
     ? [
@@ -988,6 +1087,8 @@ export function Explorer({
           : undefined,
       ].filter((fact): fact is string => fact !== undefined)
     : [];
+  const shownCount = spec.limit ?? GROUPS;
+  const countChoice = customCount || !LIMITS.includes(shownCount) ? "custom" : String(shownCount);
   const sortValue = spec.sort ? `${spec.sort.metric}:${spec.sort.descending ? "desc" : "asc"}` : "";
 
   return (
@@ -1080,7 +1181,7 @@ export function Explorer({
             <ErrorText>{saving.error}</ErrorText>
           </div>
         )}
-        {!none && <div className="screen-explorer__body">
+        {!none && <div ref={body} className="screen-explorer__body">
           <div className="screen-explorer__stage" aria-busy={result === undefined && failed === undefined}>
             <div className="screen-explorer__where">
               <div className="screen-explorer__whereabouts">
@@ -1126,6 +1227,7 @@ export function Explorer({
                 <Button className="screen-explorer__sql-button" disabled={!result} onClick={() => setDialog("sql")}>
                   {x.showSql}
                 </Button>
+                <IconButton icon={full ? "shrink" : "expand"} label={full ? x.exitFullScreen : x.fullScreen} onClick={() => void (full ? leaveFull() : enterFull())} />
               </div>
             </div>
             {failed ? (
@@ -1143,7 +1245,10 @@ export function Explorer({
                 result={result}
                 metrics={metrics}
                 onPick={clickable ? (i, at) => pointAt(result.columns, result.groups[i]?.keys ?? [], at) : undefined}
-                canPick={(i) => actionsAt(result.columns, result.groups[i]?.keys ?? []).length > 0}
+                // A period put in its place with no rows has nothing to drill into.
+                canPick={(i) =>
+                  Boolean(result.groups[i]?.values.some((v) => v !== null)) && actionsAt(result.columns, result.groups[i]?.keys ?? []).length > 0
+                }
               />
             )}
           </div>
@@ -1163,7 +1268,7 @@ export function Explorer({
                   <Chip
                     text={levelName({ column: spec.time.column, grain: spec.time.grain })}
                     label={x.grainFor(spec.time.column)}
-                    items={GRAINS.map((g) => ({
+                    items={(timestamp ? [...GRAINS, ...TIMES_OF_DAY] : GRAINS).map((g) => ({
                       label: x.grains[g] ?? g,
                       checked: g === spec.time!.grain,
                       onSelect: () => setTime({ ...spec.time!, grain: g }),
@@ -1287,16 +1392,23 @@ export function Explorer({
                 ]}
               />
             )}
+            {/* How many groups: 1000 unless chosen, shown as chosen; or a number of one's own. */}
             {grouped && (
-              <Select
-                label={x.show}
-                value={spec.limit === null ? "" : String(spec.limit)}
-                onChange={(value) => change({ limit: value === "" ? null : Number(value) })}
-                options={[
-                  { value: "", label: x.showAll },
-                  ...[...new Set([...LIMITS, ...(spec.limit === null ? [] : [spec.limit])])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: x.showTop(n) })),
-                ]}
-              />
+              <div className="screen-explorer__count">
+                <Select
+                  label={x.show}
+                  value={countChoice}
+                  onChange={(value) => {
+                    if (value === "custom") return setCustomCount(true);
+                    setCustomCount(false);
+                    change({ limit: Number(value) === GROUPS ? null : Number(value) });
+                  }}
+                  options={[...LIMITS.map((n) => ({ value: String(n), label: String(n) })), { value: "custom", label: x.customCount }]}
+                />
+                {countChoice === "custom" && (
+                  <CountField value={spec.limit ?? GROUPS} onApply={(n) => change({ limit: n === GROUPS ? null : n })} />
+                )}
+              </div>
             )}
           </div>
         </div>}

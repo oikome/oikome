@@ -635,7 +635,9 @@ pub enum ChartKind {
     Treemap,
 }
 
-/// What a date is grouped by.
+/// What a date is grouped by, each period written in a standard way: 2026,
+/// 2026Q3, 2026-10, 2026-W40 (an ISO week), 2026-10-05; for a timestamp
+/// also 2026-10-05 22, 2026-10-05 22:04 and 2026-10-05 22:05:30.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 pub enum DateGrain {
@@ -644,6 +646,9 @@ pub enum DateGrain {
     Month,
     Week,
     Day,
+    Hour,
+    Minute,
+    Second,
 }
 
 /// How a metric totals its column.
@@ -779,7 +784,8 @@ pub struct ChartSpec {
     pub filters: Vec<ChartFilter>,
     #[serde(default)]
     pub sort: Option<ChartSort>,
-    /// Show only the first groups, in the chart's order.
+    /// How many groups to show, the first in the chart's order: 1 to
+    /// 10,000, and 1000 when left out.
     #[serde(default)]
     pub limit: Option<u32>,
 }

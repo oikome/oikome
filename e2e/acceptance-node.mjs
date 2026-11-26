@@ -395,6 +395,18 @@ function generateFiles(root) {
     steps.push(JSON.stringify({ date: `2026-11-${String(day).padStart(2, "0")}`, steps: 5200 + ((day * 977) % 6400), city: day % 6 === 0 ? "Porto" : "Lisbon" }));
   }
   write(root, "household/steps.jsonl", steps.join("\n") + "\n");
+  // A weather station's daily log, nearly five years of it: more days than
+  // a chart shows at once (the newest are shown), with dates, decimals,
+  // true or false and text to try every kind of column on.
+  const weather = ["day,city,high_c,low_c,rain_mm,sunny"];
+  for (let at = Date.UTC(2022, 0, 1); at <= Date.UTC(2026, 10, 26); at += 86_400_000) {
+    const day = new Date(at);
+    const season = Math.cos(((day.getUTCMonth() * 30.4 + day.getUTCDate() - 200) / 365) * 2 * Math.PI);
+    const wobble = Math.sin(at / 86_400_000 / 3.7);
+    const rain = Math.max(0, (1 - season) * 4 * wobble);
+    weather.push([day.toISOString().slice(0, 10), "Lisbon", (21 + season * 7 + wobble * 2).toFixed(1), (13 + season * 5 + wobble).toFixed(1), rain.toFixed(1), rain < 0.5].join(","));
+  }
+  write(root, "household/weather.csv", weather.join("\n") + "\n");
   write(root, "household/utilities.xlsx", utilities());
   // A reading list kept in the folder a cloud drive's client syncs.
   write(root, "drive-sync/Oikome/reading-list/books.csv", "title,author,status,finished\nThe Book of Disquiet,Fernando Pessoa,Reading,\nBlindness,José Saramago,Read,2026-08-14\nPereira Maintains,Antonio Tabucchi,Next,\n");
@@ -444,6 +456,27 @@ function writeDatasets(scenarioRoot, files) {
       "CREATE TABLE tracker.sleep (night DATE, hours DOUBLE, deep_hours DOUBLE, awakenings INTEGER); " +
       `INSERT INTO tracker.sleep VALUES ${nights}`,
   );
+  // A smart plug's readings, every 20 minutes with the seconds as it wrote
+  // them, for a week: a timestamp to drill down to hours, minutes and
+  // seconds, and each kind of column as its own type (a whole number, a
+  // floating one, an exact one for money, true or false).
+  const readings = [];
+  for (let i = 0; i < 7 * 72; i++) {
+    const at = new Date(Date.UTC(2026, 10, 19) + i * 20 * 60_000 + ((i * 17) % 60) * 1000);
+    const hour = at.getUTCHours();
+    const peak = hour >= 18 && hour < 22;
+    for (const [circuit, base] of [["Kitchen", 180], ["Office", 95]]) {
+      const watts = Math.round(base * (peak ? 2.2 : 1) + ((i * 37) % 60));
+      const kwh = (watts / 3000).toFixed(4);
+      const price = (peak ? 0.2512 : 0.1534).toFixed(4);
+      readings.push(`(TIMESTAMP '${at.toISOString().slice(0, 19).replace("T", " ")}', '${circuit}', ${watts}, ${kwh}, ${price}, ${peak})`);
+    }
+  }
+  const inserts = [];
+  for (let at = 0; at < readings.length; at += 250) inserts.push(`INSERT INTO exports.power VALUES ${readings.slice(at, at + 250).join(", ")}`);
+  oikome(writer, "sql", "CREATE TABLE exports.power (read_at TIMESTAMP, circuit VARCHAR, watts INTEGER, kwh DOUBLE, price DECIMAL(10, 4), peak BOOLEAN)");
+  for (const insert of inserts) oikome(writer, "sql", insert);
+  cpSync(join(writer, "exports", "power"), join(files, "household", "power-meter"), { recursive: true });
   cpSync(join(writer, "exports", "meter"), join(files, "household", "energy-meter"), { recursive: true });
   cpSync(join(writer, ".oikome", "lance", "tracker", "sleep.lance"), join(files, "household", "sleep.lance"), { recursive: true });
   return join(writer, "exports", "trams");
@@ -521,7 +554,7 @@ async function withApi(loginLink, actions) {
   }
 }
 
-async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
+async function seedWorkspace(config, files, loginLink, rustfs, peerDid, analysed) {
   return withApi(loginLink, async (call) => {
     await call("rename_node", { name: config.title });
     await call("install_plugin", { path: join(REPO, "crates", "oikome-sandbox", "tests", "plugins", "stored-picture") });
@@ -564,6 +597,15 @@ async function seedWorkspace(config, files, loginLink, rustfs, peerDid) {
     // Last year's receipts in the bucket, added to the household's own
     // collection by reference: a folder of it, read where it is.
     await call("add_in_place_folder", { space: "household", path: "household/receipts-2024", place: object.name });
+    // By hand (`npm run acceptance`), every file's table is there to explore
+    // and query (`npm run oiql`) from the start; the acceptance test makes
+    // them itself.
+    if (analysed) {
+      await call("build_analysis", {
+        space: "household",
+        tables: ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water", "weather"],
+      });
+    }
 
     // Backups to a folder standing for an external disk, every day at 03:00;
     // one is made now, so Restore from Backup has something to offer.
@@ -602,7 +644,7 @@ function stopChild(child) {
   return once(child, "exit").then(() => {});
 }
 
-export async function launchAcceptance({ root, port = 0, env, firstRun = false } = {}) {
+export async function launchAcceptance({ root, port = 0, env, firstRun = false, analysed = false } = {}) {
   const config = manifest();
   const scenarioRoot = root ?? GENERATED;
   resetDirectory(scenarioRoot, firstRun);
@@ -643,7 +685,7 @@ export async function launchAcceptance({ root, port = 0, env, firstRun = false }
     const peerRoot = join(scenarioRoot, "peer");
     peer = await startNode(peerRoot, 0, join(scenarioRoot, "peer-home"), env);
     const peerDid = oikome(peerRoot, "identity").trim();
-    const invite = await seedWorkspace(config, files, main.loginLink, rustfs, peerDid);
+    const invite = await seedWorkspace(config, files, main.loginLink, rustfs, peerDid, analysed);
     await seedPeer(peer.loginLink, invite);
 
     const loginLink = freshLogin(nodeRoot);

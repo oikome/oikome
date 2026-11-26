@@ -605,7 +605,7 @@ fn chart_spec_schema() -> Value {
     });
     json!({
         "type": "object",
-        "description": "A chart, described. The rows are grouped by the time at its grain and every dimension together; the time keeps its own order, and sort and limit order and cut the groups of the dimensions. To look into a period, filter on it (period) and choose a finer grain; to break a group down, filter on its values and group by another column.",
+        "description": "A chart, described. The rows are grouped by the time at its grain and every dimension together; the groups are in the time's own order unless sort orders them by a metric, and limit (1000 when left out) cuts them. To look into a period, filter on it (period) and choose a finer grain; to break a group down, filter on its values and group by another column.",
         "properties": {
             "chart": { "enum": ["table", "column", "bar", "line", "area", "pie", "treemap"], "description": "How the owner sees it drawn." },
             "time": {
@@ -613,7 +613,7 @@ fn chart_spec_schema() -> Value {
                 "description": "The chart's time: a column of time (a date or a timestamp), at a grain, over a range. Its grain is how finely time is seen, not another dimension.",
                 "properties": {
                     "column": { "type": "string" },
-                    "grain": { "enum": ["year", "quarter", "month", "week", "day"] },
+                    "grain": { "enum": ["year", "quarter", "month", "week", "day", "hour", "minute", "second"], "description": "hour, minute and second for a timestamp only." },
                     "range": { "enum": ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"], "description": "all when left out; custom is from from to to." },
                     "from": { "type": "string", "description": "The first day of a custom range: 2026-08-01. Either end may be left out." },
                     "to": { "type": "string", "description": "The last day of a custom range, itself included." }
@@ -650,8 +650,8 @@ fn chart_spec_schema() -> Value {
                         "max": { "type": "string" },
                         "period": {
                             "type": "object",
-                            "description": "A period as the answer writes it at its grain: 2026, 2026-Q3, 2026-08, or the day a week or a day starts.",
-                            "properties": { "grain": { "enum": ["year", "quarter", "month", "week", "day"] }, "key": { "type": "string" } },
+                            "description": "A period as the answer writes it at its grain: 2026, 2026Q3, 2026-08, 2026-W32 (an ISO week), 2026-08-05, 2026-08-05 22, 2026-08-05 22:04, 2026-08-05 22:05:30.",
+                            "properties": { "grain": { "enum": ["year", "quarter", "month", "week", "day", "hour", "minute", "second"] }, "key": { "type": "string" } },
                             "required": ["grain", "key"],
                             "additionalProperties": false
                         }
@@ -667,7 +667,7 @@ fn chart_spec_schema() -> Value {
                 "required": ["metric", "descending"],
                 "additionalProperties": false
             },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Only the first groups along the chart (its time and dimensions), in the chart's order." }
+            "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "description": "How many groups along the chart (its time and dimensions) to show, the first in the chart's order; 1000 when left out." }
         },
         "required": ["chart"],
         "additionalProperties": false

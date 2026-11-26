@@ -3,23 +3,31 @@
 //
 // Drawing a chart's result with ECharts (Apache-2.0). Loaded on demand, when
 // an Analysis view first shows a chart. Only the pieces used are bundled
-// (bars, lines, pie, treemap; axes, legend, tooltip; the canvas renderer). It
+// (bars, lines, pie, treemap; axes, legend, tooltip, zooming along the axis;
+// the canvas renderer). It
 // draws what the node computed and nothing else: no data is fetched or
 // totalled here. ECharts needs no script from strings, no WebAssembly and no
 // workers, so it runs under the app's own policy.
 
 import * as echarts from "echarts/core";
 import { BarChart, LineChart, PieChart, TreemapChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { DataZoomComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
-echarts.use([BarChart, LineChart, PieChart, TreemapChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, LineChart, PieChart, TreemapChart, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+
+/** More groups than this along the axis, and a slider lets a part of them be seen at a time. */
+const ZOOMED = 40;
+/** Columns and bars seen at first when there are more: enough to tell apart. */
+const SEEN = 120;
 
 /** What to draw: the groups along the axis, and a value of each for every series. */
 export interface Drawing {
   kind: "column" | "bar" | "line" | "area" | "pie" | "treemap";
   groups: string[];
   series: { name: string; values: (number | null)[] }[];
+  /** Whether the groups are in time's order: then the newest are seen first when not all fit. */
+  newest?: boolean;
   /** What the values are, for the value axis, when there is no legend. */
   valueName?: string;
   /** A number in the reader's words. */
@@ -126,17 +134,45 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
     splitLine: { lineStyle: { color: faint } },
   };
   const lines = drawing.kind === "line" || drawing.kind === "area";
+  // Many groups: a slider under the axis (beside it for bars) shows a part
+  // of them, and the chart pans by dragging and zooms with Ctrl and the
+  // wheel, so the page still scrolls with the wheel alone.
+  const zoomed = drawing.groups.length > ZOOMED;
+  // Columns and bars too many to tell apart open on a part of them: the
+  // newest in time's order, else the first; lines show all.
+  const count = drawing.groups.length;
+  const part = !lines && count > SEEN ? (drawing.newest ? { startValue: count - SEEN, endValue: count - 1 } : { startValue: 0, endValue: SEEN - 1 }) : {};
+  const axis = { ...(across ? { yAxisIndex: 0 } : { xAxisIndex: 0 }), ...part };
+  const dataZoom = zoomed
+    ? [
+        { type: "inside", ...axis, zoomOnMouseWheel: "ctrl", moveOnMouseWheel: false, moveOnMouseMove: true },
+        {
+          type: "slider",
+          ...axis,
+          ...(across ? { orient: "vertical", right: 4, width: 16 } : { bottom: 4, height: 16 }),
+          borderColor: rule,
+          backgroundColor: "transparent",
+          fillerColor: theme === "bold" ? "rgba(17,17,17,0.08)" : "rgba(20,19,16,0.06)",
+          dataBackground: { lineStyle: { color: rule }, areaStyle: { color: faint } },
+          handleStyle: { color: token("--raised", "#ffffff"), borderColor: soft },
+          moveHandleSize: 4,
+          showDetail: false,
+          brushSelect: false,
+        },
+      ]
+    : undefined;
   return {
     ...common,
     tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: lines ? "line" : "shadow" } },
     // The legend on top, and under it the name of the value axis: each a line of its own.
     grid: {
       left: 4,
-      right: 16,
       top: many && drawing.valueName && !across ? 60 : many || (drawing.valueName && !across) ? 36 : 12,
-      bottom: across && drawing.valueName ? 24 : 4,
+      bottom: (across && drawing.valueName ? 24 : 4) + (zoomed && !across ? 28 : 0),
+      right: zoomed && across ? 40 : 16,
       containLabel: true,
     },
+    dataZoom,
     xAxis: across ? values : groups,
     yAxis: across ? groups : values,
     series: drawing.series.map((series) => ({

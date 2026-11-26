@@ -5243,6 +5243,46 @@ tr.screen-source {
   flex: 1;
   min-height: 400px;
 }
+/* On the whole screen: the chart and its panel fill it, the panel scrolls
+   on its own; a table shows as many rows as fit. */
+.screen-explorer__body:fullscreen,
+.screen-explorer__body:popover-open {
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--raised);
+  color: var(--ink);
+}
+.screen-explorer__body:popover-open {
+  position: fixed;
+  inset: 0;
+}
+.screen-explorer__body:fullscreen .screen-explorer__panel,
+.screen-explorer__body:popover-open .screen-explorer__panel {
+  overflow: auto;
+}
+.screen-explorer__body:fullscreen .screen-explorer__stage,
+.screen-explorer__body:popover-open .screen-explorer__stage {
+  min-height: 0;
+}
+.screen-explorer__body:fullscreen .screen-explorer__table,
+.screen-explorer__body:popover-open .screen-explorer__table {
+  flex: 1;
+  max-height: none;
+}
+/* How many groups: the choice, and under it a number of one's own. */
+.screen-explorer__count {
+  display: grid;
+  gap: var(--space-2);
+}
+.screen-explorer__count-own {
+  display: grid;
+  gap: var(--space-1);
+}
 .screen-explorer__loading {
   flex: 1;
   border-radius: var(--r-btn);

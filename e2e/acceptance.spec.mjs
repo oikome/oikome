@@ -204,16 +204,17 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // for the owner.
     await expect(page.getByRole("radio", { name: "energy_meter", exact: true })).toBeVisible();
     await expect(page.getByRole("radio", { name: "sleep", exact: true })).toBeVisible();
-    await expect(page.getByText("6 more can be created")).toBeVisible();
+    await expect(page.getByRole("radio", { name: "power_meter", exact: true })).toBeVisible();
+    await expect(page.getByText("7 more can be created")).toBeVisible();
     // The owner chooses which files to analyse; nothing is chosen at first.
     // The utility bills' workbook has a table per sheet, chosen together
     // under it. Last year's receipts folder holds one file, and its table is
     // named after it.
     await page.getByRole("button", { name: "Create Analysis Tables…" }).click();
     const pick = page.getByRole("dialog", { name: "Choose Files to Analyze" });
-    await expect(pick.getByText("0 of 6 selected")).toBeVisible();
+    await expect(pick.getByText("0 of 7 selected")).toBeVisible();
     await expect(pick.getByRole("button", { name: "Create", exact: true })).toBeDisabled();
-    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water"]) {
+    for (const table of ["readings", "receipts", "spending", "steps", "utilities_electricity", "utilities_water", "weather"]) {
       await expect(pick.getByRole("checkbox", { name: table })).not.toBeChecked();
     }
     await pick.getByRole("checkbox", { name: "spending" }).check();
@@ -224,10 +225,10 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     for (const table of ["energy_meter", "sleep", "spending", "utilities_electricity", "utilities_water"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toBeVisible();
     }
-    for (const table of ["readings", "receipts", "steps"]) {
+    for (const table of ["readings", "receipts", "steps", "weather"]) {
       await expect(page.getByRole("radio", { name: table, exact: true })).toHaveCount(0);
     }
-    await expect(page.getByText("3 more can be created")).toBeVisible();
+    await expect(page.getByText("4 more can be created")).toBeVisible();
     // A file's analysis table can be removed: the table goes, its file
     // stays, and it can be chosen again.
     await page.getByRole("radio", { name: "utilities_water", exact: true }).click();
@@ -236,7 +237,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(stop).toContainText("household.utilities_water");
     await stop.getByRole("button", { name: "Remove", exact: true }).click();
     await expect(page.getByRole("radio", { name: "utilities_water", exact: true })).toHaveCount(0);
-    await expect(page.getByText("4 more can be created")).toBeVisible();
+    await expect(page.getByText("5 more can be created")).toBeVisible();
     // A chart is described in the panel beside it (its dimensions along and
     // across, the time first, its metrics, filters) and what is chosen takes effect at once;
     // what it shows is computed by the node. Read as a table, its rows are
@@ -264,7 +265,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     // This node loads DuckDB's iceberg and lance extensions from the shared
     // folder, so both are read. A table starts with a new chart, nothing
     // chosen: its rows. The time chosen, it is by month.
-    for (const [table, kind, month] of [["energy_meter", "Iceberg table", "Oct 2026"], ["sleep", "Lance dataset", "Nov 2026"]]) {
+    for (const [table, kind, month] of [["energy_meter", "Iceberg table", "2026-10"], ["sleep", "Lance dataset", "2026-11"]]) {
       await page.getByRole("radio", { name: table, exact: true }).click();
       await expect(page.locator(".screen-analysis__about")).toContainText(kind);
       // A table starts on its default chart: over its first column of time,
@@ -297,12 +298,12 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
         await expect(result.locator("tbody tr")).toHaveCount(4);
         await expect(where).toContainText("2026");
         await expect(panel.getByRole("group", { name: "Filters" })).toContainText("2026");
-        await point("Q4 2026", "Drill Down to Q4 2026");
-        await expect(result.locator("tbody")).toContainText("Oct 2026");
+        await point("2026Q4", "Drill Down to 2026Q4");
+        await expect(result.locator("tbody")).toContainText("2026-10");
         // Its days are the finest grain, and its other columns are numbers,
         // nothing to drill down by: no row offers a click, no hint says so.
-        await point("Oct 2026", "Drill Down to Oct 2026");
-        await expect(result.locator("tbody tr").first()).toContainText("Oct 1");
+        await point("2026-10", "Drill Down to 2026-10");
+        await expect(result.locator("tbody tr").first()).toContainText("2026-10-01");
         await expect(result.locator(".screen-explorer__drillable")).toHaveCount(0);
         await expect(page.getByText("Click an item")).toHaveCount(0);
         await where.getByRole("button", { name: "All" }).click();
@@ -319,8 +320,8 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(time("date")).toBeVisible();
     await chartType("Table");
     await expect(panel.getByRole("group", { name: "Rows" })).toContainText("date (Month)");
-    await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
-    await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
+    await expect(result.locator("tbody tr").first()).toContainText("2025-01");
+    await expect(result.locator("tbody tr").last()).toContainText("2026-11");
     await expect(panel.getByLabel("Order")).toHaveValue("");
     // The months ordered by how many rows each has, the top five kept; then
     // back in time's own order, all of them.
@@ -329,13 +330,19 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       return [Number(await cells.nth(0).innerText()), Number(await cells.nth(1).innerText())];
     };
     await panel.getByLabel("Order").selectOption({ index: 1 });
-    await panel.getByLabel("Show").selectOption({ label: "Top 5" });
+    // Ten of them, then a number of one's own; 1000, as at first, is chosen.
+    await expect(panel.getByLabel("Show")).toHaveValue("1000");
+    await panel.getByLabel("Show").selectOption({ label: "10" });
+    await expect(result.locator("tbody tr")).toHaveCount(10);
+    await panel.getByLabel("Show").selectOption({ label: "Custom" });
+    await panel.getByLabel("Number of groups").fill("5");
+    await panel.getByLabel("Number of groups").press("Enter");
     await expect(result.locator("tbody tr")).toHaveCount(5);
     const [most, next] = await firstTwo();
     expect(most).toBeGreaterThanOrEqual(next);
-    await panel.getByLabel("Show").selectOption({ label: "All" });
+    await panel.getByLabel("Show").selectOption({ label: "1000" });
     await panel.getByLabel("Order").selectOption({ index: 0 });
-    await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
+    await expect(result.locator("tbody tr").first()).toContainText("2025-01");
     // The time's range is a filter: here one of its own, the days chosen
     // from the app's calendar, either end open.
     await panel.getByLabel("Time Range").selectOption({ label: "Custom Range" });
@@ -351,9 +358,9 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await pickDay("From", "2025-08-01");
     await pickDay("To", "2025-08-31");
     await expect(result.locator("tbody tr")).toHaveCount(1);
-    await expect(result.locator("tbody tr").first()).toContainText("Aug 2025");
+    await expect(result.locator("tbody tr").first()).toContainText("2025-08");
     await panel.getByLabel("Time Range").selectOption({ label: "All Time" });
-    await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
+    await expect(result.locator("tbody tr").last()).toContainText("2026-11");
     // A dimension takes effect at once: every month and category together,
     // ordered by the metric over all of them.
     await add("Add to Rows", "category");
@@ -371,6 +378,11 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await add("Add to Color", "category");
     await expect(panel.getByRole("group", { name: "Color" })).toContainText("category");
     await expect(page.locator(".screen-explorer__chart canvas")).toBeVisible();
+    // The chart and its panel on the whole screen, as a video player has it,
+    // and back.
+    await page.getByRole("button", { name: "Full Screen" }).click();
+    await page.getByRole("button", { name: "Exit Full Screen" }).click();
+    await expect(page.getByRole("button", { name: "Full Screen" })).toBeVisible();
     // The app's policy is as strict as ever: charts need no script from
     // blob: URLs and no WebAssembly, and neither runs.
     const refused = await page.evaluate(async () => {
@@ -426,7 +438,9 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await ranging.getByLabel("At least").fill("1");
     await ranging.getByRole("button", { name: "Done" }).click();
     await panel.getByLabel("Order").selectOption({ index: 1 });
-    await panel.getByLabel("Show").selectOption({ label: "Top 5" });
+    await panel.getByLabel("Show").selectOption({ label: "Custom" });
+    await panel.getByLabel("Number of groups").fill("5");
+    await panel.getByLabel("Number of groups").press("Enter");
     await expect.poll(() => result.locator("tbody tr").count()).toBeLessThanOrEqual(5);
     // The query that ran is there to read, its values bound, not written in.
     await page.getByRole("button", { name: "Show SQL" }).click();
@@ -467,6 +481,13 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await page.reload();
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.getByText("This table has no charts yet.")).toBeVisible();
+    // A smart plug's readings, as another program wrote them to Iceberg: each
+    // column read as its own type, the timestamp's periods to the second.
+    await page.getByRole("radio", { name: "power_meter", exact: true }).click();
+    for (const [column, type] of [["read_at", "timestamp"], ["circuit", "text"], ["watts", "integer"], ["kwh", "number"], ["price", "decimal"], ["peak", "boolean"]]) {
+      await expect(page.getByLabel(`Type of ${column}`)).toHaveValue(type);
+    }
+    await page.getByRole("radio", { name: "spending", exact: true }).click();
     // A column's type can be changed: charts read it so; back as DuckDB read it.
     const itemsType = page.getByLabel("Type of items");
     await expect(itemsType).toHaveValue("integer");

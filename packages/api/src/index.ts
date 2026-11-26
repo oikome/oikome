@@ -1727,9 +1727,11 @@ export type AnalysisViewRef = { space: string, table: string, id: string, };
 export type ChartKind = "table" | "column" | "bar" | "line" | "area" | "pie" | "treemap";
 
 /**
- * What a date is grouped by.
+ * What a date is grouped by, each period written in a standard way: 2026,
+ * 2026Q3, 2026-10, 2026-W40 (an ISO week), 2026-10-05; for a timestamp
+ * also 2026-10-05 22, 2026-10-05 22:04 and 2026-10-05 22:05:30.
  */
-export type DateGrain = "year" | "quarter" | "month" | "week" | "day";
+export type DateGrain = "year" | "quarter" | "month" | "week" | "day" | "hour" | "minute" | "second";
 
 /**
  * How a metric totals its column.
@@ -1831,15 +1833,17 @@ export type ChartSort = { metric: number, descending: boolean, };
  * each group, `pivots` are dimensions too, laid across: each of their values
  * is a series (a chart's colour) or a column (a table's), as a pivot is in
  * BI tools; each of `metrics` is totalled for every group and series. The
- * time keeps its own order; `sort` orders the groups within it, and `limit`
- * (without a time) keeps the first of them. With nothing grouped, pivoted
- * or totalled, it is the table's rows. Zooming
- * into a period or breaking a group down is an edit of the description: a
- * filter, and a finer grain or another dimension.
+ * groups are in the time's own order, then their values', unless `sort`
+ * orders them by a metric, as BI tools sort an axis; `limit` keeps the
+ * first of them. Without either, a time with more periods than can be shown
+ * shows the newest. With nothing grouped, pivoted or totalled, it is the
+ * table's rows. Drilling into a period or a group is an edit of the
+ * description: a filter, and a finer grain or another dimension.
  */
 export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, pivots: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
 /**
- * Show only the first groups, in the chart's order.
+ * How many groups to show, the first in the chart's order: 1 to
+ * 10,000, and 1000 when left out.
  */
 limit: number | null, };
 

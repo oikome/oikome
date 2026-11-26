@@ -7008,6 +7008,13 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         "date,category,merchant,amount,items\n2026-10-03,Groceries,Lidl,20.00,3\n2026-10-09,It's \"odd\"; DROP TABLE x,Somewhere,8.25,10\n",
     )
     .unwrap();
+    // Readings at times of day.
+    std::fs::create_dir_all(root.join("meter")).unwrap();
+    std::fs::write(
+        root.join("meter/meter.csv"),
+        "at,kwh\n2026-10-05 22:04:10,1\n2026-10-05 22:05:30,2\n2026-10-05 23:10:00,3\n",
+    )
+    .unwrap();
     // A reading a day for 1100 days: more days than a chart shows.
     let first_day = chrono::NaiveDate::from_ymd_opt(2023, 1, 1).unwrap();
     let day = |i: i64| {
@@ -7040,7 +7047,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
             &OWNER,
             BuildAnalysis {
                 space: "household".into(),
-                tables: vec!["spending".into(), "daily".into()],
+                tables: vec!["spending".into(), "daily".into(), "meter".into()],
             },
         )
         .await
@@ -7158,6 +7165,51 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(firsts(&daily)[0], day(100));
     assert_eq!(firsts(&daily)[999], day(1099));
     assert!(daily.query.sql.contains("ORDER BY 1 DESC"));
+    // A timestamp drills down past its days: a day's hours, an hour's
+    // minutes, a minute's seconds, each written in a standard way, the
+    // periods with no rows in their place.
+    let meter = |grain: &str, of: &str, key: &str| {
+        n.api.analysis_chart(
+            &OWNER,
+            AnalysisChart {
+                space: "household".into(),
+                table: "meter".into(),
+                spec: spec(serde_json::json!({
+                    "chart": "column",
+                    "time": {"column": "at", "grain": grain},
+                    "metrics": [{"column": "kwh", "aggregate": "sum"}],
+                    "filters": [{"column": "at", "period": {"grain": of, "key": key}}]
+                })),
+            },
+        )
+    };
+    let total = |result: &ChartResult, key: &str| {
+        result
+            .groups
+            .iter()
+            .find(|g| g.keys[0].as_deref() == Some(key))
+            .and_then(|g| g.values[0])
+    };
+    let hours = meter("hour", "day", "2026-10-05").await.unwrap();
+    assert_eq!(hours.groups.len(), 24);
+    assert_eq!(firsts(&hours)[0], "2026-10-05 00");
+    assert_eq!(total(&hours, "2026-10-05 22"), Some(3.0));
+    assert_eq!(total(&hours, "2026-10-05 23"), Some(3.0));
+    let minutes = meter("minute", "hour", "2026-10-05 22").await.unwrap();
+    assert_eq!(minutes.groups.len(), 60);
+    assert_eq!(total(&minutes, "2026-10-05 22:04"), Some(1.0));
+    assert_eq!(total(&minutes, "2026-10-05 22:05"), Some(2.0));
+    let seconds = meter("second", "minute", "2026-10-05 22:05").await.unwrap();
+    assert_eq!(seconds.groups.len(), 60);
+    assert_eq!(total(&seconds, "2026-10-05 22:05:30"), Some(2.0));
+    // A date has no hours.
+    let err = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "hour"}
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
 
     // Rolled up to the year, and zoomed into a period: a filter on it and
     // a finer grain, its periods all there. Every grain is worked out from
@@ -7182,10 +7234,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     let quarters = compute(at("quarter", Some(("year", "2026"))))
         .await
         .unwrap();
-    assert_eq!(
-        firsts(&quarters),
-        ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4"]
-    );
+    assert_eq!(firsts(&quarters), ["2026Q1", "2026Q2", "2026Q3", "2026Q4"]);
     assert_eq!(quarters.groups[0].values, [None, None]);
     assert_eq!(quarters.groups[2].values[0], Some(82.0));
     let months = compute(at("month", Some(("quarter", "2026-Q3"))))
@@ -7193,14 +7242,18 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .unwrap();
     assert_eq!(firsts(&months), ["2026-07", "2026-08", "2026-09"]);
     assert!(months.query.sql.contains("= ?1"));
-    assert_eq!(months.query.params, ["'2026-Q3'"]);
+    // A quarter written as it was before (2026-Q3) is bound as it is written now.
+    assert_eq!(months.query.params, ["'2026Q3'"]);
     let days = compute(at("day", Some(("month", "2026-09"))))
         .await
         .unwrap();
     assert_eq!(days.groups.len(), 30);
     assert_eq!(days.matched, 3);
     let weeks = compute(at("week", None)).await.unwrap();
-    assert_eq!(firsts(&weeks)[0], "2026-07-20");
+    // An ISO week: 2026-07-20 is a Monday of week 30.
+    assert_eq!(firsts(&weeks)[0], "2026-W30");
+    assert_eq!(weeks.groups.len(), 12);
+    assert_eq!(firsts(&weeks)[11], "2026-W41");
 
     // The time and a dimension, grouped together: a group for each month
     // and category, ordered by the metric over all of them.

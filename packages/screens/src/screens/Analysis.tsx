@@ -61,7 +61,11 @@ function kindOf(dataType: string): ColumnType | undefined {
     Boolean: "boolean",
   };
   if (exact[dataType]) return exact[dataType];
-  if (/^Timestamp\([A-Za-z]+, None\)$/.test(dataType)) return "timestamp";
+  // Any whole number, floating one or timestamp, however wide or precise
+  // (an Iceberg table's are Int32 and Timestamp(µs, None)).
+  if (/^U?Int(8|16|32|64)$/.test(dataType)) return "integer";
+  if (/^Float(16|32|64)$/.test(dataType)) return "number";
+  if (/^Timestamp\(/.test(dataType)) return "timestamp";
   if (/^Decimal(128|256)\(/.test(dataType)) return "decimal";
   return undefined;
 }

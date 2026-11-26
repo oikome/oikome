@@ -470,7 +470,7 @@ export const zhHant: Strings = {
     kinds: { photos: "照片", notes: "筆記", table: "表格", series: "圖表" },
     viewFolder: "查看資料夾",
     viewFolderBody:
-      "Oikome 會在資料夾原處讀取，絕不更動。不會複製任何檔案：它只保留檔案清單、檔案裡的文字和縮圖，用來顯示和搜尋。",
+      "Oikome 原地檢視這個資料夾，絕不更動。不會複製任何檔案：它只保留檔案清單、檔案裡的文字和縮圖，用來顯示和搜尋。",
     viewOn: "位置",
     thisComputerPlace: "這台電腦",
     folderOn: (place: string) => `${place} 上的資料夾`,
@@ -483,10 +483,10 @@ export const zhHant: Strings = {
       const parts = [photos ? `${num(photos)} 張照片` : "", notes ? `${num(notes)} 則筆記` : ""].filter(Boolean);
       return `最上層有 ${parts.join("和 ")}，以及子資料夾裡的所有內容。`;
     },
-    viewIt: "在原處查看",
+    viewIt: "原地檢視",
     reading: "讀取中…",
-    viewed: (name: string) => `${name} 已在原處讀取。`,
-    readWhereItIs: "在原處讀取",
+    viewed: (name: string) => `已加入 ${name}，原地檢視。`,
+    readWhereItIs: "原地檢視",
     readAgain: "重新讀取",
     readAgo: (when: string) => `${when}讀取`,
     readNow: (name: string) => `已重新讀取 ${name}。`,
@@ -672,8 +672,8 @@ export const zhHant: Strings = {
       "flomo-mcp": "flomo",
     },
     kindHelp: {
-      photos: "資料夾中的圖片，在原處讀取；旁邊的 captions.csv 可以為它們命名",
-      notes: "Markdown 或純文字檔，例如 Obsidian 保險庫，在原處讀取",
+      photos: "資料夾中的圖片，原地檢視；旁邊的 captions.csv 可以為它們命名",
+      notes: "Markdown 或純文字檔，例如 Obsidian 保險庫，原地檢視",
       csv: "從任何 App 匯出的表格",
     },
     upToDate: "已是最新",
@@ -1501,7 +1501,7 @@ export const zhHant: Strings = {
     removing: "正在移除…",
     removed: (name: string) => `已移除分析表 ${name}`,
     aboutFiles: (source: string, rows: string, updated: string) => `由 ${source} 產生，${rows}，${updated}更新。檔案變更時會重新產生，原始檔案不會被修改。`,
-    aboutDataset: (kind: string, rows?: string, written?: string) => `${[kind, rows, written && `${written}寫入`].filter(Boolean).join("，")}。在原位置讀取，每次都讀最新版本，Oikome 不會拷貝或修改它。`,
+    aboutDataset: (kind: string, rows?: string, written?: string) => `${[kind, rows, written && `${written}寫入`].filter(Boolean).join("，")}。原地檢視，每次都讀最新版本，Oikome 不會拷貝或修改它。`,
     fieldsNote: "每欄的類型由 DuckDB 讀取檔案時識別（CSV 依抽樣的列推斷），可以修改：圖表依修改後的類型讀這一欄，轉換不了的值當作空值；表和檔案本身不變。欄位怎麼用，在上方的圖表面板裡選。每列還記錄了其來源檔案。定點小數可設總位數（最多 38 位）和小數位（小數點後的位數）。",
     convertedFrom: (now: string, was: string) => `${was} 轉為 ${now}`,
     typeFor: (column: string) => `${column} 的類型`,

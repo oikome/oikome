@@ -474,7 +474,7 @@ export const zhHans: Strings = {
     kinds: { photos: "照片", notes: "笔记", table: "表格", series: "图表" },
     viewFolder: "查看文件夹",
     viewFolderBody:
-      "Oikome 在原处读取这个文件夹，从不改动它。不会复制任何文件：它只记下文件列表、文字内容和缩略图，用来显示和搜索。",
+      "Oikome 原地查看这个文件夹，从不改动它。不会复制任何文件：它只记下文件列表、文字内容和缩略图，用来显示和搜索。",
     viewOn: "所在位置",
     thisComputerPlace: "这台电脑",
     folderOn: (place: string) => `${place} 上的文件夹`,
@@ -488,10 +488,10 @@ export const zhHans: Strings = {
         : `顶层有 ${[photos ? `${num(photos)} 张照片` : "", notes ? `${num(notes)} 条笔记` : ""]
             .filter(Boolean)
             .join("和 ")}，子文件夹里的内容也会一并读取。`,
-    viewIt: "在原处查看",
+    viewIt: "原地查看",
     reading: "正在读取…",
-    viewed: (name: string) => `已在原处读取 ${name}`,
-    readWhereItIs: "在原处读取",
+    viewed: (name: string) => `已添加 ${name}，原地查看`,
+    readWhereItIs: "原地查看",
     readAgain: "重新读取",
     readAgo: (when: string) => `${when}读取`,
     readNow: (name: string) => `已重新读取 ${name}`,
@@ -676,8 +676,8 @@ export const zhHans: Strings = {
       "flomo-mcp": "flomo",
     },
     kindHelp: {
-      photos: "文件夹里的图片，在原处读取；放在旁边的 captions.csv 可以为它们命名",
-      notes: "Markdown 或文本文件，比如 Obsidian 仓库，在原处读取",
+      photos: "文件夹里的图片，原地查看；放在旁边的 captions.csv 可以为它们命名",
+      notes: "Markdown 或文本文件，比如 Obsidian 仓库，原地查看",
       csv: "从任何应用导出的表格",
     },
     upToDate: "已是最新",
@@ -1506,7 +1506,7 @@ export const zhHans: Strings = {
     removing: "正在移除…",
     removed: (name: string) => `已移除分析表 ${name}`,
     aboutFiles: (source: string, rows: string, updated: string) => `由 ${source} 生成，${rows}，${updated}更新。文件变化时会重新生成，原文件不会被修改。`,
-    aboutDataset: (kind: string, rows?: string, written?: string) => `${[kind, rows, written && `${written}写入`].filter(Boolean).join("，")}。在原位置读取，每次都读最新版本，Oikome 不会复制或修改它。`,
+    aboutDataset: (kind: string, rows?: string, written?: string) => `${[kind, rows, written && `${written}写入`].filter(Boolean).join("，")}。原地查看，每次都读最新版本，Oikome 不会复制或修改它。`,
     fieldsNote: "每列的类型由 DuckDB 读取文件时识别（CSV 按抽样的行推断），可以修改：图表按修改后的类型读这一列，转换不了的值当作空值；表和文件本身不变。一列怎么用，在上面的图表面板里选。每行还记录了其来源文件。定点小数可设总位数（最多 38 位）和小数位（小数点后的位数）。",
     convertedFrom: (now: string, was: string) => `${was} 转为 ${now}`,
     typeFor: (column: string) => `${column} 的类型`,

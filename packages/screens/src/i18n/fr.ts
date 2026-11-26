@@ -1674,6 +1674,7 @@ export const fr: Strings = {
     drillAll: "Tout",
     drillHint: "Cliquez sur un élément pour descendre par une autre colonne",
     drillHintZoom: (grain: string) => `Cliquez sur un élément pour descendre au niveau « ${grain} » ou par une autre colonne`,
+    drillHintZoomOnly: (grain: string) => `Cliquez sur un élément pour descendre au niveau « ${grain} »`,
     drillPath: "Chemin d’exploration",
     quarter: (year: string, quarter: string) => `T${quarter} ${year}`,
     weekOf: (date: string) => `Semaine du ${date}`,

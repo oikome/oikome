@@ -595,10 +595,13 @@ function ResultTable({
   result,
   metrics,
   onPick,
+  canPick,
 }: {
   result: ChartResult;
   metrics: ChartMetric[];
   onPick?: (group: number, at: { x: number; y: number }) => void;
+  /** Whether a group has anything to do (a row whose period is blank and nothing to go by has not). */
+  canPick?: (group: number) => boolean;
 }) {
   if (result.rows) {
     return (
@@ -673,7 +676,7 @@ function ResultTable({
         </thead>
         <tbody>
           {result.groups.map((group, i) => {
-            const pick = onPick && columns.length > 0 ? (at: { x: number; y: number }) => onPick(i, at) : undefined;
+            const pick = onPick && columns.length > 0 && (canPick?.(i) ?? true) ? (at: { x: number; y: number }) => onPick(i, at) : undefined;
             return (
               <tr
                 key={i}
@@ -933,7 +936,9 @@ export function Explorer({
     setTrail(to === 0 ? undefined : { of: view.id, steps: steps.slice(0, to) });
   };
   /** What a group of the chart can be: a period zoomed into, or broken down by a column not in use. */
-  const pointAt = (columns: ChartLevel[], keys: (string | null)[], at: { x: number; y: number }) => {
+  // Drilling down goes by a column of kinds (text, dates, true or false), as BI tools do: a measure has no groups worth one.
+  const drillBy = fields.filter((f) => !used.includes(f.name) && !isNumber(f));
+  const actionsAt = (columns: ChartLevel[], keys: (string | null)[]): MenuItem[] => {
     const items: MenuItem[] = [];
     const t = columns.findIndex((c) => c.grain);
     const period = t >= 0 && keys[t] !== null ? { column: columns[t]!.column, grain: columns[t]!.grain!, key: keys[t]! } : undefined;
@@ -943,15 +948,19 @@ export function Explorer({
     }
     const keep = columns.flatMap((c, j): [string, string][] => (c.grain || keys[j] === null ? [] : [[c.column, keys[j]!]]));
     const label = columns.map((c, j) => keyName(c, keys[j] ?? null)).join(" / ");
-    // Drilling down goes by a column of kinds (text, dates, true or false), as BI tools do: a measure has no groups worth one.
-    for (const f of fields.filter((f) => !used.includes(f.name) && !isNumber(f))) {
+    for (const f of drillBy) {
       items.push({ label: x.breakDownBy(f.name), onSelect: () => drill(x.drillStep(label, f.name), { by: f.name, keep, period }) });
     }
-    if (items.length > 0) setPointed({ at, items, label });
+    return items;
   };
-  const clickable = Boolean(axis && axis.columns.length > 0);
+  const pointAt = (columns: ChartLevel[], keys: (string | null)[], at: { x: number; y: number }) => {
+    const items = actionsAt(columns, keys);
+    if (items.length > 0) setPointed({ at, items, label: columns.map((c, j) => keyName(c, keys[j] ?? null)).join(" / ") });
+  };
   // The grain a click on a period zooms into, when the time is drawn and can go finer.
   const finer = axis?.columns.some((c) => c.grain) && spec.time ? FINER[spec.time.grain] : undefined;
+  // A group is clicked only when something can be done with it: at the finest grain, with no column left to go by, nothing.
+  const clickable = Boolean(axis && axis.columns.length > 0 && (finer || drillBy.length > 0));
   const named = axis ? JSON.stringify(axis) : "";
   const drawing = useMemo((): Drawing | undefined => {
     if (!axis || spec.chart === "table") return undefined;
@@ -1105,7 +1114,13 @@ export function Explorer({
                 {clickable && (
                   <span className="screen-explorer__hint">
                     <Icon name="info" />
-                    <span>{finer ? x.drillHintZoom(x.grains[finer] ?? finer) : x.drillHint}</span>
+                    <span>
+                      {finer
+                        ? drillBy.length > 0
+                          ? x.drillHintZoom(x.grains[finer] ?? finer)
+                          : x.drillHintZoomOnly(x.grains[finer] ?? finer)
+                        : x.drillHint}
+                    </span>
                   </span>
                 )}
                 <Button className="screen-explorer__sql-button" disabled={!result} onClick={() => setDialog("sql")}>
@@ -1128,6 +1143,7 @@ export function Explorer({
                 result={result}
                 metrics={metrics}
                 onPick={clickable ? (i, at) => pointAt(result.columns, result.groups[i]?.keys ?? [], at) : undefined}
+                canPick={(i) => actionsAt(result.columns, result.groups[i]?.keys ?? []).length > 0}
               />
             )}
           </div>

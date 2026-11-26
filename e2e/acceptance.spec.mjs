@@ -299,6 +299,12 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
         await expect(panel.getByRole("group", { name: "Filters" })).toContainText("2026");
         await point("Q4 2026", "Drill Down to Q4 2026");
         await expect(result.locator("tbody")).toContainText("Oct 2026");
+        // Its days are the finest grain, and its other columns are numbers,
+        // nothing to drill down by: no row offers a click, no hint says so.
+        await point("Oct 2026", "Drill Down to Oct 2026");
+        await expect(result.locator("tbody tr").first()).toContainText("Oct 1");
+        await expect(result.locator(".screen-explorer__drillable")).toHaveCount(0);
+        await expect(page.getByText("Click an item")).toHaveCount(0);
         await where.getByRole("button", { name: "All" }).click();
         await expect(result.locator("tbody tr")).toHaveCount(1);
       }

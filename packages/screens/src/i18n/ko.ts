@@ -1646,6 +1646,7 @@ export const ko: Strings = {
     drillAll: "전체",
     drillHint: "항목을 클릭하면 다른 열로 드릴다운할 수 있습니다",
     drillHintZoom: (grain: string) => `항목을 클릭하면 “${grain}” 단위나 다른 열로 드릴다운할 수 있습니다`,
+    drillHintZoomOnly: (grain: string) => `항목을 클릭하면 “${grain}” 단위로 드릴다운할 수 있습니다`,
     drillPath: "드릴다운 경로",
     quarter: (year: string, quarter: string) => `${year}년 ${quarter}분기`,
     weekOf: (date: string) => `${date}부터 한 주`,

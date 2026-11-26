@@ -1592,6 +1592,7 @@ export const zhHant: Strings = {
     drillAll: "全部",
     drillHint: "點擊任一項可依其他欄下鑽",
     drillHintZoom: (grain: string) => `點擊任一項可下鑽到「${grain}」，或依其他欄下鑽`,
+    drillHintZoomOnly: (grain: string) => `點擊任一項可下鑽到「${grain}」`,
     drillPath: "下鑽路徑",
     quarter: (year: string, quarter: string) => `${year}年第${quarter}季`,
     weekOf: (date: string) => `${date} 起的一週`,

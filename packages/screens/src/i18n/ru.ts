@@ -1680,6 +1680,7 @@ export const ru: Strings = {
     drillAll: "Все",
     drillHint: "Нажмите на элемент, чтобы детализировать его по другому столбцу",
     drillHintZoom: (grain: string) => `Нажмите на элемент, чтобы детализировать до уровня «${grain}» или по другому столбцу`,
+    drillHintZoomOnly: (grain: string) => `Нажмите на элемент, чтобы детализировать до уровня «${grain}»`,
     drillPath: "Путь детализации",
     quarter: (year: string, quarter: string) => `${quarter} кв. ${year}`,
     weekOf: (date: string) => `Неделя с ${date}`,

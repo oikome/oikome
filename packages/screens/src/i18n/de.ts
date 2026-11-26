@@ -1645,6 +1645,7 @@ export const de: Strings = {
     drillAll: "Alle",
     drillHint: "Auf einen Eintrag klicken für einen Drilldown nach einer anderen Spalte",
     drillHintZoom: (grain: string) => `Auf einen Eintrag klicken für einen Drilldown auf ${grain} oder nach einer anderen Spalte`,
+    drillHintZoomOnly: (grain: string) => `Auf einen Eintrag klicken für einen Drilldown auf ${grain}`,
     drillPath: "Drilldown-Pfad",
     quarter: (year: string, quarter: string) => `Q${quarter} ${year}`,
     weekOf: (date: string) => `Woche ab ${date}`,

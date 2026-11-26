@@ -1597,6 +1597,7 @@ export const zhHans: Strings = {
     drillAll: "全部",
     drillHint: "点击任一项可按其他列下钻",
     drillHintZoom: (grain: string) => `点击任一项可下钻到“${grain}”，或按其他列下钻`,
+    drillHintZoomOnly: (grain: string) => `点击任一项可下钻到“${grain}”`,
     drillPath: "下钻路径",
     quarter: (year: string, quarter: string) => `${year}年第${quarter}季度`,
     weekOf: (date: string) => `${date} 起的一周`,

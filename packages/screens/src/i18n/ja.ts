@@ -1621,6 +1621,7 @@ export const ja: Strings = {
     drillAll: "すべて",
     drillHint: "項目をクリックすると別の列でドリルダウンできます",
     drillHintZoom: (grain: string) => `項目をクリックすると“${grain}”または別の列でドリルダウンできます`,
+    drillHintZoomOnly: (grain: string) => `項目をクリックすると“${grain}”にドリルダウンできます`,
     drillPath: "ドリルダウンの経路",
     quarter: (year: string, quarter: string) => `${year}年 第${quarter}四半期`,
     weekOf: (date: string) => `${date} からの週`,

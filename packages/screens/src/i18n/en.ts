@@ -1679,6 +1679,7 @@ export const en = {
     drillAll: "All",
     drillHint: "Click an item to drill down by another column",
     drillHintZoom: (grain: string) => `Click an item to drill down to ${grain} or by another column`,
+    drillHintZoomOnly: (grain: string) => `Click an item to drill down to ${grain}`,
     drillPath: "Drill path",
     quarter: (year: string, quarter: string) => `Q${quarter} ${year}`,
     weekOf: (date: string) => `Week of ${date}`,

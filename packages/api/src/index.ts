@@ -1692,9 +1692,7 @@ export type AnalysisSummary = { table: string, time: string | null, amount: stri
  */
 export type AnalysisView = { id: string, name: string,
 /**
- * The explorer's own description of the view, as JSON: only the keys
- * that describe a view are kept (`plugin`, `group_by`, `split_by`,
- * `sort`, `filter`, `columns`, `aggregates` and how each is drawn).
+ * The chart it is, as JSON (a [`ChartSpec`]).
  */
 config: string,
 /**
@@ -1715,11 +1713,106 @@ export type SaveAnalysisView = { space: string, table: string, id?: string, name
 export type AnalysisViewRef = { space: string, table: string, id: string, };
 
 /**
- * `analysis_query`: one read-only query over an analysis table, which the
- * query names `oikome_table`. Beside its columns the table has, for each
- * column of time, `<column> (month)` and `<column> (year)`.
+ * How a chart is drawn.
  */
-export type AnalysisQuery = { space: string, table: string, sql: string, };
+export type ChartKind = "table" | "column" | "bar" | "line" | "area" | "treemap";
+
+/**
+ * What a date is grouped by.
+ */
+export type DateGrain = "year" | "quarter" | "month" | "week" | "day";
+
+/**
+ * How a metric totals its column.
+ */
+export type ChartAggregate = "sum" | "average" | "median" | "min" | "max" | "count" | "distinct";
+
+/**
+ * A dimension: a column the rows are grouped by; a column of time at a
+ * grain (by day when none is given).
+ */
+export type ChartDimension = { column: string, grain: DateGrain | null, };
+
+/**
+ * A metric: a column and how it is totalled; without a column, the number
+ * of rows. The same column may be totalled in several ways.
+ */
+export type ChartMetric = { column: string | null, aggregate: ChartAggregate, };
+
+/**
+ * A filter on one column, of one kind: any of `values`; a range with
+ * either end open (`min`, `max`: numbers, or days as `YYYY-MM-DD` for a
+ * column of time); the last `lastDays` days; or this year.
+ */
+export type ChartFilter = { column: string, values: Array<string>, min: string | null, max: string | null, lastDays: number | null, thisYear: boolean, };
+
+/**
+ * The order of a chart's groups: by one of its metrics (its place in
+ * `metrics`), totalled over the whole group.
+ */
+export type ChartSort = { metric: number, descending: boolean, };
+
+/**
+ * A chart, described: never SQL. The node writes the query from it. Its
+ * groups are the values of `dimensions`; within each, `compare` makes a
+ * series for each of its values; each of `metrics` is totalled for every
+ * group and series. With no dimension, comparison or metric, it is the
+ * table's rows.
+ */
+export type ChartSpec = { chart: ChartKind, dimensions: Array<ChartDimension>, compare: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
+/**
+ * Show only the first groups, in the chart's order.
+ */
+limit: number | null, };
+
+/**
+ * `analysis_chart`: what a chart of an analysis table shows.
+ */
+export type AnalysisChart = { space: string, table: string, spec: ChartSpec, };
+
+/**
+ * One series of a chart's result: a value of each compared dimension (none
+ * when nothing is compared) and the metric totalled, by its place.
+ */
+export type ChartSeries = { compare: Array<string | null>, metric: number, };
+
+/**
+ * One group of a chart's result: a value of each dimension, and a total
+ * for each series (none where the group has no rows of that series).
+ */
+export type ChartGroup = { keys: Array<string | null>, values: Array<number | null>, };
+
+/**
+ * The table's rows, for a chart that groups and totals nothing.
+ */
+export type ChartRows = { columns: Array<string>, rows: Array<Array<string | null>>, };
+
+/**
+ * What a chart shows, computed by the node.
+ */
+export type ChartResult = { series: Array<ChartSeries>, groups: Array<ChartGroup>,
+/**
+ * How many groups there are, before `limit`.
+ */
+allGroups: number,
+/**
+ * How many of the table's rows the filters keep.
+ */
+matched: number,
+/**
+ * The rows themselves, for a chart that groups and totals nothing.
+ */
+rows: ChartRows | null,
+/**
+ * Whether more was found than is given here.
+ */
+truncated: boolean, };
+
+/**
+ * `analysis_values`: the values a column of an analysis table holds, to
+ * choose a filter's from.
+ */
+export type AnalysisValues = { space: string, table: string, column: string, };
 
 /**
  * Why a derived analysis can be rebuilt, and whether its source shape changed.

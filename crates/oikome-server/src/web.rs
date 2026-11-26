@@ -68,7 +68,7 @@ use oikome_api::{
     Rows, RunSql, Search, SetAnalysisField, SetLending, SetSourceEvery, ShareRef, ShareSpace,
     SourceRef, SpaceRef, SqlResult, StorageRef, UseBorrowed, PLUGIN_SDK,
 };
-use oikome_api::{AnalysisQuery, AnalysisViewRef, SaveAnalysisView};
+use oikome_api::{AnalysisChart, AnalysisValues, AnalysisViewRef, SaveAnalysisView};
 use oikome_api::{
     ExtensionRef, FileRef, FinishDropbox, GoogleCallback, ListFiles, RevokeSaveConfirmation,
     SaveTextFile, SaveTo, SetNetwork, ShowFolder, StartDropbox, StartGoogleDrive, ViewInPlace,
@@ -100,19 +100,6 @@ const CONTENT_SECURITY_POLICY: &str =
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
      img-src 'self' data: blob:; media-src 'self'; connect-src 'self'; \
      frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-
-/// The page the Analysis view embeds to explore a table (Perspective). It
-/// alone may compile WebAssembly and start scripts and workers from `blob:`
-/// URLs, which Perspective needs; the app's own policy stays as it is. The
-/// page makes no connections at all: the app asks the node and hands it the
-/// answers. Only the app may embed it.
-const EXPLORER_CONTENT_SECURITY_POLICY: &str =
-    "default-src 'none'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; \
-     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; \
-     connect-src 'none'; frame-src 'none'; object-src 'none'; media-src 'none'; \
-     manifest-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
-/// Where the built app keeps that page.
-const EXPLORER_PREFIX: &str = "/analysis-frame/";
 
 /// A plugin page runs only its own scripts and reaches nothing: no
 /// connections, frames, workers or forms. `sandbox` gives it an origin of
@@ -489,13 +476,8 @@ impl WebState {
             "analysis_summary" => json_op!(boxed analysis_summary, AnalysisTableRef),
             "save_analysis_view" => json_op!(boxed save_analysis_view, SaveAnalysisView),
             "remove_analysis_view" => json_op!(boxed remove_analysis_view, AnalysisViewRef),
-            "analysis_query" => match parse::<AnalysisQuery>(&body) {
-                Ok(request) => match Box::pin(api.analysis_query(&caller, request)).await {
-                    Ok(rows) => arrow(rows),
-                    Err(e) => error(e),
-                },
-                Err(e) => error(e),
-            },
+            "analysis_chart" => json_op!(boxed analysis_chart, AnalysisChart),
+            "analysis_values" => json_op!(boxed analysis_values, AnalysisValues),
             "install_extension" => json_op!(boxed install_extension, ExtensionRef),
             "analysis_profile" => json_op!(boxed analysis_profile, SpaceRef),
             "knowledge_status" => json_op!(boxed knowledge_status, SpaceRef),
@@ -1008,26 +990,6 @@ async fn serve_app_file(root: &Path, path: &str) -> Response {
     };
     let mut response = respond(StatusCode::OK, content_type(&file), body);
     let headers = response.headers_mut();
-    // The explorer's page has a policy of its own and is embedded by the
-    // app; a path under it that is no file is not one of the app's routes.
-    if path.starts_with(EXPLORER_PREFIX) {
-        if !file.starts_with(root.join("analysis-frame")) {
-            return error(ApiError::not_found("not found"));
-        }
-        headers.insert(
-            header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static(EXPLORER_CONTENT_SECURITY_POLICY),
-        );
-        headers.insert(
-            header::X_FRAME_OPTIONS,
-            HeaderValue::from_static("SAMEORIGIN"),
-        );
-        headers.insert(
-            HeaderName::from_static("permissions-policy"),
-            HeaderValue::from_static(PLUGIN_PERMISSIONS_POLICY),
-        );
-        return response;
-    }
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(CONTENT_SECURITY_POLICY),

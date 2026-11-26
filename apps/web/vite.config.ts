@@ -12,7 +12,7 @@
 // this server's address instead of the node's.
 
 import { createReadStream } from "node:fs";
-import { cpSync, readFileSync, statSync } from "node:fs";
+import { cpSync, statSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
@@ -23,18 +23,6 @@ const pdfResources = fileURLToPath(new URL("./dist/pdf/", import.meta.url));
 
 export default defineConfig({
   plugins: [
-    {
-      // The explorer's page makes no connections, so it cannot fetch
-      // Perspective's WebAssembly: `x.wasm?inline` puts the file in the
-      // script, as a data URL the page decodes itself.
-      name: "wasm-inline",
-      enforce: "pre",
-      load(id) {
-        if (!id.endsWith(".wasm?inline")) return null;
-        const bytes = readFileSync(id.slice(0, -"?inline".length));
-        return `export default "data:application/wasm;base64,${bytes.toString("base64")}";`;
-      },
-    },
     {
       name: "pdf-preview-resources",
       configureServer(server) {
@@ -63,14 +51,6 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Two pages: the app, and the explorer the Analysis view embeds
-    // (Perspective), which the node serves with a policy of its own.
-    rollupOptions: {
-      input: {
-        app: fileURLToPath(new URL("./index.html", import.meta.url)),
-        explorer: fileURLToPath(new URL("./analysis-frame/index.html", import.meta.url)),
-      },
-    },
   },
   server: {
     proxy: {

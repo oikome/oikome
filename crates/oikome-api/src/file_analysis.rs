@@ -42,26 +42,17 @@ use oikome_engine::{QualifiedName, TableSource};
 use oikome_node::inplace::{self, DataFile, DatasetTable, SheetFile};
 use oikome_node::QueryResult;
 use oikome_semantic::rewrite::quote_ident;
-use oikome_semantic::{classify, parse_single, OikomeStatement, StatementClass};
 use oikome_storage::write_data_file;
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::schema_profile;
 use crate::datasets::{capability_of, kind_of};
 use crate::{
-    encode_rows, AnalysisPoint, AnalysisQuery, AnalysisSource, AnalysisSummary, AnalysisTable,
-    AnalysisTableRef, AnalysisView, AnalysisViewRef, Api, ApiError, BuildAnalysis, Caller,
-    ErrorCode, FieldRole, FileAnalysis, Rows, SaveAnalysisView, SetAnalysisField, SpaceRef,
+    AnalysisPoint, AnalysisSource, AnalysisSummary, AnalysisTable, AnalysisTableRef, AnalysisView,
+    AnalysisViewRef, Api, ApiError, BuildAnalysis, Caller, ChartSpec, ErrorCode, FieldRole,
+    FileAnalysis, SaveAnalysisView, SetAnalysisField, SpaceRef,
 };
 
-/// The name an explorer's query gives the table it reads.
-pub const ANALYSIS_RELATION: &str = "oikome_table";
-/// The order of the table's rows as read, which the explorer sorts plain
-/// rows by; not one of its columns.
-const ROW_ID: &str = "rowid";
-/// The most a query of the explorer answers with.
-const MAX_QUERY_ROWS: usize = 100_000;
-const MAX_QUERY_BYTES: usize = 64 * 1024 * 1024;
 /// The most views kept with a table, and the size of each.
 const MAX_VIEWS: usize = 100;
 const MAX_VIEW_BYTES: usize = 16 * 1024;
@@ -69,21 +60,6 @@ const MAX_VIEW_NAME_CHARS: usize = 80;
 /// The views every table starts with, by the ids the app gives them. Saved
 /// in place, one is kept under its id; removed, it is as it started again.
 const STARTING_VIEWS: [&str; 3] = ["month", "category", "rows"];
-/// What describes a view; anything else the explorer keeps (its theme, its
-/// open panels, its own expressions) is left out.
-const VIEW_KEYS: [&str; 11] = [
-    "plugin",
-    "plugin_config",
-    "columns_config",
-    "group_by",
-    "split_by",
-    "sort",
-    "filter",
-    "columns",
-    "aggregates",
-    "group_rollup_mode",
-    "split_rollup_mode",
-];
 
 fn shown_view(view: &KeptView) -> AnalysisView {
     AnalysisView {
@@ -95,8 +71,8 @@ fn shown_view(view: &KeptView) -> AnalysisView {
     }
 }
 
-/// A view's description as it is kept: an object of the keys that describe
-/// a view, nothing else.
+/// A view's description as it is kept: a chart (its dimensions, metrics,
+/// filters and the rest), and nothing else that was sent with it.
 pub(crate) fn view_config(text: &str) -> Result<serde_json::Value, ApiError> {
     if text.len() > MAX_VIEW_BYTES {
         return Err(ApiError::invalid(format!(
@@ -104,56 +80,9 @@ pub(crate) fn view_config(text: &str) -> Result<serde_json::Value, ApiError> {
             MAX_VIEW_BYTES / 1024
         )));
     }
-    let serde_json::Value::Object(given) =
-        serde_json::from_str(text).map_err(|_| ApiError::invalid("a view is a JSON object"))?
-    else {
-        return Err(ApiError::invalid("a view is a JSON object"));
-    };
-    Ok(serde_json::Value::Object(
-        given
-            .into_iter()
-            .filter(|(key, _)| VIEW_KEYS.contains(&key.as_str()))
-            .collect(),
-    ))
-}
-
-/// The table an explorer reads: the analysis table and, for each column of
-/// time, its month and its year as text.
-fn explored(space: &str, table: &str, schema: &Schema, roles: &[(String, FieldRole)]) -> String {
-    // The explorer orders plain rows by `rowid`, which a table of DuckDB's
-    // own has and this one, read through a query, has not.
-    let mut columns = if schema.field_with_name(ROW_ID).is_ok() {
-        String::from("*")
-    } else {
-        format!("row_number() OVER () AS {ROW_ID}, *")
-    };
-    for field in schema.fields() {
-        let name = field.name();
-        let timed = matches!(
-            field.data_type(),
-            DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _)
-        ) || roles
-            .iter()
-            .any(|(of, role)| of == name && *role == FieldRole::Time);
-        if !timed || name == SOURCE_FILE {
-            continue;
-        }
-        let at = format!("TRY_CAST({} AS TIMESTAMP)", quote_ident(name));
-        for (part, format) in [("month", "%Y-%m"), ("year", "%Y")] {
-            let derived = format!("{name} ({part})");
-            if schema.field_with_name(&derived).is_err() {
-                columns.push_str(&format!(
-                    ", strftime({at}, '{format}') AS {}",
-                    quote_ident(&derived)
-                ));
-            }
-        }
-    }
-    format!(
-        "SELECT {columns} FROM {}.{}",
-        quote_ident(space),
-        quote_ident(table)
-    )
+    let chart: ChartSpec = serde_json::from_str(text)
+        .map_err(|e| ApiError::invalid(format!("a view is a chart's description: {e}")))?;
+    serde_json::to_value(chart).map_err(ApiError::internal)
 }
 
 /// The column every analysis table adds: the file a row came from.
@@ -1029,68 +958,37 @@ impl Api {
         self.follow_files(&req.space, &[]).await
     }
 
-    /// One query of the explorer over an analysis table, which it names
-    /// `oikome_table`: a single statement that only reads, and reads
-    /// nothing outside the table's collection.
-    pub async fn analysis_query(
+    /// An analysis table's columns and what each is for (as proposed, or as
+    /// the owner corrected), without looking at its files again.
+    pub(crate) async fn analysis_columns(
         &self,
-        caller: &Caller,
-        req: AnalysisQuery,
-    ) -> Result<Rows, ApiError> {
-        caller.require_owner()?;
-        if req.sql.len() > crate::MAX_SQL_BYTES {
-            return Err(ApiError::invalid("the query is too long"));
-        }
-        self.refresh()?;
-        self.in_place_of(&req.space)?;
-        let kept = self.kept(&req.space)?;
-        let missing =
-            || ApiError::not_found(format!("{} has no analysis table {}", req.space, req.table));
-        let table = kept.tables.get(&req.table).ok_or_else(missing)?;
-        let schema = match &table.dataset {
+        space: &str,
+        table: &str,
+    ) -> Result<(SchemaRef, Vec<(String, FieldRole)>), ApiError> {
+        self.in_place_of(space)?;
+        let kept = self.kept(space)?;
+        let missing = || ApiError::not_found(format!("{space} has no analysis table {table}"));
+        let entry = kept.tables.get(table).ok_or_else(missing)?;
+        let schema = match &entry.dataset {
             Some(dataset) => dataset.schema(),
             None => self
                 .catalog
-                .tables_in(&req.space)
+                .tables_in(space)
                 .await?
                 .into_iter()
-                .find(|(name, _)| *name == req.table)
+                .find(|(name, _)| name == table)
                 .map(|(_, resolved)| resolved.schema)
                 .ok_or_else(missing)?,
         };
-        let roles: Vec<(String, FieldRole)> = schema_profile(&req.space, &req.table, &schema)
+        let roles = schema_profile(space, table, &schema)
             .fields
             .into_iter()
             .map(|field| {
-                let role = table.roles.get(&field.name).copied().unwrap_or(field.role);
+                let role = entry.roles.get(&field.name).copied().unwrap_or(field.role);
                 (field.name, role)
             })
             .collect();
-        let base = explored(&req.space, &req.table, &schema, &roles);
-        let asked = req.sql.trim().trim_end_matches(';').trim();
-        let head = asked.get(..5).unwrap_or("").to_ascii_uppercase();
-        let sql = if head == "WITH " || head == "WITH\n" || head == "WITH\t" {
-            format!("WITH {ANALYSIS_RELATION} AS ({base}), {}", &asked[5..])
-        } else {
-            format!("WITH {ANALYSIS_RELATION} AS ({base}) {asked}")
-        };
-        // One statement, a query, of this collection only: checked on what
-        // will run, before it runs.
-        let refused = |why: &str| ApiError::invalid(format!("the explorer may only read: {why}"));
-        let parsed = parse_single(&sql).map_err(|e| ApiError::invalid(e.to_string()))?;
-        let OikomeStatement::Sql(mut statement) = parsed else {
-            return Err(refused("not a query"));
-        };
-        match classify(&mut statement, None).map_err(|e| ApiError::invalid(e.to_string()))? {
-            StatementClass::Query { spaces } if spaces.iter().all(|s| *s == req.space) => {}
-            _ => return Err(refused("it reaches outside this collection")),
-        }
-        match self.session(None).sql(&sql).await? {
-            QueryResult::Batches { schema, batches } => {
-                encode_rows(&schema, &batches, MAX_QUERY_ROWS, MAX_QUERY_BYTES)
-            }
-            _ => Err(refused("not a query")),
-        }
+        Ok((schema, roles))
     }
 
     /// Keep a view with its analysis table: a new one, or one saved before

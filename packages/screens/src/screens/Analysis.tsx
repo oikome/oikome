@@ -4,7 +4,7 @@
 // Analysis: the analysis tables a folder collection's data files make
 // (each file, or each folder of them, read as one table) when the owner
 // chooses them, what each column is for, and each table's explorer: its
-// views, drawn by Perspective (Explorer.tsx). The tables are the collection's, queried as
+// charts (Explorer.tsx). The tables are the collection's, queried as
 // <collection>.<table> by SQL and assistants; the files are only read, and
 // the owner may remove a table. A dataset in its folders (a Lance dataset,
 // an Iceberg table) is a table too, always, read where it is.

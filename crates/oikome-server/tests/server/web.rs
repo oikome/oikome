@@ -362,12 +362,6 @@ async fn the_app_is_served_with_a_strict_policy() {
     .unwrap();
     std::fs::create_dir(pages.path().join("assets")).unwrap();
     std::fs::write(pages.path().join("assets/app-1a2b.js"), "export {}").unwrap();
-    std::fs::create_dir(pages.path().join("analysis-frame")).unwrap();
-    std::fs::write(
-        pages.path().join("analysis-frame/index.html"),
-        "<!doctype html><title>Oikome</title>",
-    )
-    .unwrap();
     let api = Api::new(node.catalog.clone(), node.engines.clone());
     let app = WebApp::new(
         api,
@@ -399,35 +393,16 @@ async fn the_app_is_served_with_a_strict_policy() {
         assert_eq!(response.headers()[header::X_FRAME_OPTIONS], "DENY");
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }
-    // The explorer's page alone may compile WebAssembly and run blob:
-    // scripts and workers (Perspective); it connects to nothing, and only
-    // the app embeds it. The app's own policy has none of that.
-    let explorer = get("/analysis-frame/index.html").await.unwrap();
-    assert_eq!(explorer.status(), StatusCode::OK);
-    let policy = explorer.headers()[header::CONTENT_SECURITY_POLICY]
-        .to_str()
-        .unwrap();
-    assert!(policy.contains("default-src 'none'"));
-    assert!(policy.contains("script-src 'self' 'wasm-unsafe-eval' blob:;"));
-    assert!(policy.contains("worker-src 'self' blob:;"));
-    assert!(policy.contains("connect-src 'none'"));
-    assert!(policy.contains("frame-ancestors 'self'"));
-    assert_eq!(explorer.headers()[header::X_FRAME_OPTIONS], "SAMEORIGIN");
-    let app_policy = get("/").await.unwrap().headers()[header::CONTENT_SECURITY_POLICY]
+    // Nothing of the app is served under a looser policy: no page may
+    // compile WebAssembly or run scripts from blob: URLs.
+    let policy = get("/").await.unwrap().headers()[header::CONTENT_SECURITY_POLICY]
         .to_str()
         .unwrap()
         .to_string();
-    assert!(!app_policy.contains("wasm-unsafe-eval"));
-    assert!(!app_policy.contains("script-src 'self' blob:"));
-    assert!(app_policy.contains("frame-ancestors 'none'"));
-    // A path under it that names no file is not one of the app's routes.
-    for path in ["/analysis-frame/", "/analysis-frame/settings"] {
-        assert_eq!(
-            get(path).await.unwrap().status(),
-            StatusCode::NOT_FOUND,
-            "{path}"
-        );
-    }
+    assert!(!policy.contains("wasm-unsafe-eval"));
+    assert!(policy.contains("script-src 'self';"));
+    assert!(!policy.contains("worker-src"));
+    assert!(policy.contains("frame-ancestors 'none'"));
     let asset = get("/assets/app-1a2b.js").await.unwrap();
     assert_eq!(asset.status(), StatusCode::OK);
     assert!(asset.headers()[header::CONTENT_TYPE]

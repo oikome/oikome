@@ -14,7 +14,9 @@ import type {
   AddInPlaceFiles,
   AddInPlaceFolder,
   AnalyzeDataset,
-  AnalysisQuery,
+  AnalysisChart,
+  AnalysisValues,
+  ChartResult,
   AnalysisSummary,
   AnalysisTableRef,
   AnalysisViewRef,
@@ -183,8 +185,10 @@ export interface NodeClient {
   setAnalysisField(request: SetAnalysisField): Promise<FileAnalysis>;
   /** An analysis table's totals by month and by category. */
   analysisSummary(request: AnalysisTableRef): Promise<AnalysisSummary>;
-  /** One read-only query of the explorer over an analysis table: its rows as Arrow IPC bytes. */
-  analysisQuery(request: AnalysisQuery): Promise<ArrayBuffer>;
+  /** What a chart of an analysis table shows, computed by the node from the chart's description. */
+  analysisChart(request: AnalysisChart): Promise<ChartResult>;
+  /** The values a column of an analysis table holds, for a filter to choose from. */
+  analysisValues(request: AnalysisValues): Promise<string[]>;
   /** Keep a view with its analysis table: a new one, or by its id one saved before. */
   saveAnalysisView(request: SaveAnalysisView): Promise<FileAnalysis>;
   /** Remove a saved view; its table stays. */
@@ -494,8 +498,12 @@ export class HttpClient implements NodeClient {
     return this.#json("analysis_summary", request);
   }
 
-  async analysisQuery(request: AnalysisQuery): Promise<ArrayBuffer> {
-    return (await this.#post("analysis_query", request)).arrayBuffer();
+  analysisChart(request: AnalysisChart): Promise<ChartResult> {
+    return this.#json("analysis_chart", request);
+  }
+
+  analysisValues(request: AnalysisValues): Promise<string[]> {
+    return this.#json("analysis_values", request);
   }
 
   saveAnalysisView(request: SaveAnalysisView): Promise<FileAnalysis> {

@@ -556,9 +556,7 @@ pub struct AnalysisTable {
 pub struct AnalysisView {
     pub id: String,
     pub name: String,
-    /// The explorer's own description of the view, as JSON: only the keys
-    /// that describe a view are kept (`plugin`, `group_by`, `split_by`,
-    /// `sort`, `filter`, `columns`, `aggregates` and how each is drawn).
+    /// The chart it is, as JSON (a [`ChartSpec`]).
     pub config: String,
     /// The assistant that made it; the owner made it when absent.
     pub by: Option<String>,
@@ -590,15 +588,175 @@ pub struct AnalysisViewRef {
     pub id: String,
 }
 
-/// `analysis_query`: one read-only query over an analysis table, which the
-/// query names `oikome_table`. Beside its columns the table has, for each
-/// column of time, `<column> (month)` and `<column> (year)`.
+/// How a chart is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartKind {
+    Table,
+    Column,
+    Bar,
+    Line,
+    Area,
+    Treemap,
+}
+
+/// What a date is grouped by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum DateGrain {
+    Year,
+    Quarter,
+    Month,
+    Week,
+    Day,
+}
+
+/// How a metric totals its column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ChartAggregate {
+    Sum,
+    Average,
+    Median,
+    Min,
+    Max,
+    Count,
+    Distinct,
+}
+
+/// A dimension: a column the rows are grouped by; a column of time at a
+/// grain (by day when none is given).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartDimension {
+    pub column: String,
+    #[serde(default)]
+    pub grain: Option<DateGrain>,
+}
+
+/// A metric: a column and how it is totalled; without a column, the number
+/// of rows. The same column may be totalled in several ways.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartMetric {
+    #[serde(default)]
+    pub column: Option<String>,
+    pub aggregate: ChartAggregate,
+}
+
+/// A filter on one column, of one kind: any of `values`; a range with
+/// either end open (`min`, `max`: numbers, or days as `YYYY-MM-DD` for a
+/// column of time); the last `lastDays` days; or this year.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartFilter {
+    pub column: String,
+    #[serde(default)]
+    pub values: Vec<String>,
+    #[serde(default)]
+    pub min: Option<String>,
+    #[serde(default)]
+    pub max: Option<String>,
+    #[serde(default)]
+    pub last_days: Option<u32>,
+    #[serde(default)]
+    pub this_year: bool,
+}
+
+/// The order of a chart's groups: by one of its metrics (its place in
+/// `metrics`), totalled over the whole group.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartSort {
+    pub metric: u32,
+    pub descending: bool,
+}
+
+/// A chart, described: never SQL. The node writes the query from it. Its
+/// groups are the values of `dimensions`; within each, `compare` makes a
+/// series for each of its values; each of `metrics` is totalled for every
+/// group and series. With no dimension, comparison or metric, it is the
+/// table's rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartSpec {
+    pub chart: ChartKind,
+    #[serde(default)]
+    pub dimensions: Vec<ChartDimension>,
+    #[serde(default)]
+    pub compare: Vec<ChartDimension>,
+    #[serde(default)]
+    pub metrics: Vec<ChartMetric>,
+    #[serde(default)]
+    pub filters: Vec<ChartFilter>,
+    #[serde(default)]
+    pub sort: Option<ChartSort>,
+    /// Show only the first groups, in the chart's order.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `analysis_chart`: what a chart of an analysis table shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct AnalysisQuery {
+pub struct AnalysisChart {
     pub space: String,
     pub table: String,
-    pub sql: String,
+    pub spec: ChartSpec,
+}
+
+/// One series of a chart's result: a value of each compared dimension (none
+/// when nothing is compared) and the metric totalled, by its place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartSeries {
+    pub compare: Vec<Option<String>>,
+    pub metric: u32,
+}
+
+/// One group of a chart's result: a value of each dimension, and a total
+/// for each series (none where the group has no rows of that series).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartGroup {
+    pub keys: Vec<Option<String>>,
+    pub values: Vec<Option<f64>>,
+}
+
+/// The table's rows, for a chart that groups and totals nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartRows {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+}
+
+/// What a chart shows, computed by the node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartResult {
+    pub series: Vec<ChartSeries>,
+    pub groups: Vec<ChartGroup>,
+    /// How many groups there are, before `limit`.
+    #[ts(type = "number")]
+    pub all_groups: u64,
+    /// How many of the table's rows the filters keep.
+    #[ts(type = "number")]
+    pub matched: u64,
+    /// The rows themselves, for a chart that groups and totals nothing.
+    pub rows: Option<ChartRows>,
+    /// Whether more was found than is given here.
+    pub truncated: bool,
+}
+
+/// `analysis_values`: the values a column of an analysis table holds, to
+/// choose a filter's from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisValues {
+    pub space: String,
+    pub table: String,
+    pub column: String,
 }
 
 /// `file_analysis`: what a folder collection's files can make and has made.

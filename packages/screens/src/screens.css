@@ -5112,7 +5112,7 @@ tr.screen-source {
   margin: 0;
 }
 /* A table's explorer: its views in a row, then the view shown, drawn in a
-   page of its own (Perspective). */
+   panel beside it. */
 .screen-explorer {
   padding: 0;
   overflow: hidden;
@@ -5185,15 +5185,74 @@ tr.screen-source {
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line2);
 }
-/* The view, and beside it the panel that says what it shows. */
+/* The chart, and beside it the panel that describes it. */
 .screen-explorer__body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 312px;
 }
 .screen-explorer__stage {
-  position: relative;
-  height: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   min-width: 0;
+  min-height: 440px;
+  padding: var(--space-4);
+}
+.screen-explorer__facts {
+  margin: 0;
+  color: var(--ink2);
+  font: var(--text-meta);
+}
+.screen-explorer__chart {
+  flex: 1;
+  min-height: 400px;
+}
+.screen-explorer__loading {
+  flex: 1;
+  border-radius: var(--r-btn);
+}
+.screen-explorer__empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  margin: 0;
+  color: var(--ink2);
+}
+/* A chart's result as a table: read down its groups, across its series. */
+.screen-explorer__table {
+  max-height: 460px;
+  margin: 0 calc(-1 * var(--space-4));
+  overflow: auto;
+}
+.screen-explorer__table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.screen-explorer__table th {
+  position: sticky;
+  top: 0;
+  padding: 8px var(--space-4);
+  border-bottom: var(--bw) solid var(--line);
+  background: var(--raised);
+  color: var(--label-color);
+  font: var(--label-font);
+  letter-spacing: var(--label-spacing);
+  text-align: left;
+  text-transform: var(--label-case);
+  white-space: nowrap;
+}
+.screen-explorer__table td {
+  padding: 8px var(--space-4);
+  border-bottom: 1px solid var(--line2);
+  white-space: nowrap;
+}
+.screen-explorer__table .screen-explorer__num {
+  font: var(--text-data);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.screen-explorer__table th.screen-explorer__num {
+  font: var(--label-font);
 }
 .screen-explorer__panel {
   display: grid;
@@ -5206,50 +5265,107 @@ tr.screen-source {
 .screen-explorer__panel .oik-select {
   width: 100%;
 }
-/* What is totalled: a row for each column, and how. */
-.screen-explorer__values {
+/* One part of the description (its dimensions, its metrics, its filters):
+   what is chosen, a row each, then what can be added. */
+.screen-explorer__part {
   display: grid;
   justify-items: start;
   gap: var(--space-2);
 }
-.screen-explorer__value {
-  display: grid;
-  grid-template-columns: 108px minmax(0, 1fr) auto;
+.screen-explorer__item {
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   width: 100%;
+  min-height: 36px;
+  padding: 0 2px 0 10px;
+  border: var(--bw) solid var(--stroke);
+  border-radius: var(--r-field);
+  background: var(--raised);
 }
-.screen-explorer__pair {
+.screen-explorer__item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-data);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-explorer__item .oik-field {
+  display: block;
+  flex: none;
+  width: 104px;
+}
+.screen-explorer__item .oik-select {
+  height: 28px;
+  border-color: transparent;
+  background-color: var(--sunk);
+}
+.screen-explorer__item-filter {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-  align-items: end;
-  gap: var(--space-2);
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+  margin-left: -10px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ink);
+  font: var(--text-data);
+  text-align: left;
+  cursor: pointer;
 }
-.screen-explorer__pair--stacked {
-  grid-template-columns: minmax(0, 1fr);
+.screen-explorer__item-filter > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen-explorer__item-what {
+  color: var(--ink2);
+  font: var(--text-small);
+}
+/* Setting a filter: values to tick, or the two ends of a range. */
+.screen-explorer__filter {
+  display: grid;
+  gap: var(--space-3);
+}
+.screen-explorer__filter .screen-help {
+  margin: 0;
+}
+.screen-explorer__filter-values {
+  display: grid;
+  gap: 2px;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.screen-explorer__filter-loading {
+  height: 96px;
+  border-radius: var(--r-btn);
+}
+.screen-explorer__range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 @media (max-width: 900px) {
   .screen-explorer__body {
     grid-template-columns: minmax(0, 1fr);
   }
   .screen-explorer__stage {
-    height: 380px;
+    min-height: 320px;
+  }
+  .screen-explorer__chart {
+    min-height: 300px;
   }
   .screen-explorer__panel {
     border-top: var(--bw) solid var(--line2);
     border-left: 0;
   }
-}
-.screen-explorer__frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-.screen-explorer__loading {
-  position: absolute;
-  inset: var(--space-4);
-  border-radius: var(--r-btn);
 }
 /* What a table is read from, and for a file's table, removing it. */
 .screen-analysis__about {

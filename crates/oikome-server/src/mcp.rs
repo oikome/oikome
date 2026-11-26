@@ -667,7 +667,7 @@ fn chart_spec_schema() -> Value {
                 "required": ["metric", "descending"],
                 "additionalProperties": false
             },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "description": "How many groups along the chart (its time and dimensions) to show, the first in the chart's order; 1000 when left out." }
+            "limit": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "const": "all" }], "description": "How many groups along the chart (its time and dimensions) to show, the first in the chart's order; 1000 when left out, \"all\" for every one of them." }
         },
         "required": ["chart"],
         "additionalProperties": false

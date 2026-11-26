@@ -26,7 +26,7 @@
 //! step only when pivoted values need the top groups picked by their own
 //! totals. DuckDB computes; the page draws the answer.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use arrow_array::{Array, ArrayRef, Float64Array, StringArray};
 use arrow_schema::{DataType, Schema};
@@ -38,8 +38,8 @@ use oikome_semantic::rewrite::quote_ident;
 use crate::file_analysis::{ReadAs, SOURCE_FILE};
 use crate::{
     AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartColumn, ChartFilter,
-    ChartGroup, ChartLevel, ChartMetric, ChartQuery, ChartResult, ChartRows, ChartSeries,
-    ChartSpec, ChartableTable, ColumnType, DateGrain, TimeRange,
+    ChartGroup, ChartLevel, ChartLimit, ChartMetric, ChartQuery, ChartResult, ChartRows,
+    ChartSeries, ChartSpec, ChartableTable, ColumnType, DateGrain, TimeRange,
 };
 
 /// How much a chart may ask for.
@@ -49,13 +49,11 @@ const MAX_METRICS: usize = 8;
 const MAX_FILTERS: usize = 12;
 const MAX_FILTER_VALUES: usize = 500;
 const MAX_VALUE_BYTES: usize = 1024;
-/// The groups shown unless a number is chosen, and the most that may be;
-/// the cells (a group and a pivoted value) answered with, likewise; and the
-/// most rows of a chart that groups nothing.
+/// The groups shown unless a number is chosen or all of them; the cells (a
+/// group and a pivoted value) answered with, likewise; and the most rows of
+/// a chart that groups nothing.
 const GROUPS: u32 = 1000;
-const MAX_GROUPS: u32 = 10_000;
 const CELLS: usize = 20_000;
-const MAX_CELLS: usize = 100_000;
 const MAX_ROWS: usize = 200;
 /// The most values of a column offered to a filter.
 const MAX_OFFERED: usize = 500;
@@ -296,8 +294,13 @@ fn period_of(grain: DateGrain, at: NaiveDateTime) -> String {
 }
 
 /// Every period at `grain` from the one `from` is in to the one `to` is in;
-/// none when they are more than a chart shows.
-fn periods(grain: DateGrain, from: NaiveDateTime, to: NaiveDateTime) -> Option<Vec<String>> {
+/// none when they are more than `most`.
+fn periods(
+    grain: DateGrain,
+    from: NaiveDateTime,
+    to: NaiveDateTime,
+    most: usize,
+) -> Option<Vec<String>> {
     let last = period_start(grain, &period_of(grain, to))?;
     let mut next = period_start(grain, &period_of(grain, from));
     let mut out = Vec::new();
@@ -305,7 +308,7 @@ fn periods(grain: DateGrain, from: NaiveDateTime, to: NaiveDateTime) -> Option<V
         if at > last {
             break;
         }
-        if out.len() >= GROUPS as usize {
+        if out.len() >= most {
             return None;
         }
         out.push(period_of(grain, at));
@@ -857,20 +860,25 @@ impl Api {
             }
         }
         let direction = |s: &crate::ChartSort| if s.descending { "DESC" } else { "ASC" };
-        let limit = if nk > 0 {
-            spec.limit.map(|n| n.clamp(1, MAX_GROUPS))
-        } else {
-            None
+        // How many groups: so many as chosen, all of them, or 1000.
+        let limit = if nk > 0 { spec.limit } else { None };
+        if limit == Some(ChartLimit::Count(0)) {
+            return Err(ApiError::invalid("a chart shows at least one group"));
+        }
+        let chosen = match limit {
+            Some(ChartLimit::Count(n)) => Some(n),
+            _ => None,
         };
+        let all = matches!(limit, Some(ChartLimit::All(_)));
         let group_by = places(0..nk + nc);
         // Pivots with an order or a number of groups: the groups along are
         // picked and ordered by their own totals first (an average or a
         // median over the whole group, not of a pivoted value within it).
-        let ranked = nc > 0 && nk > 0 && (sort.is_some() || limit.is_some());
+        let ranked = nc > 0 && nk > 0 && (sort.is_some() || chosen.is_some());
         // One GROUP BY. Its order is the metric's, or the keys' own; or, when
         // a time has more periods than can be shown, the newest first, so
         // that the newest are the ones kept.
-        let plain = |newest: bool| -> Result<(String, usize), ApiError> {
+        let plain = |newest: bool| -> Result<(String, Option<usize>), ApiError> {
             let mut order = Vec::new();
             if let Some(sort) = sort {
                 order.push(format!(
@@ -885,10 +893,11 @@ impl Api {
             } else {
                 order.extend(group_by.clone());
             }
-            let cap = match (limit, nc) {
-                (Some(n), _) => n as usize,
-                (None, 0) => GROUPS as usize,
-                (None, _) => CELLS,
+            let cap = match (chosen, all, nc) {
+                (Some(n), _, _) => Some(n as usize),
+                (None, true, _) => None,
+                (None, false, 0) => Some(GROUPS as usize),
+                (None, false, _) => Some(CELLS),
             };
             let mut sql = format!(
                 "SELECT {}\nFROM {table_name}{}",
@@ -905,8 +914,16 @@ impl Api {
             if !order.is_empty() {
                 sql.push_str(&format!("\nORDER BY {}", order.join(", ")));
             }
-            sql.push_str(&format!("\nLIMIT {cap}"));
+            if let Some(cap) = cap {
+                sql.push_str(&format!("\nLIMIT {cap}"));
+            }
             Ok((sql, cap))
+        };
+        // The groups the first step picks: so many as chosen, all, or 1000.
+        let picked_most = if all {
+            None
+        } else {
+            Some(chosen.unwrap_or(GROUPS))
         };
         let (mut sql, mut cap) = if !ranked {
             plain(false)?
@@ -924,23 +941,24 @@ impl Api {
                     None => columns.key("", &level.column),
                 })
                 .collect();
+            let cut = picked_most
+                .map(|n| format!("\nLIMIT {n}"))
+                .unwrap_or_default();
             let picked = match sort {
                 Some(sort) => format!(
-                    "SELECT {}, {} AS total\nFROM {table_name}{}\nGROUP BY {}\nORDER BY total {}\nLIMIT {}",
+                    "SELECT {}, {} AS total\nFROM {table_name}{}\nGROUP BY {}\nORDER BY total {}{cut}",
                     picked_keys.join(", "),
                     metric(&columns, &metrics[sort.metric as usize], "")?,
                     where_of(&kept),
                     places(0..nk).join(", "),
                     direction(sort),
-                    limit.unwrap_or(GROUPS)
                 ),
                 None => format!(
-                    "SELECT {}\nFROM {table_name}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {}",
+                    "SELECT {}\nFROM {table_name}{}\nGROUP BY {}\nORDER BY {}{cut}",
                     picked_keys.join(", "),
                     where_of(&kept),
                     places(0..nk).join(", "),
                     places(0..nk).join(", "),
-                    limit.unwrap_or(GROUPS)
                 ),
             };
             let joined: Vec<String> = keyed
@@ -961,8 +979,9 @@ impl Api {
             }
             order.extend(group_by.clone());
             let inner = conditions("t.", &mut bound)?;
+            // Every cell of the groups picked: they are as many as were chosen.
             let sql = format!(
-                "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {MAX_CELLS}",
+                "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}\nORDER BY {}",
                 indent(&picked, "  "),
                 keys("t.").into_iter().chain(totals("t.")?).collect::<Vec<_>>().join(",\n       "),
                 joined.join("\n  AND "),
@@ -970,20 +989,26 @@ impl Api {
                 by.join(", "),
                 order.join(", ")
             );
-            (sql, MAX_CELLS)
+            (sql, None)
         };
 
         // One row for each group and pivoted value: laid out as groups,
         // each with a total for every series.
         let mut cells = cells_of(session, &sql, &bound, nk, nc).await?;
-        let mut truncated = cells.len() >= cap;
-        // A time with more periods than can be shown, in its own order: the
+        let mut truncated = match (cap, ranked.then_some(picked_most).flatten()) {
+            (Some(cap), _) => cells.len() >= cap,
+            (None, Some(most)) => {
+                cells.iter().map(|c| &c.0).collect::<HashSet<_>>().len() >= most as usize
+            }
+            (None, None) => false,
+        };
+        // A time with more periods than are shown, in its own order: the
         // newest are shown (asked for newest first, then put back in order).
         if truncated && timed && sort.is_none() && limit.is_none() && !ranked {
             (sql, cap) = plain(true)?;
             cells = cells_of(session, &sql, &bound, nk, nc).await?;
             cells.sort_by(|a, b| (a.0[0].is_none(), &a.0[0]).cmp(&(b.0[0].is_none(), &b.0[0])));
-            truncated = cells.len() >= cap;
+            truncated = cap.is_some_and(|cap| cells.len() >= cap);
         }
         let query = query_of(&sql, &bound);
         let pivoted: Vec<Vec<Option<String>>> = cells
@@ -1021,7 +1046,7 @@ impl Api {
         // no rows keep their place, within the period a filter keeps, or the
         // custom range, or from the first period found to the last (unless
         // that is more periods than can be shown).
-        if let (Some(time), 0, false, None, None) = (&spec.time, nd, truncated, sort, limit) {
+        if let (Some(time), 0, false, None, None) = (&spec.time, nd, truncated, sort, chosen) {
             let within = spec.filters.iter().find_map(|f| {
                 f.period
                     .as_ref()
@@ -1044,7 +1069,8 @@ impl Api {
                     .and_then(|k| period_start(time.grain, k))
                     .zip(found.last().and_then(|k| period_start(time.grain, k)))
             });
-            if let Some(all) = bounds.and_then(|(from, to)| periods(time.grain, from, to)) {
+            let most = (GROUPS as usize).max(groups.len());
+            if let Some(all) = bounds.and_then(|(from, to)| periods(time.grain, from, to, most)) {
                 let mut by_key: HashMap<String, ChartGroup> = HashMap::new();
                 let mut unreadable = Vec::new();
                 for group in groups {

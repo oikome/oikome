@@ -16,7 +16,7 @@ import { CanvasRenderer } from "echarts/renderers";
 
 echarts.use([BarChart, LineChart, PieChart, TreemapChart, DataZoomComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
-/** More groups than this along the axis, and a slider lets a part of them be seen at a time. */
+/** More groups than this along the axis, and a slider under it shows which part is seen (always on the whole screen). */
 const ZOOMED = 40;
 /** Columns and bars seen at first when there are more: enough to tell apart. */
 const SEEN = 120;
@@ -28,6 +28,8 @@ export interface Drawing {
   series: { name: string; values: (number | null)[] }[];
   /** Whether the groups are in time's order: then the newest are seen first when not all fit. */
   newest?: boolean;
+  /** Whether the chart fills the screen: then the wheel zooms, and both axes have a slider. */
+  full?: boolean;
   /** What the values are, for the value axis, when there is no legend. */
   valueName?: string;
   /** A number in the reader's words. */
@@ -134,41 +136,48 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
     splitLine: { lineStyle: { color: faint } },
   };
   const lines = drawing.kind === "line" || drawing.kind === "area";
-  // Many groups: a slider under the axis (beside it for bars) shows a part
-  // of them, and the chart pans by dragging and zooms with Ctrl and the
-  // wheel, so the page still scrolls with the wheel alone.
-  const zoomed = drawing.groups.length > ZOOMED;
+  // Any chart along an axis zooms: by dragging it pans, and with Ctrl and
+  // the wheel (a trackpad's pinch) it zooms, so the page still scrolls with
+  // the wheel alone; on the whole screen the wheel zooms by itself. A slider
+  // under the axis (beside it for bars) shows the part seen when there are
+  // many groups, and always on the whole screen, with one for the values too.
+  const full = Boolean(drawing.full);
+  const zoomed = drawing.groups.length > ZOOMED || full;
   // Columns and bars too many to tell apart open on a part of them: the
   // newest in time's order, else the first; lines show all.
   const count = drawing.groups.length;
   const part = !lines && count > SEEN ? (drawing.newest ? { startValue: count - SEEN, endValue: count - 1 } : { startValue: 0, endValue: SEEN - 1 }) : {};
   const axis = { ...(across ? { yAxisIndex: 0 } : { xAxisIndex: 0 }), ...part };
-  const dataZoom = zoomed
-    ? [
-        { type: "inside", ...axis, zoomOnMouseWheel: "ctrl", moveOnMouseWheel: false, moveOnMouseMove: true },
-        {
-          type: "slider",
-          ...axis,
-          ...(across ? { orient: "vertical", right: 4, width: 16 } : { bottom: 4, height: 16 }),
-          borderColor: rule,
-          backgroundColor: "transparent",
-          fillerColor: theme === "bold" ? "rgba(17,17,17,0.08)" : "rgba(20,19,16,0.06)",
-          dataBackground: { lineStyle: { color: rule }, areaStyle: { color: faint } },
-          handleStyle: { color: token("--raised", "#ffffff"), borderColor: soft },
-          moveHandleSize: 4,
-          showDetail: false,
-          brushSelect: false,
-        },
-      ]
-    : undefined;
+  const slider = {
+    type: "slider",
+    borderColor: rule,
+    backgroundColor: "transparent",
+    fillerColor: theme === "bold" ? "rgba(17,17,17,0.08)" : "rgba(20,19,16,0.06)",
+    dataBackground: { lineStyle: { color: rule }, areaStyle: { color: faint } },
+    handleStyle: { color: token("--raised", "#ffffff"), borderColor: soft },
+    moveHandleSize: 4,
+    showDetail: false,
+    brushSelect: false,
+  };
+  const dataZoom =
+    drawing.groups.length > 1
+      ? [
+          { type: "inside", ...axis, zoomOnMouseWheel: full ? true : "ctrl", moveOnMouseWheel: false, moveOnMouseMove: true },
+          ...(zoomed ? [{ ...slider, ...axis, ...(across ? { orient: "vertical", right: 4, width: 16 } : { bottom: 4, height: 16 }) }] : []),
+          // The values' scale, on the whole screen: only the axis changes, every group stays.
+          ...(full
+            ? [{ ...slider, ...(across ? { xAxisIndex: 0, bottom: 4, height: 16 } : { yAxisIndex: 0, orient: "vertical", left: 4, width: 16 }), filterMode: "none" }]
+            : []),
+        ]
+      : undefined;
   return {
     ...common,
     tooltip: { ...tooltip, trigger: "axis", axisPointer: { type: lines ? "line" : "shadow" } },
     // The legend on top, and under it the name of the value axis: each a line of its own.
     grid: {
-      left: 4,
+      left: full && !across ? 32 : 4,
       top: many && drawing.valueName && !across ? 60 : many || (drawing.valueName && !across) ? 36 : 12,
-      bottom: (across && drawing.valueName ? 24 : 4) + (zoomed && !across ? 28 : 0),
+      bottom: (across && drawing.valueName ? 24 : 4) + ((zoomed && !across) || (full && across) ? 28 : 0),
       right: zoomed && across ? 40 : 16,
       containLabel: true,
     },

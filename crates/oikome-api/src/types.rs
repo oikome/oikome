@@ -784,10 +784,26 @@ pub struct ChartSpec {
     pub filters: Vec<ChartFilter>,
     #[serde(default)]
     pub sort: Option<ChartSort>,
-    /// How many groups to show, the first in the chart's order: 1 to
-    /// 10,000, and 1000 when left out.
+    /// How many groups to show, the first in the chart's order: a number
+    /// (1000 when left out), or `"all"`.
     #[serde(default)]
-    pub limit: Option<u32>,
+    pub limit: Option<ChartLimit>,
+}
+
+/// How many groups a chart shows: the first so many, in its order, or all
+/// of them, however many.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum ChartLimit {
+    Count(u32),
+    All(AllGroups),
+}
+
+/// `"all"`: every group a chart has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum AllGroups {
+    All,
 }
 
 /// A column a chart's groups are keyed by, and for its time the grain.

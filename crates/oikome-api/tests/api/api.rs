@@ -7165,6 +7165,32 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(firsts(&daily)[0], day(100));
     assert_eq!(firsts(&daily)[999], day(1099));
     assert!(daily.query.sql.contains("ORDER BY 1 DESC"));
+    // All of them, however many, when that is chosen: no LIMIT at all; or
+    // a number of one's own, as large as wanted; never none.
+    let daily_with = |limit: serde_json::Value| {
+        n.api.analysis_chart(
+            &OWNER,
+            AnalysisChart {
+                space: "household".into(),
+                table: "daily".into(),
+                spec: spec(serde_json::json!({
+                    "chart": "line",
+                    "time": {"column": "day", "grain": "day"},
+                    "metrics": [{"column": "kwh", "aggregate": "sum"}],
+                    "limit": limit
+                })),
+            },
+        )
+    };
+    let every_day = daily_with(serde_json::json!("all")).await.unwrap();
+    assert_eq!(every_day.groups.len(), 1100);
+    assert!(!every_day.truncated);
+    assert!(!every_day.query.sql.contains("LIMIT"));
+    let own = daily_with(serde_json::json!(1050)).await.unwrap();
+    assert_eq!(own.groups.len(), 1050);
+    assert!(own.truncated);
+    let err = daily_with(serde_json::json!(0)).await.unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
     // A timestamp drills down past its days: a day's hours, an hour's
     // minutes, a minute's seconds, each written in a standard way, the
     // periods with no rows in their place.

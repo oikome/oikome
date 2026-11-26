@@ -78,10 +78,9 @@ const finerOf = (grain: DateGrain, timestamp: boolean) => (grain === "day" && !t
 const RANGES: TimeRange[] = ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"];
 const NUMBER_AGGREGATES: ChartAggregate[] = ["sum", "average", "median", "min", "max", "count", "distinct"];
 const OTHER_AGGREGATES: ChartAggregate[] = ["count", "distinct"];
-/** How many groups are shown: these to choose from, or a number of one's own up to the most; 1000 unless chosen. */
+/** How many rows are shown: these to choose from, all of them, or a number of one's own; 1000 unless chosen. */
 const LIMITS = [10, 20, 50, 100, 1000];
 const GROUPS = 1000;
-const MAX_GROUPS = 10_000;
 /** The chart being made with + New Chart, not saved yet. */
 const UNTITLED = "untitled";
 /** A chart whose groups are its slices, with nothing laid across them. */
@@ -191,7 +190,7 @@ function chartOf(raw: unknown): ChartSpec | undefined {
       ...(f.period ? { period: { grain: f.period.grain, key: f.period.key } } : {}),
     })),
     sort: given.sort ? { metric: given.sort.metric, descending: given.sort.descending } : null,
-    limit: given.limit ?? null,
+    limit: given.limit === "all" || (typeof given.limit === "number" && given.limit > 0) ? given.limit : null,
   };
 }
 
@@ -720,14 +719,14 @@ function ResultTable({
   );
 }
 
-/** A number of groups of one's own, 1 to 10,000: applied when the box is left or on Enter; one out of range is put back. */
+/** A number of rows of one's own, any whole number from 1: applied when the box is left or on Enter; anything else is put back. */
 function CountField({ value, onApply }: { value: number; onApply: (count: number) => void }) {
   const [typed, setTyped] = useState(String(value));
   const [wrong, setWrong] = useState(false);
   useEffect(() => setTyped(String(value)), [value]);
   const apply = () => {
-    const count = /^\d{1,5}$/.test(typed.trim()) ? Number(typed) : Number.NaN;
-    if (count >= 1 && count <= MAX_GROUPS) {
+    const count = /^\d{1,9}$/.test(typed.trim()) ? Number(typed) : Number.NaN;
+    if (count >= 1) {
       setWrong(false);
       if (count !== value) onApply(count);
     } else {
@@ -744,7 +743,7 @@ function CountField({ value, onApply }: { value: number; onApply: (count: number
         aria-invalid={wrong || undefined}
         inputMode="numeric"
         autoComplete="off"
-        maxLength={5}
+        maxLength={9}
         value={typed}
         onChange={(e) => setTyped(e.target.value)}
         onFocus={(e) => e.currentTarget.select()}
@@ -753,7 +752,7 @@ function CountField({ value, onApply }: { value: number; onApply: (count: number
           if (e.key === "Enter") e.currentTarget.blur();
         }}
       />
-      {wrong ? <ErrorText>{x.countRange(MAX_GROUPS)}</ErrorText> : <span className="screen-explorer__note">{x.countRange(MAX_GROUPS)}</span>}
+      {wrong ? <ErrorText>{x.countAny}</ErrorText> : <span className="screen-explorer__note">{x.countAny}</span>}
     </div>
   );
 }
@@ -891,9 +890,10 @@ export function Explorer({
   const edited = JSON.stringify(spec) !== JSON.stringify(view.spec);
   const steps = trail?.of === view.id ? trail.steps : [];
   const show = (next: ChartSpec) => setDraft(JSON.stringify(next) === JSON.stringify(view.spec) ? undefined : { of: view.id, spec: next });
+  // An edit in the panel keeps the drill path: a step still goes back to the
+  // chart as it was there. Removing a filter (a drill's own) ends it.
   const change = (next: Partial<ChartSpec>) => {
     show(settle({ ...spec, ...next }));
-    setTrail(undefined);
   };
   const open = (id: string) => {
     setPicked(id);
@@ -925,7 +925,6 @@ export function Explorer({
   // then the owner may be changing another, whose draft stays.
   const forget = (id: string) => {
     setDraft((was) => (was?.of === id ? undefined : was));
-    setTrail(undefined);
   };
   /** Save a kept chart where it is: nothing to name, nothing to choose. */
   const saveHere = async () => {
@@ -1063,6 +1062,7 @@ export function Explorer({
       valueName: metrics.length === 1 ? metricName(metrics[0]!) : undefined,
       // In time's own order, the newest are seen first when not all fit.
       newest: Boolean(spec.time && !spec.sort),
+      full,
       format: number,
       onPick: clickable
         ? (i, at) => {
@@ -1073,7 +1073,7 @@ export function Explorer({
     };
     // `pointAt` stands for the chart shown, which `axis` follows.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [named, spec.chart, clickable, spec.time, spec.sort]);
+  }, [named, spec.chart, clickable, spec.time, spec.sort, full]);
   const empty = result !== undefined && (result.rows ? result.rows.rows.length === 0 : result.groups.length === 0);
   const facts = result
     ? [
@@ -1081,14 +1081,14 @@ export function Explorer({
         result.rows && result.truncated ? x.firstRows(result.rows.rows.length) : undefined,
         // Too many periods in time's own order: the newest are shown.
         !result.rows && result.truncated
-          ? spec.time && !spec.sort && !spec.limit
+          ? spec.time && !spec.sort && spec.limit === null
             ? x.latestGroups(result.groups.length)
             : x.firstGroups(result.groups.length)
           : undefined,
       ].filter((fact): fact is string => fact !== undefined)
     : [];
-  const shownCount = spec.limit ?? GROUPS;
-  const countChoice = customCount || !LIMITS.includes(shownCount) ? "custom" : String(shownCount);
+  const shownCount = typeof spec.limit === "number" ? spec.limit : GROUPS;
+  const countChoice = spec.limit === "all" ? "all" : customCount || !LIMITS.includes(shownCount) ? "custom" : String(shownCount);
   const sortValue = spec.sort ? `${spec.sort.metric}:${spec.sort.descending ? "desc" : "asc"}` : "";
 
   return (
@@ -1370,7 +1370,10 @@ export function Explorer({
                   // A period kept by a zoom or a breakdown is removed, not edited.
                   onOpen={filter.period ? undefined : () => setFiltering(filter)}
                   removeLabel={x.removeItem(filter.column)}
-                  onRemove={() => change({ filters: spec.filters.filter((_, i) => i !== at) })}
+                  onRemove={() => {
+                    change({ filters: spec.filters.filter((_, i) => i !== at) });
+                    setTrail(undefined);
+                  }}
                 />
               ))}
               {adding(x.addFilter, filterItems)}
@@ -1392,7 +1395,7 @@ export function Explorer({
                 ]}
               />
             )}
-            {/* How many groups: 1000 unless chosen, shown as chosen; or a number of one's own. */}
+            {/* How many rows (a table's rows, a chart's groups): 1000 unless chosen, shown as chosen; all of them; or a number of one's own. */}
             {grouped && (
               <div className="screen-explorer__count">
                 <Select
@@ -1401,13 +1404,15 @@ export function Explorer({
                   onChange={(value) => {
                     if (value === "custom") return setCustomCount(true);
                     setCustomCount(false);
-                    change({ limit: Number(value) === GROUPS ? null : Number(value) });
+                    change({ limit: value === "all" ? "all" : Number(value) === GROUPS ? null : Number(value) });
                   }}
-                  options={[...LIMITS.map((n) => ({ value: String(n), label: String(n) })), { value: "custom", label: x.customCount }]}
+                  options={[
+                    ...LIMITS.map((n) => ({ value: String(n), label: String(n) })),
+                    { value: "all", label: x.showAll },
+                    { value: "custom", label: x.customCount },
+                  ]}
                 />
-                {countChoice === "custom" && (
-                  <CountField value={spec.limit ?? GROUPS} onApply={(n) => change({ limit: n === GROUPS ? null : n })} />
-                )}
+                {countChoice === "custom" && <CountField value={shownCount} onApply={(n) => change({ limit: n === GROUPS ? null : n })} />}
               </div>
             )}
           </div>

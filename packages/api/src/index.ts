@@ -1797,6 +1797,17 @@ export type ChartFilter = { column: string, values: Array<string>, min: string |
 export type ChartPeriod = { grain: DateGrain, key: string, };
 
 /**
+ * How many groups a chart shows: the first so many, in its order, or all
+ * of them, however many.
+ */
+export type ChartLimit = number | AllGroups;
+
+/**
+ * `"all"`: every group a chart has.
+ */
+export type AllGroups = "all";
+
+/**
  * The type a column of an analysis table is read as, when the owner
  * changed the one DuckDB read: charts read it so (`TRY_CAST`), a value that
  * does not convert counting as empty. The table and its files stay as they
@@ -1842,10 +1853,10 @@ export type ChartSort = { metric: number, descending: boolean, };
  */
 export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, pivots: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
 /**
- * How many groups to show, the first in the chart's order: 1 to
- * 10,000, and 1000 when left out.
+ * How many groups to show, the first in the chart's order: a number
+ * (1000 when left out), or `"all"`.
  */
-limit: number | null, };
+limit: ChartLimit | null, };
 
 /**
  * `analysis_chart`: what a chart of an analysis table shows.

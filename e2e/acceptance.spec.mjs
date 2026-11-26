@@ -331,16 +331,19 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     };
     await panel.getByLabel("Order").selectOption({ index: 1 });
     // Ten of them, then a number of one's own; 1000, as at first, is chosen.
-    await expect(panel.getByLabel("Show")).toHaveValue("1000");
-    await panel.getByLabel("Show").selectOption({ label: "10" });
+    await expect(panel.getByLabel("Row Limit", { exact: true })).toHaveValue("1000");
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "10" });
     await expect(result.locator("tbody tr")).toHaveCount(10);
-    await panel.getByLabel("Show").selectOption({ label: "Custom" });
-    await panel.getByLabel("Number of groups").fill("5");
-    await panel.getByLabel("Number of groups").press("Enter");
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "Custom" });
+    await panel.getByLabel("Custom Row Limit").fill("5");
+    await panel.getByLabel("Custom Row Limit").press("Enter");
     await expect(result.locator("tbody tr")).toHaveCount(5);
     const [most, next] = await firstTwo();
     expect(most).toBeGreaterThanOrEqual(next);
-    await panel.getByLabel("Show").selectOption({ label: "1000" });
+    // All of them, however many: no limit at all.
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "All" });
+    await expect(result.locator("tbody tr")).toHaveCount(23);
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "1000" });
     await panel.getByLabel("Order").selectOption({ index: 0 });
     await expect(result.locator("tbody tr").first()).toContainText("2025-01");
     // The time's range is a filter: here one of its own, the days chosen
@@ -438,9 +441,9 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await ranging.getByLabel("At least").fill("1");
     await ranging.getByRole("button", { name: "Done" }).click();
     await panel.getByLabel("Order").selectOption({ index: 1 });
-    await panel.getByLabel("Show").selectOption({ label: "Custom" });
-    await panel.getByLabel("Number of groups").fill("5");
-    await panel.getByLabel("Number of groups").press("Enter");
+    await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "Custom" });
+    await panel.getByLabel("Custom Row Limit").fill("5");
+    await panel.getByLabel("Custom Row Limit").press("Enter");
     await expect.poll(() => result.locator("tbody tr").count()).toBeLessThanOrEqual(5);
     // The query that ran is there to read, its values bound, not written in.
     await page.getByRole("button", { name: "Show SQL" }).click();

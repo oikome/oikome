@@ -233,20 +233,57 @@ fn period_of(grain: DateGrain, day: NaiveDate) -> String {
     }
 }
 
-/// Every period at `grain` from the one `from` is in to the one `to` is in.
-fn periods(grain: DateGrain, from: NaiveDate, to: NaiveDate) -> Vec<String> {
+/// Every period at `grain` from the one `from` is in to the one `to` is in;
+/// none when they are more than a chart shows.
+fn periods(grain: DateGrain, from: NaiveDate, to: NaiveDate) -> Option<Vec<String>> {
     let last = period_of(grain, to);
     let mut day = period_start(grain, &period_of(grain, from));
     let mut out = Vec::new();
     while let Some(at) = day {
         let key = period_of(grain, at);
-        if key > last || out.len() >= MAX_GROUPS as usize {
+        if key > last {
             break;
+        }
+        if out.len() >= MAX_GROUPS as usize {
+            return None;
         }
         out.push(key);
         day = period_after(grain, at);
     }
-    out
+    Some(out)
+}
+
+/// The answer to a chart's query as cells: each row's group keys (the first
+/// `along` columns), its pivoted values (the next `pivots`) and its totals.
+async fn cells_of(
+    session: &OikomeSession,
+    sql: &str,
+    bound: &Bound,
+    along: usize,
+    pivots: usize,
+) -> Result<Vec<Cell>, ApiError> {
+    let mut cells = Vec::new();
+    let QueryResult::Batches { batches, .. } = session.query_params(sql, &bound.0).await? else {
+        return Err(ApiError::internal("a chart's query returned no rows"));
+    };
+    for batch in batches {
+        let shown: Vec<Vec<Option<String>>> = batch.columns()[..along + pivots]
+            .iter()
+            .map(texts)
+            .collect();
+        let totals: Vec<Vec<Option<f64>>> = batch.columns()[along + pivots..]
+            .iter()
+            .map(numbers)
+            .collect();
+        for row in 0..batch.num_rows() {
+            cells.push((
+                shown[..along].iter().map(|c| c[row].clone()).collect(),
+                shown[along..].iter().map(|c| c[row].clone()).collect(),
+                totals.iter().map(|c| c[row]).collect(),
+            ));
+        }
+    }
+    Ok(cells)
 }
 
 /// A metric as SQL writes it, and as it is named: `SUM(amount)`,
@@ -736,9 +773,10 @@ impl Api {
         };
         let (nk, nc, nd) = (keyed.len(), spec.pivots.len(), spec.dimensions.len());
         let timed = spec.time.is_some();
-        // An order and a number of groups are for the dimensions: the time
-        // keeps its own order, all of it.
-        let sort = if nd > 0 { spec.sort.as_ref() } else { None };
+        // An order and a number of groups are for what is along the chart,
+        // its time and dimensions, as BI tools sort an axis: by a metric over
+        // each whole group; else the time's own order, then the values.
+        let sort = if nk > 0 { spec.sort.as_ref() } else { None };
         if let Some(sort) = sort {
             if sort.metric as usize >= metrics.len() {
                 return Err(ApiError::invalid(
@@ -747,32 +785,34 @@ impl Api {
             }
         }
         let direction = |s: &crate::ChartSort| if s.descending { "DESC" } else { "ASC" };
-        let limit = if nd > 0 && !timed {
+        let limit = if nk > 0 {
             spec.limit.map(|n| n.clamp(1, MAX_GROUPS))
         } else {
             None
         };
         let group_by = places(0..nk + nc);
-        let first = if timed {
-            vec!["1".to_string()]
-        } else {
-            Vec::new()
-        };
-        let rest = places(usize::from(timed)..nk + nc);
-        // Pivots with an order or a number of groups: the groups are picked
-        // and ordered by their own totals first (an average or a median over
-        // the whole group, not of a pivoted value within it).
-        let ranked = nc > 0 && nd > 0 && (sort.is_some() || limit.is_some());
-        let (sql, cap) = if !ranked {
-            let mut order = first.clone();
+        // Pivots with an order or a number of groups: the groups along are
+        // picked and ordered by their own totals first (an average or a
+        // median over the whole group, not of a pivoted value within it).
+        let ranked = nc > 0 && nk > 0 && (sort.is_some() || limit.is_some());
+        // One GROUP BY. Its order is the metric's, or the keys' own; or, when
+        // a time has more periods than can be shown, the newest first, so
+        // that the newest are the ones kept.
+        let plain = |newest: bool| -> Result<(String, usize), ApiError> {
+            let mut order = Vec::new();
             if let Some(sort) = sort {
                 order.push(format!(
                     "{} {}",
                     quote_ident(&metric_name(&metrics[sort.metric as usize])),
                     direction(sort)
                 ));
+                order.extend(group_by.clone());
+            } else if newest {
+                order.push("1 DESC".to_string());
+                order.extend(places(1..nk + nc));
+            } else {
+                order.extend(group_by.clone());
             }
-            order.extend(rest.clone());
             let cap = match (limit, nc) {
                 (Some(n), _) => n as usize,
                 (None, 0) => MAX_GROUPS as usize,
@@ -794,50 +834,60 @@ impl Api {
                 sql.push_str(&format!("\nORDER BY {}", order.join(", ")));
             }
             sql.push_str(&format!("\nLIMIT {cap}"));
-            (sql, cap)
+            Ok((sql, cap))
+        };
+        let (mut sql, mut cap) = if !ranked {
+            plain(false)?
         } else {
-            let dims: Vec<String> = spec
-                .dimensions
+            // What is along, as the first step picks it and as the rows are
+            // joined back to it: the time at its grain, the dimensions.
+            let along = |from: &str, level: &ChartLevel| match level.grain {
+                Some(grain) => at_grain(&columns.value(from, &level.column), grain),
+                None => columns.value(from, &level.column),
+            };
+            let picked_keys: Vec<String> = keyed
                 .iter()
-                .map(|d| columns.key("", &d.column))
+                .map(|level| match level.grain {
+                    Some(_) => format!("{} AS {}", along("", level), quote_ident(&level.column)),
+                    None => columns.key("", &level.column),
+                })
                 .collect();
             let picked = match sort {
                 Some(sort) => format!(
                     "SELECT {}, {} AS total\nFROM {table_name}{}\nGROUP BY {}\nORDER BY total {}\nLIMIT {}",
-                    dims.join(", "),
+                    picked_keys.join(", "),
                     metric(&columns, &metrics[sort.metric as usize], "")?,
                     where_of(&kept),
-                    places(0..nd).join(", "),
+                    places(0..nk).join(", "),
                     direction(sort),
                     limit.unwrap_or(MAX_GROUPS)
                 ),
                 None => format!(
                     "SELECT {}\nFROM {table_name}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {}",
-                    dims.join(", "),
+                    picked_keys.join(", "),
                     where_of(&kept),
-                    places(0..nd).join(", "),
-                    places(0..nd).join(", "),
+                    places(0..nk).join(", "),
+                    places(0..nk).join(", "),
                     limit.unwrap_or(MAX_GROUPS)
                 ),
             };
-            let joined: Vec<String> = spec
-                .dimensions
+            let joined: Vec<String> = keyed
                 .iter()
-                .map(|d| {
+                .map(|level| {
                     format!(
                         "{} IS NOT DISTINCT FROM {}",
-                        columns.value("t.", &d.column),
-                        col("top.", &d.column)
+                        along("t.", level),
+                        col("top.", &level.column)
                     )
                 })
                 .collect();
             let mut by = group_by.clone();
-            let mut order = first.clone();
+            let mut order = Vec::new();
             if let Some(sort) = sort {
                 by.push("top.total".to_string());
                 order.push(format!("top.total {}", direction(sort)));
             }
-            order.extend(rest.clone());
+            order.extend(group_by.clone());
             let inner = conditions("t.", &mut bound)?;
             let sql = format!(
                 "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}\nORDER BY {}\nLIMIT {MAX_CELLS}",
@@ -853,22 +903,17 @@ impl Api {
 
         // One row for each group and pivoted value: laid out as groups,
         // each with a total for every series.
-        let query = query_of(&sql, &bound);
-        let mut cells: Vec<Cell> = Vec::new();
-        for batch in batches_of(session.query_params(&sql, &bound.0).await?)? {
-            let shown: Vec<Vec<Option<String>>> =
-                batch.columns()[..nk + nc].iter().map(texts).collect();
-            let totals: Vec<Vec<Option<f64>>> =
-                batch.columns()[nk + nc..].iter().map(numbers).collect();
-            for row in 0..batch.num_rows() {
-                cells.push((
-                    shown[..nk].iter().map(|c| c[row].clone()).collect(),
-                    shown[nk..].iter().map(|c| c[row].clone()).collect(),
-                    totals.iter().map(|c| c[row]).collect(),
-                ));
-            }
+        let mut cells = cells_of(session, &sql, &bound, nk, nc).await?;
+        let mut truncated = cells.len() >= cap;
+        // A time with more periods than can be shown, in its own order: the
+        // newest are shown (asked for newest first, then put back in order).
+        if truncated && timed && sort.is_none() && limit.is_none() && !ranked {
+            (sql, cap) = plain(true)?;
+            cells = cells_of(session, &sql, &bound, nk, nc).await?;
+            cells.sort_by(|a, b| (a.0[0].is_none(), &a.0[0]).cmp(&(b.0[0].is_none(), &b.0[0])));
+            truncated = cells.len() >= cap;
         }
-        let truncated = cells.len() >= cap;
+        let query = query_of(&sql, &bound);
         let pivoted: Vec<Vec<Option<String>>> = cells
             .iter()
             .map(|(_, c, _)| c.clone())
@@ -900,10 +945,11 @@ impl Api {
                 groups[i].values[first + m] = value;
             }
         }
-        // The time alone: its periods with no rows keep their place, within
-        // the period a filter keeps, or the custom range, or from the first
-        // period found to the last.
-        if let (Some(time), 0, false) = (&spec.time, nd, truncated) {
+        // The time alone, in its own order and all of it: its periods with
+        // no rows keep their place, within the period a filter keeps, or the
+        // custom range, or from the first period found to the last (unless
+        // that is more periods than can be shown).
+        if let (Some(time), 0, false, None, None) = (&spec.time, nd, truncated, sort, limit) {
             let within = spec.filters.iter().find_map(|f| {
                 f.period
                     .as_ref()
@@ -924,7 +970,7 @@ impl Api {
                     .and_then(|k| period_start(time.grain, k))
                     .zip(found.last().and_then(|k| period_start(time.grain, k)))
             });
-            if let Some((from, to)) = bounds {
+            if let Some(all) = bounds.and_then(|(from, to)| periods(time.grain, from, to)) {
                 let mut by_key: HashMap<String, ChartGroup> = HashMap::new();
                 let mut unreadable = Vec::new();
                 for group in groups {
@@ -935,7 +981,7 @@ impl Api {
                         None => unreadable.push(group),
                     }
                 }
-                groups = periods(time.grain, from, to)
+                groups = all
                     .into_iter()
                     .map(|key| {
                         by_key.remove(&key).unwrap_or(ChartGroup {

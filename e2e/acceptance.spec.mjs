@@ -307,7 +307,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
       await expect(page.getByRole("button", { name: "Copy to Oikome…" })).toHaveCount(0);
     }
     // The household's ledger: two years of it, by month, in time's own
-    // order; an order by a metric is for dimensions, not for time.
+    // order unless ordered by a metric, as BI tools sort an axis.
     await page.getByRole("radio", { name: "spending", exact: true }).click();
     await expect(page.locator(".screen-analysis__about")).toContainText("household.spending");
     await expect(time("date")).toBeVisible();
@@ -315,7 +315,21 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(panel.getByRole("group", { name: "Rows" })).toContainText("date (Month)");
     await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
     await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
-    await expect(panel.getByLabel("Order")).toHaveCount(0);
+    await expect(panel.getByLabel("Order")).toHaveValue("");
+    // The months ordered by how many rows each has, the top five kept; then
+    // back in time's own order, all of them.
+    const firstTwo = async () => {
+      const cells = result.locator("tbody tr td:last-child");
+      return [Number(await cells.nth(0).innerText()), Number(await cells.nth(1).innerText())];
+    };
+    await panel.getByLabel("Order").selectOption({ index: 1 });
+    await panel.getByLabel("Show").selectOption({ label: "Top 5" });
+    await expect(result.locator("tbody tr")).toHaveCount(5);
+    const [most, next] = await firstTwo();
+    expect(most).toBeGreaterThanOrEqual(next);
+    await panel.getByLabel("Show").selectOption({ label: "All" });
+    await panel.getByLabel("Order").selectOption({ index: 0 });
+    await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
     // The time's range is a filter: here one of its own, the days chosen
     // from the app's calendar, either end open.
     await panel.getByLabel("Time Range").selectOption({ label: "Custom Range" });
@@ -335,12 +349,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await panel.getByLabel("Time Range").selectOption({ label: "All Time" });
     await expect(result.locator("tbody tr").last()).toContainText("Nov 2026");
     // A dimension takes effect at once: every month and category together,
-    // ordered by the metric within each month.
+    // ordered by the metric over all of them.
     await add("Add to Rows", "category");
     await expect(result.locator("thead")).toContainText("category");
     await expect.poll(() => result.locator("tbody tr").count()).toBeGreaterThan(23);
     await panel.getByLabel("Order").selectOption({ index: 1 });
-    await expect(result.locator("tbody tr").first()).toContainText("Jan 2025");
+    await expect.poll(async () => {
+      const [most, next] = await firstTwo();
+      return most >= next && most > 0;
+    }).toBe(true);
     // As columns over time, each category a colour of its own: the same
     // dimension, laid across instead of along.
     await chartType("Column Chart");

@@ -662,12 +662,12 @@ fn chart_spec_schema() -> Value {
             },
             "sort": {
                 "type": "object",
-                "description": "The dimensions' groups ordered by a metric (its place in metrics), totalled over the whole group; within each period when there is a time.",
+                "description": "The groups along the chart (its time and dimensions) ordered by a metric (its place in metrics), totalled over the whole group; else they are in the time's own order, then their values'.",
                 "properties": { "metric": { "type": "integer", "minimum": 0 }, "descending": { "type": "boolean" } },
                 "required": ["metric", "descending"],
                 "additionalProperties": false
             },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Only the first groups of the dimensions, in the chart's order; for a chart without a time." }
+            "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Only the first groups along the chart (its time and dimensions), in the chart's order." }
         },
         "required": ["chart"],
         "additionalProperties": false

@@ -757,11 +757,12 @@ pub struct ChartSort {
 /// each group, `pivots` are dimensions too, laid across: each of their values
 /// is a series (a chart's colour) or a column (a table's), as a pivot is in
 /// BI tools; each of `metrics` is totalled for every group and series. The
-/// time keeps its own order; `sort` orders the groups within it, and `limit`
-/// (without a time) keeps the first of them. With nothing grouped, pivoted
-/// or totalled, it is the table's rows. Zooming
-/// into a period or breaking a group down is an edit of the description: a
-/// filter, and a finer grain or another dimension.
+/// groups are in the time's own order, then their values', unless `sort`
+/// orders them by a metric, as BI tools sort an axis; `limit` keeps the
+/// first of them. Without either, a time with more periods than can be shown
+/// shows the newest. With nothing grouped, pivoted or totalled, it is the
+/// table's rows. Drilling into a period or a group is an edit of the
+/// description: a filter, and a finer grain or another dimension.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChartSpec {

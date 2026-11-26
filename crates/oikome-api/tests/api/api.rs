@@ -7008,6 +7008,22 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         "date,category,merchant,amount,items\n2026-10-03,Groceries,Lidl,20.00,3\n2026-10-09,It's \"odd\"; DROP TABLE x,Somewhere,8.25,10\n",
     )
     .unwrap();
+    // A reading a day for 1100 days: more days than a chart shows.
+    let first_day = chrono::NaiveDate::from_ymd_opt(2023, 1, 1).unwrap();
+    let day = |i: i64| {
+        (first_day + chrono::Duration::days(i))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    std::fs::create_dir_all(root.join("daily")).unwrap();
+    std::fs::write(
+        root.join("daily/daily.csv"),
+        std::iter::once("day,kwh".to_string())
+            .chain((0..1100).map(|i| format!("{},{}", day(i), i % 7)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
     n.api
         .view_in_place(
             &OWNER,
@@ -7024,7 +7040,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
             &OWNER,
             BuildAnalysis {
                 space: "household".into(),
-                tables: vec!["spending".into()],
+                tables: vec!["spending".into(), "daily".into()],
             },
         )
         .await
@@ -7090,10 +7106,19 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .map(|c| (c.column.as_str(), c.grain))
         .collect();
     assert_eq!(columns, [("date", Some(DateGrain::Month))]);
-    // Time keeps its own order, all of it: an order by a metric and a
-    // number of groups are for the dimensions. The query is as plain as
-    // the chart.
+    // The months ordered by a metric, as BI tools sort an axis, and the
+    // first of them kept: the periods with no rows are not added then. The
+    // query is as plain as the chart.
     let ordered = compute(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month"},
+        "metrics": [{"column": "amount", "aggregate": "sum"}],
+        "sort": {"metric": 0, "descending": true}
+    }))
+    .await
+    .unwrap();
+    assert_eq!(firsts(&ordered), ["2026-09", "2026-07", "2026-10"]);
+    let top_month = compute(serde_json::json!({
         "chart": "column",
         "time": {"column": "date", "grain": "month"},
         "metrics": [{"column": "amount", "aggregate": "sum"}],
@@ -7102,16 +7127,37 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     }))
     .await
     .unwrap();
+    assert_eq!(firsts(&top_month), ["2026-09"]);
+    assert!(top_month.truncated);
     assert_eq!(
-        firsts(&ordered),
-        ["2026-07", "2026-08", "2026-09", "2026-10"]
-    );
-    assert_eq!(
-        ordered.query.sql,
+        top_month.query.sql,
         "SELECT strftime(\"date\", '%Y-%m') AS \"date\",\n       SUM(\"amount\") AS \"SUM(amount)\"\n\
-         FROM \"household\".\"spending\"\nGROUP BY 1\nORDER BY 1\nLIMIT 1000"
+         FROM \"household\".\"spending\"\nGROUP BY 1\nORDER BY \"SUM(amount)\" DESC, 1\nLIMIT 1"
     );
-    assert!(ordered.query.params.is_empty());
+    assert!(top_month.query.params.is_empty());
+    // More days than a chart shows, in time's own order: the newest 1000,
+    // asked for newest first and put back in order.
+    let daily = n
+        .api
+        .analysis_chart(
+            &OWNER,
+            AnalysisChart {
+                space: "household".into(),
+                table: "daily".into(),
+                spec: spec(serde_json::json!({
+                    "chart": "line",
+                    "time": {"column": "day", "grain": "day"},
+                    "metrics": [{"column": "kwh", "aggregate": "sum"}]
+                })),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(daily.truncated);
+    assert_eq!(daily.groups.len(), 1000);
+    assert_eq!(firsts(&daily)[0], day(100));
+    assert_eq!(firsts(&daily)[999], day(1099));
+    assert!(daily.query.sql.contains("ORDER BY 1 DESC"));
 
     // Rolled up to the year, and zoomed into a period: a filter on it and
     // a finer grain, its periods all there. Every grain is worked out from
@@ -7157,7 +7203,7 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(firsts(&weeks)[0], "2026-07-20");
 
     // The time and a dimension, grouped together: a group for each month
-    // and category, ordered by the metric within each month.
+    // and category, ordered by the metric over all of them.
     let month_category = compute(serde_json::json!({
         "chart": "table",
         "time": {"column": "date", "grain": "month"},
@@ -7171,10 +7217,10 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     assert_eq!(
         keys(&month_category),
         [
-            vec!["2026-07".to_string(), "Books".into()],
-            vec!["2026-09".into(), "Groceries".into()],
-            vec!["2026-09".into(), "Books".into()],
+            vec!["2026-09".to_string(), "Groceries".into()],
+            vec!["2026-07".into(), "Books".into()],
             vec!["2026-10".into(), "Groceries".into()],
+            vec!["2026-09".into(), "Books".into()],
             vec!["2026-10".into(), odd.into()],
         ]
     );
@@ -7341,7 +7387,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .set_analysis_type(&OWNER, read_as("items", Some(ColumnType::Text)))
         .await
         .unwrap();
-    let items = changed.tables[0]
+    let items = changed
+        .tables
+        .iter()
+        .find(|t| t.name == "spending")
+        .unwrap()
         .fields
         .iter()
         .find(|f| f.name == "items")
@@ -7384,7 +7434,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         ..read_as("amount", Some(ColumnType::Decimal))
     };
     let read_type = |analysis: &FileAnalysis| {
-        analysis.tables[0]
+        analysis
+            .tables
+            .iter()
+            .find(|t| t.name == "spending")
+            .unwrap()
             .fields
             .iter()
             .find(|f| f.name == "amount")
@@ -7535,7 +7589,12 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         space: "household".into(),
     };
     let before = n.api.file_analysis(&OWNER, household()).await.unwrap();
-    let starting = &before.tables[0].views;
+    let starting = &before
+        .tables
+        .iter()
+        .find(|t| t.name == "spending")
+        .unwrap()
+        .views;
     assert_eq!(starting.len(), 1);
     assert_eq!(
         (starting[0].id.as_str(), starting[0].name.as_str()),
@@ -7559,7 +7618,12 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         )
         .await
         .unwrap();
-    let views = &kept.tables[0].views;
+    let views = &kept
+        .tables
+        .iter()
+        .find(|t| t.name == "spending")
+        .unwrap()
+        .views;
     assert_eq!(views.len(), 2);
     let views = &views[1..];
     assert_eq!(views[0].name, "Groceries by month");
@@ -7602,8 +7666,24 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .save_analysis_view(&OWNER, save(Some(&id), "By month", r#"{"chart":"line"}"#))
         .await
         .unwrap();
-    assert_eq!(kept.tables[0].views.len(), 2);
-    assert_eq!(kept.tables[0].views[1].name, "By month");
+    assert_eq!(
+        kept.tables
+            .iter()
+            .find(|t| t.name == "spending")
+            .unwrap()
+            .views
+            .len(),
+        2
+    );
+    assert_eq!(
+        kept.tables
+            .iter()
+            .find(|t| t.name == "spending")
+            .unwrap()
+            .views[1]
+            .name,
+        "By month"
+    );
     // The chart a table starts with is an ordinary one: saved in place with
     // its blank name, and removed for good. Any other id the table has not
     // is not found.
@@ -7612,7 +7692,11 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .save_analysis_view(&OWNER, save(Some("default"), "", r#"{"chart":"area"}"#))
         .await
         .unwrap();
-    let ids: Vec<_> = kept.tables[0]
+    let ids: Vec<_> = kept
+        .tables
+        .iter()
+        .find(|t| t.name == "spending")
+        .unwrap()
         .views
         .iter()
         .map(|v| (v.id.as_str(), v.name.as_str()))
@@ -7630,7 +7714,16 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         )
         .await
         .unwrap();
-    assert_eq!(restored.tables[0].views.len(), 1);
+    assert_eq!(
+        restored
+            .tables
+            .iter()
+            .find(|t| t.name == "spending")
+            .unwrap()
+            .views
+            .len(),
+        1
+    );
     for unknown in ["month", "v42"] {
         let err = n
             .api
@@ -7654,8 +7747,25 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     .unwrap();
     n.api.refresh_space(&OWNER, household()).await.unwrap();
     let again = n.api.file_analysis(&OWNER, household()).await.unwrap();
-    assert_eq!(again.tables[0].rows, 7);
-    assert_eq!(again.tables[0].views.len(), 1);
+    assert_eq!(
+        again
+            .tables
+            .iter()
+            .find(|t| t.name == "spending")
+            .unwrap()
+            .rows,
+        7
+    );
+    assert_eq!(
+        again
+            .tables
+            .iter()
+            .find(|t| t.name == "spending")
+            .unwrap()
+            .views
+            .len(),
+        1
+    );
     let err = n
         .api
         .remove_analysis_view(&OWNER, view("v9"))
@@ -7663,7 +7773,13 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::NotFound, "{err:?}");
     let gone = n.api.remove_analysis_view(&OWNER, view(&id)).await.unwrap();
-    assert!(gone.tables[0].views.is_empty());
+    assert!(gone
+        .tables
+        .iter()
+        .find(|t| t.name == "spending")
+        .unwrap()
+        .views
+        .is_empty());
 }
 
 /// An assistant charts the analysis tables of its collections as itself,

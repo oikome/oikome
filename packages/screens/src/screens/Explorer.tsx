@@ -241,7 +241,7 @@ function drilled(spec: ChartSpec, step: Step): ChartSpec {
 }
 
 /**
- * A description made whole: an order and a number for dimensions; rows
+ * A description made whole: an order and a number for what is along; rows
  * counted when grouped; a pie's or a treemap's pivots among its slices.
  */
 function settle(made: ChartSpec): ChartSpec {
@@ -250,8 +250,11 @@ function settle(made: ChartSpec): ChartSpec {
     next.dimensions = [...next.dimensions, ...next.pivots];
     next.pivots = [];
   }
-  if (next.dimensions.length === 0) next.sort = null;
-  if (next.time !== null || next.dimensions.length === 0) next.limit = null;
+  // An order and a number of groups are for what is along: the time, the dimensions.
+  if (next.time === null && next.dimensions.length === 0) {
+    next.sort = null;
+    next.limit = null;
+  }
   const grouped = next.time !== null || next.dimensions.length > 0 || next.pivots.length > 0;
   if (grouped && next.metrics.length === 0) next.metrics = [COUNT_ROWS];
   if (next.sort && next.sort.metric >= next.metrics.length) next.sort = next.metrics.length > 0 ? { ...next.sort, metric: 0 } : null;
@@ -940,7 +943,8 @@ export function Explorer({
     }
     const keep = columns.flatMap((c, j): [string, string][] => (c.grain || keys[j] === null ? [] : [[c.column, keys[j]!]]));
     const label = columns.map((c, j) => keyName(c, keys[j] ?? null)).join(" / ");
-    for (const f of fields.filter((f) => !used.includes(f.name))) {
+    // Drilling down goes by a column of kinds (text, dates, true or false), as BI tools do: a measure has no groups worth one.
+    for (const f of fields.filter((f) => !used.includes(f.name) && !isNumber(f))) {
       items.push({ label: x.breakDownBy(f.name), onSelect: () => drill(x.drillStep(label, f.name), { by: f.name, keep, period }) });
     }
     if (items.length > 0) setPointed({ at, items, label });
@@ -967,7 +971,12 @@ export function Explorer({
     ? [
         result.matched === table.rows ? undefined : x.matched(result.matched, table.rows),
         result.rows && result.truncated ? x.firstRows(result.rows.rows.length) : undefined,
-        !result.rows && result.truncated ? x.firstGroups(result.groups.length) : undefined,
+        // Too many periods in time's own order: the newest are shown.
+        !result.rows && result.truncated
+          ? spec.time && !spec.sort && !spec.limit
+            ? x.latestGroups(result.groups.length)
+            : x.firstGroups(result.groups.length)
+          : undefined,
       ].filter((fact): fact is string => fact !== undefined)
     : [];
   const sortValue = spec.sort ? `${spec.sort.metric}:${spec.sort.descending ? "desc" : "asc"}` : "";
@@ -1245,7 +1254,7 @@ export function Explorer({
               ))}
               {adding(x.addFilter, filterItems)}
             </div>
-            {spec.dimensions.length > 0 && (
+            {grouped && (
               <Select
                 label={x.order}
                 value={sortValue}
@@ -1254,7 +1263,7 @@ export function Explorer({
                   change({ sort: value === "" ? null : { metric: Number(metric), descending: direction === "desc" } });
                 }}
                 options={[
-                  { value: "", label: x.orderDefault },
+                  { value: "", label: spec.time ? x.orderTime : x.orderDefault },
                   ...metrics.flatMap((m, i) => [
                     { value: `${i}:desc`, label: x.orderBy(metricName(m), x.descending) },
                     { value: `${i}:asc`, label: x.orderBy(metricName(m), x.ascending) },
@@ -1262,7 +1271,7 @@ export function Explorer({
                 ]}
               />
             )}
-            {spec.dimensions.length > 0 && spec.time === null && (
+            {grouped && (
               <Select
                 label={x.show}
                 value={spec.limit === null ? "" : String(spec.limit)}

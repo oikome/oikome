@@ -1095,18 +1095,22 @@ test("an AI assistant connects over MCP, reads only what it is given, and is cut
   expect(hello.body.result.protocolVersion).toBe("2025-06-18");
   expect((await mcp(endpoint, token, "notifications/initialized", {}, { modern: false, id: false })).status).toBe(202);
   const legacy = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
-  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read", "read_row", "list_skills", "get_skill"]);
+  expect(legacy.body.result.tools.map((t) => t.name)).toEqual(["list_collections", "search", "read", "read_row", "describe_table", "list_skills", "list_charts", "chart", "save_chart", "get_skill"]);
   // The page sees it arrive.
   await expect(dialog).toContainText("Claude Code is connected", { timeout: 10_000 });
   await dialog.getByRole("button", { name: "Done" }).click();
 
-  // A client of this revision: discovery, then the three tools and no more.
+  // A client of this revision: discovery, then only the published read and chart tools.
   const found = await mcp(endpoint, token, "server/discover");
   expect(found.body.result.supportedVersions).toContain("2026-07-28");
   expect(found.body.result.resultType).toBe("complete");
   const call = (name, args = {}) => mcp(endpoint, token, "tools/call", { name, arguments: args });
   const listed = await call("list_collections");
   expect(listed.body.result.structuredContent.collections.map((c) => c.name)).toEqual(["oikome-guide"]);
+  const described = await call("describe_table", { collection: "oikome-guide", table: "files" });
+  expect(described.body.result.structuredContent).toMatchObject({ type: "managed", format: "parquet" });
+  expect(described.body.result.structuredContent.columns.find((c) => c.name === "text")).toMatchObject({ dataType: "VARCHAR", chartType: "text" });
+  expect((await call("describe_table", { collection: "lisbon-photos", table: "files" })).body.result.isError).toBe(true);
   const welcome = await call("search", { query: "welcome" });
   const hits = welcome.body.result.structuredContent.hits;
   expect(hits.length).toBeGreaterThan(0);
@@ -1188,7 +1192,7 @@ test("Kimi Code and Codex get their own working MCP configuration", async () => 
     const hello = await mcp(endpoint, token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "1" } }, { modern: false });
     expect(hello.status).toBe(200);
     const tools = await mcp(endpoint, token, "tools/list", {}, { modern: false, headers: { "mcp-protocol-version": "2025-06-18" } });
-    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read", "read_row", "list_skills", "get_skill"]);
+    expect(tools.body.result.tools.map((tool) => tool.name)).toEqual(["list_collections", "search", "read", "read_row", "describe_table", "list_skills", "list_charts", "chart", "save_chart", "get_skill"]);
     await expect(dialog).toContainText(`${app} is connected`, { timeout: 10_000 });
     await dialog.getByRole("button", { name: "Done" }).click();
     await page.getByRole("button", { name: `Edit ${app}` }).click();

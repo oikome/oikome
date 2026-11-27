@@ -1889,6 +1889,49 @@ pub struct SpaceRef {
     pub space: String,
 }
 
+/// Names one table of a collection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TableRef {
+    /// Its collection.
+    pub space: String,
+    /// Its table.
+    pub table: String,
+}
+
+/// A column as SQL and charts read it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnDescription {
+    /// Its name as the caller may read it.
+    pub name: String,
+    /// The physical type, named as DuckDB names it.
+    pub data_type: String,
+    /// What charts treat it as.
+    pub chart_type: String,
+    /// The effective type when the owner chose to read it as another type.
+    pub read_type: Option<String>,
+    /// Whether it may contain NULL.
+    pub nullable: bool,
+}
+
+/// The columns a caller may read in one table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TableDescription {
+    /// Its collection.
+    pub space: String,
+    /// Its table.
+    pub table: String,
+    /// `managed`, `external`, `foreign` or `view`.
+    #[serde(rename = "type")]
+    pub table_type: String,
+    /// Its data-source format, when known; a view has none.
+    pub format: Option<String>,
+    /// Columns the caller may read.
+    pub columns: Vec<ColumnDescription>,
+}
+
 /// A table or a view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]

@@ -29,7 +29,7 @@ use oikome_identity::ucan::{token_id, Capability, UcanBuilder, ABILITY_QUERY};
 use oikome_identity::{unix_now, unix_now_ms, AuthRequest, NodeIdentity};
 use oikome_network::protocol::{digest, QueryTicket, HEADER_AUTH, HEADER_UCAN, METHOD_DO_GET};
 use oikome_network::{install_crypto_provider, DidCertVerifier, FlightEngine, RemoteSpaceConfig};
-use oikome_node::{EngineRegistry, NodeConfig, OikomeSession, SessionConfig};
+use oikome_node::{EngineRegistry, NodeConfig, OikomeSession, QueryResult, SessionConfig};
 
 /// Node A owns `blog.posts` (analytical) and `blog.secrets`, grants the
 /// DID `grantee` three of four columns of `posts` and, by row policy, only
@@ -101,6 +101,44 @@ async fn ucan_gated_federated_query_and_revocation_cuts_access() {
     let columns: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
     assert_eq!(columns, vec!["id", "author", "title"]);
     assert_eq!(ints(&all, 0), vec![1, 2, 3]);
+    let tables = b.sql("SHOW TABLES FROM pub").await;
+    assert_eq!(strings(&tables, 0), vec!["posts"]);
+    assert_eq!(strings(&tables, 1), vec!["foreign"]);
+    assert!(tables.batches()[0].column(2).is_null(0));
+    let described = b.sql("DESCRIBE pub.posts").await;
+    assert_eq!(strings(&described, 0), vec!["id", "author", "title"]);
+    assert_eq!(strings(&described, 1), vec!["BIGINT", "VARCHAR", "VARCHAR"]);
+    let detail = b.sql("DESCRIBE DETAIL pub.posts").await;
+    assert_eq!(strings(&detail, 2), vec!["foreign"]);
+    assert_eq!(ints(&detail, 6), vec![3]);
+
+    // Metadata statements also work when a client sends them over Flight.
+    let direct = FlightEngine::new(
+        RemoteSpaceConfig {
+            peer: a.url().to_string(),
+            remote_space: "blog".to_string(),
+            owner: a.identity.did().clone(),
+            token: token.clone(),
+            allow_http: true,
+            dialer: None,
+        },
+        b.identity.clone(),
+    );
+    let (schema, stream) = direct.query("SHOW TABLES FROM blog", &[]).await.unwrap();
+    let result = QueryResult::Batches {
+        schema,
+        batches: stream.try_collect().await.unwrap(),
+    };
+    assert_eq!(strings(&result, 0), vec!["posts"]);
+    assert_eq!(strings(&result, 1), vec!["managed"]);
+    assert_eq!(strings(&result, 2), vec!["iceberg"]);
+    let (schema, stream) = direct.query("DESCRIBE blog.posts", &[]).await.unwrap();
+    let result = QueryResult::Batches {
+        schema,
+        batches: stream.try_collect().await.unwrap(),
+    };
+    assert_eq!(strings(&result, 0), vec!["id", "author", "title"]);
+
     let err = b.sql_err("SELECT * FROM pub.secrets").await;
     assert!(err.contains("not found"), "{err}");
 

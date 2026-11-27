@@ -3230,6 +3230,35 @@ async fn an_assistant_reads_only_the_collections_it_is_given() {
     assert!(n.api.list_spaces(&me, Empty {}).await.is_err());
     assert!(n.api.search(&me, q("welcome", None)).await.is_err());
     assert!(n.api.assistant_collections(&OWNER, Empty {}).await.is_err());
+    let described = n
+        .api
+        .assistant_describe_table(
+            &me,
+            TableRef {
+                space: "oikome-guide".into(),
+                table: "files".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(described.space, "oikome-guide");
+    assert_eq!(described.table, "files");
+    assert_eq!(described.table_type, "managed");
+    assert_eq!(described.format.as_deref(), Some("parquet"));
+    let text = described.columns.iter().find(|c| c.name == "text").unwrap();
+    assert_eq!(text.data_type, "VARCHAR");
+    assert_eq!(text.chart_type, "text");
+    assert!(n
+        .api
+        .assistant_describe_table(
+            &me,
+            TableRef {
+                space: "lisbon-photos".into(),
+                table: "files".into(),
+            },
+        )
+        .await
+        .is_err());
 
     // Its search: its collection only; one it may not read doesn't exist.
     let found = n

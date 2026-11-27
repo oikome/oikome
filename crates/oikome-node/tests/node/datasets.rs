@@ -218,6 +218,15 @@ async fn datasets_in_a_folder_are_tables_read_where_they_are() {
             ("readings.csv".to_string(), "table".to_string()),
         ]
     );
+    assert_eq!(
+        n.texts("SHOW FILES FROM home").await,
+        ["exports", "lab", "readings.csv"]
+    );
+    assert_eq!(
+        n.texts("SHOW FILES FROM home IN 'exports'").await,
+        ["orders"]
+    );
+    assert_eq!(n.texts("SHOW FILES FROM home IN 'lab'").await, ["items"]);
 
     // Tables of the collection, read where they are, values and all.
     assert_eq!(n.count("home.orders").await, 3);

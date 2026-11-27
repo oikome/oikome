@@ -39,6 +39,7 @@ pub mod inplace;
 #[cfg(feature = "knowledge")]
 pub mod knowledge;
 mod lance;
+pub mod metadata;
 pub mod publish;
 pub mod registry;
 pub mod result;
@@ -54,6 +55,7 @@ pub use access_log::{AccessEntry, AccessLog, AccessLogError, AccessQuery, Access
 pub use acl::principal_access;
 pub use capability::{query_spaces, IssuedToken};
 pub use error::SessionError;
+pub use metadata::{CollectionMetadata, ColumnMetadata, TableDetail, TableMetadata};
 pub use publish::{spawn_publisher, PublishReport, PublishedTable};
 pub use registry::{EngineRegistry, NodeConfig};
 pub use result::QueryResult;

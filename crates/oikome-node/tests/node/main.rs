@@ -22,6 +22,7 @@ mod federation;
 mod graph;
 mod inplace;
 mod lance;
+mod metadata;
 mod publish;
 mod semantic;
 mod session;

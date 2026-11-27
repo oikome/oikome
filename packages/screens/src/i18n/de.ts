@@ -680,10 +680,10 @@ export const de: Strings = {
 
   sources: {
     title: "Quellen",
-    ledeShort: "Ordner und Dateien, die deine Daten hereinbringen.",
+    ledeShort: "Datenquellen bringen Ordner, Dateien und Notizen in deine Sammlungen.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Ordner und Dateien, die deine Daten hereinbringen.";
-      if (count === 0) return `${lead} Bearbeite sie mit einer beliebigen App; Oikome liest sie jede Minute neu.`;
+      const lead = "Datenquellen bringen Ordner, Dateien und Notizen in deine Sammlungen.";
+      if (count === 0) return `${lead} Jede kommt aus einem Plugin; füge eine hinzu, um zu beginnen.`;
       if (failing > 0) return `${lead} ${failing === 1 ? "Eine braucht" : `${num(failing)} brauchen`} dich.`;
       if (paused === 0) return `${lead} ${count === 1 ? "Sie ist" : `Alle ${num(count)} sind`} aktuell.`;
       if (paused === count) return `${lead} ${count === 1 ? "Sie ist" : `Alle ${num(count)} sind`} pausiert.`;
@@ -1603,6 +1603,13 @@ export const de: Strings = {
     rowCount: "Anzahl der Zeilen",
     aggregates: { sum: "Summe", average: "Mittelwert", median: "Median", min: "Kleinster", max: "Größter", count: "Anzahl", distinct: "Eindeutige Anzahl" } as Record<string, string>,
     aggregateOf: (column: string) => `Berechnung für ${column}`,
+    summarizeBy: "Zusammenfassen nach",
+    showAs: "Werte anzeigen als",
+    shows: { shareOfAll: "% des Gesamtergebnisses", shareOfRow: "% des Zeilenergebnisses", shareOfColumn: "% des Spaltenergebnisses", shareOfGroup: "% des Gruppenergebnisses", changeFromYearBefore: "Veränderung zum Vorjahr", growthFromYearBefore: "Veränderung zum Vorjahr in %", runningTotal: "Laufende Summe", movingAverage: "Gleitender Durchschnitt", rank: "Rang" } as Record<string, string>,
+    changeFrom: { year: "Veränderung zum Vorjahr", quarter: "Veränderung zum Vorquartal", month: "Veränderung zum Vormonat", week: "Veränderung zum Vorwoche", day: "Veränderung zum Vortag", other: "Veränderung zum Vorzeitraum" } as Record<string, string>,
+    growthFrom: { year: "Veränderung zum Vorjahr in %", quarter: "Veränderung zum Vorquartal in %", month: "Veränderung zum Vormonat in %", week: "Veränderung zum Vorwoche in %", day: "Veränderung zum Vortag in %", other: "Veränderung zum Vorzeitraum in %" } as Record<string, string>,
+    noShow: "Keine",
+    shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Jahr", quarter: "Quartal", month: "Monat", week: "Woche", day: "Tag", hour: "Stunde", minute: "Minute", second: "Sekunde" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,
     removeItem: (name: string) => `${name} entfernen`,
@@ -1616,6 +1623,13 @@ export const de: Strings = {
     countOwn: "Eigenes Zeilenlimit",
     countAny: "Eine ganze Zahl ab 1",
     filterOn: (column: string) => `${column} filtern`,
+    filterHow: "Bedingung",
+    ops: { is: "Ist", isNot: "Ist nicht", contains: "Enthält", notContains: "Enthält nicht", startsWith: "Beginnt mit", endsWith: "Endet mit", empty: "Ist leer", notEmpty: "Ist nicht leer", between: "Zwischen", dates: "Im Zeitraum" } as Record<string, string>,
+    textValue: "Text",
+    textChip: (how: string, value: string) => `${how} „${value}“`,
+    notChip: (shown: string) => `nicht ${shown}`,
+    emptyTextNote: "Leerer Text zählt ebenfalls als leer.",
+    metricFilterNote: "Nach dem Gruppieren bleiben nur die Gruppen, deren Ergebnis in diesem Bereich liegt.",
     anyValue: "Beliebig",
     chosenCount: (n: number) => `${n} ausgewählt`,
     searchValues: "Werte suchen",
@@ -1628,8 +1642,8 @@ export const de: Strings = {
     noRows: "Keine passenden Zeilen.",
     matched: (n: number, total: number) => `${n} von ${total} Zeilen passen`,
     firstRows: (n: number) => `Erste ${n} Zeilen`,
-    filterChip: (column: string, what: string) => `${column}: ${what}`,
     range: "Zeitraum",
+    rangeFor: (column: string) => `Zeitraum von ${column}`,
     rows: "Zeilen",
     columns: "Spalten",
     columnsNote: "eine Spalte je Wert",
@@ -1642,6 +1656,9 @@ export const de: Strings = {
     addTo: (place: string) => `Zu ${place} hinzufügen`,
     grainFor: (column: string) => `Granularität von ${column}`,
     ranges: { all: "Gesamter Zeitraum", last7Days: "Letzte 7 Tage", last30Days: "Letzte 30 Tage", last90Days: "Letzte 90 Tage", last365Days: "Letzte 365 Tage", thisYear: "Dieses Jahr", custom: "Benutzerdefiniert" } as Record<string, string>,
+    rangeOf: (from: string, to: string) => `${from} bis ${to}`,
+    fromDay: (day: string) => `ab ${day}`,
+    toDay: (day: string) => `bis ${day}`,
     rangeFrom: "Von",
     rangeTo: "Bis",
     drillAll: "Alle",

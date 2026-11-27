@@ -717,17 +717,51 @@ pub struct ChartMetric {
     #[serde(default)]
     pub column: Option<String>,
     pub aggregate: ChartAggregate,
+    /// How its total is shown: as it is, or beside the others on the chart,
+    /// as Excel and Power BI show a value and Tableau's quick table
+    /// calculations do.
+    #[serde(default)]
+    #[ts(optional)]
+    pub show: Option<MetricShow>,
 }
 
-/// A filter on one column, of one kind: any of `values`, a range of numbers
-/// with either end open (`min`, `max`), or, on a column of time, one
-/// `period` (what zooming into a period or breaking it down keeps).
+/// A metric's total shown beside the others on the chart: its share of all
+/// of them, of its row (the group along) or of its column (the pivoted
+/// value); its change from the period before at the chart's grain, or from
+/// the same period a year before, as a difference or a growth rate (these
+/// need the time along); a running total or a moving average of three
+/// periods (along the time, else the groups' order); its rank, largest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum MetricShow {
+    ShareOfAll,
+    ShareOfRow,
+    ShareOfColumn,
+    ChangeFromPrevious,
+    GrowthFromPrevious,
+    ChangeFromYearBefore,
+    GrowthFromYearBefore,
+    RunningTotal,
+    MovingAverage,
+    Rank,
+}
+
+/// A filter on one column, of one kind, as BI tools have them: any of
+/// `values` (or, with `exclude`, none of them); a range of numbers with
+/// either end open (`min`, `max`); `text` that matches; the empty values or
+/// the others (`empty`); a range of days of a column of time (`dates`); or,
+/// on a column of time, one `period` (what drilling down keeps).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChartFilter {
     pub column: String,
     #[serde(default)]
     pub values: Vec<String>,
+    /// With `values`: keep the rows whose value is none of them (empty ones
+    /// included).
+    #[serde(default)]
+    #[ts(optional)]
+    pub exclude: Option<bool>,
     #[serde(default)]
     pub min: Option<String>,
     #[serde(default)]
@@ -735,6 +769,62 @@ pub struct ChartFilter {
     #[serde(default)]
     #[ts(optional)]
     pub period: Option<ChartPeriod>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub text: Option<ChartText>,
+    /// The empty values (`true`; for text, empty text too) or the others.
+    #[serde(default)]
+    #[ts(optional)]
+    pub empty: Option<bool>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub dates: Option<ChartDates>,
+}
+
+/// Text a value contains, does not contain, starts or ends with, whatever
+/// its case.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartText {
+    #[serde(rename = "match")]
+    pub how: TextMatch,
+    pub value: String,
+}
+
+/// How text matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum TextMatch {
+    Contains,
+    NotContains,
+    StartsWith,
+    EndsWith,
+}
+
+/// Days of a column of time, as a chart's time range has them: recent
+/// days, this year, or from one day to another (`custom`, either end open).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartDates {
+    pub range: TimeRange,
+    #[serde(default)]
+    #[ts(optional)]
+    pub from: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub to: Option<String>,
+}
+
+/// Groups kept by a metric's total (SQL's HAVING): the metric by its place
+/// in `metrics`, and a range with either end open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChartMetricFilter {
+    pub metric: u32,
+    #[serde(default)]
+    pub min: Option<String>,
+    #[serde(default)]
+    pub max: Option<String>,
 }
 
 /// A period of time, written as a chart's groups write it at its grain:
@@ -782,6 +872,9 @@ pub struct ChartSpec {
     pub metrics: Vec<ChartMetric>,
     #[serde(default)]
     pub filters: Vec<ChartFilter>,
+    /// Groups kept by a metric's total, after the rows are grouped.
+    #[serde(default)]
+    pub metric_filters: Vec<ChartMetricFilter>,
     #[serde(default)]
     pub sort: Option<ChartSort>,
     /// How many groups to show, the first in the chart's order: a number

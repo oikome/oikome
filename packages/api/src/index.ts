@@ -1781,20 +1781,70 @@ export type ChartQuery = { sql: string, params: Array<string>, };
  * A metric: a column and how it is totalled; without a column, the number
  * of rows. The same column may be totalled in several ways.
  */
-export type ChartMetric = { column: string | null, aggregate: ChartAggregate, };
+export type ChartMetric = { column: string | null, aggregate: ChartAggregate,
+/**
+ * How its total is shown: as it is, or beside the others on the chart,
+ * as Excel and Power BI show a value and Tableau's quick table
+ * calculations do.
+ */
+show?: MetricShow, };
 
 /**
- * A filter on one column, of one kind: any of `values`, a range of numbers
- * with either end open (`min`, `max`), or, on a column of time, one
- * `period` (what zooming into a period or breaking it down keeps).
+ * A metric's total shown beside the others on the chart: its share of all
+ * of them, of its row (the group along) or of its column (the pivoted
+ * value); its change from the period before at the chart's grain, or from
+ * the same period a year before, as a difference or a growth rate (these
+ * need the time along); a running total or a moving average of three
+ * periods (along the time, else the groups' order); its rank, largest first.
  */
-export type ChartFilter = { column: string, values: Array<string>, min: string | null, max: string | null, period?: ChartPeriod, };
+export type MetricShow = "shareOfAll" | "shareOfRow" | "shareOfColumn" | "changeFromPrevious" | "growthFromPrevious" | "changeFromYearBefore" | "growthFromYearBefore" | "runningTotal" | "movingAverage" | "rank";
+
+/**
+ * A filter on one column, of one kind, as BI tools have them: any of
+ * `values` (or, with `exclude`, none of them); a range of numbers with
+ * either end open (`min`, `max`); `text` that matches; the empty values or
+ * the others (`empty`); a range of days of a column of time (`dates`); or,
+ * on a column of time, one `period` (what drilling down keeps).
+ */
+export type ChartFilter = { column: string, values: Array<string>,
+/**
+ * With `values`: keep the rows whose value is none of them (empty ones
+ * included).
+ */
+exclude?: boolean, min: string | null, max: string | null, period?: ChartPeriod, text?: ChartText,
+/**
+ * The empty values (`true`; for text, empty text too) or the others.
+ */
+empty?: boolean, dates?: ChartDates, };
 
 /**
  * A period of time, written as a chart's groups write it at its grain:
  * `2026`, `2026-Q3`, `2026-08`, or the day a week or a day starts.
  */
 export type ChartPeriod = { grain: DateGrain, key: string, };
+
+/**
+ * Text a value contains, does not contain, starts or ends with, whatever
+ * its case.
+ */
+export type ChartText = { match: TextMatch, value: string, };
+
+/**
+ * How text matches.
+ */
+export type TextMatch = "contains" | "notContains" | "startsWith" | "endsWith";
+
+/**
+ * Days of a column of time, as a chart's time range has them: recent
+ * days, this year, or from one day to another (`custom`, either end open).
+ */
+export type ChartDates = { range: TimeRange, from?: string, to?: string, };
+
+/**
+ * Groups kept by a metric's total (SQL's HAVING): the metric by its place
+ * in `metrics`, and a range with either end open.
+ */
+export type ChartMetricFilter = { metric: number, min: string | null, max: string | null, };
 
 /**
  * How many groups a chart shows: the first so many, in its order, or all
@@ -1851,7 +1901,11 @@ export type ChartSort = { metric: number, descending: boolean, };
  * table's rows. Drilling into a period or a group is an edit of the
  * description: a filter, and a finer grain or another dimension.
  */
-export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, pivots: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>, sort: ChartSort | null,
+export type ChartSpec = { chart: ChartKind, time: ChartTime | null, dimensions: Array<ChartDimension>, pivots: Array<ChartDimension>, metrics: Array<ChartMetric>, filters: Array<ChartFilter>,
+/**
+ * Groups kept by a metric's total, after the rows are grouped.
+ */
+metricFilters: Array<ChartMetricFilter>, sort: ChartSort | null,
 /**
  * How many groups to show, the first in the chart's order: a number
  * (1000 when left out), or `"all"`.

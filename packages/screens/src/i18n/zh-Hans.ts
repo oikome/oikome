@@ -652,10 +652,10 @@ export const zhHans: Strings = {
 
   sources: {
     title: "数据源",
-    ledeShort: "把你的数据带进来的文件夹和文件。",
+    ledeShort: "数据源把文件夹、文件和笔记带进你的资料库。",
     lede: (count: number, failing: number, paused: number) => {
-      const intro = "把你的数据带进来的文件夹和文件。";
-      if (count === 0) return `${intro}可以用任何应用编辑它们，Oikome 每分钟重新读取一次。`;
+      const intro = "数据源把文件夹、文件和笔记带进你的资料库。";
+      if (count === 0) return `${intro}每个数据源都由插件提供，添加一个就能开始。`;
       if (failing > 0) return `${intro}有 ${num(failing)} 个需要你处理。`;
       if (paused === 0) return `${intro}${count === 1 ? "它已是最新。" : `全部 ${num(count)} 个都已是最新。`}`;
       if (paused === count) return `${intro}${count === 1 ? "它已暂停。" : `全部 ${num(count)} 个都已暂停。`}`;
@@ -1549,12 +1549,19 @@ export const zhHans: Strings = {
     metrics: "指标",
     filter: "筛选",
     order: "排序",
-    show: "显示行数",
+    show: "行数限制",
     addMetric: "添加指标",
     addFilter: "添加筛选",
     rowCount: "记录数",
     aggregates: { sum: "求和", average: "平均值", median: "中位数", min: "最小值", max: "最大值", count: "计数", distinct: "去重计数" } as Record<string, string>,
     aggregateOf: (column: string) => `${column} 的统计方式`,
+    summarizeBy: "统计方式",
+    showAs: "显示为",
+    shows: { shareOfAll: "总计占比", shareOfRow: "行总计占比", shareOfColumn: "列总计占比", shareOfGroup: "组内占比", changeFromYearBefore: "同比增长", growthFromYearBefore: "同比增长率", runningTotal: "累计值", movingAverage: "移动平均", rank: "排名" } as Record<string, string>,
+    changeFrom: { year: "环比增长", quarter: "环比增长", month: "环比增长", week: "环比增长", day: "环比增长", other: "环比增长" } as Record<string, string>,
+    growthFrom: { year: "环比增长率", quarter: "环比增长率", month: "环比增长率", week: "环比增长率", day: "环比增长率", other: "环比增长率" } as Record<string, string>,
+    noShow: "不设置",
+    shownAs: (name: string, how: string) => `${name}（${how}）`,
     grains: { year: "年", quarter: "季", month: "月", week: "周", day: "日", hour: "时", minute: "分", second: "秒" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,
     removeItem: (name: string) => `移除 ${name}`,
@@ -1568,6 +1575,13 @@ export const zhHans: Strings = {
     countOwn: "自定义行数",
     countAny: "1 及以上的整数",
     filterOn: (column: string) => `筛选 ${column}`,
+    filterHow: "条件",
+    ops: { is: "是", isNot: "不是", contains: "包含", notContains: "不包含", startsWith: "开头是", endsWith: "结尾是", empty: "为空", notEmpty: "不为空", between: "介于", dates: "在范围内" } as Record<string, string>,
+    textValue: "文本",
+    textChip: (how: string, value: string) => `${how}「${value}」`,
+    notChip: (shown: string) => `不是 ${shown}`,
+    emptyTextNote: "空白的文本也算为空。",
+    metricFilterNote: "分组之后，只保留这个指标的结果在范围内的组。",
     anyValue: "不限",
     chosenCount: (n: number) => `已选 ${n} 项`,
     searchValues: "搜索取值",
@@ -1580,8 +1594,8 @@ export const zhHans: Strings = {
     noRows: "没有符合条件的行。",
     matched: (n: number, total: number) => `${n} 行符合条件，共 ${total} 行`,
     firstRows: (n: number) => `前 ${n} 行`,
-    filterChip: (column: string, what: string) => `${column}：${what}`,
     range: "时间范围",
+    rangeFor: (column: string) => `${column} 的时间范围`,
     rows: "行",
     columns: "列",
     columnsNote: "每个值一列",
@@ -1594,6 +1608,9 @@ export const zhHans: Strings = {
     addTo: (place: string) => `添加到${place}`,
     grainFor: (column: string) => `${column} 的粒度`,
     ranges: { all: "全部时间", last7Days: "最近 7 天", last30Days: "最近 30 天", last90Days: "最近 90 天", last365Days: "最近 365 天", thisYear: "今年", custom: "自定义" } as Record<string, string>,
+    rangeOf: (from: string, to: string) => `${from} 至 ${to}`,
+    fromDay: (day: string) => `${day} 及以后`,
+    toDay: (day: string) => `${day} 及以前`,
     rangeFrom: "开始日期",
     rangeTo: "结束日期",
     drillAll: "全部",

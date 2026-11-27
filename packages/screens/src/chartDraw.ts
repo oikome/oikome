@@ -25,7 +25,8 @@ const SEEN = 120;
 export interface Drawing {
   kind: "column" | "bar" | "line" | "area" | "pie" | "treemap";
   groups: string[];
-  series: { name: string; values: (number | null)[] }[];
+  /** Each series' values, and how they are written when not as `format` writes them (a share as a percentage). */
+  series: { name: string; values: (number | null)[]; format?: (value: number) => string }[];
   /** Whether the groups are in time's order: then the newest are seen first when not all fit. */
   newest?: boolean;
   /** Whether the chart fills the screen: then the wheel zooms, and both axes have a slider. */
@@ -60,12 +61,16 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
     animationDuration: 240,
     legend: { show: many, type: "scroll", top: 0, left: 0, icon: "rect", itemWidth: 10, itemHeight: 10, textStyle: { ...text, color: ink } },
   };
+  // Each series' values as it writes them; the value axis's as all its series do, when they agree.
+  const formatOf = (series: Drawing["series"][number] | undefined) => series?.format ?? drawing.format;
+  const written = (format: (value: number) => string) => (value: unknown) => (typeof value === "number" ? format(value) : "–");
+  const axisFormat = new Set(drawing.series.map(formatOf)).size === 1 ? formatOf(drawing.series[0]) : drawing.format;
   const tooltip = {
     confine: true,
     backgroundColor: token("--raised", "#ffffff"),
     borderColor: rule,
     textStyle: { ...text, color: ink },
-    valueFormatter: (value: unknown) => (typeof value === "number" ? drawing.format(value) : "–"),
+    valueFormatter: written(drawing.format),
   };
   // A pie: each group a slice of the first series, its share told.
   if (drawing.kind === "pie") {
@@ -78,6 +83,7 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
         {
           type: "pie",
           name: first?.name,
+          tooltip: { valueFormatter: written(formatOf(first)) },
           radius: ["0%", "72%"],
           center: ["42%", "52%"],
           cursor: drawing.onPick ? "pointer" : "default",
@@ -107,7 +113,8 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
           nodeClick: false,
           breadcrumb: { show: false },
           itemStyle: { borderColor: token("--raised", "#ffffff"), borderWidth: 2, gapWidth: 2 },
-          label: { fontFamily: style.fontFamily, fontSize: 12, formatter: (p: { name: string; value: number }) => `${p.name}\n${drawing.format(p.value)}` },
+          tooltip: { valueFormatter: written(formatOf(first)) },
+          label: { fontFamily: style.fontFamily, fontSize: 12, formatter: (p: { name: string; value: number }) => `${p.name}\n${formatOf(first)(p.value)}` },
           data: drawing.groups
             .map((name, i) => ({ name, value: Math.max(first?.values[i] ?? 0, 0), group: i }))
             .filter((item) => item.value > 0),
@@ -132,7 +139,7 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
     name: drawing.valueName,
     nameLocation: "end",
     nameTextStyle: { ...text, align: across ? "right" : "left", padding: across ? [0, 0, 0, 0] : [0, 0, 4, 0] },
-    axisLabel: { ...text, formatter: (value: number) => drawing.format(value) },
+    axisLabel: { ...text, formatter: (value: number) => axisFormat(value) },
     splitLine: { lineStyle: { color: faint } },
   };
   const lines = drawing.kind === "line" || drawing.kind === "area";
@@ -188,6 +195,7 @@ function option(drawing: Drawing, host: HTMLElement): echarts.EChartsCoreOption 
       name: series.name,
       type: lines ? "line" : "bar",
       data: series.values,
+      tooltip: { valueFormatter: written(formatOf(series)) },
       ...(lines
         ? { showSymbol: drawing.groups.length <= 31, symbolSize: 5, lineStyle: { width: 2 }, ...(drawing.kind === "area" ? { areaStyle: { opacity: 0.14 } } : {}) }
         : { barMaxWidth: 44, ...(theme === "bold" ? { itemStyle: { borderColor: "#111111", borderWidth: 1.5 } } : {}) }),

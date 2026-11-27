@@ -6574,6 +6574,60 @@ async fn official_registry_packages_are_verified_before_installation() {
 }
 
 #[tokio::test]
+async fn a_new_node_has_its_official_packages_whatever_is_installed_first() {
+    let n = node();
+    // A package of one's own installed before anything lists the plugins,
+    // as the acceptance workspace does: the official ones still come, so
+    // Sources has File Import, RustFS and flomo to offer.
+    let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../oikome-sandbox/tests/plugins/stored-picture");
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: None,
+                path: Some(package.to_string_lossy().into_owned()),
+            },
+        )
+        .await
+        .unwrap();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    for id in ["file-import", "rustfs", "flomo", "stored-picture"] {
+        assert!(plugins.iter().any(|p| p.id == id && p.installed), "{id}");
+    }
+}
+
+#[tokio::test]
+async fn adding_one_official_package_never_brings_the_others() {
+    let n = node();
+    n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    // A node from before its record of removed packages: two official
+    // packages not installed, and no record of it.
+    for id in ["file-import", "rustfs"] {
+        n.api
+            .remove_plugin(&OWNER, PluginRef { id: id.into() })
+            .await
+            .unwrap();
+    }
+    std::fs::remove_file(n.catalog.oikome_dir().join("removed-built-in-plugins.json")).unwrap();
+    // Adding one adds that one: the other stays as the owner left it.
+    n.api
+        .install_plugin(
+            &OWNER,
+            InstallPlugin {
+                built_in: Some("rustfs".into()),
+                path: None,
+            },
+        )
+        .await
+        .unwrap();
+    let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
+    let installed = |id: &str| plugins.iter().any(|p| p.id == id && p.installed);
+    assert!(installed("rustfs"));
+    assert!(!installed("file-import"));
+}
+
+#[tokio::test]
 async fn removed_official_plugins_stay_removed_and_hide_mcp_clients() {
     let n = node();
     let plugins = n.api.list_plugins(&OWNER, Empty {}).await.unwrap();
@@ -7304,6 +7358,188 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
         ]
     );
     assert_eq!(month_category.columns.len(), 2);
+
+    // Display modes: a total beside the others on the chart. Without one,
+    // the query is one GROUP BY, as above; with one, the grouped rows are a
+    // first step and the query shows them from it.
+    let shown = |json: serde_json::Value| compute(json);
+    let near = |got: Option<f64>, want: f64| {
+        assert!(
+            got.is_some_and(|v| (v - want).abs() < 1e-9),
+            "{got:?} is not {want}"
+        )
+    };
+    let value_of = |result: &ChartResult, key: &str, at: usize| {
+        result
+            .groups
+            .iter()
+            .find(|g| g.keys[0].as_deref() == Some(key))
+            .and_then(|g| g.values[at])
+    };
+    let shares = shown(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "category"}],
+        "metrics": [
+            {"column": "amount", "aggregate": "sum"},
+            {"column": "amount", "aggregate": "sum", "show": "shareOfAll"},
+            {"column": "amount", "aggregate": "sum", "show": "rank"}
+        ]
+    }))
+    .await
+    .unwrap();
+    assert!(shares.query.sql.starts_with("WITH g AS ("));
+    assert!(shares.query.sql.contains("AS \"SUM(amount) (% of Total)\""));
+    near(value_of(&shares, "Groceries", 1), 60.0 / 110.25);
+    near(value_of(&shares, "Books", 1), 42.0 / 110.25);
+    near(value_of(&shares, "Groceries", 2), 1.0);
+    near(value_of(&shares, "Books", 2), 2.0);
+    // Over time: the change from the period before is to the month before
+    // itself, not to the last month that had rows (August has none); a
+    // running total and a moving average run along the time.
+    let months = shown(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month"},
+        "metrics": [
+            {"column": "amount", "aggregate": "sum", "show": "changeFromPrevious"},
+            {"column": "amount", "aggregate": "sum", "show": "growthFromPrevious"},
+            {"column": "amount", "aggregate": "sum", "show": "runningTotal"},
+            {"column": "amount", "aggregate": "sum", "show": "movingAverage"},
+            {"column": "amount", "aggregate": "sum", "show": "growthFromYearBefore"}
+        ]
+    }))
+    .await
+    .unwrap();
+    assert_eq!(
+        firsts(&months),
+        ["2026-07", "2026-08", "2026-09", "2026-10"]
+    );
+    assert_eq!(value_of(&months, "2026-09", 0), None);
+    near(value_of(&months, "2026-10", 0), 28.25 - 52.0);
+    near(value_of(&months, "2026-10", 1), (28.25 - 52.0) / 52.0);
+    near(value_of(&months, "2026-09", 2), 82.0);
+    near(value_of(&months, "2026-10", 2), 110.25);
+    near(value_of(&months, "2026-10", 3), 110.25 / 3.0);
+    assert_eq!(value_of(&months, "2026-10", 4), None);
+    assert!(months.query.sql.contains("- INTERVAL 1 MONTH"));
+    assert!(months.query.sql.contains("- INTERVAL 1 YEAR"));
+    // A share of its row: each category's part of its month.
+    let parts = shown(serde_json::json!({
+        "chart": "table",
+        "time": {"column": "date", "grain": "month"},
+        "pivots": [{"column": "category"}],
+        "metrics": [{"column": "amount", "aggregate": "sum", "show": "shareOfRow"}]
+    }))
+    .await
+    .unwrap();
+    let september: Vec<_> = parts
+        .series
+        .iter()
+        .zip(
+            &parts
+                .groups
+                .iter()
+                .find(|g| g.keys[0].as_deref() == Some("2026-09"))
+                .unwrap()
+                .values,
+        )
+        .filter_map(|(s, v)| v.map(|v| (s.pivot[0].clone().unwrap_or_default(), v)))
+        .collect();
+    assert_eq!(september.len(), 2);
+    for (category, part) in september {
+        near(
+            Some(part),
+            if category == "Groceries" {
+                40.0 / 52.0
+            } else {
+                12.0 / 52.0
+            },
+        );
+    }
+    // A change over time needs the time.
+    let err = shown(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "category"}],
+        "metrics": [{"column": "amount", "aggregate": "sum", "show": "changeFromPrevious"}]
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+
+    // Filters as BI tools have them. Values excluded, the empty ones kept.
+    let kept = |filters: serde_json::Value| {
+        compute(serde_json::json!({
+            "chart": "table",
+            "dimensions": [{"column": "category"}],
+            "filters": filters
+        }))
+    };
+    let not_groceries = kept(serde_json::json!([
+        {"column": "category", "values": ["Groceries"], "exclude": true}
+    ]))
+    .await
+    .unwrap();
+    assert_eq!(not_groceries.matched, 3);
+    assert!(not_groceries.query.sql.contains("IS NULL OR NOT ("));
+    // Text that contains, does not contain, starts or ends with something,
+    // whatever its case; its own % and _ are taken as they are.
+    let text = |how: &str, value: &str| {
+        kept(serde_json::json!([
+            {"column": "merchant", "text": {"match": how, "value": value}}
+        ]))
+    };
+    assert_eq!(text("contains", "LI").await.unwrap().matched, 2);
+    assert_eq!(text("startsWith", "p").await.unwrap().matched, 1);
+    assert_eq!(text("endsWith", "and").await.unwrap().matched, 2);
+    assert_eq!(text("notContains", "e").await.unwrap().matched, 2);
+    let percent = text("contains", "%").await.unwrap();
+    assert_eq!(percent.matched, 0);
+    assert_eq!(percent.query.params, ["'%\\%%'"]);
+    // Empty or not.
+    let empty = |is: bool| kept(serde_json::json!([{"column": "merchant", "empty": is}]));
+    assert_eq!(empty(true).await.unwrap().matched, 0);
+    assert_eq!(empty(false).await.unwrap().matched, 6);
+    // Days of any column of time, as a time range has them.
+    let september = kept(serde_json::json!([
+        {"column": "date", "dates": {"range": "custom", "from": "2026-09-01", "to": "2026-09-30"}}
+    ]))
+    .await
+    .unwrap();
+    assert_eq!(september.matched, 3);
+    // Groups kept by a metric's total: Books (42) and Groceries (60), then
+    // Groceries alone; the rows the filters keep are still all of them.
+    let by_total = |min: &str| {
+        compute(serde_json::json!({
+            "chart": "table",
+            "dimensions": [{"column": "category"}],
+            "metrics": [{"column": "amount", "aggregate": "sum"}],
+            "metricFilters": [{"metric": 0, "min": min}],
+            "sort": {"metric": 0, "descending": true}
+        }))
+    };
+    let forty = by_total("40").await.unwrap();
+    assert_eq!(firsts(&forty), ["Groceries", "Books"]);
+    assert!(forty.query.sql.contains("HAVING SUM(\"amount\") >= ?"));
+    assert_eq!(forty.matched, 6);
+    assert_eq!(firsts(&by_total("50").await.unwrap()), ["Groceries"]);
+    // Refused: text on a number, days of what is no time, an exclusion of
+    // nothing, a filter of two kinds, a metric the chart has not.
+    for filters in [
+        serde_json::json!([{"column": "amount", "text": {"match": "contains", "value": "1"}}]),
+        serde_json::json!([{"column": "merchant", "dates": {"range": "thisYear"}}]),
+        serde_json::json!([{"column": "merchant", "exclude": true}]),
+        serde_json::json!([{"column": "merchant", "values": ["Lidl"], "empty": true}]),
+    ] {
+        let err = kept(filters.clone()).await.unwrap_err();
+        assert_eq!(err.code, ErrorCode::Invalid, "{filters}: {err:?}");
+    }
+    let err = compute(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "category"}],
+        "metricFilters": [{"metric": 3, "min": "1"}]
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
 
     // Several dimensions together, ordered by a metric, the first two.
     let top = compute(serde_json::json!({

@@ -5395,18 +5395,6 @@ tr.screen-source {
   font: var(--text-small);
   font-weight: 500;
 }
-/* The time's range, first among the filters, named as a place is. */
-.screen-explorer__time-range {
-  display: grid;
-  gap: var(--space-2);
-}
-.screen-explorer__time-range .oik-field__label {
-  color: var(--ink2);
-  font: var(--text-small);
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-}
 .screen-explorer__chip {
   display: flex;
   align-items: stretch;
@@ -5438,6 +5426,57 @@ tr.screen-source {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A filter, as a field: its column named above, what it keeps in the box,
+   wrapped as long as it is, in the text's own type; the × and the chevron
+   on its first line, as a select has its arrow by its value. */
+.screen-explorer__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.screen-explorer__field + .screen-explorer__field {
+  margin-top: 4px;
+}
+.screen-explorer__field-name {
+  color: var(--ink2);
+  font: var(--text-meta);
+  overflow-wrap: anywhere;
+}
+.screen-explorer__chip--wrap {
+  position: relative;
+}
+.screen-explorer__chip--wrap .oik-menu__chip {
+  align-items: flex-start;
+  height: auto;
+  min-height: 32px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.screen-explorer__chip--wrap .oik-menu__shown {
+  font: var(--text-data);
+  font-family: var(--font);
+}
+.screen-explorer__chip--wrap .oik-menu__chip svg {
+  /* Centred on the first line (18px), however many it wraps to. */
+  margin-top: 3px;
+}
+.screen-explorer__chip--wrap .screen-explorer__chip-x {
+  position: absolute;
+  top: 4px;
+  width: 24px;
+  height: 24px;
+  border-left: 0;
+  border-radius: var(--r-btn);
+}
+.screen-explorer__chip--wrap[data-x="beside"] .screen-explorer__chip-x {
+  right: 22px;
+}
+.screen-explorer__chip--wrap[data-x="end"] .screen-explorer__chip-x {
+  right: 4px;
+}
+.screen-explorer__chip--wrap[data-x] .oik-menu__shown {
+  padding-right: 24px;
+}
 .screen-explorer__chip-x {
   display: inline-flex;
   flex: none;
@@ -5453,6 +5492,8 @@ tr.screen-source {
 .screen-explorer__chip-x svg {
   width: 12px;
   height: 12px;
+  /* Drawn on 24 and shown at 12, the icon's 1.75 would be a hairline: about 1.1px, as heavy as the chevron beside it. */
+  stroke-width: 2.25;
 }
 .screen-explorer__chip-x:hover,
 .screen-explorer__chip-x:focus-visible {
@@ -5714,6 +5755,26 @@ tr.screen-source {
   }
   .screen-explorer__chip-x {
     width: 44px;
+  }
+  .screen-explorer__chip--wrap .oik-menu__chip {
+    height: auto;
+    min-height: 44px;
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+  .screen-explorer__chip--wrap .screen-explorer__chip-x {
+    top: 6px;
+    width: 32px;
+    height: 32px;
+  }
+  .screen-explorer__chip--wrap[data-x="beside"] .screen-explorer__chip-x {
+    right: 18px;
+  }
+  .screen-explorer__chip--wrap[data-x="end"] .screen-explorer__chip-x {
+    right: 0;
+  }
+  .screen-explorer__chip--wrap[data-x] .oik-menu__shown {
+    padding-right: 30px;
   }
 }
 @media (max-width: 900px) {

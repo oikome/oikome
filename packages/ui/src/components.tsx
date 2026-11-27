@@ -826,6 +826,21 @@ export interface MenuItem {
   /** One of a choice (a place, an order): the chosen one is ticked. */
   checked?: boolean;
   icon?: IconName;
+  /** The group it is in, named above the group's first item (Summarize By, Show Value As). */
+  section?: string;
+  /** An action set apart from the choices above it by a line (Clear Calculation after the calculations). */
+  apart?: boolean;
+}
+
+/** A menu's items in their groups, as they come: each run of one section together. */
+function sectionsOf(items: MenuItem[]): { section?: string; items: MenuItem[] }[] {
+  const runs: { section?: string; items: MenuItem[] }[] = [];
+  for (const item of items) {
+    const last = runs[runs.length - 1];
+    if (last && last.section === item.section) last.items.push(item);
+    else runs.push({ section: item.section, items: [item] });
+  }
+  return runs;
 }
 
 /**
@@ -846,9 +861,10 @@ export function Menu({
   /**
    * A named button instead of More. `chip`: a chosen item in a list (a
    * dimension, a metric), its text first and a chevron after, `label`
-   * saying what choosing does.
+   * saying what choosing does; with `wrap`, its text wraps as long as it
+   * is, never cut short.
    */
-  trigger?: { icon: IconName; text: string } | { chip: true; text: string };
+  trigger?: { icon: IconName; text: string } | { chip: true; text: string; wrap?: boolean };
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -929,7 +945,9 @@ export function Menu({
         type="button"
         className={
           shown && "chip" in shown
-            ? "oik-menu__chip"
+            ? shown.wrap
+              ? "oik-menu__chip oik-menu__chip--wrap"
+              : "oik-menu__chip"
             : shown
               ? "oik-button oik-button--secondary"
               : "oik-icon-button oik-icon-button--filled"
@@ -963,24 +981,40 @@ export function Menu({
           popover="manual"
           onKeyDown={move}
         >
-          {items.map((item) => (
-            <li key={item.label} role="none">
-              <button
-                type="button"
-                role={item.checked === undefined ? "menuitem" : "menuitemradio"}
-                aria-checked={item.checked}
-                className={cx("oik-menu__item", item.destructive && "oik-menu__item--destructive")}
-                onClick={() => {
-                  close();
-                  item.onSelect();
-                }}
-              >
-                {item.icon && <Icon name={item.icon} />}
-                <span className="oik-menu__label">{item.label}</span>
-                {item.checked && <Icon name="check" />}
-              </button>
-            </li>
-          ))}
+          {sectionsOf(items).map(({ section, items: run }) => {
+            const entries = run.flatMap((item) => [
+              ...(item.apart ? [<li key={`apart:${item.label}`} role="separator" className="oik-menu__separator" />] : []),
+              <li key={item.label} role="none">
+                <button
+                  type="button"
+                  role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+                  aria-checked={item.checked}
+                  className={cx("oik-menu__item", item.destructive && "oik-menu__item--destructive")}
+                  onClick={() => {
+                    close();
+                    item.onSelect();
+                  }}
+                >
+                  {item.icon && <Icon name={item.icon} />}
+                  <span className="oik-menu__label">{item.label}</span>
+                  {item.checked && <Icon name="check" />}
+                </button>
+              </li>,
+            ]);
+            // A named group: its name above it, said once as the group's.
+            return section === undefined ? (
+              entries
+            ) : (
+              <li key={`section:${section}`} role="none" className="oik-menu__section">
+                <span className="oik-menu__heading" aria-hidden="true">
+                  {section}
+                </span>
+                <ul role="group" aria-label={section}>
+                  {entries}
+                </ul>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

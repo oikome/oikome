@@ -1134,6 +1134,30 @@
 .oik-menu__item {
   gap: 10px;
 }
+/* A named group of a menu (Summarize By, Show Value As): its name above, a line between groups. */
+.oik-menu__section > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.oik-menu__section + .oik-menu__section,
+.oik-menu__list > li:not(.oik-menu__section) + .oik-menu__section {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line2);
+}
+/* A line before an action, set apart from the choices above it. */
+.oik-menu__separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line2);
+}
+.oik-menu__heading {
+  display: block;
+  padding: 6px 10px 4px;
+  color: var(--ink3);
+  font: var(--text-small);
+}
 .oik-menu__label {
   flex: 1;
   min-width: 0;
@@ -1168,10 +1192,23 @@
   width: 12px;
   height: 12px;
   color: var(--ink3);
+  /* Drawn on 24 and shown at 12: about 1.1px, not a hairline. */
+  stroke-width: 2.25;
   transform: rotate(90deg);
 }
 .oik-menu__chip .oik-menu__shown {
   white-space: nowrap;
+}
+/* A chip whose text wraps as long as it is, never cut short. */
+.oik-menu__chip--wrap {
+  align-items: flex-start;
+  height: auto;
+}
+.oik-menu__chip--wrap .oik-menu__shown {
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .oik-menu__shown {
   max-width: 16em;

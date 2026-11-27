@@ -704,10 +704,10 @@ export const ru: Strings = {
 
   sources: {
     title: "Источники",
-    ledeShort: "Папки и файлы, из которых приходят ваши данные.",
+    ledeShort: "Источники данных приносят папки, файлы и заметки в ваши коллекции.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Папки и файлы, из которых приходят ваши данные.";
-      if (count === 0) return `${lead} Меняйте их в любом приложении: Oikome перечитывает их каждую минуту.`;
+      const lead = "Источники данных приносят папки, файлы и заметки в ваши коллекции.";
+      if (count === 0) return `${lead} Каждый источник даёт плагин: добавьте источник, чтобы начать.`;
       if (failing > 0) {
         const who =
           failing === 1
@@ -1638,6 +1638,13 @@ export const ru: Strings = {
     rowCount: "Число строк",
     aggregates: { sum: "Сумма", average: "Среднее", median: "Медиана", min: "Минимум", max: "Максимум", count: "Количество", distinct: "Число уникальных" } as Record<string, string>,
     aggregateOf: (column: string) => `Способ расчёта для ${column}`,
+    summarizeBy: "Операция",
+    showAs: "Дополнительные вычисления",
+    shows: { shareOfAll: "% от общей суммы", shareOfRow: "% от суммы по строке", shareOfColumn: "% от суммы по столбцу", shareOfGroup: "% от суммы по группе", changeFromYearBefore: "Изменение к прошлому году", growthFromYearBefore: "Изменение к прошлому году, %", runningTotal: "Нарастающий итог", movingAverage: "Скользящее среднее", rank: "Ранг" } as Record<string, string>,
+    changeFrom: { year: "Изменение к прошлому году", quarter: "Изменение к прошлому кварталу", month: "Изменение к прошлому месяцу", week: "Изменение к прошлой неделе", day: "Изменение к прошлому дню", other: "Изменение к прошлому периоду" } as Record<string, string>,
+    growthFrom: { year: "Изменение к прошлому году, %", quarter: "Изменение к прошлому кварталу, %", month: "Изменение к прошлому месяцу, %", week: "Изменение к прошлой неделе, %", day: "Изменение к прошлому дню, %", other: "Изменение к прошлому периоду, %" } as Record<string, string>,
+    noShow: "Нет",
+    shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Год", quarter: "Квартал", month: "Месяц", week: "Неделя", day: "День", hour: "Час", minute: "Минута", second: "Секунда" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,
     removeItem: (name: string) => `Удалить: ${name}`,
@@ -1651,6 +1658,13 @@ export const ru: Strings = {
     countOwn: "Свой лимит строк",
     countAny: "Целое число от 1",
     filterOn: (column: string) => `Фильтр: ${column}`,
+    filterHow: "Условие",
+    ops: { is: "Равно", isNot: "Не равно", contains: "Содержит", notContains: "Не содержит", startsWith: "Начинается с", endsWith: "Заканчивается на", empty: "Пусто", notEmpty: "Не пусто", between: "Между", dates: "В периоде" } as Record<string, string>,
+    textValue: "Текст",
+    textChip: (how: string, value: string) => `${how} «${value}»`,
+    notChip: (shown: string) => `кроме ${shown}`,
+    emptyTextNote: "Пустой текст тоже считается пустым.",
+    metricFilterNote: "После группировки остаются только группы, чей результат в этом диапазоне.",
     anyValue: "Любое",
     chosenCount: (n: number) => `Выбрано: ${n}`,
     searchValues: "Поиск значений",
@@ -1663,8 +1677,8 @@ export const ru: Strings = {
     noRows: "Нет подходящих строк.",
     matched: (n: number, total: number) => `Подходит строк: ${n} из ${total}`,
     firstRows: (n: number) => `Первые ${n} строк`,
-    filterChip: (column: string, what: string) => `${column}: ${what}`,
     range: "Период",
+    rangeFor: (column: string) => `Период столбца ${column}`,
     rows: "Строки",
     columns: "Столбцы",
     columnsNote: "столбец для каждого значения",
@@ -1677,6 +1691,9 @@ export const ru: Strings = {
     addTo: (place: string) => `Добавить: ${place}`,
     grainFor: (column: string) => `Детализация ${column}`,
     ranges: { all: "За всё время", last7Days: "Последние 7 дней", last30Days: "Последние 30 дней", last90Days: "Последние 90 дней", last365Days: "Последние 365 дней", thisYear: "Этот год", custom: "Свой период" } as Record<string, string>,
+    rangeOf: (from: string, to: string) => `от ${from} до ${to}`,
+    fromDay: (day: string) => `с ${day}`,
+    toDay: (day: string) => `по ${day}`,
     rangeFrom: "С",
     rangeTo: "По",
     drillAll: "Все",

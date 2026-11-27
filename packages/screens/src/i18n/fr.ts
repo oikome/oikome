@@ -693,10 +693,10 @@ export const fr: Strings = {
 
   sources: {
     title: "Sources",
-    ledeShort: "Les dossiers et fichiers qui apportent vos données.",
+    ledeShort: "Les sources de données apportent dossiers, fichiers et notes dans vos collections.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Les dossiers et fichiers qui apportent vos données.";
-      if (count === 0) return `${lead} Modifiez-les avec n’importe quelle app : Oikome les relit chaque minute.`;
+      const lead = "Les sources de données apportent dossiers, fichiers et notes dans vos collections.";
+      if (count === 0) return `${lead} Chacune vient d’un plugin : ajoutez-en une pour commencer.`;
       if (failing > 0) return `${lead} ${failing === 1 ? "Une a besoin de vous." : `${num(failing)} ont besoin de vous.`}`;
       if (paused === 0) return `${lead} ${count === 1 ? "Elle est à jour." : `Toutes les ${num(count)} sont à jour.`}`;
       if (paused === count) return `${lead} ${count === 1 ? "Elle est en pause." : `Toutes les ${num(count)} sont en pause.`}`;
@@ -1632,6 +1632,13 @@ export const fr: Strings = {
     rowCount: "Nombre de lignes",
     aggregates: { sum: "Somme", average: "Moyenne", median: "Médiane", min: "Minimum", max: "Maximum", count: "Nombre", distinct: "Nombre distinct" } as Record<string, string>,
     aggregateOf: (column: string) => `Calcul pour ${column}`,
+    summarizeBy: "Synthèse par",
+    showAs: "Afficher les valeurs",
+    shows: { shareOfAll: "% du total général", shareOfRow: "% du total de la ligne", shareOfColumn: "% du total de la colonne", shareOfGroup: "% du total du groupe", changeFromYearBefore: "Variation sur un an", growthFromYearBefore: "Variation sur un an en %", runningTotal: "Total cumulé", movingAverage: "Moyenne mobile", rank: "Rang" } as Record<string, string>,
+    changeFrom: { year: "Variation vs année précédente", quarter: "Variation vs trimestre précédent", month: "Variation vs mois précédent", week: "Variation vs semaine précédente", day: "Variation vs jour précédent", other: "Variation vs période précédente" } as Record<string, string>,
+    growthFrom: { year: "Variation en % vs année précédente", quarter: "Variation en % vs trimestre précédent", month: "Variation en % vs mois précédent", week: "Variation en % vs semaine précédente", day: "Variation en % vs jour précédent", other: "Variation en % vs période précédente" } as Record<string, string>,
+    noShow: "Aucun",
+    shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Année", quarter: "Trimestre", month: "Mois", week: "Semaine", day: "Jour", hour: "Heure", minute: "Minute", second: "Seconde" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,
     removeItem: (name: string) => `Supprimer ${name}`,
@@ -1645,6 +1652,13 @@ export const fr: Strings = {
     countOwn: "Limite de lignes personnalisée",
     countAny: "Un nombre entier à partir de 1",
     filterOn: (column: string) => `Filtrer ${column}`,
+    filterHow: "Condition",
+    ops: { is: "Est", isNot: "N’est pas", contains: "Contient", notContains: "Ne contient pas", startsWith: "Commence par", endsWith: "Se termine par", empty: "Est vide", notEmpty: "N’est pas vide", between: "Entre", dates: "Dans la période" } as Record<string, string>,
+    textValue: "Texte",
+    textChip: (how: string, value: string) => `${how} « ${value} »`,
+    notChip: (shown: string) => `sauf ${shown}`,
+    emptyTextNote: "Un texte vide compte aussi comme vide.",
+    metricFilterNote: "Une fois les lignes regroupées, seuls les groupes dont le résultat est dans cette plage sont gardés.",
     anyValue: "Toutes",
     chosenCount: (n: number) => `${n} sélectionnées`,
     searchValues: "Rechercher des valeurs",
@@ -1657,8 +1671,8 @@ export const fr: Strings = {
     noRows: "Aucune ligne ne correspond.",
     matched: (n: number, total: number) => `${n} lignes sur ${total} retenues`,
     firstRows: (n: number) => `${n} premières lignes`,
-    filterChip: (column: string, what: string) => `${column} : ${what}`,
     range: "Période",
+    rangeFor: (column: string) => `Période de ${column}`,
     rows: "Lignes",
     columns: "Colonnes",
     columnsNote: "une colonne par valeur",
@@ -1671,6 +1685,9 @@ export const fr: Strings = {
     addTo: (place: string) => `Ajouter à « ${place} »`,
     grainFor: (column: string) => `Granularité de ${column}`,
     ranges: { all: "Toute la période", last7Days: "7 derniers jours", last30Days: "30 derniers jours", last90Days: "90 derniers jours", last365Days: "365 derniers jours", thisYear: "Cette année", custom: "Période personnalisée" } as Record<string, string>,
+    rangeOf: (from: string, to: string) => `${from} à ${to}`,
+    fromDay: (day: string) => `à partir du ${day}`,
+    toDay: (day: string) => `jusqu’au ${day}`,
     rangeFrom: "Du",
     rangeTo: "Au",
     drillAll: "Tout",

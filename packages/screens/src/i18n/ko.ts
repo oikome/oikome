@@ -684,10 +684,10 @@ export const ko: Strings = {
 
   sources: {
     title: "소스",
-    ledeShort: "데이터를 가져오는 폴더와 파일이에요.",
+    ledeShort: "데이터 소스는 폴더, 파일, 메모를 컬렉션으로 가져와요.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "데이터를 가져오는 폴더와 파일이에요.";
-      if (count === 0) return `${lead} 어떤 앱으로든 편집하세요. Oikome가 1분마다 다시 읽어요.`;
+      const lead = "데이터 소스는 폴더, 파일, 메모를 컬렉션으로 가져와요.";
+      if (count === 0) return `${lead} 데이터 소스는 모두 플러그인이 제공해요. 하나를 추가하면 시작할 수 있어요.`;
       if (failing > 0) return `${lead} ${num(failing)}개는 확인이 필요해요.`;
       if (paused === 0) return `${lead} ${count === 1 ? "최신 상태예요." : `${num(count)}개 모두 최신 상태예요.`}`;
       if (paused === count)
@@ -1598,12 +1598,19 @@ export const ko: Strings = {
     metrics: "지표",
     filter: "필터",
     order: "정렬",
-    show: "표시할 행 수",
+    show: "행 수 제한",
     addMetric: "지표 추가",
     addFilter: "필터 추가",
     rowCount: "행 수",
     aggregates: { sum: "합계", average: "평균", median: "중앙값", min: "최소", max: "최대", count: "개수", distinct: "고유 개수" } as Record<string, string>,
     aggregateOf: (column: string) => `${column} 집계 방식`,
+    summarizeBy: "집계 방식",
+    showAs: "값 표시 형식",
+    shows: { shareOfAll: "총합계 비율", shareOfRow: "행 합계 비율", shareOfColumn: "열 합계 비율", shareOfGroup: "그룹 내 비율", changeFromYearBefore: "전년 동기 대비 증감", growthFromYearBefore: "전년 동기 대비 증감률", runningTotal: "누계", movingAverage: "이동 평균", rank: "순위" } as Record<string, string>,
+    changeFrom: { year: "전년 대비 증감", quarter: "전분기 대비 증감", month: "전월 대비 증감", week: "전주 대비 증감", day: "전일 대비 증감", other: "전기 대비 증감" } as Record<string, string>,
+    growthFrom: { year: "전년 대비 증감률", quarter: "전분기 대비 증감률", month: "전월 대비 증감률", week: "전주 대비 증감률", day: "전일 대비 증감률", other: "전기 대비 증감률" } as Record<string, string>,
+    noShow: "없음",
+    shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "연도", quarter: "분기", month: "월", week: "주", day: "일", hour: "시", minute: "분", second: "초" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,
     removeItem: (name: string) => `${name} 제거`,
@@ -1617,6 +1624,13 @@ export const ko: Strings = {
     countOwn: "표시할 행 수 직접 입력",
     countAny: "1 이상의 정수",
     filterOn: (column: string) => `${column} 필터`,
+    filterHow: "조건",
+    ops: { is: "같음", isNot: "같지 않음", contains: "포함", notContains: "포함하지 않음", startsWith: "시작 문자", endsWith: "끝 문자", empty: "비어 있음", notEmpty: "비어 있지 않음", between: "범위", dates: "기간 내" } as Record<string, string>,
+    textValue: "텍스트",
+    textChip: (how: string, value: string) => `${how} “${value}”`,
+    notChip: (shown: string) => `${shown} 제외`,
+    emptyTextNote: "빈 텍스트도 비어 있는 것으로 봅니다.",
+    metricFilterNote: "그룹으로 묶은 뒤, 이 지표의 결과가 범위 안에 있는 그룹만 남깁니다.",
     anyValue: "제한 없음",
     chosenCount: (n: number) => `${n}개 선택됨`,
     searchValues: "값 검색",
@@ -1629,8 +1643,8 @@ export const ko: Strings = {
     noRows: "조건에 맞는 행이 없습니다.",
     matched: (n: number, total: number) => `${total}개 행 중 ${n}개 해당`,
     firstRows: (n: number) => `처음 ${n}개 행`,
-    filterChip: (column: string, what: string) => `${column}: ${what}`,
     range: "기간",
+    rangeFor: (column: string) => `${column}의 기간`,
     rows: "행",
     columns: "열",
     columnsNote: "값마다 열 하나",
@@ -1643,6 +1657,9 @@ export const ko: Strings = {
     addTo: (place: string) => `${place}에 추가`,
     grainFor: (column: string) => `${column}의 단위`,
     ranges: { all: "전체 기간", last7Days: "최근 7일", last30Days: "최근 30일", last90Days: "최근 90일", last365Days: "최근 365일", thisYear: "올해", custom: "사용자 지정" } as Record<string, string>,
+    rangeOf: (from: string, to: string) => `${from} ~ ${to}`,
+    fromDay: (day: string) => `${day}부터`,
+    toDay: (day: string) => `${day}까지`,
     rangeFrom: "시작일",
     rangeTo: "종료일",
     drillAll: "전체",

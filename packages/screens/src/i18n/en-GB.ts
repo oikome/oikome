@@ -12,6 +12,7 @@ export const enGB: Strings = overlay(en, {
   explorer: {
     color: "Colour",
     colorNote: "a colour for each value",
+    summarizeBy: "Summarise By",
     sqlBody: "The DuckDB query your data centre ran for this chart. Each ?n is bound to the value listed below it, never written into the query. Copy SQL writes the values in, so it runs as it is.",
   },
   brandSubtitle: "My data centre",

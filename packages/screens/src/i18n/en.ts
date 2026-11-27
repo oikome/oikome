@@ -684,10 +684,10 @@ export const en = {
 
   sources: {
     title: "Sources",
-    ledeShort: "Folders and files that bring your data in.",
+    ledeShort: "Data sources bring folders, files and notes into your collections.",
     lede: (count: number, failing: number, paused: number) => {
-      const lead = "Folders and files that bring your data in.";
-      if (count === 0) return `${lead} Edit them with any app; Oikome reads them again every minute.`;
+      const lead = "Data sources bring folders, files and notes into your collections.";
+      if (count === 0) return `${lead} Each comes from a plugin; add one to begin.`;
       if (failing > 0) return `${lead} ${failing === 1 ? "One needs" : `${failing} need`} you.`;
       if (paused === 0) return `${lead} ${count === 1 ? "It is" : `All ${count} are`} up to date.`;
       if (paused === count) return `${lead} ${count === 1 ? "It is" : `All ${count} are`} paused.`;
@@ -1637,6 +1637,14 @@ export const en = {
     rowCount: "Number of Rows",
     aggregates: { sum: "Sum", average: "Average", median: "Median", min: "Smallest", max: "Largest", count: "Count", distinct: "Distinct Count" } as Record<string, string>,
     aggregateOf: (column: string) => `How ${column} is totalled`,
+    summarizeBy: "Summarize By",
+    showAs: "Show Value As",
+    shows: { shareOfAll: "% of Total", shareOfRow: "% of Row Total", shareOfColumn: "% of Column Total", shareOfGroup: "% of Group Total", changeFromYearBefore: "YoY Change", growthFromYearBefore: "YoY %", runningTotal: "Running Total", movingAverage: "Moving Average", rank: "Rank" } as Record<string, string>,
+    /** A change from the period before, named by the grain as finance does: YoY, QoQ, MoM, WoW, DoD; PoP finer than a day. */
+    changeFrom: { year: "YoY Change", quarter: "QoQ Change", month: "MoM Change", week: "WoW Change", day: "DoD Change", other: "PoP Change" } as Record<string, string>,
+    growthFrom: { year: "YoY %", quarter: "QoQ %", month: "MoM %", week: "WoW %", day: "DoD %", other: "PoP %" } as Record<string, string>,
+    noShow: "None",
+    shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Year", quarter: "Quarter", month: "Month", week: "Week", day: "Day", hour: "Hour", minute: "Minute", second: "Second" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,
     removeItem: (name: string) => `Remove ${name}`,
@@ -1650,6 +1658,13 @@ export const en = {
     countOwn: "Custom Row Limit",
     countAny: "Any whole number from 1",
     filterOn: (column: string) => `Filter ${column}`,
+    filterHow: "Condition",
+    ops: { is: "Is", isNot: "Is Not", contains: "Contains", notContains: "Does Not Contain", startsWith: "Starts With", endsWith: "Ends With", empty: "Is Empty", notEmpty: "Is Not Empty", between: "Between", dates: "In Range" } as Record<string, string>,
+    textValue: "Text",
+    textChip: (how: string, value: string) => `${how} “${value}”`,
+    notChip: (shown: string) => `not ${shown}`,
+    emptyTextNote: "Blank text counts as empty too.",
+    metricFilterNote: "After the rows are grouped, only the groups whose total is in this range are kept.",
     anyValue: "Any",
     chosenCount: (n: number) => `${n} selected`,
     searchValues: "Search values",
@@ -1662,8 +1677,8 @@ export const en = {
     noRows: "No rows match.",
     matched: (n: number, total: number) => `${n} of ${total} rows match`,
     firstRows: (n: number) => `First ${n} rows`,
-    filterChip: (column: string, what: string) => `${column}: ${what}`,
     range: "Time Range",
+    rangeFor: (column: string) => `Time range of ${column}`,
     rows: "Rows",
     columns: "Columns",
     columnsNote: "a column for each value",
@@ -1676,6 +1691,10 @@ export const en = {
     addTo: (place: string) => `Add to ${place}`,
     grainFor: (column: string) => `Grain of ${column}`,
     ranges: { all: "All Time", last7Days: "Last 7 Days", last30Days: "Last 30 Days", last90Days: "Last 90 Days", last365Days: "Last 365 Days", thisYear: "This Year", custom: "Custom Range" } as Record<string, string>,
+    /** A range with both ends, in words (a dash reads as a minus beside a negative number); either end alone. */
+    rangeOf: (from: string, to: string) => `${from} to ${to}`,
+    fromDay: (day: string) => `on or after ${day}`,
+    toDay: (day: string) => `on or before ${day}`,
     rangeFrom: "From",
     rangeTo: "To",
     drillAll: "All",

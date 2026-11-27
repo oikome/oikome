@@ -21,8 +21,9 @@
 //!   API's assistant calls, so its grants decide what it reads. A request
 //!   with an `Origin` is refused (a web page has no business here: DNS
 //!   rebinding), as is one whose `Host` isn't this server (checked before).
-//! - **What.** Nine tools: `list_collections`, `search`, `read` (a passage
-//!   or lines of a document prepared for AI), `read_row`, `list_skills` and
+//! - **What.** Ten tools: `list_collections`, `search`, `read` (a passage
+//!   or lines of a document prepared for AI), `read_row`, `describe_table`
+//!   (the columns and types a caller may read), `list_skills` and
 //!   `get_skill` (Oikome's own skill and those in its collections), and for
 //!   the analysis tables of its collections `list_charts`, `chart` (a chart
 //!   described, computed as the assistant) and `save_chart`, the one tool
@@ -76,6 +77,7 @@ You may read only the collections the owner gave you. Call list_collections to s
 search to find rows and passages of documents by their words, read_row to open a row by its key, \
 and read to open a passage with what is around it, or lines of its document. \
 When you answer from a passage, name its document and lines. \
+describe_table gives the type, format, columns and column types you may read in a table. \
 list_skills and get_skill give skills: instructions for tasks, Oikome's own first; \
 a skill's scripts are files to read, not run here. \
 For totals and trends, list_charts gives the analysis tables of your collections and their columns; \
@@ -518,6 +520,21 @@ fn tools() -> Value {
             "annotations": read_only,
         },
         {
+            "name": "describe_table",
+            "title": "Describe a table",
+            "description": "The type, format and columns you may read in one table of a collection: managed, external, foreign or view; the data-source format when known; and each column's physical type, whether it can be empty, and the type charts read it as. Use this before chart when the table's columns are not already known.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "collection": { "type": "string" },
+                    "table": { "type": "string" }
+                },
+                "required": ["collection", "table"],
+                "additionalProperties": false
+            },
+            "annotations": read_only,
+        },
+        {
             "name": "list_skills",
             "title": "List skills",
             "description": "Skills you may use: Oikome's own (how to answer from this data center and cite it), then folders with SKILL.md in your collections prepared for AI. Each has its collection, name, description and files with SHA-256 digests. Read one with get_skill when its description fits the task.",
@@ -743,6 +760,13 @@ struct ReadRowArgs {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DescribeTableArgs {
+    collection: String,
+    table: String,
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct ReadArgs {
     collection: String,
@@ -817,6 +841,19 @@ async fn call(api: &Api, caller: &Caller, name: &str, arguments: Value) -> Optio
                     )
                 })
             }
+            Err(e) => Err(e),
+        },
+        "describe_table" => match args::<DescribeTableArgs>(arguments) {
+            Ok(a) => api
+                .assistant_describe_table(
+                    caller,
+                    oikome_api::TableRef {
+                        space: a.collection,
+                        table: a.table,
+                    },
+                )
+                .await
+                .map(|table| structured(json!(table))),
             Err(e) => Err(e),
         },
         "read" => match args::<ReadArgs>(arguments) {
@@ -1151,6 +1188,7 @@ mod tests {
                 "search",
                 "read",
                 "read_row",
+                "describe_table",
                 "list_skills",
                 "list_charts",
                 "chart",

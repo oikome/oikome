@@ -6,6 +6,12 @@
 # out of the linked binary), not worth losing their lines in backtraces.
 [profile.dev]
 debug = "line-tables-only"
+# Incremental caches otherwise keep another, ever-growing copy of every
+# dependency and test build. Rebuilding is cheaper than another large target.
+incremental = false
+
+[profile.test]
+incremental = false
 
 [profile.dev.package."*"]
 debug = "line-tables-only"

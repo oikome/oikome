@@ -586,6 +586,29 @@ fn print_result(result: &QueryResult, raw: bool) -> Result<(), BoxError> {
     Ok(())
 }
 
+/// An oiql dot command as the SQL statement it stands for.
+fn prompt_command(line: &str) -> Option<Result<String, String>> {
+    let line = line.trim();
+    if line == ".tables" {
+        return Some(Ok("SHOW TABLES".into()));
+    }
+    if line.starts_with(".tables") {
+        return Some(Err("usage: .tables".into()));
+    }
+    if let Some(rest) = line.strip_prefix(".schema") {
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return None;
+        }
+        let table = rest.trim();
+        return Some(if table.is_empty() {
+            Err("usage: .schema [<space>.]<table>".into())
+        } else {
+            Ok(format!("DESCRIBE {table}"))
+        });
+    }
+    None
+}
+
 /// `oiql>`: statements typed one after another, each run once it ends with
 /// `;`, a statement going on over lines until then. Up and down go through
 /// those typed before; Ctrl-C drops the one being typed; Ctrl-D or `.quit`
@@ -594,7 +617,7 @@ async fn prompt(session: &OikomeSession, raw: bool) -> Result<(), BoxError> {
     use rustyline::error::ReadlineError;
     let mut editor = rustyline::DefaultEditor::new()?;
     println!(
-        "Oikome SQL, as the owner of this node. End a statement with ; to run it; .quit leaves."
+        "Oikome SQL, as the owner of this node. End a statement with ; to run it; .tables lists tables, .schema <table> describes one, and .quit leaves."
     );
     let mut typed = String::new();
     loop {
@@ -613,6 +636,19 @@ async fn prompt(session: &OikomeSession, raw: bool) -> Result<(), BoxError> {
         }
         if typed.is_empty() && done.is_empty() {
             continue;
+        }
+        if typed.is_empty() {
+            if let Some(command) = prompt_command(done) {
+                let _ = editor.add_history_entry(done);
+                match command {
+                    Ok(sql) => match session.sql(&sql).await {
+                        Ok(result) => print_result(&result, raw)?,
+                        Err(e) => eprintln!("Error: {e}"),
+                    },
+                    Err(e) => eprintln!("Error: {e}"),
+                }
+                continue;
+            }
         }
         typed.push_str(&line);
         typed.push('\n');
@@ -1307,5 +1343,29 @@ fn main() {
     if let Err(e) = runtime.block_on(run(Cli::parse())) {
         eprintln!("error: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prompt_metadata_commands_become_metadata_statements() {
+        assert_eq!(
+            prompt_command(".tables"),
+            Some(Ok("SHOW TABLES".to_string()))
+        );
+        assert_eq!(
+            prompt_command(".schema posts"),
+            Some(Ok("DESCRIBE posts".to_string()))
+        );
+        assert_eq!(
+            prompt_command(".schema blog.posts"),
+            Some(Ok("DESCRIBE blog.posts".to_string()))
+        );
+        assert!(prompt_command(".tables here").unwrap().is_err());
+        assert!(prompt_command(".schema").unwrap().is_err());
+        assert_eq!(prompt_command("SELECT 1"), None);
     }
 }

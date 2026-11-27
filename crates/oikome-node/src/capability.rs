@@ -64,19 +64,26 @@ pub(crate) fn issued_result(issued: IssuedToken) -> Result<QueryResult, SessionE
     )
 }
 
-/// The Spaces a query names before views are expanded: those a peer must
-/// hold a capability for. Anything but a query is refused, as is a bare
-/// table name (peers always qualify).
+/// The Spaces a query or metadata statement names before views are expanded:
+/// those a peer must hold a capability for. Metadata without a named Space
+/// (`SHOW COLLECTIONS`, a bare table) is refused; peers always qualify.
 pub fn query_spaces(sql: &str) -> Result<BTreeSet<String>, SessionError> {
-    let OikomeStatement::Sql(mut stmt) = parse_single(sql)? else {
-        return Err(SessionError::PermissionDenied(
-            "peers may only run queries".to_string(),
-        ));
-    };
-    match classify(&mut stmt, None)? {
-        StatementClass::Query { spaces } => Ok(spaces),
+    match parse_single(sql)? {
+        OikomeStatement::Sql(mut stmt) => match classify(&mut stmt, None)? {
+            StatementClass::Query { spaces } => Ok(spaces),
+            _ => Err(SessionError::PermissionDenied(
+                "peers may only run queries".to_string(),
+            )),
+        },
+        OikomeStatement::ShowTables(Some(space)) => Ok(BTreeSet::from([space])),
+        OikomeStatement::Describe(request) => request
+            .space
+            .map(|space| BTreeSet::from([space]))
+            .ok_or_else(|| {
+                SessionError::PermissionDenied("peers must qualify the table described".to_string())
+            }),
         _ => Err(SessionError::PermissionDenied(
-            "peers may only run queries".to_string(),
+            "peers may only run queries and metadata statements".to_string(),
         )),
     }
 }

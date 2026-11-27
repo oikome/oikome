@@ -44,6 +44,9 @@ pub enum SessionError {
     #[error("iceberg error: {0}")]
     Iceberg(String),
 
+    #[error("metadata error: {0}")]
+    Metadata(String),
+
     #[error("engine {0} is not registered on this node")]
     EngineNotRegistered(EngineKind),
 

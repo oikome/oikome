@@ -138,6 +138,9 @@ impl OikomeSession {
         match parse_single(sql)? {
             OikomeStatement::CreateSpace(request) => self.create_space(request).await,
             OikomeStatement::ShowIdentity => self.show_identity(),
+            OikomeStatement::ShowCollections => self.show_collections(),
+            OikomeStatement::ShowTables(space) => self.show_tables(space.as_deref()).await,
+            OikomeStatement::Describe(request) => Box::pin(self.describe_result(&request)).await,
             OikomeStatement::IssueUcan(request) => {
                 self.deny_principal("ISSUE UCAN")?;
                 self.issue_ucan(&request)
@@ -320,6 +323,13 @@ impl OikomeSession {
         sql: &str,
     ) -> Result<(SchemaRef, RecordBatchStream), SessionError> {
         match parse_single(sql)? {
+            OikomeStatement::ShowCollections => result_stream(self.show_collections()?),
+            OikomeStatement::ShowTables(space) => {
+                result_stream(self.show_tables(space.as_deref()).await?)
+            }
+            OikomeStatement::Describe(request) => {
+                result_stream(Box::pin(self.describe_result(&request)).await?)
+            }
             OikomeStatement::Sql(stmt) => {
                 let routed = self.route(*stmt, sql)?;
                 match &routed.class {
@@ -953,6 +963,18 @@ impl OikomeSession {
         }
         Ok(QueryResult::Empty)
     }
+}
+
+fn result_stream(result: QueryResult) -> Result<(SchemaRef, RecordBatchStream), SessionError> {
+    let QueryResult::Batches { schema, batches } = result else {
+        return Err(SessionError::Unsupported(
+            "sql_stream only accepts queries and metadata statements".to_string(),
+        ));
+    };
+    Ok((
+        schema,
+        Box::pin(futures::stream::iter(batches.into_iter().map(Ok))),
+    ))
 }
 
 /// `REFRESH SPACE` of a folder viewed in place, as a result set:

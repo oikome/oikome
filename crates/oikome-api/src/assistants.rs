@@ -16,8 +16,9 @@
 //! own, like a plugin: a DID made for it when it is connected, holding a
 //! whole-Space grant on each collection the owner chose. It reaches the
 //! node with a token, shown to the owner once; only the token's BLAKE3 hash
-//! is kept. It may do three things, as itself: list what it can read,
-//! search it, and read a row of it. Its search finds rows through the
+//! is kept. As itself it may list and describe what it can read, search it,
+//! read a row or document, use skills, and chart analysis tables. Its search
+//! finds rows through the
 //! owner's index and reads them again as the assistant, so its grants
 //! decide what it gets. Every search and read goes to Activity; ending its
 //! access drops its grants and its token at once.
@@ -37,9 +38,10 @@ use crate::search::{hits_wanted, terms_of, MAX_KEY_COLUMNS};
 use crate::{
     encode_rows, first_count, now_ms, AnalysisView, Api, ApiError, Assistant, AssistantApp,
     AssistantChart, AssistantCollections, AssistantConnected, AssistantRef, AssistantSaveChart,
-    Caller, ChartResult, ChartableTable, ConnectAssistant, Empty, ErrorCode, GetSkill,
-    InstallAssistant, KnowledgePassage, KnowledgeText, ListSkills, ReadKnowledge, ReadRow,
-    ReadableCollection, ReadableTable, Rows, Search, SearchResults, SkillContent, SkillInfo,
+    Caller, ChartResult, ChartableTable, ColumnDescription, ConnectAssistant, Empty, ErrorCode,
+    GetSkill, InstallAssistant, KnowledgePassage, KnowledgeText, ListSkills, ReadKnowledge,
+    ReadRow, ReadableCollection, ReadableTable, Rows, Search, SearchResults, SkillContent,
+    SkillInfo, TableDescription, TableRef,
 };
 use oikome_node::knowledge::{skills, KnowledgeRange};
 
@@ -412,6 +414,46 @@ impl Api {
             });
         }
         Ok(out)
+    }
+
+    /// The columns of one table the calling assistant may read, with their
+    /// physical types and the types charts read them as.
+    pub async fn assistant_describe_table(
+        &self,
+        caller: &Caller,
+        req: TableRef,
+    ) -> Result<TableDescription, ApiError> {
+        self.refresh()?;
+        let me = self.assistant_of(caller)?;
+        validate_space_name(&req.space)?;
+        if !me.collections.contains(&req.space) {
+            return Err(no_collection(&req.space));
+        }
+        let described = self
+            .assistant_session(&me.did)
+            .describe_metadata(&oikome_semantic::DescribeRequest {
+                space: Some(req.space),
+                table: req.table,
+                detail: false,
+            })
+            .await?;
+        Ok(TableDescription {
+            space: described.space,
+            table: described.table,
+            table_type: described.table_type,
+            format: described.format,
+            columns: described
+                .columns
+                .into_iter()
+                .map(|column| ColumnDescription {
+                    name: column.name,
+                    data_type: column.data_type,
+                    chart_type: column.chart_type,
+                    read_type: column.read_type,
+                    nullable: column.nullable,
+                })
+                .collect(),
+        })
     }
 
     /// The calling assistant's search: in its collections only, or one of

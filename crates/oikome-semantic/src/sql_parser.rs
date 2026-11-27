@@ -34,7 +34,10 @@
 //! REFRESH SPACE <name>
 //! SHOW PEERS
 //! SHOW WEBRTC
-//! SET SPACE [=] <name>
+//! SHOW COLLECTIONS
+//! SHOW TABLES [FROM <name>]
+//! DESCRIBE [DETAIL] [<space>.]<table> (also DESC)
+//! SET SPACE [=] <name> (also USE <name>)
 //! PUBLISH SPACE <name> [TABLES (<table>, ...)] [TO <target space>]
 //! ```
 //!
@@ -83,6 +86,12 @@ pub enum OikomeStatement {
     RefreshSpace(String),
     /// `SHOW IDENTITY`: this node's DID.
     ShowIdentity,
+    /// `SHOW COLLECTIONS`: every collection the caller may read.
+    ShowCollections,
+    /// `SHOW TABLES [FROM <collection>]`: relations the caller may read.
+    ShowTables(Option<String>),
+    /// `DESCRIBE [DETAIL] [<collection>.]<table>`.
+    Describe(DescribeRequest),
     /// `ISSUE UCAN ...`: grant a peer a capability on Spaces of this node.
     IssueUcan(IssueUcanRequest),
     /// `ISSUE UCAN ON COMPUTE ...`: let a peer run tasks on this node.
@@ -110,6 +119,17 @@ pub enum OikomeStatement {
     GraphQuery(GraphQuery),
     /// Any standard SQL statement.
     Sql(Box<Statement>),
+}
+
+/// What `DESCRIBE` asks for; a bare table uses the session's default Space.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DescribeRequest {
+    /// Its Space, or the session's default when absent.
+    pub space: Option<String>,
+    /// Its table or view.
+    pub table: String,
+    /// Whether to include where and how the table is read.
+    pub detail: bool,
 }
 
 /// What `PUBLISH SPACE` asks for.
@@ -209,6 +229,16 @@ fn parse_one(stmt: &str) -> Result<OikomeStatement, SemanticError> {
                 OikomeStatement::GrantSpace(request)
             })
         }
+        (Some("SHOW"), Some("COLLECTIONS")) => {
+            if words.len() != 2 {
+                return Err(SemanticError::Parse(
+                    "SHOW COLLECTIONS: unexpected input".into(),
+                ));
+            }
+            Ok(OikomeStatement::ShowCollections)
+        }
+        (Some("SHOW"), Some("TABLES")) => parse_show_tables(stmt),
+        (Some("DESCRIBE" | "DESC"), _) => parse_describe(stmt),
         (Some("SHOW"), Some(second @ ("IDENTITY" | "UCANS" | "PEERS" | "WEBRTC"))) => {
             if words.len() > 2 {
                 return Err(SemanticError::Parse(format!(
@@ -221,6 +251,18 @@ fn parse_one(stmt: &str) -> Result<OikomeStatement, SemanticError> {
                 "PEERS" => OikomeStatement::ShowPeers,
                 _ => OikomeStatement::ShowWebrtc,
             })
+        }
+        (Some("USE"), _) => {
+            let rest = &words[1..];
+            let raw = match rest {
+                [name] => *name,
+                _ => {
+                    return Err(SemanticError::Parse(
+                        "USE: expected a single space name".into(),
+                    ))
+                }
+            };
+            Ok(OikomeStatement::SetSpace(validate_name(unquote(raw))?))
         }
         (Some("SET"), Some("SPACE")) => {
             let rest: Vec<&str> = words[2..].iter().copied().filter(|w| *w != "=").collect();
@@ -257,6 +299,69 @@ fn parse_one(stmt: &str) -> Result<OikomeStatement, SemanticError> {
             }
         }
     }
+}
+
+fn parse_show_tables(stmt: &str) -> Result<OikomeStatement, SemanticError> {
+    let words: Vec<&str> = stmt.split_whitespace().collect();
+    let space = match words.as_slice() {
+        [_, _] => None,
+        [show, tables, from, name]
+            if show.eq_ignore_ascii_case("SHOW")
+                && tables.eq_ignore_ascii_case("TABLES")
+                && from.eq_ignore_ascii_case("FROM") =>
+        {
+            Some(validate_name(name)?)
+        }
+        _ => {
+            return Err(SemanticError::Parse(
+                "SHOW TABLES: expected SHOW TABLES [FROM <space>]".into(),
+            ))
+        }
+    };
+    Ok(OikomeStatement::ShowTables(space))
+}
+
+fn parse_describe(stmt: &str) -> Result<OikomeStatement, SemanticError> {
+    let usage =
+        || SemanticError::Parse("DESCRIBE: expected DESCRIBE [DETAIL] [<space>.]<table>".into());
+    let tokens = Tokenizer::new(&GenericDialect {}, stmt)
+        .tokenize()
+        .map_err(|e| SemanticError::Parse(e.to_string()))?;
+    let tokens: Vec<&Token> = tokens
+        .iter()
+        .filter(|t| !matches!(t, Token::Whitespace(_)))
+        .collect();
+    let word = |i: usize| match tokens.get(i) {
+        Some(Token::Word(w)) => Some(w),
+        _ => None,
+    };
+    if !word(0).is_some_and(|w| {
+        w.value.eq_ignore_ascii_case("DESCRIBE") || w.value.eq_ignore_ascii_case("DESC")
+    }) {
+        return Err(usage());
+    }
+    let (detail, first) = match word(1) {
+        Some(w) if w.quote_style.is_none() && w.value.eq_ignore_ascii_case("DETAIL") => (true, 2),
+        Some(_) => (false, 1),
+        None => return Err(usage()),
+    };
+    let first = word(first).ok_or_else(usage)?.value.clone();
+    let (space, table, end) = if matches!(tokens.get(2 + usize::from(detail)), Some(Token::Period))
+    {
+        let index = 3 + usize::from(detail);
+        let table = word(index).ok_or_else(usage)?.value.clone();
+        (Some(validate_name(&first)?), table, index + 1)
+    } else {
+        (None, first, 2 + usize::from(detail))
+    };
+    if end != tokens.len() {
+        return Err(usage());
+    }
+    Ok(OikomeStatement::Describe(DescribeRequest {
+        space,
+        table: validate_name(&table)?,
+        detail,
+    }))
 }
 
 /// Whether `stmt` uses the `MATCH` keyword outside quotes and comments.
@@ -799,11 +904,80 @@ mod tests {
             parse_single("REVOKE SELECT ON blog.posts FROM alice").unwrap(),
             OikomeStatement::Sql(_)
         ));
-        // Other SHOW statements are left to sqlparser.
-        assert!(matches!(
-            parse_single("SHOW TABLES").unwrap(),
-            OikomeStatement::Sql(_)
-        ));
+    }
+
+    #[test]
+    fn test_parse_metadata_statements() {
+        assert_eq!(
+            parse_single("SHOW COLLECTIONS").unwrap(),
+            OikomeStatement::ShowCollections
+        );
+        assert_eq!(
+            parse_single("show tables;").unwrap(),
+            OikomeStatement::ShowTables(None)
+        );
+        assert_eq!(
+            parse_single("SHOW TABLES FROM \"blog\"").unwrap(),
+            OikomeStatement::ShowTables(Some("blog".into()))
+        );
+        assert_eq!(
+            parse_single("DESCRIBE posts").unwrap(),
+            OikomeStatement::Describe(DescribeRequest {
+                space: None,
+                table: "posts".into(),
+                detail: false,
+            })
+        );
+        assert_eq!(
+            parse_single("DESCRIBE DETAIL \"blog\".\"posts\";").unwrap(),
+            OikomeStatement::Describe(DescribeRequest {
+                space: Some("blog".into()),
+                table: "posts".into(),
+                detail: true,
+            })
+        );
+        assert_eq!(
+            parse_single("DESC blog.posts").unwrap(),
+            OikomeStatement::Describe(DescribeRequest {
+                space: Some("blog".into()),
+                table: "posts".into(),
+                detail: false,
+            })
+        );
+        assert_eq!(
+            parse_single("DESC DETAIL posts").unwrap(),
+            OikomeStatement::Describe(DescribeRequest {
+                space: None,
+                table: "posts".into(),
+                detail: true,
+            })
+        );
+        assert_eq!(
+            parse_single("DESCRIBE \"detail\"").unwrap(),
+            OikomeStatement::Describe(DescribeRequest {
+                space: None,
+                table: "detail".into(),
+                detail: false,
+            })
+        );
+        assert_eq!(
+            parse_single("DESCRIBE DETAIL posts").unwrap(),
+            OikomeStatement::Describe(DescribeRequest {
+                space: None,
+                table: "posts".into(),
+                detail: true,
+            })
+        );
+        for bad in [
+            "SHOW COLLECTIONS x",
+            "SHOW TABLES blog",
+            "SHOW TABLES FROM",
+            "DESCRIBE",
+            "DESCRIBE DETAIL",
+            "DESCRIBE blog.posts.extra",
+        ] {
+            assert!(parse_single(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -820,6 +994,21 @@ mod tests {
             parse_single("SET SPACE = 'orders';").unwrap(),
             OikomeStatement::SetSpace("orders".into())
         );
+        assert_eq!(
+            parse_single("USE orders;").unwrap(),
+            OikomeStatement::SetSpace("orders".into())
+        );
+        assert_eq!(
+            parse_single("USE \"my-blog\"").unwrap(),
+            OikomeStatement::SetSpace("my-blog".into())
+        );
+        assert_eq!(
+            parse_single("USE oikome-docs").unwrap(),
+            OikomeStatement::SetSpace("oikome-docs".into())
+        );
+        for bad in ["USE", "USE blog.posts", "USE = blog", "USE blog extra"] {
+            assert!(parse_single(bad).is_err(), "{bad}");
+        }
         assert!(matches!(
             parse_single("SET SPACE"),
             Err(SemanticError::Parse(_))

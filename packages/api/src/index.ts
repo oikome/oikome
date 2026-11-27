@@ -701,6 +701,69 @@ export type FolderEntry = { name: string, path: string, };
 export type SpaceRef = { space: string, };
 
 /**
+ * Names one table of a collection.
+ */
+export type TableRef = {
+/**
+ * Its collection.
+ */
+space: string,
+/**
+ * Its table.
+ */
+table: string, };
+
+/**
+ * The columns a caller may read in one table.
+ */
+export type TableDescription = {
+/**
+ * Its collection.
+ */
+space: string,
+/**
+ * Its table.
+ */
+table: string,
+/**
+ * `managed`, `external`, `foreign` or `view`.
+ */
+type: string,
+/**
+ * Its data-source format, when known; a view has none.
+ */
+format: string | null,
+/**
+ * Columns the caller may read.
+ */
+columns: Array<ColumnDescription>, };
+
+/**
+ * A column as SQL and charts read it.
+ */
+export type ColumnDescription = {
+/**
+ * Its name as the caller may read it.
+ */
+name: string,
+/**
+ * The physical type, named as DuckDB names it.
+ */
+dataType: string,
+/**
+ * What charts treat it as.
+ */
+chartType: string,
+/**
+ * The effective type when the owner chose to read it as another type.
+ */
+readType: string | null,
+/**
+ * Whether it may contain NULL.
+ */
+nullable: boolean, };
+
+/**
  * A table or a view.
  */
 export type RelationKind = "table" | "view";

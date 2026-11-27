@@ -1643,7 +1643,7 @@ export const en = {
     /** A change from the period before, named by the grain as finance does: YoY, QoQ, MoM, WoW, DoD; PoP finer than a day. */
     changeFrom: { year: "YoY Change", quarter: "QoQ Change", month: "MoM Change", week: "WoW Change", day: "DoD Change", other: "PoP Change" } as Record<string, string>,
     growthFrom: { year: "YoY %", quarter: "QoQ %", month: "MoM %", week: "WoW %", day: "DoD %", other: "PoP %" } as Record<string, string>,
-    clearShow: "Clear Calculation",
+    noShow: "None",
     shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Year", quarter: "Quarter", month: "Month", week: "Week", day: "Day", hour: "Hour", minute: "Minute", second: "Second" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

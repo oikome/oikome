@@ -1365,15 +1365,21 @@ export function Explorer({
           .filter((a) => a === m.aggregate || free({ ...m, aggregate: a }))
           .map((a) => ({ label: functionName(a), checked: a === m.aggregate, section: x.summarizeBy, onSelect: () => put({ ...m, aggregate: a }) }))
       : [];
-    // No calculation has no name of its own: once one is chosen, Clear
-    // Calculation ends it, as Tableau's Clear Table Calculation does.
+    // None first, chosen when nothing is calculated, as Excel's No
+    // Calculation is; the calculations below it, set apart by a line.
     const asIs: ChartMetric = { column: m.column, aggregate: m.aggregate };
+    const none = shows.length > 0 && free(asIs);
     const ways: MenuItem[] = [
+      ...(none ? [{ label: x.noShow, checked: !m.show, section: x.showAs, onSelect: () => put(asIs) }] : []),
       ...shows
         .filter((show) => show === m.show || free({ ...asIs, show }))
-        .map((show) => ({ label: showName(show, shownOf(spec)), checked: show === m.show, section: x.showAs, onSelect: () => put({ ...asIs, show }) })),
-      // An action, not one of the choices: set apart by a line, with the × that removes elsewhere.
-      ...(m.show && free(asIs) ? [{ label: x.clearShow, icon: "close" as const, apart: true, section: x.showAs, onSelect: () => put(asIs) }] : []),
+        .map((show, i) => ({
+          label: showName(show, shownOf(spec)),
+          checked: show === m.show,
+          apart: none && i === 0,
+          section: x.showAs,
+          onSelect: () => put({ ...asIs, show }),
+        })),
     ];
     const items = [...totals, ...ways];
     return items.length > 0 ? items : undefined;

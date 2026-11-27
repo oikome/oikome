@@ -472,7 +472,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(result.locator("thead")).toContainText("COUNT(*) (% of Row Total)");
     await expect(result.locator("tbody")).toContainText("%");
     await panel.getByRole("button", { name: "Number of Rows" }).click();
-    await page.getByRole("menuitem", { name: "Clear Calculation" }).click();
+    await page.getByRole("menuitemradio", { name: "None" }).click();
     await expect(result.locator("thead")).not.toContainText("% of Row Total");
     await panel.getByLabel("Order").selectOption({ index: 1 });
     await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "Custom" });

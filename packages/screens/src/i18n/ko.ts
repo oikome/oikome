@@ -1609,7 +1609,7 @@ export const ko: Strings = {
     shows: { shareOfAll: "총합계 비율", shareOfRow: "행 합계 비율", shareOfColumn: "열 합계 비율", shareOfGroup: "그룹 내 비율", changeFromYearBefore: "전년 동기 대비 증감", growthFromYearBefore: "전년 동기 대비 증감률", runningTotal: "누계", movingAverage: "이동 평균", rank: "순위" } as Record<string, string>,
     changeFrom: { year: "전년 대비 증감", quarter: "전분기 대비 증감", month: "전월 대비 증감", week: "전주 대비 증감", day: "전일 대비 증감", other: "전기 대비 증감" } as Record<string, string>,
     growthFrom: { year: "전년 대비 증감률", quarter: "전분기 대비 증감률", month: "전월 대비 증감률", week: "전주 대비 증감률", day: "전일 대비 증감률", other: "전기 대비 증감률" } as Record<string, string>,
-    clearShow: "계산 지우기",
+    noShow: "없음",
     shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "연도", quarter: "분기", month: "월", week: "주", day: "일", hour: "시", minute: "분", second: "초" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

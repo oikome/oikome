@@ -1560,7 +1560,7 @@ export const zhHans: Strings = {
     shows: { shareOfAll: "总计占比", shareOfRow: "行总计占比", shareOfColumn: "列总计占比", shareOfGroup: "组内占比", changeFromYearBefore: "同比增长", growthFromYearBefore: "同比增长率", runningTotal: "累计值", movingAverage: "移动平均", rank: "排名" } as Record<string, string>,
     changeFrom: { year: "环比增长", quarter: "环比增长", month: "环比增长", week: "环比增长", day: "环比增长", other: "环比增长" } as Record<string, string>,
     growthFrom: { year: "环比增长率", quarter: "环比增长率", month: "环比增长率", week: "环比增长率", day: "环比增长率", other: "环比增长率" } as Record<string, string>,
-    clearShow: "清除计算",
+    noShow: "不设置",
     shownAs: (name: string, how: string) => `${name}（${how}）`,
     grains: { year: "年", quarter: "季", month: "月", week: "周", day: "日", hour: "时", minute: "分", second: "秒" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

@@ -5492,6 +5492,8 @@ tr.screen-source {
 .screen-explorer__chip-x svg {
   width: 12px;
   height: 12px;
+  /* Drawn on 24 and shown at 12, the icon's 1.75 would be a hairline: about 1.1px, as heavy as the chevron beside it. */
+  stroke-width: 2.25;
 }
 .screen-explorer__chip-x:hover,
 .screen-explorer__chip-x:focus-visible {

@@ -1555,7 +1555,7 @@ export const zhHant: Strings = {
     shows: { shareOfAll: "總計占比", shareOfRow: "列總計占比", shareOfColumn: "欄總計占比", shareOfGroup: "組內占比", changeFromYearBefore: "同比增長", growthFromYearBefore: "同比增長率", runningTotal: "累計值", movingAverage: "移動平均", rank: "排名" } as Record<string, string>,
     changeFrom: { year: "環比增長", quarter: "環比增長", month: "環比增長", week: "環比增長", day: "環比增長", other: "環比增長" } as Record<string, string>,
     growthFrom: { year: "環比增長率", quarter: "環比增長率", month: "環比增長率", week: "環比增長率", day: "環比增長率", other: "環比增長率" } as Record<string, string>,
-    clearShow: "清除計算",
+    noShow: "不設定",
     shownAs: (name: string, how: string) => `${name}（${how}）`,
     grains: { year: "年", quarter: "季", month: "月", week: "週", day: "日", hour: "時", minute: "分", second: "秒" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

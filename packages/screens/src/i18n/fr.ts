@@ -1637,7 +1637,7 @@ export const fr: Strings = {
     shows: { shareOfAll: "% du total général", shareOfRow: "% du total de la ligne", shareOfColumn: "% du total de la colonne", shareOfGroup: "% du total du groupe", changeFromYearBefore: "Variation sur un an", growthFromYearBefore: "Variation sur un an en %", runningTotal: "Total cumulé", movingAverage: "Moyenne mobile", rank: "Rang" } as Record<string, string>,
     changeFrom: { year: "Variation vs année précédente", quarter: "Variation vs trimestre précédent", month: "Variation vs mois précédent", week: "Variation vs semaine précédente", day: "Variation vs jour précédent", other: "Variation vs période précédente" } as Record<string, string>,
     growthFrom: { year: "Variation en % vs année précédente", quarter: "Variation en % vs trimestre précédent", month: "Variation en % vs mois précédent", week: "Variation en % vs semaine précédente", day: "Variation en % vs jour précédent", other: "Variation en % vs période précédente" } as Record<string, string>,
-    clearShow: "Effacer le calcul",
+    noShow: "Aucun",
     shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Année", quarter: "Trimestre", month: "Mois", week: "Semaine", day: "Jour", hour: "Heure", minute: "Minute", second: "Seconde" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

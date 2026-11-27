@@ -1643,7 +1643,7 @@ export const ru: Strings = {
     shows: { shareOfAll: "% от общей суммы", shareOfRow: "% от суммы по строке", shareOfColumn: "% от суммы по столбцу", shareOfGroup: "% от суммы по группе", changeFromYearBefore: "Изменение к прошлому году", growthFromYearBefore: "Изменение к прошлому году, %", runningTotal: "Нарастающий итог", movingAverage: "Скользящее среднее", rank: "Ранг" } as Record<string, string>,
     changeFrom: { year: "Изменение к прошлому году", quarter: "Изменение к прошлому кварталу", month: "Изменение к прошлому месяцу", week: "Изменение к прошлой неделе", day: "Изменение к прошлому дню", other: "Изменение к прошлому периоду" } as Record<string, string>,
     growthFrom: { year: "Изменение к прошлому году, %", quarter: "Изменение к прошлому кварталу, %", month: "Изменение к прошлому месяцу, %", week: "Изменение к прошлой неделе, %", day: "Изменение к прошлому дню, %", other: "Изменение к прошлому периоду, %" } as Record<string, string>,
-    clearShow: "Убрать вычисление",
+    noShow: "Нет",
     shownAs: (name: string, how: string) => `${name} (${how})`,
     grains: { year: "Год", quarter: "Квартал", month: "Месяц", week: "Неделя", day: "День", hour: "Час", minute: "Минута", second: "Секунда" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

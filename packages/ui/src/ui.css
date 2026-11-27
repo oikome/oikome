@@ -1192,6 +1192,8 @@
   width: 12px;
   height: 12px;
   color: var(--ink3);
+  /* Drawn on 24 and shown at 12: about 1.1px, not a hairline. */
+  stroke-width: 2.25;
   transform: rotate(90deg);
 }
 .oik-menu__chip .oik-menu__shown {

@@ -1584,7 +1584,7 @@ export const ja: Strings = {
     shows: { shareOfAll: "総計に対する比率", shareOfRow: "行集計に対する比率", shareOfColumn: "列集計に対する比率", shareOfGroup: "グループ内の比率", changeFromYearBefore: "前年同期差", growthFromYearBefore: "前年同期比", runningTotal: "累計", movingAverage: "移動平均", rank: "順位" } as Record<string, string>,
     changeFrom: { year: "前年差", quarter: "前四半期差", month: "前月差", week: "前週差", day: "前日差", other: "前期差" } as Record<string, string>,
     growthFrom: { year: "前年比", quarter: "前四半期比", month: "前月比", week: "前週比", day: "前日比", other: "前期比" } as Record<string, string>,
-    clearShow: "計算をクリア",
+    noShow: "なし",
     shownAs: (name: string, how: string) => `${name}（${how}）`,
     grains: { year: "年", quarter: "四半期", month: "月", week: "週", day: "日", hour: "時", minute: "分", second: "秒" } as Record<string, string>,
     metricOf: (aggregate: string, column: string) => `${aggregate}(${column})`,

@@ -631,7 +631,11 @@ fn chart_spec_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "column": { "type": "string", "description": "Left out to count rows." },
-                        "aggregate": { "enum": ["sum", "average", "median", "min", "max", "count", "distinct"], "description": "count and distinct work on any column; the others on numbers." }
+                        "aggregate": { "enum": ["sum", "average", "median", "min", "max", "count", "distinct"], "description": "count and distinct work on any column; the others on numbers." },
+                        "show": {
+                            "enum": ["shareOfAll", "shareOfRow", "shareOfColumn", "changeFromPrevious", "growthFromPrevious", "changeFromYearBefore", "growthFromYearBefore", "runningTotal", "movingAverage", "rank"],
+                            "description": "How the total is shown beside the others on the chart: a share of all, of its row or of its column (a fraction, 0.25 for a quarter); its change from the period before or the same period a year before, as a difference or a growth rate (a fraction; these need a time); a running total; a moving average of three; its rank, largest first. Left out, the total as it is."
+                        }
                     },
                     "required": ["aggregate"],
                     "additionalProperties": false

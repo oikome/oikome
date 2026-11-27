@@ -39,7 +39,8 @@ use crate::file_analysis::{ReadAs, SOURCE_FILE};
 use crate::{
     AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartColumn, ChartFilter,
     ChartGroup, ChartLevel, ChartLimit, ChartMetric, ChartQuery, ChartResult, ChartRows,
-    ChartSeries, ChartSpec, ChartableTable, ColumnType, DateGrain, TextMatch, TimeRange,
+    ChartSeries, ChartSpec, ChartableTable, ColumnType, DateGrain, MetricShow, TextMatch,
+    TimeRange,
 };
 
 /// How much a chart may ask for.
@@ -352,13 +353,71 @@ async fn cells_of(
 
 /// A metric as SQL writes it, and as it is named: `SUM(amount)`,
 /// `COUNT(DISTINCT member)`, `COUNT(*)`.
-fn metric_name(metric: &ChartMetric) -> String {
-    let Some(name) = &metric.column else {
-        return "COUNT(*)".to_string();
+/// A metric's name as the query shows it: its total as SQL writes it, and
+/// how it is shown, as the app names it (a period's change by the chart's
+/// grain: MoM for a month).
+fn metric_name(metric: &ChartMetric, grain: Option<DateGrain>) -> String {
+    let total = match &metric.column {
+        None => "COUNT(*)".to_string(),
+        Some(name) => match metric.aggregate {
+            ChartAggregate::Distinct => format!("COUNT(DISTINCT {name})"),
+            other => format!("{}({name})", function(other)),
+        },
     };
-    match metric.aggregate {
-        ChartAggregate::Distinct => format!("COUNT(DISTINCT {name})"),
-        other => format!("{}({name})", function(other)),
+    match metric.show {
+        None => total,
+        Some(show) => format!("{total} ({})", shown_as(show, grain)),
+    }
+}
+
+/// How a metric is shown, in the words BI tools and finance use: % of
+/// Total, YoY %, Running Total. A change from the period before is named
+/// by the grain (YoY, QoQ, MoM, WoW, DoD; PoP finer than a day).
+fn shown_as(show: MetricShow, grain: Option<DateGrain>) -> String {
+    let over = match grain {
+        Some(DateGrain::Year) => "YoY",
+        Some(DateGrain::Quarter) => "QoQ",
+        Some(DateGrain::Month) => "MoM",
+        Some(DateGrain::Week) => "WoW",
+        Some(DateGrain::Day) => "DoD",
+        _ => "PoP",
+    };
+    match show {
+        MetricShow::ShareOfAll => "% of Total".to_string(),
+        MetricShow::ShareOfRow => "% of Row Total".to_string(),
+        MetricShow::ShareOfColumn => "% of Column Total".to_string(),
+        MetricShow::ChangeFromPrevious => format!("{over} Change"),
+        MetricShow::GrowthFromPrevious => format!("{over} %"),
+        MetricShow::ChangeFromYearBefore => "YoY Change".to_string(),
+        MetricShow::GrowthFromYearBefore => "YoY %".to_string(),
+        MetricShow::RunningTotal => "Running Total".to_string(),
+        MetricShow::MovingAverage => "Moving Average".to_string(),
+        MetricShow::Rank => "Rank".to_string(),
+    }
+}
+
+/// Whether a metric is shown against an earlier period: the period before,
+/// or the same one a year before.
+fn over_time(show: Option<MetricShow>) -> Option<bool> {
+    match show {
+        Some(MetricShow::ChangeFromPrevious | MetricShow::GrowthFromPrevious) => Some(false),
+        Some(MetricShow::ChangeFromYearBefore | MetricShow::GrowthFromYearBefore) => Some(true),
+        _ => None,
+    }
+}
+
+/// A period's unit for `date_trunc`, how far back the period before is,
+/// and how far back the same period a year before is.
+fn steps_of(grain: DateGrain) -> (&'static str, &'static str, &'static str) {
+    match grain {
+        DateGrain::Year => ("year", "1 YEAR", "1 YEAR"),
+        DateGrain::Quarter => ("quarter", "3 MONTH", "1 YEAR"),
+        DateGrain::Month => ("month", "1 MONTH", "1 YEAR"),
+        DateGrain::Week => ("week", "7 DAY", "364 DAY"),
+        DateGrain::Day => ("day", "1 DAY", "1 YEAR"),
+        DateGrain::Hour => ("hour", "1 HOUR", "1 YEAR"),
+        DateGrain::Minute => ("minute", "1 MINUTE", "1 YEAR"),
+        DateGrain::Second => ("second", "1 SECOND", "1 YEAR"),
     }
 }
 
@@ -393,8 +452,6 @@ fn metric(columns: &Columns, metric: &ChartMetric, from: &str) -> Result<String,
     }
 }
 
-/// A filter as a condition, its columns read from `from` and its values
-/// bound; `None` when it asks nothing.
 /// The days a range is from and to: only a custom range has them, whole
 /// days written 2026-08-01, in order.
 fn days_of(
@@ -479,6 +536,8 @@ fn like_pattern(how: TextMatch, text: &str) -> String {
     }
 }
 
+/// A filter as a condition, its columns read from `from` and its values
+/// bound; `None` when it asks nothing.
 fn filter(
     columns: &Columns,
     filter: &ChartFilter,
@@ -803,12 +862,13 @@ impl Api {
                 )));
             }
         }
+        let grain = spec.time.as_ref().map(|t| t.grain);
         let mut named = BTreeSet::new();
         for m in &spec.metrics {
-            if !named.insert(metric_name(m)) {
+            if !named.insert(metric_name(m, grain)) {
                 return Err(ApiError::invalid(format!(
                     "the chart has {} already",
-                    metric_name(m)
+                    metric_name(m, grain)
                 )));
             }
         }
@@ -907,6 +967,7 @@ impl Api {
         let counting = [ChartMetric {
             column: None,
             aggregate: ChartAggregate::Count,
+            show: None,
         }];
         let metrics: &[ChartMetric] = if spec.metrics.is_empty() {
             &counting
@@ -963,17 +1024,147 @@ impl Api {
                 .chain(spec.pivots.iter().map(|d| columns.key(from, &d.column)))
                 .collect()
         };
+        // Shown beside the others (a share, a change, a running total): the
+        // grouped rows are a first step `g`, each total in it by its place,
+        // and the query shows them from it. Otherwise one GROUP BY, as before.
+        let shown = metrics.iter().any(|m| m.show.is_some());
+        let raw = |i: usize| format!("__m{i}");
         let totals = |from: &str| -> Result<Vec<String>, ApiError> {
             metrics
                 .iter()
-                .map(|m| {
-                    metric(&columns, m, from)
-                        .map(|sql| format!("{sql} AS {}", quote_ident(&metric_name(m))))
+                .enumerate()
+                .map(|(i, m)| {
+                    let name = if shown { raw(i) } else { metric_name(m, grain) };
+                    metric(&columns, m, from).map(|sql| format!("{sql} AS {}", quote_ident(&name)))
                 })
                 .collect()
         };
+        // A change over time compares a period with an earlier one: the time
+        // must be along, and the first step keeps when each period starts.
+        let compared = metrics.iter().any(|m| over_time(m.show).is_some());
+        if compared && spec.time.is_none() {
+            return Err(ApiError::invalid(
+                "a change from an earlier period needs the time along the chart",
+            ));
+        }
+        let start = |from: &str| -> Option<String> {
+            let time = spec.time.as_ref().filter(|_| compared)?;
+            let (unit, _, _) = steps_of(time.grain);
+            Some(format!(
+                "MIN(CAST(date_trunc('{unit}', {}) AS TIMESTAMP)) AS \"__start\"",
+                columns.value(from, &time.column)
+            ))
+        };
         let (nk, nc, nd) = (keyed.len(), spec.pivots.len(), spec.dimensions.len());
         let timed = spec.time.is_some();
+        // What the query shows from the first step: each key as it is, each
+        // metric as it is shown.
+        let named = |name: &str| format!("g.{}", quote_ident(name));
+        let along: Vec<String> = keyed.iter().map(|l| named(&l.column)).collect();
+        let pivoted: Vec<String> = spec.pivots.iter().map(|d| named(&d.column)).collect();
+        // Along the time, the others are what a running total or a change
+        // keeps apart; without it, the groups' own order runs instead.
+        let (sequence, apart): (Vec<String>, Vec<String>) = if timed {
+            (
+                along[..1].to_vec(),
+                along[1..].iter().chain(&pivoted).cloned().collect(),
+            )
+        } else {
+            (along.clone(), pivoted.clone())
+        };
+        let partition = |by: &[String]| {
+            if by.is_empty() {
+                String::new()
+            } else {
+                format!("PARTITION BY {} ", by.join(", "))
+            }
+        };
+        let outer = |base: &str, top: Option<&str>| -> String {
+            let mut list: Vec<String> = along.iter().chain(&pivoted).cloned().collect();
+            for (i, m) in metrics.iter().enumerate() {
+                let v = format!("g.{}", quote_ident(&raw(i)));
+                let earlier = |at: &str| format!("{at}.{}", quote_ident(&raw(i)));
+                let running = |frame: &str, f: &str| {
+                    if sequence.is_empty() {
+                        v.clone()
+                    } else {
+                        format!(
+                            "{f}({v}) OVER ({}ORDER BY {} ROWS BETWEEN {frame} AND CURRENT ROW)",
+                            partition(&apart),
+                            sequence.join(", ")
+                        )
+                    }
+                };
+                let value = match m.show {
+                    None => v.clone(),
+                    Some(MetricShow::ShareOfAll) => format!("{v} / NULLIF(SUM({v}) OVER (), 0)"),
+                    Some(MetricShow::ShareOfRow) => {
+                        format!(
+                            "{v} / NULLIF(SUM({v}) OVER ({}), 0)",
+                            partition(&along).trim_end()
+                        )
+                    }
+                    Some(MetricShow::ShareOfColumn) => {
+                        format!(
+                            "{v} / NULLIF(SUM({v}) OVER ({}), 0)",
+                            partition(&pivoted).trim_end()
+                        )
+                    }
+                    Some(MetricShow::RunningTotal) => running("UNBOUNDED PRECEDING", "SUM"),
+                    Some(MetricShow::MovingAverage) => running("2 PRECEDING", "AVG"),
+                    Some(MetricShow::Rank) => format!(
+                        "RANK() OVER ({}ORDER BY {v} DESC NULLS LAST)",
+                        partition(&pivoted)
+                    ),
+                    Some(MetricShow::ChangeFromPrevious) => format!("{v} - {}", earlier("prev")),
+                    Some(MetricShow::GrowthFromPrevious) => {
+                        format!("({v} - {p}) / NULLIF(ABS({p}), 0)", p = earlier("prev"))
+                    }
+                    Some(MetricShow::ChangeFromYearBefore) => format!("{v} - {}", earlier("ago")),
+                    Some(MetricShow::GrowthFromYearBefore) => {
+                        format!("({v} - {p}) / NULLIF(ABS({p}), 0)", p = earlier("ago"))
+                    }
+                };
+                list.push(format!(
+                    "{value} AS {}",
+                    quote_ident(&metric_name(m, grain))
+                ));
+            }
+            // The period before, and the same one a year before: the same
+            // group's, joined by when it starts.
+            let mut joins = String::new();
+            if let Some(time) = spec.time.as_ref().filter(|_| compared) {
+                let (_, before, year) = steps_of(time.grain);
+                for (at, back, used) in [("prev", before, false), ("ago", year, true)] {
+                    if !metrics.iter().any(|m| over_time(m.show) == Some(used)) {
+                        continue;
+                    }
+                    let same: Vec<String> = apart
+                        .iter()
+                        .map(|k| {
+                            format!(
+                                "{at}.{} IS NOT DISTINCT FROM {k}",
+                                k.trim_start_matches("g.")
+                            )
+                        })
+                        .collect();
+                    joins.push_str(&format!(
+                        "\nLEFT JOIN g AS {at} ON {at}.\"__start\" = g.\"__start\" - INTERVAL {back}{}",
+                        same.iter().map(|c| format!(" AND {c}")).collect::<String>()
+                    ));
+                }
+            }
+            let mut steps = Vec::new();
+            if let Some(top) = top {
+                steps.push(format!("top AS (\n{}\n)", indent(top, "  ")));
+            }
+            steps.push(format!("g AS (\n{}\n)", indent(base, "  ")));
+            format!(
+                "WITH {}\nSELECT {}\nFROM g{joins}",
+                steps.join(",\n"),
+                list.join(",\n       ")
+            )
+        };
         // An order and a number of groups are for what is along the chart,
         // its time and dimensions, as BI tools sort an axis: by a metric over
         // each whole group; else the time's own order, then the values.
@@ -1009,7 +1200,7 @@ impl Api {
             if let Some(sort) = sort {
                 order.push(format!(
                     "{} {}",
-                    quote_ident(&metric_name(&metrics[sort.metric as usize])),
+                    quote_ident(&metric_name(&metrics[sort.metric as usize], grain)),
                     direction(sort)
                 ));
                 order.extend(group_by.clone());
@@ -1030,6 +1221,7 @@ impl Api {
                 keys("")
                     .into_iter()
                     .chain(totals("")?)
+                    .chain(start(""))
                     .collect::<Vec<_>>()
                     .join(",\n       "),
                 where_of(&kept)
@@ -1038,6 +1230,9 @@ impl Api {
                 sql.push_str(&format!("\nGROUP BY {}", group_by.join(", ")));
             }
             sql.push_str(&having_plain);
+            if shown {
+                sql = outer(&sql, None);
+            }
             if !order.is_empty() {
                 sql.push_str(&format!("\nORDER BY {}", order.join(", ")));
             }
@@ -1100,22 +1295,41 @@ impl Api {
                 .collect();
             let mut by = group_by.clone();
             let mut order = Vec::new();
+            // The groups' own totals, kept through the first step when shown.
+            let total = if shown { "g.\"__total\"" } else { "top.total" };
             if let Some(sort) = sort {
                 by.push("top.total".to_string());
-                order.push(format!("top.total {}", direction(sort)));
+                order.push(format!("{total} {}", direction(sort)));
             }
             order.extend(group_by.clone());
             let inner = conditions("t.", &mut bound)?;
             // Every cell of the groups picked: they are as many as were chosen.
-            let sql = format!(
-                "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}{having_ranked}\nORDER BY {}",
-                indent(&picked, "  "),
-                keys("t.").into_iter().chain(totals("t.")?).collect::<Vec<_>>().join(",\n       "),
+            let selected: Vec<String> = keys("t.")
+                .into_iter()
+                .chain(totals("t.")?)
+                .chain((shown && sort.is_some()).then(|| "top.total AS \"__total\"".to_string()))
+                .chain(start("t."))
+                .collect();
+            let cells = format!(
+                "SELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}{having_ranked}",
+                selected.join(",\n       "),
                 joined.join("\n  AND "),
                 where_of(&inner),
                 by.join(", "),
-                order.join(", ")
             );
+            let sql = if shown {
+                format!(
+                    "{}\nORDER BY {}",
+                    outer(&cells, Some(&picked)),
+                    order.join(", ")
+                )
+            } else {
+                format!(
+                    "WITH top AS (\n{}\n)\n{cells}\nORDER BY {}",
+                    indent(&picked, "  "),
+                    order.join(", ")
+                )
+            };
             (sql, None)
         };
 

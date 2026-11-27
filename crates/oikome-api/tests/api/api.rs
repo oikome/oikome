@@ -7359,6 +7359,112 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     );
     assert_eq!(month_category.columns.len(), 2);
 
+    // Display modes: a total beside the others on the chart. Without one,
+    // the query is one GROUP BY, as above; with one, the grouped rows are a
+    // first step and the query shows them from it.
+    let shown = |json: serde_json::Value| compute(json);
+    let near = |got: Option<f64>, want: f64| {
+        assert!(
+            got.is_some_and(|v| (v - want).abs() < 1e-9),
+            "{got:?} is not {want}"
+        )
+    };
+    let value_of = |result: &ChartResult, key: &str, at: usize| {
+        result
+            .groups
+            .iter()
+            .find(|g| g.keys[0].as_deref() == Some(key))
+            .and_then(|g| g.values[at])
+    };
+    let shares = shown(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "category"}],
+        "metrics": [
+            {"column": "amount", "aggregate": "sum"},
+            {"column": "amount", "aggregate": "sum", "show": "shareOfAll"},
+            {"column": "amount", "aggregate": "sum", "show": "rank"}
+        ]
+    }))
+    .await
+    .unwrap();
+    assert!(shares.query.sql.starts_with("WITH g AS ("));
+    assert!(shares.query.sql.contains("AS \"SUM(amount) (% of Total)\""));
+    near(value_of(&shares, "Groceries", 1), 60.0 / 110.25);
+    near(value_of(&shares, "Books", 1), 42.0 / 110.25);
+    near(value_of(&shares, "Groceries", 2), 1.0);
+    near(value_of(&shares, "Books", 2), 2.0);
+    // Over time: the change from the period before is to the month before
+    // itself, not to the last month that had rows (August has none); a
+    // running total and a moving average run along the time.
+    let months = shown(serde_json::json!({
+        "chart": "column",
+        "time": {"column": "date", "grain": "month"},
+        "metrics": [
+            {"column": "amount", "aggregate": "sum", "show": "changeFromPrevious"},
+            {"column": "amount", "aggregate": "sum", "show": "growthFromPrevious"},
+            {"column": "amount", "aggregate": "sum", "show": "runningTotal"},
+            {"column": "amount", "aggregate": "sum", "show": "movingAverage"},
+            {"column": "amount", "aggregate": "sum", "show": "growthFromYearBefore"}
+        ]
+    }))
+    .await
+    .unwrap();
+    assert_eq!(
+        firsts(&months),
+        ["2026-07", "2026-08", "2026-09", "2026-10"]
+    );
+    assert_eq!(value_of(&months, "2026-09", 0), None);
+    near(value_of(&months, "2026-10", 0), 28.25 - 52.0);
+    near(value_of(&months, "2026-10", 1), (28.25 - 52.0) / 52.0);
+    near(value_of(&months, "2026-09", 2), 82.0);
+    near(value_of(&months, "2026-10", 2), 110.25);
+    near(value_of(&months, "2026-10", 3), 110.25 / 3.0);
+    assert_eq!(value_of(&months, "2026-10", 4), None);
+    assert!(months.query.sql.contains("- INTERVAL 1 MONTH"));
+    assert!(months.query.sql.contains("- INTERVAL 1 YEAR"));
+    // A share of its row: each category's part of its month.
+    let parts = shown(serde_json::json!({
+        "chart": "table",
+        "time": {"column": "date", "grain": "month"},
+        "pivots": [{"column": "category"}],
+        "metrics": [{"column": "amount", "aggregate": "sum", "show": "shareOfRow"}]
+    }))
+    .await
+    .unwrap();
+    let september: Vec<_> = parts
+        .series
+        .iter()
+        .zip(
+            &parts
+                .groups
+                .iter()
+                .find(|g| g.keys[0].as_deref() == Some("2026-09"))
+                .unwrap()
+                .values,
+        )
+        .filter_map(|(s, v)| v.map(|v| (s.pivot[0].clone().unwrap_or_default(), v)))
+        .collect();
+    assert_eq!(september.len(), 2);
+    for (category, part) in september {
+        near(
+            Some(part),
+            if category == "Groceries" {
+                40.0 / 52.0
+            } else {
+                12.0 / 52.0
+            },
+        );
+    }
+    // A change over time needs the time.
+    let err = shown(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "category"}],
+        "metrics": [{"column": "amount", "aggregate": "sum", "show": "changeFromPrevious"}]
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+
     // Filters as BI tools have them. Values excluded, the empty ones kept.
     let kept = |filters: serde_json::Value| {
         compute(serde_json::json!({

@@ -1781,7 +1781,23 @@ export type ChartQuery = { sql: string, params: Array<string>, };
  * A metric: a column and how it is totalled; without a column, the number
  * of rows. The same column may be totalled in several ways.
  */
-export type ChartMetric = { column: string | null, aggregate: ChartAggregate, };
+export type ChartMetric = { column: string | null, aggregate: ChartAggregate,
+/**
+ * How its total is shown: as it is, or beside the others on the chart,
+ * as Excel and Power BI show a value and Tableau's quick table
+ * calculations do.
+ */
+show?: MetricShow, };
+
+/**
+ * A metric's total shown beside the others on the chart: its share of all
+ * of them, of its row (the group along) or of its column (the pivoted
+ * value); its change from the period before at the chart's grain, or from
+ * the same period a year before, as a difference or a growth rate (these
+ * need the time along); a running total or a moving average of three
+ * periods (along the time, else the groups' order); its rank, largest first.
+ */
+export type MetricShow = "shareOfAll" | "shareOfRow" | "shareOfColumn" | "changeFromPrevious" | "growthFromPrevious" | "changeFromYearBefore" | "growthFromYearBefore" | "runningTotal" | "movingAverage" | "rank";
 
 /**
  * A filter on one column, of one kind, as BI tools have them: any of

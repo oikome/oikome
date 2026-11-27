@@ -717,6 +717,33 @@ pub struct ChartMetric {
     #[serde(default)]
     pub column: Option<String>,
     pub aggregate: ChartAggregate,
+    /// How its total is shown: as it is, or beside the others on the chart,
+    /// as Excel and Power BI show a value and Tableau's quick table
+    /// calculations do.
+    #[serde(default)]
+    #[ts(optional)]
+    pub show: Option<MetricShow>,
+}
+
+/// A metric's total shown beside the others on the chart: its share of all
+/// of them, of its row (the group along) or of its column (the pivoted
+/// value); its change from the period before at the chart's grain, or from
+/// the same period a year before, as a difference or a growth rate (these
+/// need the time along); a running total or a moving average of three
+/// periods (along the time, else the groups' order); its rank, largest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum MetricShow {
+    ShareOfAll,
+    ShareOfRow,
+    ShareOfColumn,
+    ChangeFromPrevious,
+    GrowthFromPrevious,
+    ChangeFromYearBefore,
+    GrowthFromYearBefore,
+    RunningTotal,
+    MovingAverage,
+    Rank,
 }
 
 /// A filter on one column, of one kind, as BI tools have them: any of

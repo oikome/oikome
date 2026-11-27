@@ -365,7 +365,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await pickDay("From", "2025-08-01");
     await pickDay("To", "2025-08-31");
     await ownDays.getByRole("button", { name: "Done" }).click();
-    await expect(timeRange).toContainText("2025-08-01 – 2025-08-31");
+    await expect(timeRange).toContainText("2025-08-01 to 2025-08-31");
     await expect(result.locator("tbody tr")).toHaveCount(1);
     await expect(result.locator("tbody tr").first()).toContainText("2025-08");
     await timeRange.click();
@@ -419,7 +419,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await chartType("Table");
     await point("Groceries", "Drill Down by subcategory");
     await expect(where).toContainText("Groceries");
-    await expect(panel.getByRole("group", { name: "Filters" })).toContainText("category: Groceries");
+    await expect(panel.getByRole("button", { name: "Filter category" })).toContainText("Groceries");
     await expect(result.locator("thead")).toContainText("subcategory");
     await point("Supermarket", "Drill Down by merchant");
     await expect(result.locator("thead")).toContainText("merchant");
@@ -457,7 +457,7 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await expect(panel.getByRole("button", { name: "Filter merchant" })).toContainText("Contains “CANTINHO”");
     await expect(result.locator("tbody")).toContainText("Eating out");
     await expect(result.locator("tbody")).not.toContainText("Leisure");
-    await add("Add Filter", "By metric: COUNT(*)");
+    await add("Add Filter", "COUNT(*)");
     const counting = page.getByRole("dialog", { name: "Filter COUNT(*)" });
     await counting.getByLabel("At least").fill("100");
     await counting.getByRole("button", { name: "Done" }).click();
@@ -465,6 +465,15 @@ test("acceptance opens real content, storages and a shared peer", async ({ page 
     await panel.getByRole("button", { name: "Remove COUNT(*)" }).click();
     await panel.getByRole("button", { name: "Remove merchant" }).click();
     await expect(result.locator("tbody")).toContainText("Leisure");
+    // A metric shown another way, as Excel's Show Values As has it: each
+    // member's share of its category's total, as a percentage; then cleared.
+    await panel.getByRole("button", { name: "Number of Rows" }).click();
+    await page.getByRole("menuitemradio", { name: "% of Row Total" }).click();
+    await expect(result.locator("thead")).toContainText("COUNT(*) (% of Row Total)");
+    await expect(result.locator("tbody")).toContainText("%");
+    await panel.getByRole("button", { name: "Number of Rows" }).click();
+    await page.getByRole("menuitem", { name: "Clear Calculation" }).click();
+    await expect(result.locator("thead")).not.toContainText("% of Row Total");
     await panel.getByLabel("Order").selectOption({ index: 1 });
     await panel.getByLabel("Row Limit", { exact: true }).selectOption({ label: "Custom" });
     await panel.getByLabel("Custom Row Limit").fill("5");

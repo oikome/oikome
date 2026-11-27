@@ -197,6 +197,7 @@ fn bindings() -> String {
         ChartLevel,
         ChartQuery,
         ChartMetric,
+        MetricShow,
         ChartFilter,
         ChartPeriod,
         ChartText,

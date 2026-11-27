@@ -7359,6 +7359,82 @@ async fn a_chart_of_an_analysis_table_is_computed_from_its_description() {
     );
     assert_eq!(month_category.columns.len(), 2);
 
+    // Filters as BI tools have them. Values excluded, the empty ones kept.
+    let kept = |filters: serde_json::Value| {
+        compute(serde_json::json!({
+            "chart": "table",
+            "dimensions": [{"column": "category"}],
+            "filters": filters
+        }))
+    };
+    let not_groceries = kept(serde_json::json!([
+        {"column": "category", "values": ["Groceries"], "exclude": true}
+    ]))
+    .await
+    .unwrap();
+    assert_eq!(not_groceries.matched, 3);
+    assert!(not_groceries.query.sql.contains("IS NULL OR NOT ("));
+    // Text that contains, does not contain, starts or ends with something,
+    // whatever its case; its own % and _ are taken as they are.
+    let text = |how: &str, value: &str| {
+        kept(serde_json::json!([
+            {"column": "merchant", "text": {"match": how, "value": value}}
+        ]))
+    };
+    assert_eq!(text("contains", "LI").await.unwrap().matched, 2);
+    assert_eq!(text("startsWith", "p").await.unwrap().matched, 1);
+    assert_eq!(text("endsWith", "and").await.unwrap().matched, 2);
+    assert_eq!(text("notContains", "e").await.unwrap().matched, 2);
+    let percent = text("contains", "%").await.unwrap();
+    assert_eq!(percent.matched, 0);
+    assert_eq!(percent.query.params, ["'%\\%%'"]);
+    // Empty or not.
+    let empty = |is: bool| kept(serde_json::json!([{"column": "merchant", "empty": is}]));
+    assert_eq!(empty(true).await.unwrap().matched, 0);
+    assert_eq!(empty(false).await.unwrap().matched, 6);
+    // Days of any column of time, as a time range has them.
+    let september = kept(serde_json::json!([
+        {"column": "date", "dates": {"range": "custom", "from": "2026-09-01", "to": "2026-09-30"}}
+    ]))
+    .await
+    .unwrap();
+    assert_eq!(september.matched, 3);
+    // Groups kept by a metric's total: Books (42) and Groceries (60), then
+    // Groceries alone; the rows the filters keep are still all of them.
+    let by_total = |min: &str| {
+        compute(serde_json::json!({
+            "chart": "table",
+            "dimensions": [{"column": "category"}],
+            "metrics": [{"column": "amount", "aggregate": "sum"}],
+            "metricFilters": [{"metric": 0, "min": min}],
+            "sort": {"metric": 0, "descending": true}
+        }))
+    };
+    let forty = by_total("40").await.unwrap();
+    assert_eq!(firsts(&forty), ["Groceries", "Books"]);
+    assert!(forty.query.sql.contains("HAVING SUM(\"amount\") >= ?"));
+    assert_eq!(forty.matched, 6);
+    assert_eq!(firsts(&by_total("50").await.unwrap()), ["Groceries"]);
+    // Refused: text on a number, days of what is no time, an exclusion of
+    // nothing, a filter of two kinds, a metric the chart has not.
+    for filters in [
+        serde_json::json!([{"column": "amount", "text": {"match": "contains", "value": "1"}}]),
+        serde_json::json!([{"column": "merchant", "dates": {"range": "thisYear"}}]),
+        serde_json::json!([{"column": "merchant", "exclude": true}]),
+        serde_json::json!([{"column": "merchant", "values": ["Lidl"], "empty": true}]),
+    ] {
+        let err = kept(filters.clone()).await.unwrap_err();
+        assert_eq!(err.code, ErrorCode::Invalid, "{filters}: {err:?}");
+    }
+    let err = compute(serde_json::json!({
+        "chart": "table",
+        "dimensions": [{"column": "category"}],
+        "metricFilters": [{"metric": 3, "min": "1"}]
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid, "{err:?}");
+
     // Several dimensions together, ordered by a metric, the first two.
     let top = compute(serde_json::json!({
         "chart": "bar",

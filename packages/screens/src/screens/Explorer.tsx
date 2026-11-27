@@ -53,12 +53,14 @@ import type {
   ChartKind,
   ChartLevel,
   ChartMetric,
+  ChartMetricFilter,
   ChartQuery,
   ChartResult,
   ChartSpec,
   ChartTime,
   DateGrain,
   FileAnalysis,
+  TextMatch,
   TimeRange,
 } from "@oikome/client";
 import { useAction, useClient } from "../data";
@@ -113,6 +115,7 @@ function kindOf(field: Field): string {
   return "text";
 }
 const isNumber = (field: Field | undefined) => field !== undefined && kindOf(field) === "number";
+const isText = (field: Field | undefined) => field !== undefined && kindOf(field) === "text";
 /** A column of time: a date or a timestamp. */
 const isTime = (field: Field | undefined) => field !== undefined && (kindOf(field) === "date" || kindOf(field) === "timestamp");
 /** A column of time with times of day too. */
@@ -155,8 +158,8 @@ const levelName = (level: ChartLevel) => (level.grain ? x.colAt(level.column, x.
 function newChart(table: AnalysisTable): ChartSpec {
   const time = shownFields(table).find((f) => isTime(f));
   return time
-    ? { chart: "column", time: { column: time.name, grain: "month", range: "all" }, dimensions: [], pivots: [], metrics: [COUNT_ROWS], filters: [], sort: null, limit: null }
-    : { chart: "table", time: null, dimensions: [], pivots: [], metrics: [], filters: [], sort: null, limit: null };
+    ? { chart: "column", time: { column: time.name, grain: "month", range: "all" }, dimensions: [], pivots: [], metrics: [COUNT_ROWS], filters: [], metricFilters: [], sort: null, limit: null }
+    : { chart: "table", time: null, dimensions: [], pivots: [], metrics: [], filters: [], metricFilters: [], sort: null, limit: null };
 }
 
 /** A chart's description with every part present, or nothing if it is not one. */
@@ -187,8 +190,15 @@ function chartOf(raw: unknown): ChartSpec | undefined {
       values: list(f.values),
       min: f.min ?? null,
       max: f.max ?? null,
+      ...(f.exclude ? { exclude: true } : {}),
       ...(f.period ? { period: { grain: f.period.grain, key: f.period.key } } : {}),
+      ...(f.text ? { text: { match: f.text.match, value: f.text.value } } : {}),
+      ...(typeof f.empty === "boolean" ? { empty: f.empty } : {}),
+      ...(f.dates
+        ? { dates: { range: f.dates.range, ...(f.dates.from ? { from: f.dates.from } : {}), ...(f.dates.to ? { to: f.dates.to } : {}) } }
+        : {}),
     })),
+    metricFilters: list(given.metricFilters).map((f) => ({ metric: f.metric, min: f.min ?? null, max: f.max ?? null })),
     sort: given.sort ? { metric: given.sort.metric, descending: given.sort.descending } : null,
     limit: given.limit === "all" || (typeof given.limit === "number" && given.limit > 0) ? given.limit : null,
   };
@@ -211,7 +221,16 @@ function viewsOf(table: AnalysisTable): View[] {
 /** What a filter keeps, in a few words. */
 function filterText(filter: ChartFilter): string {
   if (filter.period) return keyName({ column: filter.column, grain: filter.period.grain }, filter.period.key);
-  if (filter.values.length > 0) return filter.values.length <= 2 ? filter.values.join(", ") : x.chosenCount(filter.values.length);
+  if (typeof filter.empty === "boolean") return filter.empty ? x.ops.empty! : x.ops.notEmpty!;
+  if (filter.text) return x.textChip(x.ops[filter.text.match] ?? filter.text.match, filter.text.value);
+  if (filter.dates) {
+    const { range, from, to } = filter.dates;
+    return range === "custom" ? `${from ?? x.anyDay} – ${to ?? x.anyDay}` : (x.ranges[range] ?? range);
+  }
+  if (filter.values.length > 0) {
+    const shown = filter.values.length <= 2 ? filter.values.join(", ") : x.chosenCount(filter.values.length);
+    return filter.exclude ? x.notChip(shown) : shown;
+  }
   if (filter.min !== null && filter.max !== null) return `${filter.min} – ${filter.max}`;
   if (filter.min !== null) return `≥ ${filter.min}`;
   if (filter.max !== null) return `≤ ${filter.max}`;
@@ -258,6 +277,8 @@ function settle(made: ChartSpec): ChartSpec {
   }
   const grouped = next.time !== null || next.dimensions.length > 0 || next.pivots.length > 0;
   if (grouped && next.metrics.length === 0) next.metrics = [COUNT_ROWS];
+  // A filter on a metric goes with its metric.
+  next.metricFilters = next.metricFilters.filter((f) => f.metric < next.metrics.length);
   if (next.sort && next.sort.metric >= next.metrics.length) next.sort = next.metrics.length > 0 ? { ...next.sort, metric: 0 } : null;
   return next;
 }
@@ -288,6 +309,8 @@ function fitted(spec: ChartSpec, table: AnalysisTable): ChartSpec {
       (f) =>
         there(f.column) &&
         (!f.period || isTime(field(f.column))) &&
+        (!f.dates || isTime(field(f.column))) &&
+        (!f.text || isText(field(f.column))) &&
         ((f.min === null && f.max === null) || isNumber(field(f.column))),
     ),
   };
@@ -447,7 +470,75 @@ function NameView({
   );
 }
 
-/** A filter on one column: the values to keep, ticked (text), or a range (a number). */
+/** A time's range in a few words: one of the ranges, or one's own days. */
+function rangeText(time: ChartTime): string {
+  if (time.range !== "custom") return x.ranges[time.range] ?? time.range;
+  return `${time.from ?? x.anyDay} – ${time.to ?? x.anyDay}`;
+}
+
+/** The days of a range of one's own, picked in the app's calendar: either end open. */
+function RangeDialog({
+  column,
+  from,
+  to,
+  onApply,
+  onClose,
+}: {
+  column: string;
+  from?: string;
+  to?: string;
+  onApply: (days: { from?: string; to?: string }) => void;
+  onClose: () => void;
+}) {
+  const [days, setDays] = useState<{ from?: string; to?: string }>({ from, to });
+  return (
+    <Dialog
+      title={x.rangeFor(column)}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      placement="top"
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" onClick={() => onApply({ ...(days.from ? { from: days.from } : {}), ...(days.to ? { to: days.to } : {}) })}>
+            {strings.common.done}
+          </Button>
+        </>
+      }
+    >
+      <div className="screen-explorer__days">
+        {(
+          [
+            ["from", x.rangeFrom],
+            ["to", x.rangeTo],
+          ] as const
+        ).map(([end, label]) => (
+          <DateField
+            key={end}
+            label={label}
+            value={days[end]}
+            min={end === "to" ? days.from : undefined}
+            max={end === "from" ? days.to : undefined}
+            locale={locale()}
+            words={{ none: x.anyDay, previous: x.previousMonth, next: x.nextMonth, today: x.today, clear: x.clearDay }}
+            onChange={(day) => setDays({ ...days, [end]: day ?? undefined })}
+          />
+        ))}
+      </div>
+    </Dialog>
+  );
+}
+
+/** How a filter keeps rows: a condition, as BI tools ask for one. */
+type FilterHow = "is" | "isNot" | TextMatch | "empty" | "notEmpty" | "between" | "dates";
+/** The ranges a column of dates is filtered by: "all" would keep everything. */
+const DATE_RANGES = RANGES.filter((r) => r !== "all");
+
+/**
+ * A filter on a column: first its condition, offered by what the column
+ * holds (text, numbers, time, true or false), then what the condition
+ * needs: values ticked, some text, two ends of a range or days.
+ */
 function FilterDialog({
   space,
   table,
@@ -463,15 +554,40 @@ function FilterDialog({
   onClose: () => void;
 }) {
   const client = useClient();
-  const ranged = isNumber(fieldOf(table, was.column)) && was.values.length === 0;
+  const field = fieldOf(table, was.column);
+  const hows: FilterHow[] = isNumber(field)
+    ? ["between", "empty", "notEmpty"]
+    : isTime(field)
+      ? ["dates", "empty", "notEmpty"]
+      : isText(field)
+        ? ["is", "isNot", "contains", "notContains", "startsWith", "endsWith", "empty", "notEmpty"]
+        : ["is", "isNot", "empty", "notEmpty"];
+  const [how, setHow] = useState<FilterHow>(
+    typeof was.empty === "boolean"
+      ? was.empty
+        ? "empty"
+        : "notEmpty"
+      : was.text
+        ? was.text.match
+        : was.dates
+          ? "dates"
+          : was.exclude
+            ? "isNot"
+            : hows[0]!,
+  );
+  const listing = how === "is" || how === "isNot";
   const [values, setValues] = useState(was.values);
   const [offered, setOffered] = useState<string[]>();
   const [sought, setSought] = useState("");
   const [min, setMin] = useState(was.min ?? "");
   const [max, setMax] = useState(was.max ?? "");
+  const [typed, setTyped] = useState(was.text?.value ?? "");
+  const [range, setRange] = useState<TimeRange>(was.dates?.range ?? "last30Days");
+  const [days, setDays] = useState<{ from?: string; to?: string }>({ from: was.dates?.from, to: was.dates?.to });
 
+  // The values to tick, read once they are asked for.
   useEffect(() => {
-    if (ranged) return;
+    if (!listing || offered !== undefined) return;
     let stale = false;
     client.analysisValues({ space, table: table.name, column: was.column }).then(
       (list) => !stale && setOffered(list),
@@ -480,13 +596,31 @@ function FilterDialog({
     return () => {
       stale = true;
     };
-  }, [client, space, table.name, was.column, ranged]);
+  }, [client, space, table.name, was.column, listing, offered]);
 
   const apply = () => {
     const base = emptyFilter(was.column);
-    if (!ranged) return onApply(values.length > 0 ? { ...base, values } : undefined);
-    const ends = { min: min.trim() === "" ? null : min.trim(), max: max.trim() === "" ? null : max.trim() };
-    return onApply(ends.min === null && ends.max === null ? undefined : { ...base, ...ends });
+    switch (how) {
+      case "is":
+        return onApply(values.length > 0 ? { ...base, values } : undefined);
+      case "isNot":
+        return onApply(values.length > 0 ? { ...base, values, exclude: true } : undefined);
+      case "empty":
+        return onApply({ ...base, empty: true });
+      case "notEmpty":
+        return onApply({ ...base, empty: false });
+      case "between": {
+        const ends = { min: min.trim() === "" ? null : min.trim(), max: max.trim() === "" ? null : max.trim() };
+        return onApply(ends.min === null && ends.max === null ? undefined : { ...base, ...ends });
+      }
+      case "dates": {
+        if (range === "custom" && !days.from && !days.to) return onApply(undefined);
+        const ends = range === "custom" ? { ...(days.from ? { from: days.from } : {}), ...(days.to ? { to: days.to } : {}) } : {};
+        return onApply({ ...base, dates: { range, ...ends } });
+      }
+      default:
+        return onApply(typed.trim() ? { ...base, text: { match: how, value: typed.trim() } } : undefined);
+    }
   };
   const all = [...new Set([...was.values, ...(offered ?? [])])];
   const found = all.filter((v) => v.toLocaleLowerCase().includes(sought.trim().toLocaleLowerCase()));
@@ -500,7 +634,7 @@ function FilterDialog({
       placement="top"
       footer={
         <>
-          {!ranged && values.length > 0 && <Button onClick={() => setValues([])}>{x.clearValues}</Button>}
+          {listing && values.length > 0 && <Button onClick={() => setValues([])}>{x.clearValues}</Button>}
           <Button onClick={onClose}>{strings.common.cancel}</Button>
           <Button variant="primary" onClick={apply}>
             {strings.common.done}
@@ -508,7 +642,110 @@ function FilterDialog({
         </>
       }
     >
-      {ranged ? (
+      <div className="screen-explorer__filter">
+        <Select label={x.filterHow} value={how} onChange={(value) => setHow(value as FilterHow)} options={hows.map((h) => ({ value: h, label: x.ops[h] ?? h }))} />
+        {listing ? (
+          <>
+            {all.length > 8 && <TextField label={x.searchValues} name="filter-search" value={sought} onChange={setSought} />}
+            <p className="screen-help">{values.length > 0 ? x.chosenCount(values.length) : x.anyValue}</p>
+            {offered === undefined ? (
+              <div className="screen-explorer__filter-loading oik-skel" aria-hidden="true" />
+            ) : found.length === 0 ? (
+              <p className="screen-help">{x.noValues}</p>
+            ) : (
+              <ul className="screen-explorer__filter-values" aria-label={x.filterOn(was.column)}>
+                {found.map((value) => (
+                  <li key={value}>
+                    <Checkbox label={<span translate="no">{value}</span>} checked={values.includes(value)} onChange={(on) => toggle(value, on)} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : how === "between" ? (
+          <div className="screen-explorer__range">
+            {(
+              [
+                [x.atLeast, min, setMin],
+                [x.atMost, max, setMax],
+              ] as const
+            ).map(([label, value, set]) => (
+              <label key={label} className="oik-field">
+                <span className="oik-field__label">{label}</span>
+                <input className="oik-input" type="text" inputMode="decimal" value={value} placeholder={x.anyValue} onChange={(event) => set(event.target.value)} />
+              </label>
+            ))}
+          </div>
+        ) : how === "dates" ? (
+          <>
+            <Select label={x.range} value={range} onChange={(value) => setRange(value as TimeRange)} options={DATE_RANGES.map((r) => ({ value: r, label: x.ranges[r] ?? r }))} />
+            {range === "custom" && (
+              <div className="screen-explorer__days">
+                {(
+                  [
+                    ["from", x.rangeFrom],
+                    ["to", x.rangeTo],
+                  ] as const
+                ).map(([end, label]) => (
+                  <DateField
+                    key={end}
+                    label={label}
+                    value={days[end]}
+                    min={end === "to" ? days.from : undefined}
+                    max={end === "from" ? days.to : undefined}
+                    locale={locale()}
+                    words={{ none: x.anyDay, previous: x.previousMonth, next: x.nextMonth, today: x.today, clear: x.clearDay }}
+                    onChange={(day) => setDays({ ...days, [end]: day ?? undefined })}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        ) : how === "empty" || how === "notEmpty" ? (
+          isText(field) && <p className="screen-help">{x.emptyTextNote}</p>
+        ) : (
+          <TextField label={x.textValue} name="filter-text" value={typed} onChange={setTyped} autoFocus />
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+/** Keep the groups whose total of a metric is within a range, either end open: after grouping, as SQL's HAVING. */
+function MetricFilterDialog({
+  name,
+  was,
+  onApply,
+  onClose,
+}: {
+  name: string;
+  was: ChartMetricFilter;
+  onApply: (next: ChartMetricFilter | undefined) => void;
+  onClose: () => void;
+}) {
+  const [min, setMin] = useState(was.min ?? "");
+  const [max, setMax] = useState(was.max ?? "");
+  const apply = () => {
+    const ends = { min: min.trim() === "" ? null : min.trim(), max: max.trim() === "" ? null : max.trim() };
+    onApply(ends.min === null && ends.max === null ? undefined : { metric: was.metric, ...ends });
+  };
+  return (
+    <Dialog
+      title={x.filterOn(name)}
+      closeLabel={strings.common.close}
+      onClose={onClose}
+      placement="top"
+      footer={
+        <>
+          <Button onClick={onClose}>{strings.common.cancel}</Button>
+          <Button variant="primary" onClick={apply}>
+            {strings.common.done}
+          </Button>
+        </>
+      }
+    >
+      <div className="screen-explorer__filter">
+        <p className="screen-help">{x.metricFilterNote}</p>
         <div className="screen-explorer__range">
           {(
             [
@@ -522,25 +759,7 @@ function FilterDialog({
             </label>
           ))}
         </div>
-      ) : (
-        <div className="screen-explorer__filter">
-          {all.length > 8 && <TextField label={x.searchValues} name="filter-search" value={sought} onChange={setSought} />}
-          <p className="screen-help">{values.length > 0 ? x.chosenCount(values.length) : x.anyValue}</p>
-          {offered === undefined ? (
-            <div className="screen-explorer__filter-loading oik-skel" aria-hidden="true" />
-          ) : found.length === 0 ? (
-            <p className="screen-help">{x.noValues}</p>
-          ) : (
-            <ul className="screen-explorer__filter-values" aria-label={x.filterOn(was.column)}>
-              {found.map((value) => (
-                <li key={value}>
-                  <Checkbox label={<span translate="no">{value}</span>} checked={values.includes(value)} onChange={(on) => toggle(value, on)} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      </div>
     </Dialog>
   );
 }
@@ -828,8 +1047,9 @@ export function Explorer({
   const [trail, setTrail] = useState<{ of: string; steps: { label: string; before: ChartSpec }[] }>();
   const [result, setResult] = useState<ChartResult>();
   const [failed, setFailed] = useState<string>();
-  const [dialog, setDialog] = useState<"saveNew" | "saveAs" | "rename" | "remove" | "sql" | "metric">();
+  const [dialog, setDialog] = useState<"saveNew" | "saveAs" | "rename" | "remove" | "sql" | "metric" | "range">();
   const [filtering, setFiltering] = useState<ChartFilter>();
+  const [filteringMetric, setFilteringMetric] = useState<ChartMetricFilter>();
   const [pointed, setPointed] = useState<{ at: { x: number; y: number }; items: MenuItem[]; label: string }>();
   // A chart being made with + New Chart, until it is saved under a name or discarded.
   const [making, setMaking] = useState(false);
@@ -989,9 +1209,18 @@ export function Explorer({
               : change({ [list]: [...spec[list], { column: f.name }] }),
         }),
       );
-  const filterItems: MenuItem[] = fields
-    .filter((f) => !isTime(f) && !spec.filters.some((filter) => filter.column === f.name))
-    .map((f) => ({ label: f.name, onSelect: () => setFiltering(emptyFilter(f.name)) }));
+  // Any column but the time (its range is the first filter), and, once the
+  // rows are grouped, each metric's total.
+  const filterItems: MenuItem[] = [
+    ...fields
+      .filter((f) => f.name !== spec.time?.column && !spec.filters.some((filter) => filter.column === f.name))
+      .map((f) => ({ label: f.name, onSelect: () => setFiltering(emptyFilter(f.name)) })),
+    ...(grouped ? spec.metrics : []).flatMap((m, at): MenuItem[] =>
+      spec.metricFilters.some((f) => f.metric === at)
+        ? []
+        : [{ label: x.byMetric(metricName(m)), icon: "sliders", onSelect: () => setFilteringMetric({ metric: at, min: null, max: null }) }],
+    ),
+  ];
   const dimensionChips = (list: "dimensions" | "pivots") =>
     spec[list].map((d: ChartDimension, at) => (
       <Chip
@@ -1313,7 +1542,14 @@ export function Explorer({
                   onRemove={
                     spec.metrics.length === 1 && m.column === null && (grouped || spec.pivots.length > 0)
                       ? undefined
-                      : () => change({ metrics: spec.metrics.filter((_, i) => i !== at) })
+                      : () =>
+                          change({
+                            metrics: spec.metrics.filter((_, i) => i !== at),
+                            // A filter on it goes with it; those on later metrics follow their place.
+                            metricFilters: spec.metricFilters
+                              .filter((f) => f.metric !== at)
+                              .map((f) => (f.metric > at ? { ...f, metric: f.metric - 1 } : f)),
+                          })
                   }
                 />
               ))}
@@ -1323,44 +1559,31 @@ export function Explorer({
             </div>
             <div className="screen-explorer__part" role="group" aria-label={x.filter}>
               <span className="oik-field__label">{x.filter}</span>
-              {/* The time's range is a filter on it, as BI tools have it. */}
+              {/* The time's range is a filter on it, a chip as the others are (Superset, Metabase): its menu has the ranges; one's own days open the calendar. */}
               {spec.time && (
-                <div className="screen-explorer__time-range">
-                  <Select
-                    label={x.range}
-                    value={spec.time.range}
-                    onChange={(range) => {
+                <Chip
+                  text={x.filterChip(spec.time.column, rangeText(spec.time))}
+                  label={x.rangeFor(spec.time.column)}
+                  items={RANGES.map((r) => ({
+                    label: r === "custom" ? `${x.ranges[r] ?? r}…` : (x.ranges[r] ?? r),
+                    checked: r === spec.time!.range,
+                    onSelect: () => {
+                      if (r === "custom") return setDialog("range");
                       // A range of its own keeps its days; another has none.
                       const { from: _from, to: _to, ...rest } = spec.time!;
-                      setTime(range === "custom" ? { ...spec.time!, range: "custom" } : { ...rest, range: range as TimeRange });
-                    }}
-                    options={RANGES.map((r) => ({ value: r, label: x.ranges[r] ?? r }))}
-                  />
-                  {spec.time.range === "custom" && (
-                    <div className="screen-explorer__days">
-                      {(
-                        [
-                          ["from", x.rangeFrom],
-                          ["to", x.rangeTo],
-                        ] as const
-                      ).map(([end, label]) => (
-                        <DateField
-                          key={end}
-                          label={label}
-                          value={spec.time![end]}
-                          min={end === "to" ? spec.time!.from : undefined}
-                          max={end === "from" ? spec.time!.to : undefined}
-                          locale={locale()}
-                          words={{ none: x.anyDay, previous: x.previousMonth, next: x.nextMonth, today: x.today, clear: x.clearDay }}
-                          onChange={(day) => {
-                            const { [end]: _was, ...rest } = spec.time!;
-                            setTime(day ? { ...spec.time!, [end]: day } : rest);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                      setTime({ ...rest, range: r });
+                    },
+                  }))}
+                  removeLabel={x.removeItem(x.rangeFor(spec.time.column))}
+                  onRemove={
+                    spec.time.range === "all"
+                      ? undefined
+                      : () => {
+                          const { from: _from, to: _to, ...rest } = spec.time!;
+                          setTime({ ...rest, range: "all" });
+                        }
+                  }
+                />
               )}
               {spec.filters.map((filter, at) => (
                 <Chip
@@ -1376,6 +1599,19 @@ export function Explorer({
                   }}
                 />
               ))}
+              {spec.metricFilters.map((f, at) => {
+                const name = metricName(spec.metrics[f.metric] ?? COUNT_ROWS);
+                return (
+                  <Chip
+                    key={`metric:${f.metric}`}
+                    text={x.filterChip(name, filterText({ ...emptyFilter(name), min: f.min, max: f.max }))}
+                    label={x.filterOn(name)}
+                    onOpen={() => setFilteringMetric(f)}
+                    removeLabel={x.removeItem(name)}
+                    onRemove={() => change({ metricFilters: spec.metricFilters.filter((_, i) => i !== at) })}
+                  />
+                );
+              })}
               {adding(x.addFilter, filterItems)}
             </div>
             {grouped && (
@@ -1444,6 +1680,31 @@ export function Explorer({
             const filters = next === undefined ? others : at < 0 ? [...spec.filters, next] : spec.filters.map((f, i) => (i === at ? next : f));
             setFiltering(undefined);
             change({ filters });
+          }}
+        />
+      )}
+      {dialog === "range" && spec.time && (
+        <RangeDialog
+          column={spec.time.column}
+          from={spec.time.range === "custom" ? spec.time.from : undefined}
+          to={spec.time.range === "custom" ? spec.time.to : undefined}
+          onClose={() => setDialog(undefined)}
+          onApply={(days) => {
+            const { from: _from, to: _to, ...rest } = spec.time!;
+            setDialog(undefined);
+            setTime(days.from || days.to ? { ...rest, range: "custom", ...days } : { ...rest, range: "all" });
+          }}
+        />
+      )}
+      {filteringMetric && (
+        <MetricFilterDialog
+          name={metricName(spec.metrics[filteringMetric.metric] ?? COUNT_ROWS)}
+          was={filteringMetric}
+          onClose={() => setFilteringMetric(undefined)}
+          onApply={(next) => {
+            const others = spec.metricFilters.filter((f) => f.metric !== filteringMetric.metric);
+            setFilteringMetric(undefined);
+            change({ metricFilters: next ? [...others, next] : others });
           }}
         />
       )}

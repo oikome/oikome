@@ -5395,18 +5395,6 @@ tr.screen-source {
   font: var(--text-small);
   font-weight: 500;
 }
-/* The time's range, first among the filters, named as a place is. */
-.screen-explorer__time-range {
-  display: grid;
-  gap: var(--space-2);
-}
-.screen-explorer__time-range .oik-field__label {
-  color: var(--ink2);
-  font: var(--text-small);
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-}
 .screen-explorer__chip {
   display: flex;
   align-items: stretch;

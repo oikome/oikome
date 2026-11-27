@@ -39,7 +39,7 @@ use crate::file_analysis::{ReadAs, SOURCE_FILE};
 use crate::{
     AnalysisChart, AnalysisValues, Api, ApiError, Caller, ChartAggregate, ChartColumn, ChartFilter,
     ChartGroup, ChartLevel, ChartLimit, ChartMetric, ChartQuery, ChartResult, ChartRows,
-    ChartSeries, ChartSpec, ChartableTable, ColumnType, DateGrain, TimeRange,
+    ChartSeries, ChartSpec, ChartableTable, ColumnType, DateGrain, TextMatch, TimeRange,
 };
 
 /// How much a chart may ask for.
@@ -395,6 +395,90 @@ fn metric(columns: &Columns, metric: &ChartMetric, from: &str) -> Result<String,
 
 /// A filter as a condition, its columns read from `from` and its values
 /// bound; `None` when it asks nothing.
+/// The days a range is from and to: only a custom range has them, whole
+/// days written 2026-08-01, in order.
+fn days_of(
+    range: TimeRange,
+    from: &Option<String>,
+    to: &Option<String>,
+) -> Result<(Option<NaiveDate>, Option<NaiveDate>), ApiError> {
+    let day = |text: &Option<String>| -> Result<Option<NaiveDate>, ApiError> {
+        text.as_deref()
+            .map(|t| {
+                NaiveDate::parse_from_str(t.trim(), "%Y-%m-%d")
+                    .map_err(|_| ApiError::invalid(format!("{t} is not a day (2026-08-01)")))
+            })
+            .transpose()
+    };
+    let ends = (day(from)?, day(to)?);
+    if range != TimeRange::Custom && (ends.0.is_some() || ends.1.is_some()) {
+        return Err(ApiError::invalid(
+            "from and to are the ends of a custom range",
+        ));
+    }
+    if let (Some(from), Some(to)) = ends {
+        if from > to {
+            return Err(ApiError::invalid("a range ends after it starts"));
+        }
+    }
+    Ok(ends)
+}
+
+/// The rows whose time `at` is within a range: recent days, this year, or
+/// whole days from one to another (the last one up to its end, for a
+/// timestamp too).
+fn within_range(
+    at: &str,
+    range: TimeRange,
+    ends: (Option<NaiveDate>, Option<NaiveDate>),
+    bound: &mut Bound,
+) -> Vec<String> {
+    let since = |days: u32| format!("{at} >= current_date - INTERVAL {days} DAY");
+    let mut out = Vec::new();
+    match range {
+        TimeRange::All => {}
+        TimeRange::Last7Days => out.push(since(7)),
+        TimeRange::Last30Days => out.push(since(30)),
+        TimeRange::Last90Days => out.push(since(90)),
+        TimeRange::Last365Days => out.push(since(365)),
+        TimeRange::ThisYear => out.push(format!("year({at}) = year(current_date)")),
+        TimeRange::Custom => {
+            if let Some(first) = ends.0 {
+                let day = bound.bind(Value::Text(first.format("%Y-%m-%d").to_string()));
+                out.push(format!("{at} >= CAST({day} AS DATE)"));
+            }
+            if let Some(last) = ends.1 {
+                let day = bound.bind(Value::Text(last.format("%Y-%m-%d").to_string()));
+                out.push(format!("{at} < CAST({day} AS DATE) + INTERVAL 1 DAY"));
+            }
+        }
+    }
+    out
+}
+
+/// A number a filter keeps from or up to.
+fn number_of(text: &str) -> Result<f64, ApiError> {
+    text.trim()
+        .parse()
+        .ok()
+        .filter(|n: &f64| n.is_finite())
+        .ok_or_else(|| ApiError::invalid(format!("{text} is not a number")))
+}
+
+/// A pattern for text that matches, its own `%`, `_` and `\` taken as
+/// they are.
+fn like_pattern(how: TextMatch, text: &str) -> String {
+    let plain = text
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    match how {
+        TextMatch::Contains | TextMatch::NotContains => format!("%{plain}%"),
+        TextMatch::StartsWith => format!("{plain}%"),
+        TextMatch::EndsWith => format!("%{plain}"),
+    }
+}
+
 fn filter(
     columns: &Columns,
     filter: &ChartFilter,
@@ -405,11 +489,63 @@ fn filter(
     columns.has(name)?;
     let column = columns.value(from, name);
     let ranged = filter.min.is_some() || filter.max.is_some();
-    let kinds = [!filter.values.is_empty(), ranged, filter.period.is_some()];
+    let kinds = [
+        !filter.values.is_empty(),
+        ranged,
+        filter.period.is_some(),
+        filter.text.is_some(),
+        filter.empty.is_some(),
+        filter.dates.is_some(),
+    ];
     if kinds.iter().filter(|k| **k).count() > 1 {
         return Err(ApiError::invalid(format!(
             "the filter on {name} is of more than one kind"
         )));
+    }
+    let exclude = filter.exclude == Some(true);
+    if exclude && filter.values.is_empty() {
+        return Err(ApiError::invalid(format!(
+            "the filter on {name} excludes values it does not name"
+        )));
+    }
+    // Empty or not: for text, empty text is empty too.
+    if let Some(empty) = filter.empty {
+        let text = columns.is_text(name);
+        return Ok(Some(match (empty, text) {
+            (true, true) => format!("({column} IS NULL OR {column} = '')"),
+            (true, false) => format!("{column} IS NULL"),
+            (false, true) => format!("({column} IS NOT NULL AND {column} <> '')"),
+            (false, false) => format!("{column} IS NOT NULL"),
+        }));
+    }
+    // Text that matches, whatever its case, bound as a pattern.
+    if let Some(text) = &filter.text {
+        if !columns.is_text(name) {
+            return Err(ApiError::invalid(format!(
+                "{name} is not text: choose the values to keep"
+            )));
+        }
+        if text.value.is_empty() || text.value.len() > MAX_VALUE_BYTES {
+            return Err(ApiError::invalid(format!(
+                "the filter on {name} needs some text, not too long"
+            )));
+        }
+        let pattern = bound.bind(Value::Text(like_pattern(text.how, &text.value)));
+        return Ok(Some(match text.how {
+            TextMatch::NotContains => {
+                format!("({column} IS NULL OR {column} NOT ILIKE {pattern} ESCAPE '\\')")
+            }
+            _ => format!("{column} ILIKE {pattern} ESCAPE '\\'"),
+        }));
+    }
+    // Days of a column of time.
+    if let Some(dates) = &filter.dates {
+        if !columns.is_time(name) {
+            return Err(ApiError::invalid(format!("{name} is not a column of time")));
+        }
+        let ends = days_of(dates.range, &dates.from, &dates.to)?;
+        let within = within_range(&column, dates.range, ends, bound);
+        return Ok((!within.is_empty()).then(|| within.join(" AND ")));
     }
     // A period of a column of time: the rows whose time falls in it.
     if let Some(period) = &filter.period {
@@ -451,9 +587,15 @@ fn filter(
             .iter()
             .map(|v| bound.bind(Value::Text(v.clone())))
             .collect();
-        return Ok(Some(match values.as_slice() {
+        let any = match values.as_slice() {
             [one] => format!("{shown} = {one}"),
             _ => format!("{shown} IN ({})", values.join(", ")),
+        };
+        // Excluded: none of them, the empty values kept.
+        return Ok(Some(if exclude {
+            format!("({shown} IS NULL OR NOT ({any}))")
+        } else {
+            any
         }));
     }
     if !ranged {
@@ -467,13 +609,7 @@ fn filter(
     let mut ends = Vec::new();
     for (end, compare) in [(&filter.min, ">="), (&filter.max, "<=")] {
         let Some(text) = end else { continue };
-        let number: f64 = text
-            .trim()
-            .parse()
-            .ok()
-            .filter(|n: &f64| n.is_finite())
-            .ok_or_else(|| ApiError::invalid(format!("{text} is not a number")))?;
-        let value = bound.bind(Value::Float64(number));
+        let value = bound.bind(Value::Float64(number_of(text)?));
         ends.push(format!("{column} {compare} {value}"));
     }
     Ok(Some(ends.join(" AND ")))
@@ -633,6 +769,7 @@ impl Api {
             || spec.pivots.len() > MAX_PIVOTS
             || spec.metrics.len() > MAX_METRICS
             || spec.filters.len() > MAX_FILTERS
+            || spec.metric_filters.len() > MAX_FILTERS
         {
             return Err(ApiError::invalid("the chart asks for too much at once"));
         }
@@ -654,26 +791,7 @@ impl Api {
                     time.column
                 )));
             }
-            let day = |text: &Option<String>| -> Result<Option<NaiveDate>, ApiError> {
-                text.as_deref()
-                    .map(|t| {
-                        NaiveDate::parse_from_str(t.trim(), "%Y-%m-%d").map_err(|_| {
-                            ApiError::invalid(format!("{t} is not a day (2026-08-01)"))
-                        })
-                    })
-                    .transpose()
-            };
-            ends = (day(&time.from)?, day(&time.to)?);
-            if time.range != TimeRange::Custom && (ends.0.is_some() || ends.1.is_some()) {
-                return Err(ApiError::invalid(
-                    "from and to are the ends of a custom range",
-                ));
-            }
-            if let (Some(from), Some(to)) = ends {
-                if from > to {
-                    return Err(ApiError::invalid("a range ends after it starts"));
-                }
-            }
+            ends = days_of(time.range, &time.from, &time.to)?;
         }
         let mut seen: BTreeSet<&str> = spec.time.iter().map(|t| t.column.as_str()).collect();
         for d in spec.dimensions.iter().chain(&spec.pivots) {
@@ -706,26 +824,7 @@ impl Api {
             }
             if let Some(time) = &spec.time {
                 let at = columns.value(from, &time.column);
-                let since = |days: u32| format!("{at} >= current_date - INTERVAL {days} DAY");
-                match time.range {
-                    TimeRange::All => {}
-                    TimeRange::Last7Days => out.push(since(7)),
-                    TimeRange::Last30Days => out.push(since(30)),
-                    TimeRange::Last90Days => out.push(since(90)),
-                    TimeRange::Last365Days => out.push(since(365)),
-                    TimeRange::ThisYear => out.push(format!("year({at}) = year(current_date)")),
-                    // Whole days: the last one up to its end, for a timestamp too.
-                    TimeRange::Custom => {
-                        if let Some(first) = ends.0 {
-                            let day = bound.bind(Value::Text(first.format("%Y-%m-%d").to_string()));
-                            out.push(format!("{at} >= CAST({day} AS DATE)"));
-                        }
-                        if let Some(last) = ends.1 {
-                            let day = bound.bind(Value::Text(last.format("%Y-%m-%d").to_string()));
-                            out.push(format!("{at} < CAST({day} AS DATE) + INTERVAL 1 DAY"));
-                        }
-                    }
-                }
+                out.extend(within_range(&at, time.range, ends, bound));
             }
             Ok(out)
         };
@@ -761,6 +860,11 @@ impl Api {
             && spec.pivots.is_empty()
             && spec.metrics.is_empty()
         {
+            if !spec.metric_filters.is_empty() {
+                return Err(ApiError::invalid(
+                    "a filter on a metric keeps groups: the chart groups nothing",
+                ));
+            }
             // Every column as the chart reads it: converted where the owner chose.
             let shown = if types.is_empty() {
                 "*".to_string()
@@ -809,6 +913,28 @@ impl Api {
         } else {
             &spec.metrics
         };
+        // Groups kept by a metric's total (HAVING), read from `from`.
+        let having = |from: &str, bound: &mut Bound| -> Result<String, ApiError> {
+            let mut out = Vec::new();
+            for each in &spec.metric_filters {
+                let m = metrics
+                    .get(each.metric as usize)
+                    .ok_or_else(|| ApiError::invalid("the chart filters by a metric it has not"))?;
+                let total = metric(&columns, m, from)?;
+                for (end, compare) in [(&each.min, ">="), (&each.max, "<=")] {
+                    let Some(text) = end else { continue };
+                    let value = bound.bind(Value::Float64(number_of(text)?));
+                    out.push(format!("{total} {compare} {value}"));
+                }
+            }
+            Ok(if out.is_empty() {
+                String::new()
+            } else {
+                format!("\nHAVING {}", out.join(" AND "))
+            })
+        };
+        let having_plain = having("", &mut bound)?;
+        let having_ranked = having("t.", &mut bound)?;
         // What each group is keyed by: the time at its grain, then the
         // dimensions; then the pivots within it.
         let mut keyed: Vec<ChartLevel> = spec
@@ -911,6 +1037,7 @@ impl Api {
             if !group_by.is_empty() {
                 sql.push_str(&format!("\nGROUP BY {}", group_by.join(", ")));
             }
+            sql.push_str(&having_plain);
             if !order.is_empty() {
                 sql.push_str(&format!("\nORDER BY {}", order.join(", ")));
             }
@@ -981,7 +1108,7 @@ impl Api {
             let inner = conditions("t.", &mut bound)?;
             // Every cell of the groups picked: they are as many as were chosen.
             let sql = format!(
-                "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}\nORDER BY {}",
+                "WITH top AS (\n{}\n)\nSELECT {}\nFROM {table_name} AS t\nJOIN top ON {}{}\nGROUP BY {}{having_ranked}\nORDER BY {}",
                 indent(&picked, "  "),
                 keys("t.").into_iter().chain(totals("t.")?).collect::<Vec<_>>().join(",\n       "),
                 joined.join("\n  AND "),
@@ -1046,7 +1173,15 @@ impl Api {
         // no rows keep their place, within the period a filter keeps, or the
         // custom range, or from the first period found to the last (unless
         // that is more periods than can be shown).
-        if let (Some(time), 0, false, None, None) = (&spec.time, nd, truncated, sort, chosen) {
+        // (Not when groups are kept by a metric: an empty period is not one.)
+        if let (Some(time), 0, false, None, None, true) = (
+            &spec.time,
+            nd,
+            truncated,
+            sort,
+            chosen,
+            spec.metric_filters.is_empty(),
+        ) {
             let within = spec.filters.iter().find_map(|f| {
                 f.period
                     .as_ref()

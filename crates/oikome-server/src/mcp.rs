@@ -640,14 +640,34 @@ fn chart_spec_schema() -> Value {
             "filters": {
                 "type": "array",
                 "maxItems": 12,
-                "description": "Which rows count, one kind each: values to keep (as text), a range of a number (min, max), or one period of a column of time (period).",
+                "description": "Which rows count, one kind each: values to keep (as text), or with exclude the values to leave out; a range of a number (min, max); text that matches (text); the empty values or the others (empty); days of a column of time (dates); or one period of a column of time (period).",
                 "items": {
                     "type": "object",
                     "properties": {
                         "column": { "type": "string" },
                         "values": { "type": "array", "items": { "type": "string" }, "maxItems": 500 },
+                        "exclude": { "type": "boolean", "description": "With values: keep the rows whose value is none of them (empty ones too)." },
                         "min": { "type": "string" },
                         "max": { "type": "string" },
+                        "text": {
+                            "type": "object",
+                            "description": "Text that matches, whatever its case; a text column only.",
+                            "properties": { "match": { "enum": ["contains", "notContains", "startsWith", "endsWith"] }, "value": { "type": "string" } },
+                            "required": ["match", "value"],
+                            "additionalProperties": false
+                        },
+                        "empty": { "type": "boolean", "description": "true for the empty values (and empty text), false for the others." },
+                        "dates": {
+                            "type": "object",
+                            "description": "Days of a column of time, as the time's range has them; from and to only with custom.",
+                            "properties": {
+                                "range": { "enum": ["all", "last7Days", "last30Days", "last90Days", "last365Days", "thisYear", "custom"] },
+                                "from": { "type": "string" },
+                                "to": { "type": "string" }
+                            },
+                            "required": ["range"],
+                            "additionalProperties": false
+                        },
                         "period": {
                             "type": "object",
                             "description": "A period as the answer writes it at its grain: 2026, 2026Q3, 2026-08, 2026-W32 (an ISO week), 2026-08-05, 2026-08-05 22, 2026-08-05 22:04, 2026-08-05 22:05:30.",
@@ -657,6 +677,17 @@ fn chart_spec_schema() -> Value {
                         }
                     },
                     "required": ["column"],
+                    "additionalProperties": false
+                }
+            },
+            "metricFilters": {
+                "type": "array",
+                "maxItems": 12,
+                "description": "Groups kept by a metric's total, after grouping (SQL's HAVING): the metric by its place in metrics, and a range with either end open.",
+                "items": {
+                    "type": "object",
+                    "properties": { "metric": { "type": "integer", "minimum": 0 }, "min": { "type": "string" }, "max": { "type": "string" } },
+                    "required": ["metric"],
                     "additionalProperties": false
                 }
             },

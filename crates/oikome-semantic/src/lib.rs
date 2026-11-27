@@ -39,5 +39,5 @@ pub use rewrite::{
 pub use search::{bind_search_tables, search_tables, uses_match, SEARCH_FUNCTIONS};
 pub use sql_parser::{
     parse, parse_single, split_statements, DescribeRequest, OikomeStatement, PublishRequest,
-    VirtualTableRequest, VIRTUAL_TABLE_MODULES,
+    ShowFilesRequest, VirtualTableRequest, VIRTUAL_TABLE_MODULES,
 };

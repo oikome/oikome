@@ -595,6 +595,17 @@ fn prompt_command(line: &str) -> Option<Result<String, String>> {
     if line.starts_with(".tables") {
         return Some(Err("usage: .tables".into()));
     }
+    if let Some(rest) = line.strip_prefix(".files") {
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return None;
+        }
+        let folder = rest.trim();
+        return Some(Ok(if folder.is_empty() {
+            "SHOW FILES".into()
+        } else {
+            format!("SHOW FILES IN '{}'", folder.replace('\'', "''"))
+        }));
+    }
     if let Some(rest) = line.strip_prefix(".schema") {
         if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
             return None;
@@ -617,7 +628,7 @@ async fn prompt(session: &OikomeSession, raw: bool) -> Result<(), BoxError> {
     use rustyline::error::ReadlineError;
     let mut editor = rustyline::DefaultEditor::new()?;
     println!(
-        "Oikome SQL, as the owner of this node. End a statement with ; to run it; .tables lists tables, .schema <table> describes one, and .quit leaves."
+        "Oikome SQL, as the owner of this node. End a statement with ; to run it; .tables lists tables, .files [folder] lists files, .schema <table> describes one, and .quit leaves."
     );
     let mut typed = String::new();
     loop {
@@ -1363,6 +1374,15 @@ mod tests {
         assert_eq!(
             prompt_command(".schema blog.posts"),
             Some(Ok("DESCRIBE blog.posts".to_string()))
+        );
+        assert_eq!(prompt_command(".files"), Some(Ok("SHOW FILES".to_string())));
+        assert_eq!(
+            prompt_command(".files docs/a b"),
+            Some(Ok("SHOW FILES IN 'docs/a b'".to_string()))
+        );
+        assert_eq!(
+            prompt_command(".files owner's"),
+            Some(Ok("SHOW FILES IN 'owner''s'".to_string()))
         );
         assert!(prompt_command(".tables here").unwrap().is_err());
         assert!(prompt_command(".schema").unwrap().is_err());

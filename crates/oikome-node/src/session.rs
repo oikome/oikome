@@ -140,6 +140,7 @@ impl OikomeSession {
             OikomeStatement::ShowIdentity => self.show_identity(),
             OikomeStatement::ShowCollections => self.show_collections(),
             OikomeStatement::ShowTables(space) => self.show_tables(space.as_deref()).await,
+            OikomeStatement::ShowFiles(request) => self.show_files(&request).await,
             OikomeStatement::Describe(request) => Box::pin(self.describe_result(&request)).await,
             OikomeStatement::IssueUcan(request) => {
                 self.deny_principal("ISSUE UCAN")?;
@@ -327,6 +328,7 @@ impl OikomeSession {
             OikomeStatement::ShowTables(space) => {
                 result_stream(self.show_tables(space.as_deref()).await?)
             }
+            OikomeStatement::ShowFiles(request) => result_stream(self.show_files(&request).await?),
             OikomeStatement::Describe(request) => {
                 result_stream(Box::pin(self.describe_result(&request)).await?)
             }

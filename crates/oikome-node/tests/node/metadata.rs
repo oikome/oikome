@@ -258,6 +258,118 @@ async fn metadata_distinguishes_managed_external_and_their_formats() {
 }
 
 #[tokio::test]
+async fn show_files_lists_one_folder_with_formats_limits_and_file_table_grants() {
+    let n = Node::new();
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("docs");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("items.csv"), "id,title\n1,hello\n").unwrap();
+    std::fs::write(source.join("notes.md"), "# Notes\n").unwrap();
+    std::fs::write(source.join("blob.xyz"), b"unknown").unwrap();
+    std::fs::create_dir(source.join("spending")).unwrap();
+    std::fs::write(
+        source.join("spending/2025-01.csv"),
+        "day,amount\n2025-01-01,2\n",
+    )
+    .unwrap();
+    n.owner
+        .sql(&format!(
+            "CREATE SPACE docs WITH PLACE = 'local', PATH = '{}'",
+            source.display()
+        ))
+        .await
+        .unwrap();
+    n.owner.sql("REFRESH SPACE docs").await.unwrap();
+    n.owner.sql("CREATE SPACE blog").await.unwrap();
+    n.owner
+        .sql("GRANT SELECT ON docs.files TO alice")
+        .await
+        .unwrap();
+    n.owner
+        .sql("GRANT SELECT ON docs.items TO bob")
+        .await
+        .unwrap();
+
+    assert!(n.owner.sql("SHOW FILES").await.is_err());
+    let listed = n.owner.sql("SHOW FILES FROM docs").await.unwrap();
+    assert_eq!(
+        listed
+            .schema()
+            .unwrap()
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .collect::<Vec<_>>(),
+        ["name", "kind", "format", "size", "modified"]
+    );
+    assert_eq!(
+        listed.schema().unwrap().field(4).data_type(),
+        &arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Millisecond, None,)
+    );
+    assert_eq!(
+        strings(&listed, 0),
+        ["spending", "blob.xyz", "items.csv", "notes.md"]
+    );
+    assert_eq!(strings(&listed, 1), ["folder", "file", "table", "file"]);
+    assert_eq!(strings(&listed, 2), ["xyz", "csv", "md"]);
+    assert!(listed.batches()[0].column(2).is_null(0));
+
+    let limited = n.owner.sql("SHOW FILES FROM docs LIMIT 2").await.unwrap();
+    assert_eq!(limited.num_rows(), 2);
+    assert_eq!(strings(&limited, 0), ["spending", "blob.xyz"]);
+    let inside = n
+        .owner
+        .sql("SHOW FILES FROM docs IN 'spending'")
+        .await
+        .unwrap();
+    assert_eq!(strings(&inside, 0), ["2025-01.csv"]);
+    assert_eq!(strings(&inside, 1), ["table"]);
+    assert_eq!(strings(&inside, 2), ["csv"]);
+    assert!(n.owner.sql("SHOW FILES FROM blog").await.is_err());
+    assert!(n
+        .owner
+        .sql("SHOW FILES FROM docs LIMIT 10001")
+        .await
+        .is_err());
+    assert!(n.owner.sql("SHOW FILES FROM docs IN '../'").await.is_err());
+
+    let alice = n.principal("alice");
+    assert_eq!(
+        strings(&alice.sql("SHOW FILES FROM docs").await.unwrap(), 0),
+        ["spending", "blob.xyz", "items.csv", "notes.md"]
+    );
+    assert!(n
+        .principal("bob")
+        .sql("SHOW FILES FROM docs")
+        .await
+        .is_err());
+    n.owner
+        .sql("GRANT SELECT (name) ON docs.files TO partial")
+        .await
+        .unwrap();
+    assert!(n
+        .principal("partial")
+        .sql("SHOW FILES FROM docs")
+        .await
+        .is_err());
+    n.owner
+        .sql("GRANT SELECT ON docs.files TO filtered")
+        .await
+        .unwrap();
+    n.owner
+        .sql("CREATE POLICY only_items ON docs.files TO filtered USING (name = 'items.csv')")
+        .await
+        .unwrap();
+    assert!(n
+        .principal("filtered")
+        .sql("SHOW FILES FROM docs")
+        .await
+        .is_err());
+    alice.sql("SET SPACE docs").await.unwrap();
+    assert_eq!(alice.sql("SHOW FILES").await.unwrap().num_rows(), 4);
+}
+
+#[tokio::test]
 async fn metadata_statements_name_spaces_for_peer_authorization() {
     assert!(matches!(
         oikome_node::query_spaces("SHOW COLLECTIONS"),
@@ -277,8 +389,16 @@ async fn metadata_statements_name_spaces_for_peer_authorization() {
             .collect::<Vec<_>>(),
         ["blog"]
     );
+    assert_eq!(
+        oikome_node::query_spaces("SHOW FILES FROM blog")
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["blog"]
+    );
     assert!(oikome_node::query_spaces("DESCRIBE posts").is_err());
     assert!(oikome_node::query_spaces("SHOW TABLES").is_err());
+    assert!(oikome_node::query_spaces("SHOW FILES").is_err());
     assert!(matches!(
         oikome_node::query_spaces("SHOW IDENTITY"),
         Err(SessionError::PermissionDenied(_))

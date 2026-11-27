@@ -36,6 +36,7 @@
 //! SHOW WEBRTC
 //! SHOW COLLECTIONS
 //! SHOW TABLES [FROM <name>]
+//! SHOW FILES [FROM <name>] [IN '<folder>'] [LIMIT <n>]
 //! DESCRIBE [DETAIL] [<space>.]<table> (also DESC)
 //! SET SPACE [=] <name> (also USE <name>)
 //! PUBLISH SPACE <name> [TABLES (<table>, ...)] [TO <target space>]
@@ -90,6 +91,8 @@ pub enum OikomeStatement {
     ShowCollections,
     /// `SHOW TABLES [FROM <collection>]`: relations the caller may read.
     ShowTables(Option<String>),
+    /// `SHOW FILES [FROM <collection>] [IN '<folder>'] [LIMIT <n>]`.
+    ShowFiles(ShowFilesRequest),
     /// `DESCRIBE [DETAIL] [<collection>.]<table>`.
     Describe(DescribeRequest),
     /// `ISSUE UCAN ...`: grant a peer a capability on Spaces of this node.
@@ -130,6 +133,17 @@ pub struct DescribeRequest {
     pub table: String,
     /// Whether to include where and how the table is read.
     pub detail: bool,
+}
+
+/// What `SHOW FILES` asks for; a missing Space uses the session's default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShowFilesRequest {
+    /// Collection whose file index is listed.
+    pub space: Option<String>,
+    /// One folder within it, `/`-separated; the root when absent.
+    pub folder: Option<String>,
+    /// Maximum directory entries; the node applies its default and maximum.
+    pub limit: Option<u32>,
 }
 
 /// What `PUBLISH SPACE` asks for.
@@ -238,6 +252,7 @@ fn parse_one(stmt: &str) -> Result<OikomeStatement, SemanticError> {
             Ok(OikomeStatement::ShowCollections)
         }
         (Some("SHOW"), Some("TABLES")) => parse_show_tables(stmt),
+        (Some("SHOW"), Some("FILES")) => parse_show_files(stmt),
         (Some("DESCRIBE" | "DESC"), _) => parse_describe(stmt),
         (Some("SHOW"), Some(second @ ("IDENTITY" | "UCANS" | "PEERS" | "WEBRTC"))) => {
             if words.len() > 2 {
@@ -319,6 +334,60 @@ fn parse_show_tables(stmt: &str) -> Result<OikomeStatement, SemanticError> {
         }
     };
     Ok(OikomeStatement::ShowTables(space))
+}
+
+fn parse_show_files(stmt: &str) -> Result<OikomeStatement, SemanticError> {
+    let usage = || {
+        SemanticError::Parse(
+            "SHOW FILES: expected SHOW FILES [FROM <space>] [IN '<folder>'] [LIMIT <n>]".into(),
+        )
+    };
+    let tokens = Tokenizer::new(&GenericDialect {}, stmt)
+        .tokenize()
+        .map_err(|e| SemanticError::Parse(e.to_string()))?;
+    let tokens: Vec<&Token> = tokens
+        .iter()
+        .filter(|t| !matches!(t, Token::Whitespace(_)))
+        .collect();
+    let keyword = |index: usize, expected: &str| matches!(tokens.get(index), Some(Token::Word(w)) if w.quote_style.is_none() && w.value.eq_ignore_ascii_case(expected));
+    if !keyword(0, "SHOW") || !keyword(1, "FILES") {
+        return Err(usage());
+    }
+    let mut request = ShowFilesRequest {
+        space: None,
+        folder: None,
+        limit: None,
+    };
+    let mut index = 2;
+    if keyword(index, "FROM") {
+        let Some(Token::Word(space)) = tokens.get(index + 1) else {
+            return Err(usage());
+        };
+        request.space = Some(validate_name(&space.value)?);
+        index += 2;
+    }
+    if keyword(index, "IN") {
+        let Some(Token::SingleQuotedString(folder)) = tokens.get(index + 1) else {
+            return Err(usage());
+        };
+        request.folder = Some(folder.clone());
+        index += 2;
+    }
+    if keyword(index, "LIMIT") {
+        let Some(Token::Number(limit, _)) = tokens.get(index + 1) else {
+            return Err(usage());
+        };
+        let limit = limit.parse::<u32>().map_err(|_| usage())?;
+        if limit == 0 {
+            return Err(usage());
+        }
+        request.limit = Some(limit);
+        index += 2;
+    }
+    if index != tokens.len() {
+        return Err(usage());
+    }
+    Ok(OikomeStatement::ShowFiles(request))
 }
 
 fn parse_describe(stmt: &str) -> Result<OikomeStatement, SemanticError> {
@@ -936,6 +1005,39 @@ mod tests {
                 detail: true,
             })
         );
+        assert_eq!(
+            parse_single("SHOW FILES FROM household IN 'spending' LIMIT 20").unwrap(),
+            OikomeStatement::ShowFiles(ShowFilesRequest {
+                space: Some("household".into()),
+                folder: Some("spending".into()),
+                limit: Some(20),
+            })
+        );
+        assert_eq!(
+            parse_single("SHOW FILES").unwrap(),
+            OikomeStatement::ShowFiles(ShowFilesRequest {
+                space: None,
+                folder: None,
+                limit: None,
+            })
+        );
+        assert_eq!(
+            parse_single("SHOW FILES IN 'docs/a b'").unwrap(),
+            OikomeStatement::ShowFiles(ShowFilesRequest {
+                space: None,
+                folder: Some("docs/a b".into()),
+                limit: None,
+            })
+        );
+        for bad in [
+            "SHOW FILES FROM",
+            "SHOW FILES IN spending",
+            "SHOW FILES LIMIT no",
+            "SHOW FILES LIMIT 0",
+            "SHOW FILES LIMIT 1 other",
+        ] {
+            assert!(parse_single(bad).is_err(), "{bad}");
+        }
         assert_eq!(
             parse_single("DESC blog.posts").unwrap(),
             OikomeStatement::Describe(DescribeRequest {

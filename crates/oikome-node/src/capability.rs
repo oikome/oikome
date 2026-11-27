@@ -76,6 +76,12 @@ pub fn query_spaces(sql: &str) -> Result<BTreeSet<String>, SessionError> {
             )),
         },
         OikomeStatement::ShowTables(Some(space)) => Ok(BTreeSet::from([space])),
+        OikomeStatement::ShowFiles(request) => request
+            .space
+            .map(|space| BTreeSet::from([space]))
+            .ok_or_else(|| {
+                SessionError::PermissionDenied("peers must qualify the files listed".to_string())
+            }),
         OikomeStatement::Describe(request) => request
             .space
             .map(|space| BTreeSet::from([space]))

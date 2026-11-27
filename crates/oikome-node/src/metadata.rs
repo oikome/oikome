@@ -19,17 +19,22 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, BooleanArray, Int64Array, RecordBatch, StringArray};
+use arrow_array::{
+    ArrayRef, BooleanArray, Int64Array, RecordBatch, StringArray, TimestampMillisecondArray,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use oikome_catalog::{Location, LocationFormat};
 use oikome_core::CatalogError;
 use oikome_engine::TableSource;
-use oikome_semantic::DescribeRequest;
+use oikome_semantic::{DescribeRequest, ShowFilesRequest};
 use serde::Deserialize;
 
 use crate::error::SessionError;
 use crate::result::QueryResult;
 use crate::session::OikomeSession;
+
+const DEFAULT_FILE_LIMIT: usize = 1000;
+const MAX_FILE_LIMIT: usize = 10_000;
 
 /// A collection the session may read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +165,14 @@ impl AnalysisType {
     }
 }
 
+struct DirectoryEntry {
+    name: String,
+    kind: String,
+    format: Option<String>,
+    size: u64,
+    modified_ms: Option<i64>,
+}
+
 struct RelationContext {
     location: Location,
     analysis: AnalysisFile,
@@ -244,6 +257,130 @@ impl OikomeSession {
                 Arc::new(StringArray::from(relations)),
                 strings(facts.iter().map(|fact| Some(fact.0.clone()))),
                 strings(facts.iter().map(|fact| fact.1.clone())),
+            ],
+        )
+    }
+
+    /// `SHOW FILES`: one folder of a file collection, folders first.
+    pub async fn show_files(
+        &self,
+        request: &ShowFilesRequest,
+    ) -> Result<QueryResult, SessionError> {
+        let space = self.metadata_space(request.space.as_deref())?;
+        let relations = self.readable_relations(&space).await?;
+        if !relations.iter().any(|name| name == crate::inplace::FILES) {
+            return Err(SessionError::Unsupported(format!(
+                "space '{space}' has no file index"
+            )));
+        }
+        if let Some(principal) = self.principal() {
+            let access =
+                crate::principal_access(&self.catalog, principal, &space, crate::inplace::FILES)
+                    .ok_or_else(|| CatalogError::TableNotFound(format!("{space}.files")))?;
+            if access.columns.is_some()
+                || self
+                    .catalog
+                    .policies_on(&space, crate::inplace::FILES)
+                    .into_iter()
+                    .any(|policy| policy.principals.iter().any(|p| p == principal))
+            {
+                return Err(SessionError::PermissionDenied(
+                    "SHOW FILES needs an unrestricted files table".to_string(),
+                ));
+            }
+        }
+        let folder = request
+            .folder
+            .as_deref()
+            .unwrap_or_default()
+            .trim_matches('/')
+            .to_string();
+        if request
+            .folder
+            .as_deref()
+            .is_some_and(|f| f.starts_with('/'))
+            || folder.chars().any(char::is_control)
+            || folder.split('/').any(|part| matches!(part, "." | ".."))
+        {
+            return Err(CatalogError::InvalidProperty(
+                "a files folder must be a relative path within the collection".into(),
+            )
+            .into());
+        }
+        let limit = request
+            .limit
+            .map(|limit| limit as usize)
+            .unwrap_or(DEFAULT_FILE_LIMIT);
+        if limit == 0 || limit > MAX_FILE_LIMIT {
+            return Err(CatalogError::InvalidProperty(format!(
+                "SHOW FILES LIMIT may be 1 to {MAX_FILE_LIMIT}"
+            ))
+            .into());
+        }
+        let def = self.catalog.get_space(&space)?;
+        let location = self.catalog.get_location(&def.location)?;
+        let listing = crate::inplace::list(
+            &self.catalog,
+            &location,
+            &folder,
+            (crate::inplace::FileOrder::Name, false),
+            0,
+            limit as u64,
+        )?;
+        let mut entries = Vec::with_capacity(listing.folders.len() + listing.files.len());
+        entries.extend(listing.folders.into_iter().map(|folder| DirectoryEntry {
+            name: folder.name,
+            kind: "folder".into(),
+            format: None,
+            size: folder.size,
+            modified_ms: folder.modified_ms,
+        }));
+        entries.extend(listing.files.into_iter().map(|file| {
+            let table = matches!(
+                file.kind.as_str(),
+                crate::inplace::TABLE | crate::inplace::DATASET
+            );
+            DirectoryEntry {
+                name: file.name,
+                kind: if table { "table".into() } else { "file".into() },
+                format: if file.kind == crate::inplace::DATASET {
+                    file.text.clone()
+                } else {
+                    file_format(&file.path)
+                },
+                size: file.size,
+                modified_ms: Some(file.modified_ms),
+            }
+        }));
+        entries.truncate(limit);
+        batch(
+            vec![
+                Field::new("name", DataType::Utf8, false),
+                Field::new("kind", DataType::Utf8, false),
+                Field::new("format", DataType::Utf8, true),
+                Field::new("size", DataType::Int64, false),
+                Field::new(
+                    "modified",
+                    DataType::Timestamp(arrow_schema::TimeUnit::Millisecond, None),
+                    true,
+                ),
+            ],
+            vec![
+                strings(entries.iter().map(|entry| Some(entry.name.clone()))),
+                strings(entries.iter().map(|entry| Some(entry.kind.clone()))),
+                strings(entries.iter().map(|entry| entry.format.clone())),
+                Arc::new(Int64Array::from(
+                    entries
+                        .iter()
+                        .map(|entry| as_i64(entry.size))
+                        .collect::<Vec<_>>(),
+                )),
+                Arc::new(TimestampMillisecondArray::from(
+                    entries
+                        .iter()
+                        .map(|entry| entry.modified_ms)
+                        .collect::<Vec<_>>(),
+                )),
             ],
         )
     }
@@ -491,6 +628,14 @@ fn analysis_schema(analysis: Option<&AnalysisTable>) -> Option<SchemaRef> {
             .map(|(name, kind)| Field::new(name, kind.parse().unwrap_or(DataType::Utf8), true))
             .collect::<Vec<_>>(),
     )))
+}
+
+fn file_format(path: &str) -> Option<String> {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| extension.to_ascii_lowercase())
 }
 
 fn source_format(source: &TableSource) -> Option<String> {
